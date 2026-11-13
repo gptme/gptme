@@ -373,8 +373,8 @@ def run(workspace: Path | None = None) -> None:
         from ..lessons.index import LessonIndex
         from ..lessons.matcher import LessonMatcher, MatchContext
 
-        index = LessonIndex(lesson_dirs=lesson_dirs)
-        candidates = [*(index.lessons if lesson_dirs else []), *memory_candidates]
+        index = LessonIndex(lesson_dirs=lesson_dirs) if lesson_dirs else None
+        candidates = [*(index.lessons if index is not None else []), *memory_candidates]
         matcher = LessonMatcher()
         ctx = MatchContext(message=match_text)
         results = matcher.match(candidates, ctx)
@@ -398,7 +398,7 @@ def run(workspace: Path | None = None) -> None:
     # Take top N
     new_results = new_results[:max_lessons]
     for result in new_results:
-        if result.lesson.is_stub:
+        if result.lesson.is_stub and index is not None:
             result.lesson = index.materialize_lesson(result.lesson)
 
     # Build context text
@@ -555,7 +555,9 @@ def _memory_candidates(workspace: Path | None) -> list:
         from ..memory import MemoryStore
         from ..memory.match import memory_lessons
 
-        return memory_lessons(MemoryStore.from_workspace(workspace or Path.cwd()))
+        # None lets the shared resolver find the Git root even when the hook
+        # runs from a subdirectory of a repository without gptme.toml.
+        return memory_lessons(MemoryStore.from_workspace(workspace))
     except Exception as e:
         logger.debug("Skipping memory lessons: %s", e)
         return []
@@ -665,7 +667,9 @@ def _extract_pretooluse_text(hook_input: dict) -> str:
 
     tool_input = hook_input.get("tool_input", {})
     if isinstance(tool_input, dict):
-        parts.extend(v for v in tool_input.values() if isinstance(v, str))
+        from .cmd_memory import _string_values
+
+        parts.extend(_string_values(tool_input))
 
     # Recent transcript (assistant + tool output) for context-aware matching
     transcript = hook_input.get("transcript", [])

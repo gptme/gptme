@@ -635,6 +635,18 @@ def test_run_injects_keyworded_memory_on_pending_tool_call(
     assert "ambient" not in out["additionalContext"]
 
 
+def test_run_memory_in_nested_tool_arguments(
+    runner: CliRunner, memory_workspace: Path
+) -> None:
+    event = _make_event(
+        event_type="PreToolUse",
+        tool_name="SendMessage",
+        tool_input={"args": [{"text": "add --no-session-persistence"}, None, 3]},
+    )
+    out = _run_hook(runner, memory_workspace, event)
+    assert "Never disable session persistence" in out.get("additionalContext", "")
+
+
 def test_run_injects_keyworded_memory_on_prompt_once_per_session(
     runner: CliRunner, memory_workspace: Path
 ) -> None:
@@ -643,6 +655,54 @@ def test_run_injects_keyworded_memory_on_prompt_once_per_session(
     assert "Never disable session persistence" in first["additionalContext"]
     # Same session: already delivered, so the hook stays silent.
     assert "additionalContext" not in _run_hook(runner, memory_workspace, event)
+
+
+def test_run_memory_from_git_root_without_gptme_config(
+    runner: CliRunner, memory_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Global hooks find the same project memories as memory save/match."""
+    import subprocess
+
+    (memory_workspace / "gptme.toml").unlink()
+    subprocess.run(
+        ["git", "init", str(memory_workspace)], check=True, capture_output=True
+    )
+    subdir = memory_workspace / "src"
+    subdir.mkdir()
+    monkeypatch.chdir(subdir)
+    monkeypatch.delenv("GPTME_WORKSPACE", raising=False)
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.setenv("HOME", str(memory_workspace / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(memory_workspace / "config"))
+    result = runner.invoke(
+        main,
+        ["hooks", "run"],
+        input=_make_event(prompt="add no-session-persistence?"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    out = json.loads(result.output)
+    assert "Never disable session persistence" in out.get("additionalContext", "")
+
+
+def test_run_memory_only_does_not_scan_lessons(
+    runner: CliRunner, memory_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No lesson dirs means no default discovery, even when memories match."""
+    (memory_workspace / "gptme.toml").write_text("[lessons]\ndirs = []\n")
+    monkeypatch.setattr(cmd_hooks, "_user_lesson_dirs", lambda: [])
+    scans: list[object] = []
+
+    def unexpected_index(*args: object, **kwargs: object) -> None:
+        scans.append(kwargs)
+        raise AssertionError("Memory-only hooks must not construct a lesson index")
+
+    monkeypatch.setattr("gptme.lessons.index.LessonIndex", unexpected_index)
+    out = _run_hook(
+        runner, memory_workspace, _make_event(prompt="add no-session-persistence?")
+    )
+    assert scans == []
+    assert "Never disable session persistence" in out.get("additionalContext", "")
 
 
 def test_run_memory_opt_out(
