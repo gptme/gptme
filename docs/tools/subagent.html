@@ -1674,6 +1674,19 @@ that may be reused by a later run.</p>
 <dd><p>Return the agent_id of the currently running subagent, or None.</p>
 <p>Thread-mode subagents: set via _create_subagent_thread (thread-local).
 Subprocess-mode subagents: set via GPTME_SUBAGENT_AGENT_ID env var.</p>
+<p>This answers “am I a subagent?”, not “how do I reach my parent?”. Callers
+delivering to the parent must use <code class="docutils literal notranslate"><span class="pre">get_thread_agent_id()</span></code> to pick the
+in-process queue and the subprocess file channel otherwise.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">get_thread_agent_id</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Return the agent_id of the thread-mode subagent running on this thread.</p>
+<p>Only thread-mode subagents (set via _create_subagent_thread) own an
+in-process parent: their updates may use the shared in-memory queues.
+Subprocess-mode identity is deliberately excluded — a child process’s
+queues are private to it and never reach the parent.</p>
 </dd></dl>
 
 <dl class="py function">
