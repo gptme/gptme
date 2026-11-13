@@ -95,6 +95,7 @@ def mcp_list():
             continue
 
         # Test connection
+        client: MCPClient | None = None
         try:
             client = MCPClient(config)
             tools, session = client.connect(server.name)
@@ -109,6 +110,9 @@ def mcp_list():
                 click.echo(f"   Tools: {', '.join(tool_names)}{more}")
         except Exception as e:
             click.echo(f"   Status: ❌ Connection failed: {e}")
+        finally:
+            if client is not None:
+                client.close()
 
         click.echo()
 
@@ -138,6 +142,7 @@ def mcp_test(server_name: str):
     if not _confirm_project_connection(config, server):
         raise click.ClickException("Project server connection was not approved")
 
+    client: MCPClient | None = None
     try:
         client = MCPClient(config)
         tools, session = client.connect(server_name)
@@ -150,6 +155,9 @@ def mcp_test(server_name: str):
     except Exception as e:
         click.echo(f"❌ Connection failed: {e}")
         sys.exit(1)
+    finally:
+        if client is not None:
+            client.close()
 
 
 @mcp.command("info")
@@ -196,12 +204,16 @@ def mcp_info(server_name: str):
                 click.echo("Connection skipped (not approved).")
                 return
             click.echo("Testing connection...")
+            client: MCPClient | None = None
             try:
                 client = MCPClient(config)
                 tools, session = client.connect(server_name)
                 click.echo(f"✅ Connected ({len(tools.tools)} tools available)")
             except Exception as e:
                 click.echo(f"❌ Connection failed: {e}")
+            finally:
+                if client is not None:
+                    client.close()
     else:
         # Not found locally, search registries
         click.echo(f"Server '{server_name}' not configured locally.")
