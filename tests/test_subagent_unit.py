@@ -7619,6 +7619,7 @@ class TestMidTurnSteerInjection:
     def _make_manager(self, logdir):
         m = MagicMock()
         m.logdir = logdir
+        m.current_branch = "main"
         return m
 
     def test_steer_flag_marks_record(self, tmp_path):

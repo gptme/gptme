@@ -1342,12 +1342,16 @@ def assess_staleness(agent: AgentInfo) -> None:
 # ---------------------------------------------------------------------------
 
 
-def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
+def scan_agents(
+    workspace: str | None = None, *, deduplicate: bool = True
+) -> list[AgentInfo]:
     """Scan all processes for known agent runtimes in the given workspace.
 
     Args:
         workspace: Only return agents whose CWD is under this path.
                    If None, return all detected agents.
+        deduplicate: Collapse same-runtime/workspace/mode processes for warnings.
+            Disable for peer discovery, where each process is a separate peer.
     """
     agents: list[AgentInfo] = []
     my_pid = os.getpid()
@@ -1421,6 +1425,9 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
                 timing_uptime,
             )
         agents.append(info)
+
+    if not deduplicate:
+        return sorted(agents, key=lambda a: a.pid)
 
     # Deduplicate: for same runtime+cwd, keep distinct modes; within same mode keep highest PID
     by_runtime_cwd: dict[tuple[str, str], list[AgentInfo]] = {}

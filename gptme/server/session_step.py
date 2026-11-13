@@ -15,7 +15,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -129,6 +129,130 @@ def stop_session_health_monitor() -> None:
 
     # Best-effort cleanup of all ACP sessions on shutdown
     _cleanup_all_acp_sessions()
+
+
+# ---------------------------------------------------------------------------
+# Peer Wake Monitor
+# ---------------------------------------------------------------------------
+
+# Peer messages arrive from other processes through the durable prompt queue.
+# A busy session drains them at STEP_PRE; an idle one needs an explicit wake.
+# Polling is intentionally cheap: most sessions have no queue file at all.
+_PEER_WAKE_INTERVAL = 2.0
+_peer_wake_thread: threading.Thread | None = None
+_peer_wake_stop = threading.Event()
+_peer_wake_lock = threading.Lock()
+_peer_wake_atexit_registered = False
+
+
+def _pending_peer_branches(logdir: Path) -> set[str]:
+    """Target branches of queued peer messages (read-only, best effort).
+
+    Branch discovery only; the authoritative drain is locked inside
+    ``drain_peer_prompts``. A torn read at worst misses a branch until the
+    next poll, never loses a message.
+    """
+    import json
+
+    branches = {"main"}
+    try:
+        text = (logdir / "prompt-queue.jsonl").read_text(encoding="utf-8")
+    except OSError:
+        return branches
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        if record.get("peer_sender") or record.get("peer_message_id"):
+            branch = record.get("branch")
+            if isinstance(branch, str) and branch.strip():
+                branches.add(branch)
+    return branches
+
+
+def _run_peer_wake_check() -> None:
+    """One poll iteration: wake each active conversation that has peer mail."""
+    from ..dirs import get_logs_dir
+    from .session_models import SessionManager
+
+    logs_dir = get_logs_dir()
+    for conversation_id in SessionManager.active_conversation_ids():
+        logdir = logs_dir / conversation_id
+        if not (logdir / "prompt-queue.jsonl").exists():
+            continue
+        try:
+            branches = _pending_peer_branches(logdir)
+        except Exception:
+            logger.exception("Peer queue scan failed for %s", conversation_id)
+            continue
+        for branch in branches:
+            try:
+                SessionManager.request_peer_wake(conversation_id, branch=branch)
+            except Exception:
+                logger.exception(
+                    "Peer wake failed for %s (branch %s)", conversation_id, branch
+                )
+
+
+def start_peer_wake_monitor(interval: float = _PEER_WAKE_INTERVAL) -> None:
+    """Start a background poller that wakes idle sessions for peer messages.
+
+    Iterates only conversations with a live session and reuses the watch-wake
+    step reservation, so it never touches another writer's conversation and
+    leaves messages queued while a session is busy.
+    """
+    global _peer_wake_thread, _peer_wake_atexit_registered
+
+    def _monitor() -> None:
+        while not _peer_wake_stop.wait(interval):
+            try:
+                _run_peer_wake_check()
+            except Exception:
+                logger.exception("Error in peer wake monitor")
+
+    with _peer_wake_lock:
+        if _peer_wake_thread is not None:
+            logger.debug(
+                "Peer wake monitor already running (interval arg %ss ignored)",
+                interval,
+            )
+            return
+        _peer_wake_stop.clear()
+        # Plain threads start with an empty context on 3.11-3.13; copy the
+        # registry/config context like the health monitor does.
+        ctx = contextvars.copy_context()
+        _peer_wake_thread = threading.Thread(
+            target=ctx.run,
+            args=(_monitor,),
+            daemon=True,
+            name="peer-wake-monitor",
+        )
+        _peer_wake_thread.start()
+        if not _peer_wake_atexit_registered:
+            atexit.register(stop_peer_wake_monitor)
+            _peer_wake_atexit_registered = True
+    logger.info("Peer wake monitor started (interval=%ss)", interval)
+
+
+def stop_peer_wake_monitor() -> None:
+    """Stop the peer wake poller."""
+    global _peer_wake_thread
+    with _peer_wake_lock:
+        _peer_wake_stop.set()
+        if _peer_wake_thread is not None:
+            _peer_wake_thread.join(timeout=5)
+            if _peer_wake_thread.is_alive():
+                logger.warning(
+                    "Peer wake monitor thread did not exit within 5s - "
+                    "thread may still be running"
+                )
+            _peer_wake_thread = None
 
 
 def _run_health_check() -> None:
@@ -1882,11 +2006,13 @@ def start_tool_execution(
 
     # Propagate ContextVars from the request context into the execution thread.
     ctx = contextvars.copy_context()
+    worker, release_writer = _pin_writer_worker(session, execute_tool_thread)
     try:
-        thread = threading.Thread(target=ctx.run, args=(execute_tool_thread,))
+        thread = threading.Thread(target=ctx.run, args=(worker,))
         thread.daemon = True
         thread.start()
     except Exception:
+        release_writer()
         if reserved:
             with session.step_lock:
                 if session.step_seq == my_seq:
@@ -1894,6 +2020,27 @@ def start_tool_execution(
                     session.generating_since = None
         raise
     return thread
+
+
+def _pin_writer_worker(
+    session: ConversationSession, target: "Callable[[], None]"
+) -> tuple["Callable[[], None]", "Callable[[], None]"]:
+    """Pin a peer writer before thread dispatch, with an idempotent rollback."""
+    pinned = session.retain_writer_worker()
+
+    def release() -> None:
+        nonlocal pinned
+        if pinned:
+            pinned = False
+            session.release_writer_worker()
+
+    def run() -> None:
+        try:
+            target()
+        finally:
+            release()
+
+    return run, release
 
 
 def _start_step_thread(
@@ -1972,11 +2119,13 @@ def _start_step_thread(
     # Watch-wake must NOT inherit: it is invoked from the completing subagent
     # thread, whose tools/hooks/config would otherwise leak into the parent step.
     ctx = contextvars.copy_context() if inherit_context else contextvars.Context()
+    worker, release_writer = _pin_writer_worker(session, step_thread)
     try:
-        thread = threading.Thread(target=ctx.run, args=(step_thread,))
+        thread = threading.Thread(target=ctx.run, args=(worker,))
         thread.daemon = True
         thread.start()
     except Exception:
+        release_writer()
         # A reserved caller owns this slot; release it if dispatch itself fails.
         # Non-reserved callers reserved above and need the same rollback.
         # Compare-and-clear: only release if no newer step has taken ownership.

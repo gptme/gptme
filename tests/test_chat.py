@@ -777,7 +777,7 @@ def test_external_queued_prompts_are_drained_between_turns(tmp_path):
     logdir.mkdir()
     queue_prompt(logdir, "queued prompt")
 
-    manager = MagicMock()
+    manager = MagicMock(current_branch="main")
     manager.log = MagicMock()
     manager.workspace = tmp_path
     manager.logdir = logdir
@@ -863,7 +863,7 @@ def test_complete_checks_external_queue_before_exiting(tmp_path):
     logdir.mkdir()
     queue_prompt(logdir, "queued follow-up")
 
-    manager = MagicMock()
+    manager = MagicMock(current_branch="main")
     manager.log = MagicMock()
     manager.workspace = tmp_path
     manager.logdir = logdir

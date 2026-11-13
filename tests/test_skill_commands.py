@@ -59,6 +59,7 @@ def skills_root(tmp_path: Path, monkeypatch) -> Iterator[Path]:
 @pytest.fixture
 def manager(tmp_path: Path) -> MagicMock:
     mgr = MagicMock()
+    mgr.current_branch = "main"
     mgr.logdir = tmp_path / "logs" / "conv"
     mgr.logdir.mkdir(parents=True)
     return mgr
@@ -502,3 +503,28 @@ def test_is_skill_command_returns_true_for_registered(skills_root: Path):
     finally:
         unregister_skill_commands()
         clear_cache()
+
+
+def test_skill_invocation_targets_real_named_branch(
+    skills_root: Path, tmp_path: Path
+) -> None:
+    """A skill command must stay on its originating conversation branch."""
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    _write_skill(skills_root, "demo", "A demo skill", DEMO_BODY)
+    register_skill_commands()
+    with LogManager(
+        [Message("user", "/skill:demo branch-argument")],
+        logdir=tmp_path / "named-branch",
+        branch="experiment",
+        lock=False,
+    ) as manager:
+        assert list(handle_cmd("/skill:demo branch-argument", manager)) == []
+        assert drain_prompt_queue(manager.logdir, branch="main") == []
+        messages = drain_prompt_queue(manager.logdir, branch="experiment")
+        assert len(messages) == 1
+        assert "Do the thing with: branch-argument" in messages[0].content
+        assert messages[0].metadata is not None
+        assert messages[0].metadata["branch"] == "experiment"
+        assert messages[0].metadata["skill_invocation_id"]

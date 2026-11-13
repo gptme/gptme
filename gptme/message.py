@@ -298,6 +298,13 @@ class MessageMetadata(TypedDict, total=False):
     # Provenance marker for system messages generated around a compaction checkpoint.
     compaction_artifact: str
     skill_invocation_id: str  # Explicit skill invocation that queued this prompt
+    # Durable queue routing and same-user peer provenance (not authentication).
+    branch: str
+    steer: bool
+    peer_sender: str
+    peer_sender_pid: int
+    peer_message_id: str
+    peer_sender_logdir: str
     # Set when the degeneration guard aborted mid-stream and retried on another provider.
     degeneration: DegenerationData
     # Opaque Gemini thought signatures keyed by tool call_id. Gemini's

@@ -860,22 +860,31 @@ def api_conversation_tool_confirm(conversation_id: str):
                 manager.write()
 
                 resolve_hook_confirmation(tool_id, action, req_json.get("content"))
-                continuation_dispatched = _start_step_thread(
-                    conversation_id,
-                    session,
-                    model,
-                    chat_config.workspace,
-                    branch=current_tool.branch,
-                    reserved=True,
-                    step_seq=skip_step_seq,
-                    max_tokens=current_tool.max_tokens,
-                    temperature=current_tool.temperature,
-                    top_p=current_tool.top_p,
-                )
-            finally:
-                if not continuation_dispatched:
-                    session.generating = False
-                    session.generating_since = None
+            except Exception:
+                session.generating = False
+                session.generating_since = None
+                raise
+
+        # Worker pinning takes step_lock; never dispatch while holding it.
+        try:
+            continuation_dispatched = _start_step_thread(
+                conversation_id,
+                session,
+                model,
+                chat_config.workspace,
+                branch=current_tool.branch,
+                reserved=True,
+                step_seq=skip_step_seq,
+                max_tokens=current_tool.max_tokens,
+                temperature=current_tool.temperature,
+                top_p=current_tool.top_p,
+            )
+        finally:
+            if not continuation_dispatched:
+                with session.step_lock:
+                    if session.step_seq == skip_step_seq:
+                        session.generating = False
+                        session.generating_since = None
 
     elif action == "auto":
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())

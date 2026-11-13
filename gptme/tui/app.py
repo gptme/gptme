@@ -83,7 +83,7 @@ from ..llm.models import ModelMeta, get_default_model
 from ..llm.recovery import RetryNotice, recovery_notifications
 from ..logmanager import LogManager
 from ..message import Message
-from ..prompt_queue import drain_prompt_queue
+from ..prompt_queue import drain_peer_prompts, drain_prompt_queue
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
 from ..tools.base import find_json_end, get_tool_format
@@ -3091,6 +3091,9 @@ class GptmeApp(App):
         self.set_interval(1.0, self._update_work_indicator)
         # watchdog: tools can reset the tty at any point during execution
         self.set_interval(0.5, self._restore_terminal)
+        # Peer producers may live in another process; readiness signals alone
+        # cannot wake an idle TUI. Poll only at a safe turn boundary.
+        self.set_interval(0.5, self._wake_queued_prompts)
         if self._statusline_cmd:
             # durations and other time-based fields change without events
             self.set_interval(STATUSLINE_REFRESH, self._update_status)
@@ -3164,6 +3167,32 @@ class GptmeApp(App):
             # Do not submit/clear the input: it is an unsent draft, including
             # its cursor/selection. _start_generation reserves exactly one worker.
             self._start_generation()
+
+    def _wake_queued_prompts(self) -> None:
+        """Deliver peer input without submitting or disturbing the live draft."""
+        if (
+            self.generating
+            or self._quitting
+            or self._initial_prompts
+            or self.prompt_queue
+            or self._web_restart_pending is not None
+            or self._interrupt_event.is_set()
+            or len(self.screen_stack) > 1
+        ):
+            return
+        config = self._chat_ctx.copy().run(get_config)
+        if config.chat is not None and config.chat.watch_autowake is False:
+            return
+        manager = self.manager
+        messages = drain_peer_prompts(manager.logdir, branch=manager.current_branch)
+        if not messages:
+            return
+        for msg in messages:
+            manager.append(msg)
+            self._show_message(msg)
+        # Never route peer content through commands, attachments, or URL consent
+        # as though the local user had submitted it. Keep provenance intact.
+        self._start_generation()
 
     def _enqueue_prompt(self, prompt: str | Message) -> None:
         """Queue a prompt and, in full-screen mode, show it as a queued widget."""
@@ -4270,7 +4299,9 @@ class GptmeApp(App):
         message. The CLI drains that queue at the top of its chat loop; without
         this, the prompt sits until a CLI session opens the same log.
         """
-        drained = drain_prompt_queue(self.manager.logdir)
+        drained = drain_prompt_queue(
+            self.manager.logdir, branch=self.manager.current_branch
+        )
         if not drained:
             return
         first, *rest = drained

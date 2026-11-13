@@ -107,7 +107,7 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
     # immediately, without waiting for the agentic turn to finish naturally.
     # Regular (non-steer) queued prompts remain on disk for between-turn draining.
     if (manager.logdir / QUEUE_FILENAME).exists():
-        for msg in drain_steer_prompts(manager.logdir):
+        for msg in drain_steer_prompts(manager.logdir, branch=manager.current_branch):
             logger.debug(
                 "Mid-turn steer injection for %s: %r", agent_id, msg.content[:80]
             )

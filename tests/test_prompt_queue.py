@@ -127,7 +127,7 @@ def test_skill_invocation_metadata_survives_partial_drain(tmp_path: Path) -> Non
 
     (steer_message,) = drain_steer_prompts(tmp_path)
     assert steer_message.content == "steering prompt"
-    assert steer_message.metadata is None
+    assert steer_message.metadata == {"steer": True}
     assert not get_prompt_queue_path(tmp_path).exists()
 
 

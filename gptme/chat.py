@@ -838,7 +838,9 @@ def _drain_external_prompt_queue(
     if capacity <= 0:
         return
 
-    drained = drain_prompt_queue(manager.logdir, max_items=capacity)
+    drained = drain_prompt_queue(
+        manager.logdir, max_items=capacity, branch=manager.current_branch
+    )
     if not drained:
         return
 
@@ -1233,7 +1235,11 @@ def _await_owned_subagents(
             return True
         capacity = MAX_PROMPT_QUEUE_SIZE - len(prompt_queue)
         if capacity > 0:
-            prompt_queue.extend(drain_steer_prompts(manager.logdir, max_items=capacity))
+            prompt_queue.extend(
+                drain_steer_prompts(
+                    manager.logdir, max_items=capacity, branch=manager.current_branch
+                )
+            )
         return bool(prompt_queue)
 
     set_interruptible()
