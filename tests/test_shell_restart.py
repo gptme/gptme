@@ -14,10 +14,12 @@ A command timeout must kill the command's processes, not bash itself.
 """
 
 import os
+import shlex
 import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -138,6 +140,44 @@ def test_close_racing_with_eof_does_not_restart_shell(shell):
     assert run_finished.is_set()
     assert shell._closed
     assert shell.process.poll() is not None
+
+
+def test_close_during_restart_is_terminal(
+    shell: ShellSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancellation between recovery cleanup and spawn must prevent revival."""
+    entered, release = threading.Event(), threading.Event()
+    original_init = shell._init
+    errors: list[str] = []
+    marker = tmp_path / "must-not-run"
+
+    def paused_init() -> None:
+        entered.set()
+        assert release.wait(5)
+        original_init()
+
+    def run_commands() -> None:
+        try:
+            shell.run(
+                f"exit 0\nprintf revived > {shlex.quote(str(marker))}", output=False
+            )
+        except RuntimeError as error:
+            errors.append(str(error))
+
+    monkeypatch.setattr(shell, "_init", paused_init)
+    worker = threading.Thread(target=run_commands)
+    worker.start()
+    try:
+        assert entered.wait(5)
+        shell.close()
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert shell._closed
+    assert shell.process.poll() is not None
+    assert not marker.exists()
+    assert errors == ["Shell session is closed"]
 
 
 def test_command_that_kills_shell_is_not_rerun(shell, tmp_path):

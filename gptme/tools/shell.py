@@ -686,6 +686,8 @@ class ShellSession:
         self._restart_notice = None
         self._restarting = False
         self._closed = False
+        # Serialize process replacement with external close, not command execution.
+        self._lifecycle_lock = threading.RLock()
         self._active_output = None
         self._capture_segments = None
         self._output_lock = threading.Lock()
@@ -766,17 +768,20 @@ class ShellSession:
             sandbox
         )  # None if sandbox disabled → inherit os.environ
 
-        self.process = subprocess.Popen(
-            shell_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=0,  # Unbuffered
-            universal_newlines=True,
-            cwd=self._cwd,  # Use explicit workspace dir (thread-safe)
-            env=sandbox_env,  # None → inherit; dict → sanitized env
-            **popen_kwargs,
-        )
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("Shell session is closed")
+            self.process = subprocess.Popen(
+                shell_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,  # Unbuffered
+                universal_newlines=True,
+                cwd=self._cwd,  # Use explicit workspace dir (thread-safe)
+                env=sandbox_env,  # None → inherit; dict → sanitized env
+                **popen_kwargs,
+            )
         _record_shell_pgid(self.process.pid)
         # The running command shares the shell's process group. On low memory
         # the guard kills the whole group, shell included: killing only the
@@ -2400,10 +2405,21 @@ class ShellSession:
         except Exception as e:
             logger.warning(f"Error terminating process: {e}")
 
-    def close(self):
-        if not getattr(self, "_restarting", False):
+    def close(self) -> None:
+        with self._lifecycle_lock:
             self._closed = True
+            self._close_process()
 
+        state_path = getattr(self, "_state_path", None)
+        if state_path:
+            for path in (state_path, state_path + ".tmp"):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    def _close_process(self) -> None:
+        """Clean up the current process without authorizing or cancelling recovery."""
         # Close stdin to signal no more input
         if self.process.stdin:
             self.process.stdin.close()
@@ -2417,20 +2433,15 @@ class ShellSession:
         if self.process.stderr:
             self.process.stderr.close()
 
-        state_path = getattr(self, "_state_path", None)
-        if state_path and not getattr(self, "_restarting", False):
-            for path in (state_path, state_path + ".tmp"):
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-
     def restart(self):
         if getattr(self, "_closed", False):
             return
         self._restarting = True
         try:
-            self.close()
+            with self._lifecycle_lock:
+                if self._closed:
+                    return
+                self._close_process()
             self._init()
         finally:
             self._restarting = False

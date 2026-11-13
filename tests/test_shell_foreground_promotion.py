@@ -844,6 +844,49 @@ def test_promotion_after_shell_recovery_keeps_outer_capture(
     assert job.log_path.read_text() == "FIRST\nLAST\n"
 
 
+def test_kill_promoted_job_during_recovery_prevents_later_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    entered, release = threading.Event(), threading.Event()
+    original_init = shell._init
+    gate, marker = tmp_path / "exit-gate", tmp_path / "must-not-run"
+
+    def paused_init() -> None:
+        entered.set()
+        assert release.wait(5)
+        original_init()
+
+    monkeypatch.setattr(shell, "_init", paused_init)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path / "log"
+    )
+    messages = list(
+        execute_shell_impl(
+            f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done; exit 0\n"
+            f"printf revived > {shlex.quote(str(marker))}",
+            logdir=None,
+            timeout=10,
+        )
+    )
+    assert "Promoted" in messages[-1].content
+    job = list_background_jobs()[0]
+    try:
+        gate.touch()
+        assert entered.wait(5)
+        job.kill()
+    finally:
+        release.set()
+    assert len(_wait_for_completion(10)) == 1
+    assert shell._closed
+    assert shell.process.poll() is not None
+    assert not marker.exists()
+    assert job.process.returncode == -15
+    assert job.is_output_complete()
+
+
 def test_promoted_byte_cap_receipt_is_partial(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
