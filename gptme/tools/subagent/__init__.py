@@ -30,7 +30,7 @@ from .api import (
     subagent_wait_any,
 )
 from .batch import BatchJob, subagent_batch, subagent_parallel, subagent_pipeline
-from .execution import get_current_agent_id
+from .execution import get_current_agent_id, get_thread_agent_id
 from .hooks import (
     _get_complete_instruction,
     _session_end_subagent_cleanup,
@@ -627,6 +627,7 @@ __all__ = [
     "_get_complete_instruction",
     # Execution context
     "get_current_agent_id",
+    "get_thread_agent_id",
     # Module-level state (re-exported for backward compatibility)
     "_subagents",
     "_subagents_lock",

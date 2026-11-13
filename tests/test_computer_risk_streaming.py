@@ -1,7 +1,7 @@
 """Tests for real-time risk-label streaming in computer-use actions (#216).
 
 Validates that _stream_action_risk():
-- Emits the correct action name and risk level via notify_progress()
+- Emits the correct action name and risk level via send_progress_to_parent()
 - Only fires when get_current_agent_id() returns a non-None agent id
 - Is a no-op outside of a subagent context (no agent id)
 - Includes coordinate in the record when provided
@@ -16,6 +16,7 @@ Gate-ordering guarantee (Greptile P1):
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -71,12 +72,11 @@ def test_action_risk_level_unknown_defaults_to_write():
 
 
 def test_no_emit_outside_subagent():
-    """When get_current_agent_id() returns None, notify_progress is never called."""
+    """When get_current_agent_id() returns None, nothing is sent."""
     mock_np = MagicMock()
     subagent_mod = MagicMock()
     subagent_mod.get_current_agent_id.return_value = None  # not inside a subagent
-    subagent_mod.notify_progress = mock_np
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("screenshot")
     mock_np.assert_not_called()
 
@@ -87,9 +87,9 @@ def test_no_emit_outside_subagent():
 
 
 def _parse_progress_call(mock_np) -> dict:
-    """Extract and parse the JSON record from a notify_progress() call."""
+    """Extract and parse the JSON record from a send_progress_to_parent() call."""
     assert mock_np.call_count == 1, f"expected 1 call, got {mock_np.call_count}"
-    _agent_id, message = mock_np.call_args[0]
+    (message,) = mock_np.call_args[0]
     assert message.startswith("action:"), f"unexpected prefix: {message!r}"
     return json.loads(message[len("action:") :])
 
@@ -97,8 +97,17 @@ def _parse_progress_call(mock_np) -> dict:
 def _make_subagent_module(agent_id: str, mock_np: MagicMock) -> MagicMock:
     mod = MagicMock()
     mod.get_current_agent_id.return_value = agent_id
-    mod.notify_progress = mock_np
     return mod
+
+
+@contextmanager
+def _subagent_ctx(subagent_mod: MagicMock, mock_send: MagicMock):
+    """Install a fake subagent module and capture send_progress_to_parent calls."""
+    with (
+        patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}),
+        patch("gptme.tools.progress.send_progress_to_parent", mock_send),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -109,7 +118,7 @@ def agent_id():
 def test_emits_read_action(agent_id):
     mock_np = MagicMock()
     subagent_mod = _make_subagent_module(agent_id, mock_np)
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("screenshot")
     record = _parse_progress_call(mock_np)
     assert record["action"] == "screenshot"
@@ -121,7 +130,7 @@ def test_emits_read_action(agent_id):
 def test_emits_write_action_with_coordinate(agent_id):
     mock_np = MagicMock()
     subagent_mod = _make_subagent_module(agent_id, mock_np)
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("left_click", coordinate=(640, 480))
     record = _parse_progress_call(mock_np)
     assert record["action"] == "left_click"
@@ -135,7 +144,7 @@ def test_emits_sensitive_action_with_text_len_not_text(agent_id):
     mock_np = MagicMock()
     subagent_mod = _make_subagent_module(agent_id, mock_np)
     secret = "mysecretpassword🔒"
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("type", text=secret)
     record = _parse_progress_call(mock_np)
     assert record["action"] == "type"
@@ -150,7 +159,7 @@ def test_emits_sensitive_action_without_text(agent_id):
     """Sensitive action with no text: text_len is absent (not None)."""
     mock_np = MagicMock()
     subagent_mod = _make_subagent_module(agent_id, mock_np)
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("key")
     record = _parse_progress_call(mock_np)
     assert record["action"] == "key"
@@ -158,14 +167,28 @@ def test_emits_sensitive_action_without_text(agent_id):
     assert "text_len" not in record
 
 
-def test_passes_agent_id_to_notify_progress(agent_id):
-    """notify_progress receives the correct agent_id as its first argument."""
-    mock_np = MagicMock()
-    subagent_mod = _make_subagent_module(agent_id, mock_np)
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
-        _stream_action_risk("left_click")
-    called_agent_id, _msg = mock_np.call_args[0]
-    assert called_agent_id == agent_id
+def test_subprocess_child_writes_parent_file_channel(tmp_path, monkeypatch):
+    """Subprocess-mode records reach the parent-polled file, not a local queue (#4910)."""
+    from gptme.tools.subagent import execution
+    from gptme.tools.subagent.types import _progress_queue
+
+    # A subprocess child has no thread-mode ownership on its main thread.
+    monkeypatch.delattr(execution._thread_local, "agent_id", raising=False)
+    while not _progress_queue.empty():
+        _progress_queue.get_nowait()
+    progress_file = tmp_path / "progress.jsonl"
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "computer-child")
+    monkeypatch.setenv("GPTME_PROGRESS_FILE", str(progress_file))
+
+    _stream_action_risk("left_click", coordinate=(1, 2))
+    assert _progress_queue.empty()
+    (entry,) = [json.loads(line) for line in progress_file.read_text().splitlines()]
+    assert entry["agent_id"] == "computer-child"
+    assert json.loads(entry["message"].removeprefix("action:")) == {
+        "action": "left_click",
+        "risk": "write",
+        "coord": [1, 2],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -173,11 +196,11 @@ def test_passes_agent_id_to_notify_progress(agent_id):
 # ---------------------------------------------------------------------------
 
 
-def test_exception_in_notify_progress_is_swallowed(agent_id):
-    """An exception inside notify_progress must never propagate to the caller."""
+def test_exception_in_send_progress_is_swallowed(agent_id):
+    """An exception while sending progress must never propagate to the caller."""
     mock_np = MagicMock(side_effect=RuntimeError("queue full"))
     subagent_mod = _make_subagent_module(agent_id, mock_np)
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("left_click")  # must not raise
 
 
@@ -186,8 +209,7 @@ def test_exception_in_get_current_agent_id_is_swallowed():
     mock_np = MagicMock()
     subagent_mod = MagicMock()
     subagent_mod.get_current_agent_id.side_effect = RuntimeError("thread-local error")
-    subagent_mod.notify_progress = mock_np
-    with patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}):
+    with _subagent_ctx(subagent_mod, mock_np):
         _stream_action_risk("screenshot")  # must not raise
     mock_np.assert_not_called()
 
@@ -210,7 +232,7 @@ def test_gate_blocked_action_does_not_emit_progress_record(agent_id):
     # Simulate a non-interactive session with gate enabled — sensitive actions blocked
     env_override = {"GPTME_COMPUTER_CONFIRM_SENSITIVE": "1"}
     with (
-        patch.dict("sys.modules", {"gptme.tools.subagent": subagent_mod}),
+        _subagent_ctx(subagent_mod, mock_np),
         patch.dict("os.environ", env_override),
         patch("sys.stdin.isatty", return_value=False),
         pytest.raises(PermissionError),
