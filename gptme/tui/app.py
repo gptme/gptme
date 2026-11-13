@@ -2829,8 +2829,11 @@ class GptmeApp(App):
         Binding(
             "ctrl+o", "toggle_details", "Expand/collapse outputs+thinking", show=True
         ),
+        # Ctrl+W belongs to the draft editor (delete word left); a priority app
+        # binding on it hijacks word deletion, and some macOS terminals map
+        # Cmd/Option+Backspace to it. Keep app shortcuts off editor keys.
         Binding(
-            "ctrl+w", "show_work", "Show children/monitors", show=True, priority=True
+            "ctrl+t", "show_work", "Show children/monitors", show=True, priority=True
         ),
     ]
 
@@ -3685,7 +3688,7 @@ class GptmeApp(App):
         armed = sum(w.status == "armed" for w in watches)
         indicator = self.screen_stack[0].query_one("#work-indicator", Static)
         indicator.update(
-            Text(f"Work: {running} running · {armed} armed · {unread} unread · Ctrl+W")
+            Text(f"Work: {running} running · {armed} armed · {unread} unread · Ctrl+T")
         )
         indicator.display = bool(running or armed or unread)
 
@@ -5089,7 +5092,7 @@ class GptmeApp(App):
         return isinstance(self.screen, ModalScreen)
 
     def action_show_work(self) -> None:
-        """Ctrl+W: open the work overview screen (children + monitors)."""
+        """Ctrl+T: open the work overview screen (children + monitors)."""
         if self._is_modal_open():
             return
         manager = self.manager

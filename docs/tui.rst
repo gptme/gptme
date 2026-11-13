@@ -144,7 +144,7 @@ Children and monitors
 
 When children are running, monitors are armed or a child has an unread outcome,
 "Work" appears above the input, independently of any custom status line. Press
-:kbd:`Ctrl+W` for this conversation branch's children and monitors. Use the
+:kbd:`Ctrl+T` for this conversation branch's children and monitors. Use the
 arrow keys to select a child, :kbd:`Enter` to inspect its read-only transcript,
 and :kbd:`Escape` or :kbd:`q` to return. Parent generation and the draft stay in
 place; inspecting a child never takes its writer lock or redirects your input.
@@ -176,7 +176,7 @@ Key                Action
 :kbd:`Ctrl+C`      Interrupt generation, or quit when idle
 :kbd:`Ctrl+D`      Quit
 :kbd:`Ctrl+O`      Expand/collapse all tool outputs and thinking
-:kbd:`Ctrl+W`      Inspect children and monitors for this conversation branch
+:kbd:`Ctrl+T`      Inspect children and monitors for this conversation branch
 =================  ==========================================================
 
 A prompt sent while the agent is working is queued. It joins the running

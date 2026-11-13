@@ -424,22 +424,23 @@ async def test_work_screen_escape_returns_to_parent(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("draft", ["", "keep this draft"])
+@pytest.mark.parametrize("inline", [False, True], ids=["fullscreen", "inline"])
+@pytest.mark.parametrize("draft", ["", "keep this draft", "line one\nline two"])
 async def test_work_shortcut_preserves_focused_input(
-    tmp_path: Path, draft: str
+    tmp_path: Path, draft: str, inline: bool
 ) -> None:
-    """Ctrl+W opens the overview instead of deleting a word from the draft."""
+    """Ctrl+T opens the overview from the focused input without editing the draft."""
     from gptme.tui.app import ChatInput
 
     manager = _make_manager(tmp_path)
-    app = GptmeApp(manager, workspace=tmp_path)
+    app = GptmeApp(manager, workspace=tmp_path, inline=inline)
     async with app.run_test() as pilot:
         parent = app.screen
         inp = app.query_one("#input", ChatInput)
         inp.text = draft
-        inp.move_cursor((0, len(draft)))
+        inp.move_cursor(inp.document.end)
         assert app.focused is inp
-        await pilot.press("ctrl+w")
+        await pilot.press("ctrl+t")
         await pilot.pause()
         assert isinstance(app.screen, WorkOverviewScreen)
         assert inp.text == draft
@@ -449,6 +450,75 @@ async def test_work_shortcut_preserves_focused_input(
         assert app.focused is inp
         assert inp.text == draft
         assert app.manager is manager
+
+
+@pytest.mark.parametrize(
+    ("key", "before", "cursor", "after"),
+    [
+        # Word deletion: Ctrl+W is what (some) macOS terminals send for
+        # Cmd/Option+Backspace, so it must stay an editing key (#4899).
+        ("ctrl+w", "alpha beta gamma", (0, 11), "alpha gamma"),
+        ("ctrl+backspace", "alpha beta gamma", (0, 11), "alpha gamma"),
+        ("alt+backspace", "alpha beta gamma", (0, 11), "alpha gamma"),
+        # Line deletion (Ghostty maps Cmd+Backspace to Ctrl+U by default).
+        ("ctrl+u", "alpha beta gamma", (0, 11), "gamma"),
+        ("super+backspace", "alpha beta gamma", (0, 11), "gamma"),
+        ("ctrl+k", "alpha beta gamma", (0, 11), "alpha beta "),
+        # Plain character deletion.
+        ("backspace", "alpha beta gamma", (0, 11), "alpha betagamma"),
+        ("delete", "alpha beta gamma", (0, 11), "alpha beta amma"),
+        # Multiline drafts: word deletion only touches the cursor's line.
+        ("ctrl+w", "first line\nalpha beta gamma", (1, 11), "first line\nalpha gamma"),
+        ("ctrl+u", "first line\nalpha beta gamma", (1, 11), "first line\ngamma"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_draft_editing_keys_edit_instead_of_opening_work(
+    tmp_path: Path, key: str, before: str, cursor: tuple[int, int], after: str
+) -> None:
+    """Editing keys reach the draft via real key dispatch, never the work pane."""
+    from gptme.tui.app import ChatInput
+
+    app = GptmeApp(_make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        parent = app.screen
+        inp = app.query_one("#input", ChatInput)
+        inp.text = before
+        inp.move_cursor(cursor)
+        assert app.focused is inp
+        await pilot.press(key)
+        await pilot.pause()
+        assert app.screen is parent
+        assert not isinstance(app.screen, WorkOverviewScreen)
+        assert app.focused is inp
+        assert inp.text == after
+
+
+def test_priority_app_bindings_do_not_steal_editor_keys() -> None:
+    """App-level priority bindings must not shadow the draft editor's keys.
+
+    A priority binding fires before the focused ChatInput sees the key, so a
+    collision silently disables that editing command (Ctrl+W, #4899).
+    Ctrl+C is the deliberate exception: interrupt/quit must always win.
+    """
+    from textual.binding import Binding
+
+    from gptme.tui.app import ChatInput
+
+    def keys(bindings) -> set[str]:
+        out: set[str] = set()
+        for b in bindings:
+            key = b.key if isinstance(b, Binding) else b[0]
+            out.update(k.strip() for k in key.split(","))
+        return out
+
+    editor_keys: set[str] = set()
+    for cls in ChatInput.__mro__:
+        editor_keys |= keys(cls.__dict__.get("BINDINGS", []))
+    priority_keys = keys(
+        b for b in GptmeApp.BINDINGS if isinstance(b, Binding) and b.priority
+    )
+    assert priority_keys & editor_keys == {"ctrl+c"}
 
 
 @pytest.mark.asyncio
@@ -575,13 +645,12 @@ async def test_work_overview_unrelated_watches_excluded(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ctrl_w_opens_work_overview(tmp_path):
-    """Ctrl+W binding (or action_show_work) opens WorkOverviewScreen without crashing."""
+async def test_ctrl_t_opens_work_overview(tmp_path):
+    """The Ctrl+T key (dispatched, not the action) opens WorkOverviewScreen."""
     manager = _make_manager(tmp_path)
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
-        # Test by calling the action directly (ctrl+w may be captured by terminal)
-        app.action_show_work()
+        await pilot.press("ctrl+t")
         await pilot.pause()
         assert isinstance(app.screen, WorkOverviewScreen)
         await pilot.press("q")

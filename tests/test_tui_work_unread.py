@@ -59,7 +59,7 @@ async def test_indicator_and_completion_acknowledgement(
         assert indicator.display
         assert "1 running" in str(indicator.render())
         assert "1 armed" in str(indicator.render())
-        assert "Ctrl+W" in str(indicator.render())
+        assert "Ctrl+T" in str(indicator.render())
         # A configured statusline must not hide the independent work indicator.
         app._show_statusline("custom status")
         assert "custom status" in str(app.query_one("#status", Static).render())
