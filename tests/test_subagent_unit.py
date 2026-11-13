@@ -3508,6 +3508,18 @@ class TestPlannerForwardsContextWindow:
         monkeypatch.setattr(exec_mod, "get_slot_sem", lambda: threading.Semaphore(10))
         monkeypatch.setattr(exec_mod, "_monitor_subprocess", lambda sa: None)
 
+        # role="verify" enables isolation, but the mocked monitor cannot clean
+        # up real worktrees. Keep this forwarding test entirely under tmp_path.
+        git_worktree = importlib.import_module("gptme.util.git_worktree")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        isolated_workspace = tmp_path / "isolated"
+        isolated_workspace.mkdir()
+        get_git_root = MagicMock(return_value=workspace)
+        create_worktree = MagicMock(return_value=isolated_workspace)
+        monkeypatch.setattr(git_worktree, "get_git_root", get_git_root)
+        monkeypatch.setattr(git_worktree, "create_worktree", create_worktree)
+
         captured: list[dict] = []
 
         def fake_run_subprocess(**kwargs):
@@ -3523,9 +3535,14 @@ class TestPlannerForwardsContextWindow:
             subtasks=subtasks,
             execution_mode="sequential",
             context_window=0,
+            workdir=workspace,
         )
 
+        get_git_root.assert_called_once_with(workspace)
+        create_worktree.assert_called_once()
+        assert create_worktree.call_args.args == (workspace,)
         assert captured, "_run_subagent_subprocess was never called"
+        assert captured[0]["workspace"] == isolated_workspace
         assert captured[0].get("context_window") == 0, (
             f"Expected context_window=0, got {captured[0].get('context_window')}"
         )
