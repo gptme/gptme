@@ -143,6 +143,36 @@ def test_disk_cache_round_trip(tmp_path, monkeypatch):
     assert [lesson.title for lesson in third.lessons] == ["A2"]
 
 
+@pytest.mark.parametrize("reload_from_disk", [False, True])
+def test_saving_unrelated_lesson_preserves_cached_size(
+    tmp_path, monkeypatch, reload_from_disk
+):
+    """Saving B must not pair A's stale body with A's edited file size."""
+    import os
+
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    a_dir.mkdir()
+    b_dir.mkdir()
+    a = a_dir / "a.md"
+    a.write_text("---\nmatch:\n  keywords: [alpha]\n---\n# Original\n")
+    index_mod.LessonIndex(lesson_dirs=[a_dir])
+    if reload_from_disk:
+        _fresh_cache(index_mod, monkeypatch, tmp_path)
+        index_mod._load_disk_cache()
+    st = a.stat()
+    a.write_text("---\nmatch:\n  keywords: [alpha]\n---\n# Updated longer title\n")
+    os.utime(a, ns=(st.st_atime_ns, st.st_mtime_ns))
+    (b_dir / "b.md").write_text("---\nmatch:\n  keywords: [beta]\n---\n# B\n")
+    index_mod.LessonIndex(lesson_dirs=[b_dir])
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    loaded = index_mod.LessonIndex(lesson_dirs=[a_dir])
+    assert [lesson.title for lesson in loaded.lessons] == ["Updated longer title"]
+
+
 def test_disk_cache_can_be_disabled(tmp_path, monkeypatch):
     from gptme.lessons import index as index_mod
 
@@ -175,7 +205,9 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
 
     from gptme.cli import cmd_hooks
     from gptme.cli.util import main
+    from gptme.lessons import index as index_mod
 
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
     lessons = tmp_path / "shared-lessons"
     lessons.mkdir()
     (lessons / "persist.md").write_text(
@@ -185,7 +217,6 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
     config.mkdir(parents=True)
     (config / "config.toml").write_text(f'[lessons]\ndirs = ["{lessons}"]\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     # Session/throttle state is resolved at import time; isolate it explicitly.
     monkeypatch.setattr(cmd_hooks, "_STATE_DIR", tmp_path / "state")
     workdir = tmp_path / "no-workspace"
@@ -209,6 +240,9 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
     assert "Keep transcripts" in out.get("additionalContext", "")
+    cache_path = tmp_path / "cache" / "gptme" / "lessons-cache.json"
+    assert index_mod._disk_cache_path() == cache_path
+    assert str(lessons / "persist.md") in json.loads(cache_path.read_text())["entries"]
 
 
 def test_pretooluse_matcher_covers_all_tools():

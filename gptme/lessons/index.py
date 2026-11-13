@@ -115,9 +115,8 @@ def _save_disk_cache() -> None:
     for lesson_path, (mtime, lesson) in _LESSON_CACHE.items():
         if not lesson_path.is_absolute():
             continue  # relative keys could collide across workspaces
-        try:
-            size = lesson_path.stat().st_size
-        except OSError:
+        size = _DISK_SIZES.get(lesson_path)
+        if size is None:
             continue
         entries[str(lesson_path)] = [mtime, size, _lesson_to_json(lesson)]
     tmp: Path | None = None
@@ -143,7 +142,8 @@ def _save_disk_cache() -> None:
                 pass
 
 
-# Sizes of entries loaded from disk: a disk entry must match mtime AND size.
+# Sizes associated with cached content, whether parsed locally or loaded from disk.
+# Preserve them on save: a fresh stat could pair stale content with an edited size.
 _DISK_SIZES: dict[Path, int] = {}
 
 
@@ -223,9 +223,9 @@ def _cache_lesson(path: Path, lesson: Lesson) -> None:
     """
     global _disk_cache_dirty
     try:
-        mtime = path.stat().st_mtime
-        _LESSON_CACHE[path] = (mtime, lesson)
-        _DISK_SIZES.pop(path, None)
+        st = path.stat()
+        _LESSON_CACHE[path] = (st.st_mtime, lesson)
+        _DISK_SIZES[path] = st.st_size
         _disk_cache_dirty = True
         logger.debug(f"Cached lesson: {path.name}")
     except FileNotFoundError:
