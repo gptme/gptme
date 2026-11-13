@@ -358,9 +358,7 @@ def test_run_no_matching_lesson_returns_continue(
     )
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
-    # Should return continue=True; additionalContext may or may not be set
-    assert out.get("continue") is True
-    assert "additionalContext" not in out
+    assert out == {"continue": True}
 
 
 def test_run_matching_lesson_returns_context(runner: CliRunner, tmp_path: Path) -> None:
@@ -392,8 +390,8 @@ def test_run_matching_lesson_returns_context(runner: CliRunner, tmp_path: Path) 
     )
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
-    assert "additionalContext" in out
-    assert "Frob Lesson" in out["additionalContext"]
+    assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "Frob Lesson" in out["hookSpecificOutput"]["additionalContext"]
     assert out.get("continue") is True
 
 
@@ -427,7 +425,7 @@ def test_run_archived_lesson_skipped(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
     # Archived lesson should not appear
-    assert "additionalContext" not in out or "Archived Lesson" not in out.get(
+    assert "Archived Lesson" not in out.get("hookSpecificOutput", {}).get(
         "additionalContext", ""
     )
 
@@ -496,8 +494,8 @@ def test_run_missing_session_id_uses_unique_fallback(
         assert result.exit_code == 0, result.output
         out = json.loads(result.output)
         # Each anonymous invocation should see the lesson (no cross-session dedup)
-        assert "additionalContext" in out, "lesson should be injected for anon session"
-        assert "Frob Lesson" in out["additionalContext"]
+        assert "hookSpecificOutput" in out, "lesson should be injected for anon session"
+        assert "Frob Lesson" in out["hookSpecificOutput"]["additionalContext"]
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +617,25 @@ def _run_hook(runner: CliRunner, workspace: Path, event: str) -> dict:
     return json.loads(result.output)
 
 
+@pytest.mark.parametrize("event_type", ["UserPromptSubmit", "PreToolUse"])
+def test_run_context_uses_claude_code_event_envelope(
+    runner: CliRunner, memory_workspace: Path, event_type: str
+) -> None:
+    """Claude Code consumes context from hookSpecificOutput, not the top level."""
+    event = _make_event(
+        event_type=event_type,
+        prompt="should we use no-session-persistence?",
+        tool_name="SendMessage",
+        tool_input={"message": "add --no-session-persistence"},
+    )
+    out = _run_hook(runner, memory_workspace, event)
+    assert out["continue"] is True
+    assert "additionalContext" not in out
+    specific = out["hookSpecificOutput"]
+    assert specific["hookEventName"] == event_type
+    assert "Never disable session persistence" in specific["additionalContext"]
+
+
 def test_run_injects_keyworded_memory_on_pending_tool_call(
     runner: CliRunner, memory_workspace: Path
 ) -> None:
@@ -631,8 +648,9 @@ def test_run_injects_keyworded_memory_on_pending_tool_call(
         },
     )
     out = _run_hook(runner, memory_workspace, event)
-    assert "Never disable session persistence" in out["additionalContext"]
-    assert "ambient" not in out["additionalContext"]
+    context = out["hookSpecificOutput"]["additionalContext"]
+    assert "Never disable session persistence" in context
+    assert "ambient" not in context
 
 
 def test_run_memory_in_nested_tool_arguments(
@@ -644,7 +662,10 @@ def test_run_memory_in_nested_tool_arguments(
         tool_input={"args": [{"text": "add --no-session-persistence"}, None, 3]},
     )
     out = _run_hook(runner, memory_workspace, event)
-    assert "Never disable session persistence" in out.get("additionalContext", "")
+    assert (
+        "Never disable session persistence"
+        in out["hookSpecificOutput"]["additionalContext"]
+    )
 
 
 def test_run_injects_keyworded_memory_on_prompt_once_per_session(
@@ -652,9 +673,12 @@ def test_run_injects_keyworded_memory_on_prompt_once_per_session(
 ) -> None:
     event = _make_event(prompt="should we use no-session-persistence here?")
     first = _run_hook(runner, memory_workspace, event)
-    assert "Never disable session persistence" in first["additionalContext"]
+    assert (
+        "Never disable session persistence"
+        in first["hookSpecificOutput"]["additionalContext"]
+    )
     # Same session: already delivered, so the hook stays silent.
-    assert "additionalContext" not in _run_hook(runner, memory_workspace, event)
+    assert _run_hook(runner, memory_workspace, event) == {"continue": True}
 
 
 def test_run_memory_from_git_root_without_gptme_config(
@@ -682,7 +706,10 @@ def test_run_memory_from_git_root_without_gptme_config(
     )
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
-    assert "Never disable session persistence" in out.get("additionalContext", "")
+    assert (
+        "Never disable session persistence"
+        in out["hookSpecificOutput"]["additionalContext"]
+    )
 
 
 def test_run_memory_only_does_not_scan_lessons(
@@ -702,7 +729,10 @@ def test_run_memory_only_does_not_scan_lessons(
         runner, memory_workspace, _make_event(prompt="add no-session-persistence?")
     )
     assert scans == []
-    assert "Never disable session persistence" in out.get("additionalContext", "")
+    assert (
+        "Never disable session persistence"
+        in out["hookSpecificOutput"]["additionalContext"]
+    )
 
 
 def test_run_memory_opt_out(
@@ -710,7 +740,7 @@ def test_run_memory_opt_out(
 ) -> None:
     monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "false")
     event = _make_event(prompt="should we use no-session-persistence here?")
-    assert "additionalContext" not in _run_hook(runner, memory_workspace, event)
+    assert _run_hook(runner, memory_workspace, event) == {"continue": True}
 
 
 def test_run_memory_store_failure_is_silent(
@@ -744,6 +774,8 @@ def test_run_memory_and_lesson_together(
         """)
     )
     event = _make_event(prompt="add no-session-persistence?")
-    ctx = _run_hook(runner, memory_workspace, event)["additionalContext"]
+    ctx = _run_hook(runner, memory_workspace, event)["hookSpecificOutput"][
+        "additionalContext"
+    ]
     assert "Trajectory Persistence" in ctx
     assert "Never disable session persistence" in ctx

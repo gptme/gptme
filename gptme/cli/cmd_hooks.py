@@ -277,7 +277,8 @@ def run(workspace: Path | None = None) -> None:
     - PreToolUse: matches against tool name, inputs, and recent transcript
 
     Output JSON format:
-    {"additionalContext": "...", "continue": true}
+    {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                            "additionalContext": "..."}, "continue": true}
 
     Lessons are matched using gptme's keyword/pattern system and workspace's
     gptme.toml [lessons] dirs. Keyworded memories (``gptme-util memory save
@@ -418,7 +419,13 @@ def run(workspace: Path | None = None) -> None:
     if event_type == _PRETOOLUSE:
         _update_throttle(session_id)
 
-    output = {"additionalContext": context, "continue": True}
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": event_type,
+            "additionalContext": context,
+        },
+        "continue": True,
+    }
     print(json.dumps(output))
 
 
