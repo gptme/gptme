@@ -944,7 +944,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f049fcecb80&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe5aa59cb80&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2431,8 +2431,8 @@ Key features:
 <span class="k">-</span><span class="w"> </span>isolation="worktree": Run subagent in a git worktree for filesystem isolation (preferred over isolated=True)
 <span class="k">-</span><span class="w"> </span>workdir="/path/to/dir": Set the working directory for the subagent (defaults to cwd)
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
-<span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
-<span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
+<span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation; honored in thread and subprocess modes)
+<span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages (thread mode only)
 <span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout, max_concurrent=N, budget=SubagentBudget(...)): Fan out N subagents and wait for all — returns ordered list of results. Use max_concurrent to cap simultaneous agents (extras queue). Use budget= to gate new spawns once a token ceiling is hit.
 <span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
@@ -2499,13 +2499,18 @@ you need tighter control over what the subagent sees:
   identity and tool descriptions, no workspace files or context_cmd output. Use
   this when the subagent handles sensitive data (secrets, prompts) that should
   not leak into verification or analysis tasks. The subagent knows only what
-  you explicitly tell it in the task prompt.
+  you explicitly tell it in the task prompt. Works in <span class="gs">**thread and subprocess**</span>
+  modes (subprocess forwards it as the CLI's <span class="sb">`--no-workspace`</span>).
 <span class="k">-</span><span class="w"> </span><span class="sb">`context_window=N`</span>: Limits workspace to at most N context messages. Useful when
   the default is too bloated but you still want the subagent to see some workspace
-  history — trim without fully isolating.
+  history — trim without fully isolating. <span class="gs">**Thread mode only**</span>: subprocess mode
+  cannot trim a partial window and warns that the parameter is ignored.
 
-<span class="sb">`context_window=0`</span> is equivalent to <span class="sb">`context_mode="selective", context_include=["agent", "tools"]`</span>
-but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
+In thread mode, <span class="sb">`context_window=0`</span> is equivalent to
+<span class="sb">`context_mode="selective", context_include=["agent", "tools"]`</span> but is a simpler
+one-parameter alternative. In subprocess mode, use <span class="sb">`context_window=0`</span> to skip
+workspace context; selecting only <span class="sb">`"agent"`</span> and <span class="sb">`"tools"`</span> does not skip it.
+ACP mode ignores <span class="sb">`context_window`</span> because the ACP agent owns its own context.
 
 <span class="gu">## Agent Profiles for Subagents</span>
 
@@ -3089,7 +3094,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20748</p>
+<p>Tokens: 20856</p>
 </dd></dl>
 
 <dl class="py function">
