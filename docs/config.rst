@@ -623,6 +623,24 @@ Besides the configuration files, gptme supports several environment variables to
 
 All boolean flags accept "1", "true" (case-insensitive) as truthy values.
 
+.. rubric:: Externally Enforced Session Deadlines
+
+Runners that terminate a session after a wall-clock limit can expose that budget
+through ``GPTME_SESSION_START`` and ``GPTME_SESSION_DEADLINE``. Both must be
+ISO-8601 timestamps with a UTC offset (for example, ``2026-01-01T12:00:00Z`` and
+``2026-01-01T12:15:00Z``). The time-awareness hook then reports remaining time
+after tools at 70% and 90% of that budget, instead of its elapsed-time milestones.
+The last warning asks the agent to send any owed reply and save a handoff before
+committing. These notices do not enforce or extend the deadline; the runner
+still owns termination, and a long-running tool can cross both thresholds before
+returning. In that case only the highest crossed warning is emitted.
+
+``GPTME_TIME_NOTICE_FRACTIONS`` overrides the thresholds with comma-separated
+fractions in ``(0, 1]`` (for example, ``0.5,0.8``). Warnings are recorded in the
+conversation log and suppressed across resume for the same start/deadline pair.
+A new runner budget starts a new warning schedule. Missing or invalid settings
+retain the default elapsed-time notices.
+
 .. rubric:: CLI Options via Environment Variables
 
 All CLI options can also be set via environment variables with the ``GPTME_`` prefix.
