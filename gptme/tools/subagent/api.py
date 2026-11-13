@@ -307,8 +307,10 @@ def subagent(
             workspace configuration (e.g. a verification task that should only
             see what the orchestrator explicitly tells it).
 
-            Only applies to thread-mode subagents; has no effect in subprocess
-            or ACP modes (which build their own context as a separate process).
+            Supported in thread mode and in subprocess mode (where ``0`` is
+            forwarded as the CLI's ``--no-workspace``). ``N > 0`` is ignored
+            with a warning in subprocess mode, and ACP mode (a separate harness
+            that owns its own context) ignores the parameter entirely.
         max_time: Wall-clock time limit in seconds. When set, a watchdog timer
             marks the subagent result as ``"timeout"`` after ``max_time`` seconds
             and delivers a timeout status notification via the LOOP_CONTINUE hook.
@@ -727,6 +729,11 @@ def subagent(
                 "parameter is ignored",
                 context_turns,
             )
+        if context_window is not None:
+            logger.warning(
+                f"Subagent {agent_id}: 'context_window={context_window}' is not "
+                "supported in ACP mode (ignored)"
+            )
         if reasoning_effort is not None:
             logger.warning(
                 f"Subagent {agent_id}: 'reasoning_effort' is not supported in ACP mode (ignored)"
@@ -964,6 +971,7 @@ def subagent(
                     output_schema_dict=output_schema_dict,
                     profile=profile,
                     reasoning_effort=reasoning_effort,
+                    context_window=context_window,
                 )
                 # Subagent is a frozen dataclass; install the live process on the
                 # pre-registered object so queued agents become inspectable once
@@ -1040,6 +1048,7 @@ def subagent(
             timeout=timeout,
             role=role,
             max_time=max_time,
+            context_window=context_window,
             context_turns=context_turns,
             reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
@@ -1787,6 +1796,7 @@ def subagent_continue(
                         context_include=sa.context_include,
                         profile=sa.profile,
                         reasoning_effort=sa.reasoning_effort,
+                        context_window=sa.context_window,
                         resume=True,
                         writer_lease=writer_lease,
                     )

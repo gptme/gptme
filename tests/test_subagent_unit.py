@@ -3489,6 +3489,71 @@ class TestPlannerForwardsContextWindow:
                 if not s.agent_id.startswith("planner-cw")
             ]
 
+    def test_planner_forwards_context_window_to_subprocess_executors(
+        self, monkeypatch, tmp_path
+    ):
+        """Subprocess-mode planner executors must not get wider context than asked.
+
+        role="verify" resolves to subprocess+isolated. Before this, the planner
+        forwarded context_window only to thread executors, so a verification
+        child silently received full workspace context the caller withheld.
+        """
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        types_mod = importlib.import_module("gptme.tools.subagent.types")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(exec_mod, "get_slot_sem", lambda: threading.Semaphore(10))
+        monkeypatch.setattr(exec_mod, "_monitor_subprocess", lambda sa: None)
+
+        # role="verify" enables isolation, but the mocked monitor cannot clean
+        # up real worktrees. Keep this forwarding test entirely under tmp_path.
+        git_worktree = importlib.import_module("gptme.util.git_worktree")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        isolated_workspace = tmp_path / "isolated"
+        isolated_workspace.mkdir()
+        get_git_root = MagicMock(return_value=workspace)
+        create_worktree = MagicMock(return_value=isolated_workspace)
+        monkeypatch.setattr(git_worktree, "get_git_root", get_git_root)
+        monkeypatch.setattr(git_worktree, "create_worktree", create_worktree)
+
+        captured: list[dict] = []
+
+        def fake_run_subprocess(**kwargs):
+            captured.append(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(exec_mod, "_run_subagent_subprocess", fake_run_subprocess)
+
+        subtasks = [{"id": "v1", "description": "verify it", "role": "verify"}]
+        exec_mod._run_planner(
+            agent_id="planner-cw-sub",
+            prompt="context",
+            subtasks=subtasks,
+            execution_mode="sequential",
+            context_window=0,
+            workdir=workspace,
+        )
+
+        get_git_root.assert_called_once_with(workspace)
+        create_worktree.assert_called_once()
+        assert create_worktree.call_args.args == (workspace,)
+        assert captured, "_run_subagent_subprocess was never called"
+        assert captured[0]["workspace"] == isolated_workspace
+        assert captured[0].get("context_window") == 0, (
+            f"Expected context_window=0, got {captured[0].get('context_window')}"
+        )
+
+        with types_mod._subagents_lock:
+            types_mod._subagents[:] = [
+                s
+                for s in types_mod._subagents
+                if not s.agent_id.startswith("planner-cw-sub")
+            ]
+
     def test_subagent_planner_mode_forwards_redact_secrets_false(
         self, monkeypatch, tmp_path
     ):
@@ -8493,34 +8558,233 @@ class TestReasoningEffort:
         assert "GPTME_THINKING_EFFORT" not in os.environ
         monkeypatch.setattr(subprocess, "Popen", real_popen)
 
-    def test_reasoning_effort_acp_mode_warns(self, caplog):
-        """ACP mode does not support reasoning_effort; it is ignored with a warning.
+    @pytest.fixture()
+    def captured_subprocess_cmd(self, monkeypatch):
+        """Capture the argv handed to Popen before any real child is spawned."""
+        import subprocess
 
-        The warning is logged synchronously before the ACP client thread starts,
-        so this doesn't depend on the ``acp`` package being installed or the
-        child thread's eventual (unrelated) success/failure.
-        """
-        import logging
+        captured: dict = {}
 
-        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
-            subagent(
-                "test-acp-effort-warn",
-                "task",
-                use_acp=True,
-                reasoning_effort="medium",
+        class _FakePopen:
+            def __init__(self, *args, **kwargs):
+                captured["cmd"] = list(args[0])
+                raise RuntimeError("stop before spawn")
+
+        monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+        return captured
+
+    def test_context_window_zero_forwards_no_workspace(
+        self, captured_subprocess_cmd, tmp_path
+    ):
+        """Subprocess mode: context_window=0 maps to the CLI's --no-workspace."""
+        logdir = tmp_path / "subagent-ctx-zero"
+        logdir.mkdir()
+
+        with pytest.raises(RuntimeError, match="stop before spawn"):
+            subagent_execution._run_subagent_subprocess(
+                prompt="task",
+                logdir=logdir,
+                model=None,
+                workspace=tmp_path,
+                context_window=0,
             )
 
+        cmd = captured_subprocess_cmd["cmd"]
+        assert "--no-workspace" in cmd
+        # The CLI rejects --no-workspace together with --context.
+        assert "--context" not in cmd
+
+    def test_context_window_zero_overrides_context_include(
+        self, captured_subprocess_cmd, caplog, tmp_path
+    ):
+        """context_window=0 wins over a conflicting context_include, with a warning."""
+        import logging
+
+        logdir = tmp_path / "subagent-ctx-zero-include"
+        logdir.mkdir()
+
+        with (
+            caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.execution"),
+            pytest.raises(RuntimeError, match="stop before spawn"),
+        ):
+            subagent_execution._run_subagent_subprocess(
+                prompt="task",
+                logdir=logdir,
+                model=None,
+                workspace=tmp_path,
+                context_mode="selective",
+                context_include=["files"],
+                context_window=0,
+            )
+
+        cmd = captured_subprocess_cmd["cmd"]
+        assert "--no-workspace" in cmd
+        assert "--context" not in cmd
+        assert "overrides context_include" in caplog.text
+
+    def test_context_window_positive_warns_instead_of_silent_noop(
+        self, captured_subprocess_cmd, caplog, tmp_path
+    ):
+        """N > 0 cannot be honored in subprocess mode; warn rather than no-op."""
+        import logging
+
+        logdir = tmp_path / "subagent-ctx-positive"
+        logdir.mkdir()
+
+        with (
+            caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.execution"),
+            pytest.raises(RuntimeError, match="stop before spawn"),
+        ):
+            subagent_execution._run_subagent_subprocess(
+                prompt="task",
+                logdir=logdir,
+                model=None,
+                workspace=tmp_path,
+                context_window=3,
+            )
+
+        cmd = captured_subprocess_cmd["cmd"]
+        assert "--no-workspace" not in cmd
+        assert "not supported in subprocess mode" in caplog.text
+
+    def test_context_window_default_leaves_cmd_unchanged(
+        self, captured_subprocess_cmd, tmp_path
+    ):
+        """context_window=None keeps the pre-existing CLI context behavior."""
+        logdir = tmp_path / "subagent-ctx-default"
+        logdir.mkdir()
+
+        with pytest.raises(RuntimeError, match="stop before spawn"):
+            subagent_execution._run_subagent_subprocess(
+                prompt="task",
+                logdir=logdir,
+                model=None,
+                workspace=tmp_path,
+            )
+
+        assert "--no-workspace" not in captured_subprocess_cmd["cmd"]
+
+    @pytest.mark.parametrize(
+        ("parameter", "value"),
+        [("reasoning_effort", "medium"), ("context_window", 0)],
+    )
+    def test_acp_unsupported_context_option_warns(
+        self, caplog, monkeypatch, parameter, value
+    ):
+        """ACP warnings are synchronous; never start a real agent to assert them."""
+        import logging
+
+        start = MagicMock()
+        monkeypatch.setattr(threading.Thread, "start", start)
+        agent_id = f"test-acp-{parameter}-warn"
+
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
+            subagent(agent_id, "task", use_acp=True, **{parameter: value})
+
         assert any(
-            "reasoning_effort" in r.message and "ACP mode" in r.message
-            for r in caplog.records
+            parameter in r.message and "ACP mode" in r.message for r in caplog.records
+        )
+        start.assert_called_once_with()
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == agent_id)
+        assert sa.execution_mode == "acp"
+        assert sa.thread is not None
+        assert not sa.thread.is_alive()
+
+    def test_subprocess_launch_forwards_context_window(self, monkeypatch, tmp_path):
+        """The public API forwards context_window to the subprocess launcher."""
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        git_worktree = importlib.import_module("gptme.util.git_worktree")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(git_worktree, "get_git_root", lambda _: None)
+
+        captured: dict = {}
+
+        def fake_run_subprocess(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(
+            subagent_execution, "_run_subagent_subprocess", fake_run_subprocess
+        )
+        monkeypatch.setattr(subagent_execution, "_monitor_subprocess", lambda sa: None)
+
+        subagent(
+            "ctx-forward-agent", "do the thing", use_subprocess=True, context_window=0
         )
 
         with _subagents_lock:
-            _sa = next(
-                (s for s in _subagents if s.agent_id == "test-acp-effort-warn"), None
+            sa = next(s for s in _subagents if s.agent_id == "ctx-forward-agent")
+        assert sa.thread is not None
+        sa.thread.join(timeout=5)
+        assert not sa.thread.is_alive()
+
+        assert captured["context_window"] == 0
+        assert sa.context_window == 0
+
+        # Clarification replies re-spawn from the registered agent's fields.
+        # A launch-only assertion misses loss of isolation on that next attempt.
+        with _subagent_results_lock:
+            _subagent_results[sa.agent_id] = ReturnType(
+                "clarification_needed", "Which target?"
             )
-        if _sa and _sa.thread:
-            _sa.thread.join(timeout=2.0)
+        captured.clear()
+        subagent_api.subagent_reply(sa.agent_id, "The explicit target")
+        with _subagents_lock:
+            replied = next(s for s in _subagents if s.agent_id == sa.agent_id)
+        assert replied.thread is not None
+        replied.thread.join(timeout=5)
+        assert not replied.thread.is_alive()
+        assert captured["context_window"] == 0
+        assert replied.context_window == 0
+
+    def test_subprocess_continuation_forwards_context_window(
+        self, monkeypatch, tmp_path
+    ):
+        """subagent_continue keeps the child's context_window for subprocess mode."""
+        from gptme.logmanager import Log
+        from gptme.message import Message
+        from gptme.tools.subagent.api import subagent_continue
+
+        logdir = tmp_path / "ctx-continuation-log"
+        logdir.mkdir()
+        Log([Message("assistant", "```complete\nFirst result\n```")]).write_jsonl(
+            logdir / "conversation.jsonl"
+        )
+        sa = Subagent(
+            agent_id="ctx-continuation-agent",
+            prompt="first task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            context_window=0,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        captured: dict = {}
+
+        def fake_run_subprocess(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(
+            subagent_execution, "_run_subagent_subprocess", fake_run_subprocess
+        )
+        monkeypatch.setattr(subagent_execution, "_monitor_subprocess", lambda s: None)
+
+        subagent_continue(sa.agent_id, "follow up")
+        with _subagents_lock:
+            continued = next(s for s in _subagents if s.agent_id == sa.agent_id)
+        assert continued.thread is not None
+        continued.thread.join(timeout=5)
+
+        assert captured["context_window"] == 0
 
 
 class TestTimeoutCompletionContinuationHint:
