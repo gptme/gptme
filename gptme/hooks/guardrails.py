@@ -329,6 +329,10 @@ def guardrail_hook(
                     )
 
     elif tool_use.tool == "read":
+        # Not dead code: reads dispatched by ToolUse.execute() are policed at
+        # the TOOL_EXECUTE_PRE seam, but direct executors (the in-process MCP
+        # server) call tool.execute() themselves and dispatch TOOL_CONFIRM.
+        # Dropping this branch would silently reopen that MCP gap.
         block_reason = _read_secret_path_reason(tool_use, preview)
 
     if block_reason is None:
