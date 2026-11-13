@@ -130,6 +130,49 @@ class TestGetFilesDir:
 class TestStoreFile:
     """Tests for store_file — content-addressable storage."""
 
+    @pytest.mark.parametrize("cached_copy", [False, True])
+    def test_changed_source_is_stored_under_the_copied_content_hash(
+        self,
+        logdir: Path,
+        sample_file: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cached_copy: bool,
+    ) -> None:
+        """An edit between hashing and copying must not poison historical versions."""
+        original = sample_file.read_bytes()
+        changed = b"print('edited while attaching')\n"
+        existing_path = None
+        existing_mtime = None
+        if cached_copy:
+            other = tmp_path / "other.py"
+            other.write_bytes(changed)
+            _, existing_name = store_file(logdir, other)
+            existing_path = logdir / "files" / existing_name
+            existing_mtime = existing_path.stat().st_mtime_ns
+
+        copy = file_storage.shutil.copy2
+
+        def copy_after_edit(source: Path, destination: Path) -> None:
+            source.write_bytes(changed)
+            copy(source, destination)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(file_storage.shutil, "copy2", copy_after_edit)
+            file_hash, stored_name = store_file(logdir, sample_file)
+
+        stored_path = logdir / "files" / stored_name
+        assert stored_path.read_bytes() == changed
+        assert file_hash == compute_file_hash(stored_path)
+        if existing_path is not None:
+            assert stored_path == existing_path
+            assert existing_path.stat().st_mtime_ns == existing_mtime
+
+        sample_file.write_bytes(original)
+        _, restored_name = store_file(logdir, sample_file)
+        assert (logdir / "files" / restored_name).read_bytes() == original
+        assert len(list((logdir / "files").iterdir())) == 2
+
     def test_failed_copy_can_be_retried(
         self, logdir: Path, sample_file: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
