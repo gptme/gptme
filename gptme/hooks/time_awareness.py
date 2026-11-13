@@ -60,6 +60,9 @@ _DEFAULT_FRACTIONS = "0.7,0.9"
 # suppressed by an old run's warning).
 _DEADLINE_RE = re.compile(r"Deadline warning: (\d+(?:\.\d+)?)% of budget used")
 _DEADLINE_ID_RE = re.compile(r"\[deadline-id:([0-9a-f]+)\]")
+# Exact threshold, so a fraction whose display rounds (0.8333333333 shows as
+# 83.3333%) is recognized as already reported on resume.
+_DEADLINE_FRACTION_RE = re.compile(r"\[deadline-fraction:([0-9.eE+-]+)\]")
 
 # Prefix identifying notices emitted by this hook. Notices are appended to the
 # conversation log, so the log itself records what was already reported. That
@@ -196,7 +199,10 @@ def _scan_log(log: Log | None, deadline_id: str | None = None) -> _LogScan | Non
             match = _DEADLINE_RE.search(msg.content)
             ident = _DEADLINE_ID_RE.search(msg.content)
             if match and ident and ident.group(1) == deadline_id:
-                deadline_threshold = float(match.group(1)) / 100
+                exact = _DEADLINE_FRACTION_RE.search(msg.content)
+                deadline_threshold = (
+                    float(exact.group(1)) if exact else float(match.group(1)) / 100
+                )
                 break
         later = ts
     return _LogScan(last_notice, gap, deadline_threshold)
@@ -275,7 +281,7 @@ def _deadline_notice(
     if threshold is not None:
         parts.append(
             f"Deadline warning: {threshold * 100:g}% of budget used "
-            f"[deadline-id:{ident}]."
+            f"[deadline-id:{ident}] [deadline-fraction:{threshold!r}]."
         )
         if threshold == cfg.fractions[-1]:
             parts.append(

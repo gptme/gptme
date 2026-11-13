@@ -478,6 +478,23 @@ def test_deadline_duplicate_suppressed_from_log(
     assert resumed == []
 
 
+def test_deadline_custom_fraction_not_repeated_after_resume(
+    load_time_awareness_tool, tmp_path, monkeypatch
+):
+    """A fraction whose display rounds must still suppress after resume."""
+    _set_deadline_env(monkeypatch, fractions="0.8333333333")
+    now = _at_minutes(84)
+
+    first = _trigger_at(monkeypatch, tmp_path / "before", Log(), now)
+    assert len(first) == 1
+    assert "83.3333% of budget used" in first[0].content
+    log = Log().append(first[0])
+
+    resumed = _trigger_at(monkeypatch, tmp_path / "after", log, _at_minutes(90))
+
+    assert resumed == []
+
+
 def test_deadline_resume_emits_only_next_threshold(
     load_time_awareness_tool, tmp_path, monkeypatch
 ):
