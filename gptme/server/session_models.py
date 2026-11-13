@@ -500,6 +500,7 @@ class SessionManager:
         branch: str,
         step_seq: int,
         source: str,
+        writer_pinned: bool = False,
     ) -> bool:
         """Dispatch a step already reserved by a wake path.
 
@@ -507,7 +508,9 @@ class SessionManager:
         drift. Returns True whenever the message was persisted, even if the
         dispatch failed: a False would let the caller drain-and-requeue the
         same event and duplicate it. On dispatch failure the reservation is
-        released so a later poll can retry.
+        released and clients receive an explicit error requiring a manual step;
+        persisted inputs are not automatically replayed by the queue poller.
+        A peer reservation pin bridges removal until the worker pins ownership.
         """
         from .session_step import _start_step_thread
 
@@ -534,7 +537,7 @@ class SessionManager:
                         session.generating = False
                         session.generating_since = None
                 if source == "Peer":
-                    session.release_writer()
+                    cls._peer_dispatch_failed(conversation_id, session)
             return True
         except Exception:
             logger.warning(
@@ -548,8 +551,24 @@ class SessionManager:
                     session.generating = False
                     session.generating_since = None
             if source == "Peer":
-                session.release_writer()
+                cls._peer_dispatch_failed(conversation_id, session)
             return True
+        finally:
+            if writer_pinned:
+                session.release_writer_worker()
+
+    @classmethod
+    def _peer_dispatch_failed(
+        cls, conversation_id: str, session: ConversationSession
+    ) -> None:
+        """Make persisted-but-unanswered input visible, without replay duplicates."""
+        error = (
+            "Peer input was saved but its response could not start. "
+            "Start a new step to respond to the saved input; automatic retry is unavailable."
+        )
+        session.last_error = error
+        cls.add_event(conversation_id, {"type": "error", "error": error})
+        session.release_writer()
 
     @classmethod
     def request_watch_wake(
@@ -717,7 +736,10 @@ class SessionManager:
                     return False
                 # A conversation the user explicitly stopped must not be
                 # restarted behind their back; leave the message queued.
-                if session.interrupted:
+                # ACP owns its own input cursor/runtime. Until peer wakes can
+                # enter that runtime, leave mail untouched rather than answer
+                # in-process and deliver the same input again on the next ACP step.
+                if session.interrupted or session.use_acp:
                     return False
                 config = ChatConfig.load_or_create(logdir, ChatConfig())
                 # Same autowake policy as watch wake and the TUI: an explicit
@@ -749,6 +771,9 @@ class SessionManager:
                         session._writer_closing = False
                     else:
                         manager.__exit__(None, None, None)
+                    # Pin atomically with reservation: session removal may run
+                    # before dispatch, but cannot release the writer in that gap.
+                    session._writer_workers += 1
                     reserved = True
                 finally:
                     if not reserved:
@@ -761,6 +786,7 @@ class SessionManager:
             branch=branch,
             step_seq=step_seq,
             source="Peer",
+            writer_pinned=True,
         )
 
     @classmethod

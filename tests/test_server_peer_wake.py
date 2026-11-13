@@ -15,6 +15,8 @@ from typing import cast
 
 import pytest
 
+pytest.importorskip("flask")
+
 import gptme.server.session_step as session_step
 from gptme.config import ChatConfig
 from gptme.logmanager import LogManager
@@ -451,6 +453,11 @@ def test_dispatch_failure_releases_writer(
         assert SessionManager.request_peer_wake(cid)
         assert session.writer_manager is None
         assert not session.generating
+        assert session._writer_workers == 0
+        assert session.last_error is not None
+        assert "Start a new step" in session.last_error
+        assert any(event["type"] == "error" for event in session.events)
+        manager.append.assert_called_once()
         manager.__exit__.assert_called_once()
     finally:
         SessionManager.remove_session(session.id)
@@ -486,5 +493,167 @@ def test_tool_worker_pin_outlives_generation_and_session_removal(
         assert session._writer_workers == 0
         assert session.writer_manager is None
         manager.__exit__.assert_called_once()
+    finally:
+        SessionManager.remove_session(session.id)
+
+
+def test_acp_peer_wake_defers_without_consuming(
+    logs_dir: Path, armed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, started = armed
+    cid = "peer-acp-deferred"
+    queue = _conversation(logs_dir, cid) / "prompt-queue.jsonl"
+    queue.write_text("pending peer input", encoding="utf-8")
+    drain = unittest.mock.MagicMock()
+    monkeypatch.setattr("gptme.prompt_queue.drain_peer_prompts", drain)
+    session = SessionManager.create_session(cid)
+    session.use_acp = True
+    session.acp_last_user_msg_index = 7
+    try:
+        assert not SessionManager.request_peer_wake(cid)
+        drain.assert_not_called()
+        started.assert_not_called()
+        manager.append.assert_not_called()
+        assert session.acp_last_user_msg_index == 7
+        assert queue.read_text() == "pending peer input"
+    finally:
+        SessionManager.remove_session(session.id)
+
+
+def test_removal_between_peer_reservation_and_dispatch_keeps_real_lock(
+    logs_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Remove deterministically in the former zero-pin dispatch gap."""
+    import threading
+
+    from gptme.prompt_queue import queue_prompt
+
+    cid = "peer-dispatch-gap"
+    logdir = _conversation(logs_dir, cid)
+    with LogManager.load(logdir, create=True, lock=False) as manager:
+        manager.write(sync=True)
+    queue_prompt(logdir, "hello", steer=True, peer_sender="source")
+    config = ChatConfig(_logdir=logdir, model="local/test", workspace=tmp_path)
+    monkeypatch.setattr(ChatConfig, "load_or_create", lambda *a, **kw: config)
+    session = SessionManager.create_session(cid)
+    entered, finish = threading.Event(), threading.Event()
+    start = session_step._start_step_thread
+
+    def remove_then_dispatch(*args: object, **kwargs: object) -> bool:
+        assert session._writer_workers == 1
+        SessionManager.remove_session(session.id)
+        assert session.writer_manager is not None
+        assert not _lock_probe(logdir)
+        # Match the real peer dispatcher arguments; no mocked worker pinning.
+        return start(
+            cid,
+            session,
+            "local/test",
+            tmp_path,
+            reserved=True,
+            step_seq=session.step_seq,
+            inherit_context=False,
+        )
+
+    def fake_step(**kwargs: object) -> None:
+        entered.set()
+        assert finish.wait(10)
+
+    monkeypatch.setattr(session_step, "_start_step_thread", remove_then_dispatch)
+    monkeypatch.setattr(session_step, "step", fake_step)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    try:
+        assert SessionManager.request_peer_wake(cid)
+        assert entered.wait(10)
+        assert session._writer_workers == 1
+        assert not _lock_probe(logdir)
+    finally:
+        finish.set()
+        import time
+
+        deadline = time.monotonic() + 10
+        while session.writer_manager is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        SessionManager.remove_session(session.id)
+    assert session.writer_manager is None
+    assert _lock_probe(logdir)
+
+
+def test_real_skip_route_dispatch_does_not_reenter_step_lock(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    import uuid
+
+    from gptme.server.session_models import ToolExecution
+    from gptme.tools import ToolUse
+
+    cid = f"test-real-skip-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{cid}", json={"prompt": "Test skip dispatch"}
+    )
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    session = SessionManager.get_session(sid)
+    assert session is not None
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo hi")
+    )
+    generated = threading.Event()
+    monkeypatch.setattr(session_step, "step", lambda **kwargs: generated.set())
+    responses: list[int] = []
+    errors: list[Exception] = []
+
+    def request_skip() -> None:
+        try:
+            # Flask's fixture client preserves context in the main thread;
+            # requests on a new thread need their own client/context stack.
+            with client.application.test_client() as thread_client:
+                result = thread_client.post(
+                    f"/api/v2/conversations/{cid}/tool/confirm",
+                    json={"session_id": sid, "tool_id": "skip-me", "action": "skip"},
+                )
+            responses.append(result.status_code)
+        except Exception as error:
+            errors.append(error)
+
+    request_thread = threading.Thread(target=request_skip, daemon=True)
+    request_thread.start()
+    request_thread.join(timeout=5)
+    assert not request_thread.is_alive(), "skip deadlocked while pinning the worker"
+    assert not errors
+    assert responses == [200]
+    assert generated.wait(5)
+    assert "skip-me" not in session.pending_tools
+    SessionManager.remove_session(sid)
+
+
+def test_failed_peer_dispatch_is_visible_without_requeue_or_duplicate(
+    logs_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.prompt_queue import queue_prompt
+
+    cid = "peer-failed-visible"
+    logdir = _conversation(logs_dir, cid)
+    with LogManager.load(logdir, create=True, lock=False) as manager:
+        manager.write(sync=True)
+    queue_prompt(logdir, "saved once", steer=True, peer_sender="source")
+    config = ChatConfig(_logdir=logdir, model="local/test", workspace=tmp_path)
+    monkeypatch.setattr(ChatConfig, "load_or_create", lambda *a, **kw: config)
+    started = unittest.mock.MagicMock(side_effect=RuntimeError("cannot launch"))
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    session = SessionManager.create_session(cid)
+    try:
+        assert SessionManager.request_peer_wake(cid)
+        assert session.last_error is not None
+        assert any(
+            event["type"] == "error" and event.get("error") == session.last_error
+            for event in session.events
+        )
+        assert not (logdir / "prompt-queue.jsonl").exists()
+        assert not SessionManager.request_peer_wake(cid)
+        started.assert_called_once()
+        with LogManager.load(logdir, lock=False) as saved:
+            assert [msg.content for msg in saved.log.messages] == ["saved once"]
     finally:
         SessionManager.remove_session(session.id)

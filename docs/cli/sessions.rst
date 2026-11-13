@@ -27,6 +27,13 @@ A TUI wake preserves the unsent draft. Paused/interrupted or autowake-disabled
 receivers leave input queued. Plain CLI idle wake is not provided by this path.
 Both sender and receiver must use a version with peer support for idle wake.
 
+Server sessions using an ACP runtime defer automatic peer wakes and leave the
+input queued; they never answer that input through the in-process runtime.
+If a server saves peer input but cannot dispatch its response worker, clients
+receive an explicit error. The input remains in the transcript without being
+requeued or appended again: start a new step to respond to it. Automatic retry
+after a dispatch failure is not provided.
+
 Peer messages carry a sender conversation, PID and correlation ID. These are
 local same-user attribution, not authenticated identity or human approval. A
 successful send means *queued*, not read or executed. Do not automatically reply

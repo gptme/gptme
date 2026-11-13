@@ -143,7 +143,7 @@ def test_overflow_budget_exhaustion_returns_to_interactive_prompt(
     from gptme.logmanager import Log
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -264,7 +264,7 @@ def test_interactive_exhaustion_parks_pending_intent(offline, monkeypatch, tmp_p
     from gptme.prompt_queue import drain_prompt_queue, get_prompt_queue_path
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -311,7 +311,7 @@ def test_interactive_resume_runs_parked_prompt_once(offline, monkeypatch, tmp_pa
     from gptme.logmanager import Log
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -376,7 +376,7 @@ def test_cancelled_resume_keeps_parked_intent_held(
     from gptme.prompt_queue import drain_prompt_queue
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -470,7 +470,7 @@ def test_interactive_resume_preserves_queue_order_before_loop_hooks(
     from gptme.prompt_queue import get_prompt_queue_path
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -537,7 +537,7 @@ def test_interactive_resume_complete_drains_pending_intent(
     from gptme.tools.complete import SessionCompleteException
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -592,7 +592,7 @@ def test_headless_exhaustion_parks_then_exits(offline, monkeypatch, tmp_path):
     from gptme.prompt_queue import drain_prompt_queue
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -636,7 +636,7 @@ def test_interactive_command_does_not_drain_parked_prompts(
     from gptme.prompt_queue import drain_prompt_queue
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path
@@ -693,7 +693,7 @@ def test_interactive_park_oserror_keeps_in_memory_queue(offline, monkeypatch, tm
     from gptme.logmanager import Log
 
     chat = offline
-    manager = Mock()
+    manager = Mock(current_branch="main")
     manager.log = Log()
     manager.workspace = tmp_path
     manager.logdir = tmp_path

@@ -55,7 +55,7 @@ def _active_conversations(pids: set[int]) -> dict[int, list[Path]]:
 
 
 def list_peers(workspace: str | None = None) -> list[dict[str, object]]:
-    """List discovery observations, including non-addressable foreign runtimes.
+    """Discover peers; only addressable gptme IDs accept messages.
 
     Reuses workspace_agents.scan_agents for process discovery. gptme IDs are
     resolved from held lifetime locks under this user's configured logs root,
@@ -96,7 +96,7 @@ def send_peer_message(
     sender_logdir: str | Path | None = None,
     steer: bool = True,
 ) -> str:
-    """Queue an attributed peer message and return its correlation UUID.
+    """Queue peer input; return correlation UUID.
 
     ``sender_logdir`` defaults to the current LogManager's directory. Targets
     must already exist below the configured logs root. No recipient wake or

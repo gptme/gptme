@@ -29,9 +29,14 @@ def test_peer_send_cli(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_peer_send_cli_rejects_missing_target(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
-    result = CliRunner().invoke(chats, ["send", "missing", "--peer", "hello"])
+    (tmp_path / "sender").mkdir()
+    monkeypatch.setattr("gptme.peers.get_logs_dir", lambda: tmp_path)
+    monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path)
+    result = CliRunner().invoke(
+        chats, ["send", "missing", "--peer", "--sender", "sender", "hello"]
+    )
     assert result.exit_code != 0
+    assert "Peer conversation does not exist: missing" in result.output
     assert not (tmp_path / "missing").exists()
 
 

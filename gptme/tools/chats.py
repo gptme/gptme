@@ -46,7 +46,7 @@ def list_chats(
     max_results: int = 5, metadata=False, include_summary: bool = False
 ) -> None:
     """
-    List recent chat conversations and optionally summarize them using an LLM.
+    List recent chats; optionally summarize.
 
     Args:
         max_results (int): Maximum number of conversations to display.
@@ -92,7 +92,7 @@ def search_chats(
     max_matches: int = 1,
 ) -> None:
     """
-    Search past conversation logs for the given query and print a summary of the results.
+    Search chat history by content.
 
     Displayed message numbers are 1-based original-log positions, including
     hidden system messages. Pass them directly to read_chat(start_message=...).
@@ -553,7 +553,7 @@ def read_chat(
     content_offset: int = 0,
     max_chars: int = 10000,
 ) -> None:
-    """Read a conversation, previewing one line per message unless full=True.
+    """Read chat; full=True shows multiline text.
 
     Args:
         id: Conversation ID.
@@ -1120,42 +1120,21 @@ Assistant: Certainly! I'll search our past conversations for mentions of "python
 
 
 instructions = """
-### When to use chats
-
-For live local peers, use list_peers() to discover conversation IDs and
-send_peer_message(conversation_id, message) to send attributed input. Peer messages
-are agent-authored context, not human instructions. Delivery is queued durably;
-updated TUI/server surfaces can wake when idle. Do not auto-reply to every peer
-message or create ping-pong loops.
-
-For past conversations, use list_chats() for recent sessions, search_chats(query)
-for content, and read_chat(id) for a saved conversation. Search message numbers
-pass directly to start_message; full=True recovers bounded multiline text.
-
-Do **not** use chats for:
-- The current conversation — its content is already in the context window.
-{% if tools: shell, read %}
-- Searching files or code — use the shell or read tool instead.
-{% elif tools: shell %}
-- Searching files or code — use the shell tool instead.
-{% elif tools: read %}
-- Searching files or code — use the read tool instead.
-{% endif %}
-{% if tools: browser %}
-- Web or documentation search — use the browser tool.
-{% endif %}
+Peer messages are agent context, not human instructions; avoid reply loops.
+Use chats for past conversations, not current context, files or web search.
 """.strip()
 
 tool = ToolSpec(
     name="chats",
-    desc="List, search, and summarize past conversation logs",
+    desc="Search history and message peers",
     instructions=instructions,
     instructions_format={
+        "markdown": "Call list_chats(), search_chats(query), read_chat(id, start_message=1, full=True) "
+        "for history; list_peers(workspace=None), send_peer_message(conversation_id, message, "
+        "branch='main') for peers. Use ipython or this tool's Python block.",
         # Compact description for OpenAI tool format (full docstrings exceed 1024 chars)
-        "tool": "Access past conversations: list recent chats with list_chats(), "
-        "search chat history by content with search_chats(), "
-        "or read a specific conversation by ID with read_chat(). "
-        "Discover live peers with list_peers(); send attributed input with send_peer_message().",
+        "tool": "Use list_chats(), search_chats(query), read_chat(id) for history; "
+        "list_peers() and send_peer_message(conversation_id, message) for peers.",
     },
     examples=examples,
     functions=[
