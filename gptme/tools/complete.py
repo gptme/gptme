@@ -18,7 +18,7 @@ from xml.sax.saxutils import escape as xml_escape
 from ..hooks import HookType, StopPropagation
 from ..hooks._policy_block import POLICY_BLOCK_MARKER
 from ..hooks.confirm import ConfirmAction, get_confirmation
-from ..message import Message
+from ..message import Message, MessageMetadata
 from ..sandbox import SandboxConfig, build_env, wrap_shell_cmd
 from ..util.completion_verification import (
     ApprovedBind,
@@ -76,6 +76,15 @@ _HARNESS_USER_PREFIXES = (
     f"<system>You {STUCK_MARKER}",
     f"<system>{_VERIFY_FAILED_MARKER}",
 )
+
+
+# Trusted provenance for harness-generated auto-reply nudges. Content prefixes
+# can be reproduced by a real user; this metadata is written only by the hooks
+# below and survives the conversation log round-trip.
+def _nudge_metadata() -> MessageMetadata:
+    # A fresh dict per message: Message metadata is mutable.
+    return {"harness_nudge": True}
+
 
 _DEFAULT_BLOCK_BUDGET = 3
 
@@ -781,6 +790,7 @@ def _auto_reply_nudge_interactive(
             "user",
             f"<system>No tool call detected. {_block_budget_text(blocks)}</system>",
             quiet=True,
+            metadata=_nudge_metadata(),
         )
         return
 
@@ -789,6 +799,7 @@ def _auto_reply_nudge_interactive(
         "user",
         "<system>No tool call detected. Please continue with a tool call, or use `complete` if done.</system>",
         quiet=True,
+        metadata=_nudge_metadata(),
     )
 
 
@@ -869,6 +880,7 @@ def auto_reply_hook(
             "user",
             f"<system>No tool call detected in last message. {_block_budget_text(blocks)}</system>",
             quiet=False,
+            metadata=_nudge_metadata(),
         )
         return
 
@@ -885,6 +897,7 @@ def auto_reply_hook(
             "user",
             f"<system>No tool call detected in last message. You have incomplete todos:\n{incomplete_summary}\n\nPlease continue working on these tasks, or mark them complete/remove them before finishing.{fence_hint}</system>",
             quiet=False,
+            metadata=_nudge_metadata(),
         )
     else:
         logger.warning(
@@ -894,6 +907,7 @@ def auto_reply_hook(
             "user",
             f"<system>No tool call detected in last message. Did you mean to finish? If so, make sure you are completely done and then use the `complete` tool to end the session.{fence_hint}</system>",
             quiet=False,
+            metadata=_nudge_metadata(),
         )
 
 

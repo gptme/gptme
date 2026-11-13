@@ -275,6 +275,11 @@ class MessageMetadata(TypedDict, total=False):
     # Idle child/watch notice. Transparent to crash-recovery so a progress or
     # notification-only completion does not start an unrequested model turn.
     idle_notification: bool
+    # Set by the harness on its own auto-reply/completion nudges (user-role).
+    # Provenance, never inferred from text: consumers such as subagent result
+    # recovery treat the nudge as transparent, while a real user message that
+    # merely quotes the nudge text remains a task boundary.
+    harness_nudge: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.
