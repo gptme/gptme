@@ -20,7 +20,7 @@ _LESSON_CACHE: dict[Path, tuple[float, Lesson]] = {}
 
 # Parsed lessons also persist on disk, so short-lived processes (Claude Code
 # hooks run one per prompt and tool call) don't re-parse every lesson file.
-# Entries are keyed by absolute path and validated per file by mtime and size,
+# Entries are keyed by absolute path and validated by mtime, size and file identity,
 # and the whole cache is keyed on this module's and the parser's source, so a
 # code change (including in an editable install) starts from scratch.
 # The format is JSON, never pickle. The location honours the launch environment's
@@ -28,7 +28,7 @@ _LESSON_CACHE: dict[Path, tuple[float, Lesson]] = {}
 # User ownership alone cannot make a repository-provided cache trustworthy.
 # It is only read if owned by the current user and not writable by others.
 # GPTME_LESSON_CACHE=0 disables it.
-_DISK_CACHE_FORMAT = 2
+_DISK_CACHE_FORMAT = 3
 _disk_cache_loaded = False
 _disk_cache_dirty = False
 
@@ -97,11 +97,12 @@ def _load_disk_cache() -> None:
         return
     for lesson_path, entry in entries.items():
         try:
-            mtime, size, lesson_data = entry
+            mtime, size, device, inode, lesson_data = entry
             key = Path(lesson_path)
             if key.is_absolute() and key not in _LESSON_CACHE:
-                _DISK_SIZES[key] = size
-                _LESSON_CACHE[key] = (mtime, _lesson_from_json(lesson_data))
+                lesson = _lesson_from_json(lesson_data)
+                _FILE_SIGNATURES[key] = (size, device, inode)
+                _LESSON_CACHE[key] = (mtime, lesson)
         except Exception:
             continue
 
@@ -115,10 +116,10 @@ def _save_disk_cache() -> None:
     for lesson_path, (mtime, lesson) in _LESSON_CACHE.items():
         if not lesson_path.is_absolute():
             continue  # relative keys could collide across workspaces
-        size = _DISK_SIZES.get(lesson_path)
-        if size is None:
+        signature = _FILE_SIGNATURES.get(lesson_path)
+        if signature is None:
             continue
-        entries[str(lesson_path)] = [mtime, size, _lesson_to_json(lesson)]
+        entries[str(lesson_path)] = [mtime, *signature, _lesson_to_json(lesson)]
     tmp: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,9 +143,11 @@ def _save_disk_cache() -> None:
                 pass
 
 
-# Sizes associated with cached content, whether parsed locally or loaded from disk.
-# Preserve them on save: a fresh stat could pair stale content with an edited size.
-_DISK_SIZES: dict[Path, int] = {}
+# Size and file identity associated with cached content, parsed locally or loaded
+# from disk. Preserve them on save: a fresh stat could bless stale content. Device
+# and inode distinguish symlink targets even with identical mtimes and sizes,
+# without adding per-file realpath work to the hook's hot path.
+_FILE_SIGNATURES: dict[Path, tuple[int, int, int]] = {}
 
 
 @functools.lru_cache(maxsize=1024)
@@ -199,13 +202,15 @@ def _get_cached_lesson(path: Path) -> Lesson | None:
     try:
         st = path.stat()
         current_mtime = st.st_mtime
-        expected_size = _DISK_SIZES.get(path)
-        if current_mtime == cached_mtime and (
-            expected_size is None or expected_size == st.st_size
+        expected_signature = _FILE_SIGNATURES.get(path)
+        if current_mtime == cached_mtime and expected_signature == (
+            st.st_size,
+            st.st_dev,
+            st.st_ino,
         ):
             logger.debug(f"Cache hit: {path.name}")
             return cached_lesson
-        logger.debug(f"Cache invalidated (mtime changed): {path.name}")
+        logger.debug(f"Cache invalidated (file changed): {path.name}")
     except FileNotFoundError:
         # File was deleted, remove from cache
         logger.debug(f"Cache invalidated (file deleted): {path.name}")
@@ -225,7 +230,7 @@ def _cache_lesson(path: Path, lesson: Lesson) -> None:
     try:
         st = path.stat()
         _LESSON_CACHE[path] = (st.st_mtime, lesson)
-        _DISK_SIZES[path] = st.st_size
+        _FILE_SIGNATURES[path] = (st.st_size, st.st_dev, st.st_ino)
         _disk_cache_dirty = True
         logger.debug(f"Cached lesson: {path.name}")
     except FileNotFoundError:
@@ -240,7 +245,7 @@ def clear_cache() -> None:
     global _disk_cache_loaded, _disk_cache_dirty
     cache_size = len(_LESSON_CACHE)
     _LESSON_CACHE.clear()
-    _DISK_SIZES.clear()
+    _FILE_SIGNATURES.clear()
     # Drop the persisted copy too: otherwise the next index build (here or in
     # another process) could restore the entries the caller just cleared.
     _disk_cache_loaded = True

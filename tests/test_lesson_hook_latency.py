@@ -82,7 +82,7 @@ st = lesson.stat()
 cache = Path(sys.argv[1]) / "gptme" / "lessons-cache.json"
 cache.parent.mkdir(parents=True)
 cache.write_text(json.dumps({"key": index._disk_cache_key(),
-    "entries": {str(lesson): [st.st_mtime, st.st_size, forged]}}))
+    "entries": {str(lesson): [st.st_mtime, st.st_size, st.st_dev, st.st_ino, forged]}}))
 cache.chmod(0o600)
 loaded = index.LessonIndex(lesson_dirs=[lesson.parent]).lessons
 assert [item.title for item in loaded] == ["Authentic"]
@@ -108,7 +108,7 @@ def test_disk_cache_round_trip(tmp_path, monkeypatch):
     )
 
     def fresh_process_state():
-        monkeypatch.setattr(index_mod, "_DISK_SIZES", {})
+        monkeypatch.setattr(index_mod, "_FILE_SIGNATURES", {})
         monkeypatch.setattr(index_mod, "_LESSON_CACHE", {})
         monkeypatch.setattr(index_mod, "_disk_cache_loaded", False)
         monkeypatch.setattr(index_mod, "_disk_cache_dirty", False)
@@ -171,6 +171,53 @@ def test_saving_unrelated_lesson_preserves_cached_size(
     _fresh_cache(index_mod, monkeypatch, tmp_path)
     loaded = index_mod.LessonIndex(lesson_dirs=[a_dir])
     assert [lesson.title for lesson in loaded.lessons] == ["Updated longer title"]
+
+
+@pytest.mark.parametrize("reload_from_disk", [False, True])
+@pytest.mark.parametrize("link_kind", ["directory", "file"])
+def test_cache_invalidated_when_symlink_target_changes(
+    tmp_path, monkeypatch, reload_from_disk, link_kind
+):
+    """Equal mtime/size must not hide a different file behind the same path."""
+    import os
+
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    a_dir.mkdir()
+    b_dir.mkdir()
+    a, b = a_dir / "a.md", b_dir / "a.md"
+    a.write_text("---\nmatch:\n  keywords: [alpha]\n---\n# Release A\n")
+    b.write_text("---\nmatch:\n  keywords: [alpha]\n---\n# Release B\n")
+    st = a.stat()
+    os.utime(b, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert a.stat().st_size == b.stat().st_size
+    if link_kind == "directory":
+        link = tmp_path / "current"
+        link.symlink_to(a_dir, target_is_directory=True)
+        lesson_dir = link
+    else:
+        lesson_dir = tmp_path / "current"
+        lesson_dir.mkdir()
+        link = lesson_dir / "a.md"
+        link.symlink_to(a)
+    first = index_mod.LessonIndex(lesson_dirs=[lesson_dir])
+    assert [lesson.title for lesson in first.lessons] == ["Release A"]
+
+    link.unlink()
+    link.symlink_to(
+        b_dir if link_kind == "directory" else b,
+        target_is_directory=link_kind == "directory",
+    )
+    if reload_from_disk:
+        _fresh_cache(index_mod, monkeypatch, tmp_path)
+        second = index_mod.LessonIndex(lesson_dirs=[lesson_dir])
+    else:
+        first.refresh()
+        second = first
+    assert [lesson.title for lesson in second.lessons] == ["Release B"]
+    assert second.lessons[0].path == lesson_dir / "a.md"
 
 
 def test_disk_cache_can_be_disabled(tmp_path, monkeypatch):
@@ -262,7 +309,7 @@ def _fresh_cache(index_mod, monkeypatch, tmp_path):
     # instead of changing the live env and accidentally touching the user's cache.
     monkeypatch.setattr(index_mod, "_trusted_cache_base", str(tmp_path / "cache"))
     monkeypatch.setenv("GPTME_LESSON_CACHE", "1")
-    monkeypatch.setattr(index_mod, "_DISK_SIZES", {})
+    monkeypatch.setattr(index_mod, "_FILE_SIGNATURES", {})
     monkeypatch.setattr(index_mod, "_LESSON_CACHE", {})
     monkeypatch.setattr(index_mod, "_disk_cache_loaded", False)
     monkeypatch.setattr(index_mod, "_disk_cache_dirty", False)
