@@ -14,7 +14,11 @@ import pytest
 
 from gptme.tools import watch as watch_module
 from gptme.tools.subagent import Subagent, subagent_snapshots
-from gptme.tools.subagent.hooks import notify_progress, take_queued_progress
+from gptme.tools.subagent.hooks import (
+    _remember_progress,
+    notify_progress,
+    take_queued_progress,
+)
 from gptme.tools.subagent.types import (
     ReturnType,
     _completion_queue,
@@ -337,12 +341,9 @@ def test_subagent_snapshot_exposes_latest_progress_without_draining(
     running.start()
     try:
         sa = _subagent("a", tmp_path / "a", parent, thread=running, started_at=1.0)
+        _remember_progress("a", "halfway there", parent, "main", run=sa)
         notify_progress(
-            "a",
-            "halfway there",
-            parent_logdir=parent,
-            parent_branch="main",
-            _run=sa,
+            "a", "halfway there", parent_logdir=parent, parent_branch="main"
         )
 
         snaps = subagent_snapshots(parent, parent_branch="main")
@@ -366,27 +367,9 @@ def test_progress_is_scoped_to_parent_and_branch(tmp_path, monkeypatch):
     run2 = _subagent("dup", tmp_path / "run2", parent, branch="main", started_at=2.0)
     stranger_run = _subagent("dup", tmp_path / "stranger-run", stranger, started_at=1.0)
 
-    notify_progress(
-        "dup",
-        "side update",
-        parent_logdir=parent,
-        parent_branch="side",
-        _run=run1,
-    )
-    notify_progress(
-        "dup",
-        "main update",
-        parent_logdir=parent,
-        parent_branch="main",
-        _run=run2,
-    )
-    notify_progress(
-        "dup",
-        "foreign update",
-        parent_logdir=stranger,
-        parent_branch="other",
-        _run=stranger_run,
-    )
+    _remember_progress("dup", "side update", parent, "side", run=run1)
+    _remember_progress("dup", "main update", parent, "main", run=run2)
+    _remember_progress("dup", "foreign update", stranger, "other", run=stranger_run)
 
     snaps = {Path(s.run_id).name: s for s in subagent_snapshots(parent)}
     assert snaps["run1"].latest_progress == "side update"
@@ -550,3 +533,21 @@ def test_subprocess_final_progress_drain_keeps_exact_run(tmp_path, monkeypatch):
     assert snapshots[0].latest_progress == "last old update"
     assert snapshots[1].latest_progress is None
     assert take_queued_progress(parent) == [("dup", "last old update")]
+
+
+def test_completed_snapshot_does_not_reread_child_transcript(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    calls = []
+
+    def read_log(sa: Subagent) -> ReturnType:
+        calls.append(sa.logdir)
+        return ReturnType("success", "done", duration_s=10)
+
+    monkeypatch.setattr(Subagent, "_read_log", read_log)
+    parent = tmp_path / "parent"
+    _subagent("child", tmp_path / "child", parent)
+    assert subagent_snapshots(parent)[0].status == "success"
+    assert subagent_snapshots(parent)[0].status == "success"
+    assert len(calls) == 1

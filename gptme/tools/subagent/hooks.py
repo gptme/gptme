@@ -467,13 +467,8 @@ def notify_progress(
     *,
     parent_logdir: Path | None = None,
     parent_branch: str | None = None,
-    _run: Subagent | None = None,
 ) -> None:
-    """Queue progress for delivery to its owning parent conversation.
-
-    ``_run`` is an optional exact attempt identity for direct callers. Delivery
-    semantics are unchanged; only the snapshot memory uses it.
-    """
+    """Queue progress for delivery to its owning parent conversation."""
     parent_logdir = _notification_parent(agent_id, parent_logdir=parent_logdir)
     # Keep the legacy direct-library tuple when no owner exists. Owned updates
     # capture their run's branch now, never by a reused agent ID at drain time.
@@ -489,7 +484,7 @@ def notify_progress(
                 parent_branch,
             )
         )
-    _remember_progress(agent_id, message, parent_logdir, parent_branch, run=_run)
+    _remember_progress(agent_id, message, parent_logdir, parent_branch)
     from ...util.notification_ready import signal
 
     signal(parent_logdir)

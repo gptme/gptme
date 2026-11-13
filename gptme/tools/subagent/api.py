@@ -2164,7 +2164,9 @@ def subagent_snapshots(
         duration_s: float | None = None
         if newest[sa.agent_id] is sa:
             # status() honors cached cancellation/timeout before worker liveness.
-            outcome = sa.status()
+            with _subagent_results_lock:
+                cached_outcome = _subagent_results.get(sa.agent_id)
+            outcome = cached_outcome or sa.snapshot_outcome or sa.status()
             status = outcome.status
             # status() can read logs while another attempt reuses this ID. Do
             # not attach that attempt's outcome or duration to the old run.
@@ -2179,6 +2181,7 @@ def subagent_snapshots(
             if not still_newest:
                 status = "running" if sa.is_running() else "unknown"
             if status not in ("running", "unknown"):
+                object.__setattr__(sa, "snapshot_outcome", outcome)
                 with _subagent_results_lock:
                     cached = _subagent_results.get(sa.agent_id)
                 if cached is outcome and outcome.duration_s is not None:

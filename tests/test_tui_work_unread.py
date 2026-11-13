@@ -5,6 +5,9 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("textual")
+
 from textual.widgets import Static
 
 from gptme.logmanager import LogManager
@@ -193,12 +196,20 @@ async def test_real_snapshots_keep_unread_and_progress_after_model_delivery(
         assert isinstance(app.screen, WorkOverviewScreen)
         owner = manager.logdir
         branch = manager.current_branch
+        from gptme.tools.subagent.hooks import _remember_progress
+
+        _remember_progress(
+            "child",
+            "Checked [queue]\nwithout consuming it",
+            owner,
+            branch,
+            run=agents[0],
+        )
         notify_progress(
             "child",
             "Checked [queue]\nwithout consuming it",
             parent_logdir=owner,
             parent_branch=branch,
-            _run=agents[0],
         )
         assert take_queued_progress(owner, branch=branch) == [
             ("child", "Checked [queue]\nwithout consuming it")
@@ -214,7 +225,7 @@ async def test_real_snapshots_keep_unread_and_progress_after_model_delivery(
             "child", "success", "done", parent_logdir=owner, parent_branch=branch
         )
         assert len(take_queued_completions(owner, branch=branch)) == 1
-        app._update_work_indicator()
+        await app._update_work_indicator()
         indicator = app.screen_stack[0].query_one("#work-indicator", Static)
         assert "1 running" in str(indicator.render())
         assert "1 unread" in str(indicator.render())
@@ -285,3 +296,24 @@ async def test_parent_can_finish_while_child_transcript_is_open(
             assert field.text == "unsent draft"
     finally:
         release.set()
+
+
+@pytest.mark.asyncio
+async def test_indicator_snapshot_read_is_off_ui_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    ui_thread = threading.current_thread()
+    observed: list[threading.Thread] = []
+
+    def snapshots(*args: object, **kwargs: object) -> list[SubagentSnapshot]:
+        observed.append(threading.current_thread())
+        return []
+
+    monkeypatch.setattr("gptme.tools.subagent.subagent_snapshots", snapshots)
+    app = GptmeApp(_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test():
+        await app._update_work_indicator()
+    assert observed
+    assert all(thread is not ui_thread for thread in observed)

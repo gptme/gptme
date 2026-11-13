@@ -2533,7 +2533,7 @@ class WorkOverviewScreen(ModalScreen):
                 self.app._work_acknowledged.add(
                     self.app._work_key(self._logdir, self._branch, sa)
                 )
-                self.app._update_work_indicator()
+                self.app.run_worker(self.app._update_work_indicator())
 
     def action_cursor_down(self) -> None:
         if self._cursor >= len(self._children) - 1:
@@ -2989,7 +2989,7 @@ class GptmeApp(App):
                 Text("Enter send · Ctrl+J newline · Ctrl+O details"), id="keys"
             )
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         # Redirect stdout/stderr to a log file: core machinery (tool output
         # streaming, terminal titles, stray logs) writes to stdout, which
         # would corrupt the display. The Textual driver renders via
@@ -3044,7 +3044,7 @@ class GptmeApp(App):
             self.watch(chat, "size", self._anchor_chat, init=False)
         self.query_one("#input", ChatInput).focus()
         self._update_status()
-        self._update_work_indicator()
+        await self._update_work_indicator()
         self.set_interval(1.0, self._update_work_indicator)
         # watchdog: tools can reset the tty at any point during execution
         self.set_interval(0.5, self._restore_terminal)
@@ -3661,17 +3661,22 @@ class GptmeApp(App):
             and self._work_key(logdir, branch, child) not in self._work_acknowledged
         )
 
-    def _update_work_indicator(self) -> None:
-        """Poll read-only snapshots even while a transcript/modal covers the parent."""
+    async def _update_work_indicator(self) -> None:
+        """Read child logs off-loop, even while a modal covers the parent."""
         from ..tools.subagent import subagent_snapshots
         from ..tools.watch import watch_snapshots
 
-        children = subagent_snapshots(
-            self.manager.logdir, parent_branch=self.manager.current_branch
+        logdir, branch = self.manager.logdir, self.manager.current_branch
+        children = await asyncio.to_thread(
+            subagent_snapshots, logdir, parent_branch=branch
         )
-        watches = watch_snapshots(
-            self.manager.logdir, branch=self.manager.current_branch
-        )
+        if (
+            self._quitting
+            or self.manager.logdir != logdir
+            or self.manager.current_branch != branch
+        ):
+            return
+        watches = watch_snapshots(logdir, branch=branch)
         running = sum(c.status == "running" for c in children)
         unread = sum(
             self._work_unread(self.manager.logdir, self.manager.current_branch, c)
