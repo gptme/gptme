@@ -739,7 +739,9 @@ class SessionManager:
                 # ACP owns its own input cursor/runtime. Until peer wakes can
                 # enter that runtime, leave mail untouched rather than answer
                 # in-process and deliver the same input again on the next ACP step.
-                if session.interrupted or session.use_acp:
+                if session.interrupted or any(
+                    item.use_acp or item.acp_runtime is not None for item in sessions
+                ):
                     return False
                 config = ChatConfig.load_or_create(logdir, ChatConfig())
                 # Same autowake policy as watch wake and the TUI: an explicit

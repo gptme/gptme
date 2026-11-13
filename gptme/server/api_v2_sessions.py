@@ -860,6 +860,12 @@ def api_conversation_tool_confirm(conversation_id: str):
                 manager.write()
 
                 resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+                # Bridge reservation to worker pinning without reentering this
+                # non-reentrant lock. Removal must not unlock a peer writer
+                # between leaving this block and dispatching the continuation.
+                writer_pinned = session.writer_manager is not None
+                if writer_pinned:
+                    session._writer_workers += 1
             except Exception:
                 session.generating = False
                 session.generating_since = None
@@ -880,6 +886,8 @@ def api_conversation_tool_confirm(conversation_id: str):
                 top_p=current_tool.top_p,
             )
         finally:
+            if writer_pinned:
+                session.release_writer_worker()
             if not continuation_dispatched:
                 with session.step_lock:
                     if session.step_seq == skip_step_seq:

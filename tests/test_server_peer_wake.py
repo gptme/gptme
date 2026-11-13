@@ -657,3 +657,106 @@ def test_failed_peer_dispatch_is_visible_without_requeue_or_duplicate(
             assert [msg.content for msg in saved.log.messages] == ["saved once"]
     finally:
         SessionManager.remove_session(session.id)
+
+
+@pytest.mark.parametrize("runtime_only", [False, True])
+def test_new_observer_cannot_bypass_sibling_acp_owner(
+    logs_dir: Path, armed, monkeypatch: pytest.MonkeyPatch, runtime_only: bool
+) -> None:
+    from datetime import timedelta
+
+    manager, started = armed
+    cid = "peer-sibling-acp"
+    queue = _conversation(logs_dir, cid) / "prompt-queue.jsonl"
+    queue.write_text("pending peer input", encoding="utf-8")
+    drain = unittest.mock.MagicMock()
+    monkeypatch.setattr("gptme.prompt_queue.drain_peer_prompts", drain)
+    owner = SessionManager.create_session(cid)
+    observer = SessionManager.create_session(cid)
+    observer.last_activity = owner.last_activity + timedelta(seconds=1)
+    owner.use_acp = not runtime_only
+    if runtime_only:
+        owner.acp_runtime = unittest.mock.MagicMock()
+    try:
+        assert not SessionManager.request_peer_wake(cid)
+        drain.assert_not_called()
+        manager.append.assert_not_called()
+        started.assert_not_called()
+        assert queue.read_text() == "pending peer input"
+    finally:
+        owner.acp_runtime = None
+        SessionManager.remove_session(observer.id)
+        SessionManager.remove_session(owner.id)
+
+
+@pytest.mark.parametrize("fail_dispatch", [False, True])
+def test_skip_reservation_pins_writer_through_removal(
+    client, monkeypatch: pytest.MonkeyPatch, fail_dispatch: bool
+) -> None:
+    import threading
+    import uuid
+
+    from gptme.server.session_models import ToolExecution
+    from gptme.tools import ToolUse
+
+    cid = f"test-skip-pin-{uuid.uuid4().hex[:8]}"
+    response = client.put(f"/api/v2/conversations/{cid}", json={"prompt": "Test"})
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    session = SessionManager.get_session(sid)
+    assert session is not None
+    manager = unittest.mock.MagicMock()
+    session.writer_manager = manager
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo hi")
+    )
+    start = session_step._start_step_thread
+    entered, finish = threading.Event(), threading.Event()
+
+    def fake_step(**kwargs: object) -> None:
+        entered.set()
+        assert finish.wait(10)
+
+    def remove_then_dispatch(*args: object, **kwargs: object) -> bool:
+        assert session._writer_workers == 1
+        SessionManager.remove_session(sid)
+        manager.__exit__.assert_not_called()
+        if fail_dispatch:
+            return False
+        assert session.writer_manager is not None
+        return start(
+            cid,
+            session,
+            "local/test",
+            session.writer_manager.workspace,
+            reserved=True,
+            step_seq=session.step_seq,
+        )
+
+    monkeypatch.setattr(session_step, "step", fake_step)
+    monkeypatch.setattr(
+        "gptme.server.api_v2_sessions._start_step_thread", remove_then_dispatch
+    )
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{cid}/tool/confirm",
+            json={"session_id": sid, "tool_id": "skip-me", "action": "skip"},
+        )
+        assert response.status_code == 200
+        if not fail_dispatch:
+            assert entered.wait(5)
+            assert session._writer_workers == 1
+            manager.__exit__.assert_not_called()
+        else:
+            assert not session.generating
+    finally:
+        finish.set()
+        import time
+
+        deadline = time.monotonic() + 5
+        while session._writer_workers and time.monotonic() < deadline:
+            time.sleep(0.01)
+        SessionManager.remove_session(sid)
+    assert session._writer_workers == 0
+    assert session.writer_manager is None
+    manager.__exit__.assert_called_once()
