@@ -485,6 +485,23 @@ def isolate_user_config(
 
 
 @pytest.fixture(autouse=True)
+def isolate_output_format() -> Iterator[None]:
+    """Start each test with text output and undo any format a test switched to.
+
+    In-process callers such as ``gptme hooks run`` set the output format to
+    JSON on the current context; without a reset that leaks to every later
+    test on the same xdist worker.
+    """
+    from gptme.message import _output_format
+
+    token = _output_format.set("text")
+    try:
+        yield
+    finally:
+        _output_format.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def no_memory_lessons(
     monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[None]:
