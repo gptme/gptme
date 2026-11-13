@@ -1,6 +1,7 @@
 """Tests for time_awareness hook."""
 
 import contextvars
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,7 @@ import pytest
 from dateutil.parser import isoparse
 
 from gptme.hooks.time_awareness import (
+    DEADLINE_ENV_VARS,
     _conversation_start_times_var,
     _get_next_milestone,
     _last_notice_var,
@@ -29,6 +31,23 @@ from gptme.util.clock import format_duration, format_timestamp
 def workspace(tmp_path: Path) -> Path:
     """Create a temporary workspace directory."""
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def clear_session_deadline_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the host's session-deadline configuration out of these tests.
+
+    This tree is outside ``tests/``, so the conftest fixture there doesn't
+    apply. Without it, running the suite inside a deadline-wired session
+    switches the hook to deadline mode and the elapsed-time tests fail.
+    """
+    for name in DEADLINE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_host_deadline_env_is_isolated():
+    """Guard the fixture above: no deadline env may leak in from the host."""
+    assert not [name for name in DEADLINE_ENV_VARS if name in os.environ]
 
 
 @pytest.fixture(autouse=True)

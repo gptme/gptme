@@ -257,15 +257,7 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
 # --- Deadline awareness (GPTME_SESSION_DEADLINE) ---
 
 
-@pytest.fixture(autouse=True)
-def _clear_deadline_env(monkeypatch):
-    """Keep deadline configuration from the host out of every test."""
-    for name in (
-        "GPTME_SESSION_DEADLINE",
-        "GPTME_SESSION_START",
-        "GPTME_TIME_NOTICE_FRACTIONS",
-    ):
-        monkeypatch.delenv(name, raising=False)
+# Host deadline env is cleared for every test by ``tests/conftest.py``.
 
 
 _DEADLINE_BASE = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)

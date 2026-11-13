@@ -342,6 +342,23 @@ def restore_cwd():
 
 
 @pytest.fixture(autouse=True)
+def clear_session_deadline_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the host's session-deadline configuration out of every test.
+
+    Runners that enforce a wall-clock limit export ``GPTME_SESSION_START`` and
+    ``GPTME_SESSION_DEADLINE`` (gptme/gptme#4890). When the suite itself runs
+    inside such a session, the time-awareness hook switches to deadline mode
+    and elapsed-time assertions fail, or a test gets an unexpected deadline
+    notice once the host session passes 70% of its budget. Tests that exercise
+    deadline mode set these variables explicitly with ``monkeypatch.setenv``.
+    """
+    from gptme.hooks.time_awareness import DEADLINE_ENV_VARS
+
+    for name in DEADLINE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def reset_session_allow_hosts() -> Iterator[None]:
     """Clear the web-tool host allowlist around every test.
 
