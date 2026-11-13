@@ -1521,7 +1521,9 @@ def _release_retained_workspace(sa: Subagent, *, force: bool) -> dict:
     return result
 
 
-def subagent_steer(agent_id: str, message: str) -> str:
+def subagent_steer(
+    agent_id: str, message: str, *, expected_run: tuple[Path, float] | None = None
+) -> str:
     """Inject a steering message into a running subagent's conversation.
 
     The message is queued via the subagent's logdir prompt-queue with a
@@ -1537,6 +1539,8 @@ def subagent_steer(agent_id: str, message: str) -> str:
 
     Args:
         agent_id: The running subagent to steer.
+        expected_run: Optional (resolved logdir, started_at) identity guard for
+            UI selection. Rejected rather than redirected when an ID is reused.
         message: The guidance to inject. This will appear as a user turn in the
             subagent's conversation on its next loop iteration.
 
@@ -1577,6 +1581,9 @@ def subagent_steer(agent_id: str, message: str) -> str:
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
+
+    if expected_run is not None and (sa.logdir, sa.started_at) != expected_run:
+        raise ValueError("Selected subagent run changed; reopen the work overview.")
 
     if sa.execution_mode == "acp":
         raise NotImplementedError(
@@ -1634,7 +1641,19 @@ def subagent_steer(agent_id: str, message: str) -> str:
             "For clarification_needed subagents, use subagent_reply() to re-spawn them."
         )
 
-    queue_prompt(sa.logdir, message, steer=True)
+    if expected_run is None:
+        queue_prompt(sa.logdir, message, steer=True)
+    else:
+        # Keep selection validation and publication atomic against ID reuse.
+        with _subagents_lock:
+            current = next(
+                (s for s in reversed(_subagents) if s.agent_id == agent_id), None
+            )
+            if current is not sa:
+                raise ValueError(
+                    "Subagent run changed before steering could be queued."
+                )
+            queue_prompt(sa.logdir, message, steer=True)
 
     # Re-check after queuing: catches the race where the subagent exits between
     # the initial check and the queue write.
@@ -1682,7 +1701,11 @@ def _acp_result(response: Any, chunks: list[str]) -> ReturnType:
 
 
 def subagent_continue(
-    agent_id: str, message: str, *, allow_cancelled: bool = False
+    agent_id: str,
+    message: str,
+    *,
+    allow_cancelled: bool = False,
+    expected_run: tuple[Path, float] | None = None,
 ) -> None:
     """Continue a finished subagent in its existing conversation.
 
@@ -1693,6 +1716,8 @@ def subagent_continue(
     Args:
         agent_id: The completed subagent to continue.
         message: Follow-up instruction for the child.
+        expected_run: Optional (resolved logdir, started_at) identity guard.
+            Continuation also checks registry identity atomically before launch.
         allow_cancelled: When True, allows continuing a subagent whose persisted
             outcome is ``cancelled``. Defaults to False so cancellation is final
             unless the caller explicitly opts in.
@@ -1701,6 +1726,8 @@ def subagent_continue(
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
+    if expected_run is not None and (sa.logdir, sa.started_at) != expected_run:
+        raise ValueError("Selected subagent run changed; reopen the work overview.")
     # Cached timeout/cancel results can coexist with a thread that is still
     # unwinding. Check the execution primitive directly before allowing a second
     # writer into the same conversation.
