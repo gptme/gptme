@@ -944,7 +944,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efd34448b80&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa84de48b80&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2479,7 +2479,9 @@ accumulates spend across iterations — the canonical dynamic fan-out loop:
 <span class="sb">```</span>
 
 Each result dict has ``input_tokens`` / ``output_tokens`` fields so you can
-inspect per-agent spend. Budget is output-token-only (the expensive marginal
+inspect per-agent spend. ``input_tokens`` includes cache reads and writes; when
+the provider reports caching, ``cache_read_tokens``, ``cache_creation_tokens``
+and ``uncached_input_tokens`` show the split. Budget is output-token-only (the expensive marginal
 cost). Agents already running when the budget hits zero are allowed to finish
 normally — only <span class="ge">*new*</span> spawns are blocked.
 
@@ -3102,7 +3104,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20879</p>
+<p>Tokens: 20919</p>
 </dd></dl>
 
 <dl class="py function">
