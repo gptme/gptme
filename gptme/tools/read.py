@@ -13,7 +13,6 @@ import os
 from collections.abc import Generator
 from pathlib import Path
 
-from ..hooks._policy_block import policy_block_message
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.context_savings import record_context_savings
@@ -23,7 +22,6 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
-    get_current_tool_use,
 )
 from .pruner import plan_tool_output_prune
 
@@ -499,37 +497,12 @@ def execute_read(
         yield Message("system", "No path provided")
         return
 
-    # Built-in read skips execute_with_confirmation() (it is read_only). Invoke
-    # the guardrail hook directly — not the full TOOL_CONFIRM chain. Falling
-    # through to server_confirm/cli_confirm would prompt (and in server mode
-    # wait up to an hour) in shadow/off, which those modes promise never to do.
-    # Consult the registry first: a direct call would ignore HOOK_ALLOWLIST
-    # exclusion and disable_hook, making reads disagree with shell.
-    from ..hooks.confirm import ConfirmAction
-    from ..hooks.guardrails import (
-        _is_secret_path,
-        guardrail_hook,
-        is_guardrail_active,
-    )
-
-    if is_guardrail_active() and any(_is_secret_path(str(p)) for p in paths):
-        tool_use = get_current_tool_use() or ToolUse(
-            tool="read",
-            args=[str(paths[0])] if len(paths) == 1 else None,
-            content="\n".join(str(p) for p in paths) if len(paths) != 1 else "",
-        )
-        result = guardrail_hook(
-            tool_use=tool_use,
-            preview="\n".join(str(p) for p in paths),
-        )
-        if result is not None and result.action == ConfirmAction.SKIP:
-            if result.message:
-                yield Message("system", result.message)
-            else:
-                yield policy_block_message(
-                    "read-guardrail", "Read blocked by guardrail"
-                )
-            return
+    # Secret-path policy for reads lives at the central TOOL_EXECUTE_PRE seam
+    # (gptme/hooks/guardrails.py), which fires before this function runs. That
+    # seam can deny without prompting, so read still never enters the
+    # TOOL_CONFIRM chain — falling through to server_confirm/cli_confirm would
+    # prompt (and in server mode wait up to an hour) in shadow/off, which those
+    # modes promise never to do.
 
     # Parse optional line range from kwargs (single-path only)
     start_line = 1

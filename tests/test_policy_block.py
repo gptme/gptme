@@ -114,20 +114,19 @@ class TestGuardrailBlockPathsUseMarker:
             if r.levelno == logging.INFO and "blocking" in r.getMessage()
         ]
 
-    def test_read_guardrail_fallback_has_marker(self, monkeypatch):
-        """read.py's fallback branch (guardrail SKIP with empty message) uses helper."""
+    def test_read_guardrail_deny_has_marker(self, monkeypatch):
+        """read's secret-path denial (TOOL_EXECUTE_PRE) carries marker + finality."""
         from gptme.hooks import guardrails as gr
-        from gptme.hooks.confirm import ConfirmAction, ConfirmationResult
-        from gptme.tools.read import execute_read
+        from gptme.hooks.types import ToolExecutePreData
+        from gptme.tools.base import ToolUse
 
-        monkeypatch.setattr(gr, "is_guardrail_active", lambda: True)
-        monkeypatch.setattr(
-            gr,
-            "guardrail_hook",
-            lambda tool_use, preview: ConfirmationResult(
-                action=ConfirmAction.SKIP, message=""
-            ),
+        monkeypatch.setattr(gr, "_get_mode", lambda: "enforce")
+        data = ToolExecutePreData(
+            tool_use=ToolUse(tool="read", args=["/home/user/.env"], content=None)
         )
-        msgs = list(execute_read(None, ["/home/user/.env"], None))
-        assert any(POLICY_BLOCK_MARKER in m.content for m in msgs)
-        assert any("intentional and final" in m.content for m in msgs)
+        list(gr.guardrail_pre_hook(data))
+
+        assert data.denied
+        denial = " ".join(data.denials)
+        assert POLICY_BLOCK_MARKER in denial
+        assert "intentional and final" in denial
