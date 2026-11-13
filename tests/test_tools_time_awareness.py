@@ -495,6 +495,39 @@ def test_deadline_custom_fraction_not_repeated_after_resume(
     assert resumed == []
 
 
+def test_deadline_close_fractions_both_fire(
+    load_time_awareness_tool, tmp_path, monkeypatch
+):
+    """Distinct fractions closer than any tolerance must each still fire."""
+    _set_deadline_env(monkeypatch, fractions="0.7,0.7000000005")
+
+    first = _trigger_at(monkeypatch, tmp_path / "before", Log(), _at_minutes(70))
+    assert len(first) == 1
+    assert "Stop editing" not in first[0].content
+    log = Log().append(first[0])
+
+    resumed = _trigger_at(monkeypatch, tmp_path / "after", log, _at_minutes(80))
+
+    assert len(resumed) == 1
+    assert "Stop editing" in resumed[0].content
+
+
+def test_deadline_scientific_notation_not_repeated_after_resume(
+    load_time_awareness_tool, tmp_path, monkeypatch
+):
+    """A tiny fraction displayed in scientific notation must suppress on resume."""
+    _set_deadline_env(monkeypatch, fractions="0.0000001")
+
+    first = _trigger_at(monkeypatch, tmp_path / "before", Log(), _at_minutes(1))
+    assert len(first) == 1
+    assert "1e-05% of budget used" in first[0].content
+    log = Log().append(first[0])
+
+    resumed = _trigger_at(monkeypatch, tmp_path / "after", log, _at_minutes(2))
+
+    assert resumed == []
+
+
 def test_deadline_resume_emits_only_next_threshold(
     load_time_awareness_tool, tmp_path, monkeypatch
 ):

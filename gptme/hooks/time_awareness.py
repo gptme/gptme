@@ -58,7 +58,10 @@ _DEFAULT_FRACTIONS = "0.7,0.9"
 # Log markers for threshold state, so suppression survives resume and is
 # scoped to the exact start+deadline pair (a new runner budget must not be
 # suppressed by an old run's warning).
-_DEADLINE_RE = re.compile(r"Deadline warning: (\d+(?:\.\d+)?)% of budget used")
+# ``:g`` formatting can emit scientific notation for tiny fractions (1e-05%).
+_DEADLINE_RE = re.compile(
+    r"Deadline warning: (\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)% of budget used"
+)
 _DEADLINE_ID_RE = re.compile(r"\[deadline-id:([0-9a-f]+)\]")
 # Exact threshold, so a fraction whose display rounds (0.8333333333 shows as
 # 83.3333%) is recognized as already reported on resume.
@@ -262,9 +265,9 @@ def _deadline_notice(
     fraction_elapsed = elapsed / (cfg.deadline - cfg.start).total_seconds()
     logged = scan.deadline_threshold if scan and scan.deadline_threshold else 0.0
     reported = max(logged, shown.get(workspace, {}).get(ident, 0.0))
-    crossed = [
-        f for f in cfg.fractions if f <= fraction_elapsed and f > reported + 1e-9
-    ]
+    # Exact comparison: the reported threshold is persisted exactly, and a
+    # tolerance would drop distinct configured fractions closer than it.
+    crossed = [f for f in cfg.fractions if reported < f <= fraction_elapsed]
     threshold = max(crossed) if crossed else None
     if threshold is None and gap is None:
         return None
