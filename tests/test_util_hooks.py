@@ -603,6 +603,8 @@ def memory_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem))
     monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "true")
+    # Memory-only assertions must not depend on the developer's user lessons.
+    monkeypatch.setattr(cmd_hooks, "_user_lesson_dirs", lambda: [])
     return tmp_path
 
 
