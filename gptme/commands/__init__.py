@@ -123,3 +123,10 @@ __all__ = [
     "register_command",
     "unregister_command",
 ]
+
+
+# Lesson and skills commands live in gptme.lessons; register them with the other
+# built-ins here rather than as a side effect of importing gptme.lessons.
+from ..lessons.commands import register_lesson_commands
+
+register_lesson_commands()

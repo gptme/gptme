@@ -10,14 +10,22 @@ import textwrap
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-from xml.sax.saxutils import escape as xml_escape
-
-from rich.console import Console
 
 EMOJI_WARN = "⚠️"
 
 logger = logging.getLogger(__name__)
-console = Console(log_path=False)
+
+
+def __getattr__(name: str):
+    # The shared rich console is created on first use: importing rich (and
+    # xml.sax.saxutils, which pulls in urllib.request) cost every `import gptme`
+    # noticeable time, including latency-sensitive hook processes.
+    if name == "console":
+        from rich.console import Console
+
+        globals()["console"] = value = Console(log_path=False)
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def epoch_to_age(epoch, incl_date=False):
@@ -85,6 +93,8 @@ def example_to_xml(s: str) -> str:
     """
     Transforms an example with "> Role:" dividers into XML format <role>message</role>.
     """
+    from xml.sax.saxutils import escape as xml_escape
+
     s = clean_example(s)
     orig = s
 

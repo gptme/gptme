@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 import tempfile
@@ -32,7 +33,10 @@ _USERPROMPTSUBMIT = "UserPromptSubmit"
 _PRETOOLUSE = "PreToolUse"
 
 # Tools to match in PreToolUse (same as the existing hook)
-_PRETOOLUSE_MATCHER = "Read|Bash|Grep|WebFetch|WebSearch"
+# All tools: lessons must also see edits, writes, subagent dispatches and
+# messages to other agents (gptme/gptme#4868). The per-session throttle bounds
+# how often PreToolUse matching actually runs.
+_PRETOOLUSE_MATCHER = "*"
 
 # Timeout for hook execution (seconds)
 _HOOK_TIMEOUT = 10
@@ -278,10 +282,13 @@ def run(workspace: Path | None = None) -> None:
     gptme.toml [lessons] dirs. Already-injected lessons are tracked per session
     to avoid duplicates.
     """
-    # Suppress diagnostic output since this command must output only JSON
-    from ..message import set_output_format
+    # Suppress diagnostic output since this command must output only JSON.
+    # Only relevant if message rendering is loaded at all; importing
+    # gptme.message just to set this cost hooks a large share of their runtime.
+    if "gptme.message" in sys.modules:
+        from ..message import set_output_format
 
-    set_output_format("json")
+        set_output_format("json")
 
     try:
         raw = sys.stdin.read()
@@ -339,8 +346,17 @@ def run(workspace: Path | None = None) -> None:
         workspace = None
     if workspace is None:
         workspace = _find_workspace()
-    if workspace is None:
-        logger.debug("No gptme.toml found; skipping lesson injection")
+    # Workspace lessons first (they win deduplication), then the user's own
+    # lesson dirs from gptme's config, as gptme chat does. Without the latter, a
+    # globally installed hook did nothing in sessions outside an agent workspace.
+    lesson_dirs = _load_lesson_dirs(workspace) if workspace is not None else []
+    for user_dir in _user_lesson_dirs():
+        if user_dir not in lesson_dirs:
+            lesson_dirs.append(user_dir)
+    if not lesson_dirs:
+        logger.debug(
+            "No gptme.toml or user lesson dirs found; skipping lesson injection"
+        )
         _output_empty()
         return
 
@@ -348,11 +364,6 @@ def run(workspace: Path | None = None) -> None:
     try:
         from ..lessons.index import LessonIndex
         from ..lessons.matcher import LessonMatcher, MatchContext
-
-        lesson_dirs = _load_lesson_dirs(workspace)
-        if not lesson_dirs:
-            _output_empty()
-            return
 
         index = LessonIndex(lesson_dirs=lesson_dirs)
         matcher = LessonMatcher()
@@ -516,6 +527,45 @@ def _load_lesson_dirs(workspace: Path) -> list[Path]:
         return [workspace / d for d in raw_dirs if isinstance(d, str)]
     except Exception:
         return [workspace / "lessons"]
+
+
+def _user_lesson_dirs() -> list[Path]:
+    """The user's lesson dirs: gptme's config dir and ``[lessons] dirs`` in user config.
+
+    ``[lessons] dirs`` is resolved like gptme's user config: config.runtime.toml
+    defaults, then config.toml, then config.local.toml, a later list replacing an
+    earlier one. Read directly with tomllib: importing gptme.config would pull in
+    the tool and plugin stack, which this per-call hook avoids. Malformed files
+    and values are skipped; a hook must never fail on user config.
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    config_dir = Path(base) / "gptme"
+    dirs: list[Path] = []
+    if (config_dir / "lessons").is_dir():
+        dirs.append(config_dir / "lessons")
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+
+    raw_dirs: list = []
+    for name in ("config.runtime.toml", "config.toml", "config.local.toml"):
+        try:
+            with open(config_dir / name, "rb") as f:
+                cfg = tomllib.load(f)
+        except Exception:
+            continue
+        lessons = cfg.get("lessons")
+        if isinstance(lessons, dict) and isinstance(lessons.get("dirs"), list):
+            raw_dirs = lessons["dirs"]
+    for raw in raw_dirs:
+        if isinstance(raw, str):
+            path = Path(os.path.expanduser(raw))
+            if path.is_dir() and path not in dirs:
+                dirs.append(path)
+    return dirs
 
 
 # Session state (per-session injected lessons set)

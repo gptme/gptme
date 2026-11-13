@@ -1,10 +1,14 @@
 """Lesson index for discovery and search."""
 
+import dataclasses
+import functools
 import json
 import logging
 import os
+import stat
 from pathlib import Path
 
+from . import _trusted_cache_base
 from .parser import Lesson, LessonMetadata, parse_lesson
 
 logger = logging.getLogger(__name__)
@@ -12,6 +16,172 @@ logger = logging.getLogger(__name__)
 # Module-level cache for parsed lessons
 # Key: lesson file path, Value: (mtime, parsed_lesson)
 _LESSON_CACHE: dict[Path, tuple[float, Lesson]] = {}
+
+
+# Parsed lessons also persist on disk, so short-lived processes (Claude Code
+# hooks run one per prompt and tool call) don't re-parse every lesson file.
+# Entries are keyed by absolute path and validated by mtime, size and file identity,
+# and the whole cache is keyed on this module's and the parser's source, so a
+# code change (including in an editable install) starts from scratch.
+# The format is JSON, never pickle. The location honours the launch environment's
+# XDG_CACHE_HOME, captured before workspace .env loading in lessons.__init__.
+# User ownership alone cannot make a repository-provided cache trustworthy.
+# It is only read if owned by the current user and not writable by others.
+# GPTME_LESSON_CACHE=0 disables it.
+_DISK_CACHE_FORMAT = 3
+_disk_cache_loaded = False
+_disk_cache_dirty = False
+
+
+def _disk_cache_path() -> Path | None:
+    if os.environ.get("GPTME_LESSON_CACHE", "1").lower() in ("0", "false", "no", "off"):
+        return None
+    return Path(_trusted_cache_base) / "gptme" / "lessons-cache.json"
+
+
+def _disk_cache_key() -> list:
+    from . import parser
+
+    stamps: list[list[int] | None] = []
+    for module_file in (__file__, parser.__file__):
+        try:
+            st = os.stat(module_file)
+            stamps.append([st.st_mtime_ns, st.st_size])
+        except (OSError, TypeError):
+            stamps.append(None)
+    return [_DISK_CACHE_FORMAT, *stamps]
+
+
+def _lesson_to_json(lesson: Lesson) -> dict:
+    data = dataclasses.asdict(lesson)
+    data["path"] = str(lesson.path)
+    return data
+
+
+def _lesson_from_json(data: dict) -> Lesson:
+    meta_fields = {f.name for f in dataclasses.fields(LessonMetadata)}
+    lesson_fields = {f.name for f in dataclasses.fields(Lesson)}
+    metadata = LessonMetadata(
+        **{k: v for k, v in data["metadata"].items() if k in meta_fields}
+    )
+    kwargs = {
+        k: v for k, v in data.items() if k in lesson_fields - {"path", "metadata"}
+    }
+    return Lesson(path=Path(data["path"]), metadata=metadata, **kwargs)
+
+
+def _load_disk_cache() -> None:
+    global _disk_cache_loaded
+    if _disk_cache_loaded:
+        return
+    _disk_cache_loaded = True
+    path = _disk_cache_path()
+    if path is None:
+        return
+    try:
+        st = os.stat(path)
+        if st.st_uid != os.getuid() or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            logger.debug(f"Ignoring lesson disk cache not private to this user: {path}")
+            return
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return
+    except Exception as e:  # corrupt or written by incompatible code: ignore
+        logger.debug(f"Ignoring lesson disk cache: {e}")
+        return
+    if not isinstance(data, dict) or data.get("key") != _disk_cache_key():
+        return
+    entries = data.get("entries")
+    if not isinstance(entries, dict):
+        return
+    for lesson_path, entry in entries.items():
+        try:
+            mtime, size, device, inode, lesson_data = entry
+            key = Path(lesson_path)
+            if key.is_absolute() and key not in _LESSON_CACHE:
+                lesson = _lesson_from_json(lesson_data)
+                _FILE_SIGNATURES[key] = (size, device, inode)
+                _LESSON_CACHE[key] = (mtime, lesson)
+        except Exception:
+            continue
+
+
+def _save_disk_cache() -> None:
+    global _disk_cache_dirty
+    path = _disk_cache_path()
+    if not _disk_cache_dirty or path is None:
+        return
+    entries = {}
+    for lesson_path, (mtime, lesson) in _LESSON_CACHE.items():
+        if not lesson_path.is_absolute():
+            continue  # relative keys could collide across workspaces
+        signature = _FILE_SIGNATURES.get(lesson_path)
+        if signature is None:
+            continue
+        entries[str(lesson_path)] = [mtime, *signature, _lesson_to_json(lesson)]
+    tmp: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import tempfile  # only when writing; keeps hook imports light
+
+        # mkstemp: unpredictable name, O_EXCL (never follows a planted symlink), 0600
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=f"{path.name}.", suffix=".tmp"
+        )
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"key": _disk_cache_key(), "entries": entries}, f)
+        os.replace(tmp, path)
+        _disk_cache_dirty = False
+    except Exception as e:  # cache is best-effort
+        logger.debug(f"Could not write lesson disk cache: {e}")
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+# Size and file identity associated with cached content, parsed locally or loaded
+# from disk. Preserve them on save: a fresh stat could bless stale content. Device
+# and inode distinguish symlink targets even with identical mtimes and sizes,
+# without adding per-file realpath work to the hook's hot path.
+_FILE_SIGNATURES: dict[Path, tuple[int, int, int]] = {}
+
+
+@functools.lru_cache(maxsize=1024)
+def _realpath_dir(directory: str) -> str:
+    return os.path.realpath(directory)
+
+
+def _realpath(path: Path) -> str:
+    """``os.path.realpath`` for a file, resolving its directory once per scan.
+
+    A file that is not itself a symlink resolves to its parent's real path plus
+    its name; indexing calls this for every lesson, and full per-file resolution
+    was a large share of a hook's runtime. The directory cache is cleared at the
+    start of every index scan, so re-pointed directory symlinks are picked up.
+    """
+    if os.path.islink(path):
+        return os.path.realpath(path)
+    head, tail = os.path.split(os.fspath(path))
+    return os.path.join(_realpath_dir(head), tail)
+
+
+def _rel_posix(path: Path, directory: Path) -> str | None:
+    """``path.relative_to(directory).as_posix()``, via a string prefix when possible.
+
+    Index scans call this twice per lesson; pathlib's relative_to was a large
+    share of a hook's runtime.
+    """
+    p, d = os.fspath(path), os.fspath(directory).rstrip(os.sep)
+    if p.startswith(d + os.sep):
+        return p[len(d) + 1 :].replace(os.sep, "/")
+    try:
+        return path.relative_to(directory).as_posix()
+    except ValueError:
+        return None
 
 
 def _get_cached_lesson(path: Path) -> Lesson | None:
@@ -23,17 +193,24 @@ def _get_cached_lesson(path: Path) -> Lesson | None:
     Returns:
         Cached lesson if valid, None otherwise
     """
+    _load_disk_cache()
     if path not in _LESSON_CACHE:
         return None
 
     cached_mtime, cached_lesson = _LESSON_CACHE[path]
 
     try:
-        current_mtime = path.stat().st_mtime
-        if current_mtime == cached_mtime:
+        st = path.stat()
+        current_mtime = st.st_mtime
+        expected_signature = _FILE_SIGNATURES.get(path)
+        if current_mtime == cached_mtime and expected_signature == (
+            st.st_size,
+            st.st_dev,
+            st.st_ino,
+        ):
             logger.debug(f"Cache hit: {path.name}")
             return cached_lesson
-        logger.debug(f"Cache invalidated (mtime changed): {path.name}")
+        logger.debug(f"Cache invalidated (file changed): {path.name}")
     except FileNotFoundError:
         # File was deleted, remove from cache
         logger.debug(f"Cache invalidated (file deleted): {path.name}")
@@ -49,9 +226,12 @@ def _cache_lesson(path: Path, lesson: Lesson) -> None:
         path: Path to lesson file
         lesson: Parsed lesson
     """
+    global _disk_cache_dirty
     try:
-        mtime = path.stat().st_mtime
-        _LESSON_CACHE[path] = (mtime, lesson)
+        st = path.stat()
+        _LESSON_CACHE[path] = (st.st_mtime, lesson)
+        _FILE_SIGNATURES[path] = (st.st_size, st.st_dev, st.st_ino)
+        _disk_cache_dirty = True
         logger.debug(f"Cached lesson: {path.name}")
     except FileNotFoundError:
         logger.warning(f"Cannot cache lesson, file not found: {path}")
@@ -62,9 +242,20 @@ def clear_cache() -> None:
 
     Useful for testing or when lessons are known to have changed.
     """
-    global _LESSON_CACHE
+    global _disk_cache_loaded, _disk_cache_dirty
     cache_size = len(_LESSON_CACHE)
     _LESSON_CACHE.clear()
+    _FILE_SIGNATURES.clear()
+    # Drop the persisted copy too: otherwise the next index build (here or in
+    # another process) could restore the entries the caller just cleared.
+    _disk_cache_loaded = True
+    _disk_cache_dirty = False
+    path = _disk_cache_path()
+    if path is not None:
+        try:
+            path.unlink()
+        except OSError:
+            pass
     logger.info(f"Cleared lesson cache ({cache_size} entries)")
 
 
@@ -294,6 +485,7 @@ class LessonIndex:
         4. Configured dirs (from gptme.toml)
         """
         self.lessons = []
+        _realpath_dir.cache_clear()
         cache_hits = 0
         cache_misses = 0
         skipped_duplicates = 0
@@ -321,6 +513,9 @@ class LessonIndex:
             cache_hits += hits
             cache_misses += misses
             skipped_duplicates += skipped
+
+        if cache_misses:
+            _save_disk_cache()
 
         log_parts = [f"Indexed {len(self.lessons)} lessons"]
         log_parts.append(f"(cache: {cache_hits} hits, {cache_misses} misses)")
@@ -374,7 +569,7 @@ class LessonIndex:
 
             if lesson.metadata.status != "active":
                 logger.debug(
-                    f"Skipping {lesson.metadata.status} lesson: {lesson.path.relative_to(directory)}"
+                    "Skipping %s lesson: %s", lesson.metadata.status, lesson.path
                 )
                 continue
 
@@ -476,7 +671,7 @@ class LessonIndex:
             # Filter based on status - only include active lessons
             if lesson.metadata.status != "active":
                 logger.debug(
-                    f"Skipping {lesson.metadata.status} lesson: {lesson_file.relative_to(directory)}"
+                    "Skipping %s lesson: %s", lesson.metadata.status, lesson_file
                 )
                 continue
 
@@ -612,11 +807,10 @@ class LessonIndex:
         The scan root itself may be hidden (e.g. ~/.claude/skills) — only
         sub-components below the root are checked.
         """
-        try:
-            rel_parts = path.relative_to(directory).parts
-        except ValueError:
+        rel = _rel_posix(path, directory)
+        if rel is None:
             return False
-        return any(part.startswith(".") for part in rel_parts[:-1])
+        return any(part.startswith(".") for part in rel.split("/")[:-1])
 
     @staticmethod
     def _manifest_metadata(
@@ -643,15 +837,14 @@ class LessonIndex:
         seen_rel_paths: set[str],
     ) -> bool:
         """Reserve a lesson path slot for deduplication, first directory wins."""
-        try:
-            relative_name = lesson_file.relative_to(directory).as_posix()
-        except ValueError:
+        relative_name = _rel_posix(lesson_file, directory)
+        if relative_name is None:
             logger.warning(
                 f"Skipping out-of-tree lesson while indexing {directory}: {lesson_file}"
             )
             return False
 
-        resolved_path = os.path.realpath(lesson_file)
+        resolved_path = _realpath(lesson_file)
         if resolved_path in seen_paths:
             logger.debug(
                 f"Skipping duplicate lesson: {relative_name} "
@@ -670,13 +863,17 @@ class LessonIndex:
         seen_rel_paths.add(relative_name)
         return True
 
-    def materialize_lesson(self, lesson: Lesson) -> Lesson:
-        """Load the full lesson body/title for manifest-backed skill stubs."""
+    def materialize_lesson(self, lesson: Lesson, *, persist: bool = True) -> Lesson:
+        """Load a skill stub, persisting it unless the caller will save a batch."""
         if not lesson.is_stub:
             return lesson
 
         try:
-            materialized, _ = self._load_lesson_file(lesson.path)
+            materialized, from_cache = self._load_lesson_file(lesson.path)
+            if persist and not from_cache:
+                # Stubs are parsed after the index scan's cache save. Persist
+                # selected skills too, so the next short-lived hook reuses them.
+                _save_disk_cache()
             return materialized
         except Exception as e:
             logger.warning(f"Failed to materialize stub {lesson.path}: {e}")
@@ -723,7 +920,11 @@ class LessonIndex:
                 results.append(lesson)
                 continue
 
-        return [self.materialize_lesson(lesson) for lesson in results]
+        materialized = [
+            self.materialize_lesson(lesson, persist=False) for lesson in results
+        ]
+        _save_disk_cache()
+        return materialized
 
     def get_by_category(self, category: str) -> list[Lesson]:
         """Get all lessons in a category.
@@ -734,11 +935,13 @@ class LessonIndex:
         Returns:
             List of lessons in category (stubs are materialized on return)
         """
-        return [
-            self.materialize_lesson(lesson)
+        materialized = [
+            self.materialize_lesson(lesson, persist=False)
             for lesson in self.lessons
             if lesson.category == category
         ]
+        _save_disk_cache()
+        return materialized
 
     def refresh(self) -> None:
         """Refresh the index by re-parsing all lessons."""

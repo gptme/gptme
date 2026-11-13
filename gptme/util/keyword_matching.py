@@ -55,7 +55,7 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str] | None:
     return _keyword_to_pattern_cached(keyword.lower().strip())
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=4096)
 def _keyword_to_pattern_cached(keyword: str) -> re.Pattern[str]:
     """Internal cached implementation - receives normalized keyword."""
     if "*" in keyword:
@@ -118,10 +118,29 @@ def _match_keyword(keyword: str, text: str) -> bool:
     Returns:
         True if keyword is found in text
     """
+    if not keyword or not keyword.strip():
+        return False
+    normalized = keyword.lower().strip()
+    if "*" not in normalized and normalized.isascii():
+        lowered, text_is_ascii = _lowered(text)
+        if text_is_ascii:
+            # Literal ASCII keyword in ASCII text: a substring test gives the
+            # same result as the escaped IGNORECASE regex. Compiling one regex
+            # per keyword thrashed the pattern cache once lesson sets reached
+            # thousands of keywords, so every match recompiled them all.
+            # Non-ASCII keeps the regex: str.lower() and re.IGNORECASE differ
+            # for some letters (e.g. Greek final sigma).
+            return normalized in lowered
     pattern = _keyword_to_pattern(keyword)
     if pattern is None:
         return False
     return pattern.search(text) is not None
+
+
+@lru_cache(maxsize=16)
+def _lowered(text: str) -> tuple[str, bool]:
+    """``text`` lowercased, and whether it is ASCII, computed once per distinct text."""
+    return text.lower(), text.isascii()
 
 
 def _match_pattern(pattern_str: str, text: str) -> bool:

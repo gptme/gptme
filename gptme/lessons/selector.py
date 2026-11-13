@@ -4,6 +4,8 @@ Eligibility, hard guards, session limits and lesson rendering stay in gptme.
 The configured service owns selection, cache policy and provider budgets.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
@@ -14,15 +16,15 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
-from .matcher import MatchResult
-from .parser import Lesson
-
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ..logmanager import LogManager
+    from .matcher import MatchResult
+    from .parser import Lesson
 
 logger = logging.getLogger(__name__)
 _MAX_BYTES = 1_048_576
@@ -129,7 +131,7 @@ def is_protected_lesson(
 
 def refine_matches(
     matches: list[MatchResult],
-    manager: "LogManager",
+    manager: LogManager,
     is_guard: Callable[[Lesson, set[str]], bool],
 ) -> list[MatchResult]:
     """Narrow eligible matches, preserving their order and all hard guards.
