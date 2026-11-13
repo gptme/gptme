@@ -1233,8 +1233,10 @@ def _poll_subprocess_progress(
 
     def _notify(agent_id: str, message: str) -> None:
         # The poller owns the exact run, including its final drain after exit.
+        # Wire IDs derive from the logdir and can include a generated suffix;
+        # attribute snapshots by this run's registry ID, preserving delivery IDs.
         _remember_progress(
-            agent_id,
+            subagent.agent_id,
             message,
             subagent.parent_logdir,
             subagent.parent_branch,

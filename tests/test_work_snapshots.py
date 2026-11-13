@@ -524,7 +524,7 @@ def test_subprocess_final_progress_drain_keeps_exact_run(tmp_path, monkeypatch):
     _subagent("dup", tmp_path / "new", parent, started_at=2.0)
     old.logdir.mkdir()
     (old.logdir / "progress.jsonl").write_text(
-        json.dumps({"agent_id": "dup", "message": "last old update"}) + "\n"
+        json.dumps({"agent_id": "old", "message": "last old update"}) + "\n"
     )
     stopped = threading.Event()
     stopped.set()
@@ -532,7 +532,7 @@ def test_subprocess_final_progress_drain_keeps_exact_run(tmp_path, monkeypatch):
     snapshots = subagent_snapshots(parent)
     assert snapshots[0].latest_progress == "last old update"
     assert snapshots[1].latest_progress is None
-    assert take_queued_progress(parent) == [("dup", "last old update")]
+    assert take_queued_progress(parent) == [("old", "last old update")]
 
 
 def test_completed_snapshot_does_not_reread_child_transcript(tmp_path, monkeypatch):
