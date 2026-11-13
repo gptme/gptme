@@ -147,11 +147,12 @@ def _stream_action_risk(
     text: str | None = None,
     coordinate: tuple[int, int] | None = None,
 ) -> None:
-    """Emit a live risk-label record to the parent agent's progress queue.
+    """Emit a live risk-label record to the parent agent via its progress channel.
 
     Called by ``computer()`` after sensitive-action gating succeeds.  When the
     current execution context is a ``computer_task()`` subagent, the record is
-    forwarded to the parent agent via ``notify_progress()`` so the parent can
+    forwarded to the parent agent via ``send_progress_to_parent()`` (in-process
+    queue for thread mode, file channel for subprocess mode) so the parent can
     track each action's risk level in real-time rather than having to wait for
     the subagent to finish and then call ``gptme-util computer audit-log``.
 
@@ -173,10 +174,10 @@ def _stream_action_risk(
     try:
         import json as _json
 
-        from .subagent import get_current_agent_id, notify_progress
+        from .progress import send_progress_to_parent
+        from .subagent import get_current_agent_id
 
-        agent_id = get_current_agent_id()
-        if agent_id is None:
+        if get_current_agent_id() is None:
             return
 
         risk = action_risk_level(action)
@@ -186,9 +187,9 @@ def _stream_action_risk(
         if risk == "sensitive" and text is not None:
             record["text_len"] = len(text.encode())
 
-        notify_progress(
-            agent_id, f"action:{_json.dumps(record, separators=(',', ':'))}"
-        )
+        # Routes thread-mode updates to the in-process queue and subprocess
+        # updates to the parent-polled file channel (#4910).
+        send_progress_to_parent(f"action:{_json.dumps(record, separators=(',', ':'))}")
     except Exception:
         pass  # never let streaming failures interrupt the action
 

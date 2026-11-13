@@ -1106,11 +1106,9 @@ def test_progress_tool_file_delivery(tmp_path):
         "GPTME_PROGRESS_FILE": str(progress_file),
     }
 
-    # Patch at the source so execute_progress's local import resolves to None
-    with (
-        patch.dict(os.environ, env, clear=False),
-        patch("gptme.tools.subagent.execution.get_current_agent_id", return_value=None),
-    ):
+    # No get_current_agent_id patch: the env identity must not be mistaken for
+    # thread-mode ownership (#4910), which a patch to None would hide.
+    with patch.dict(os.environ, env, clear=False):
         messages = list(execute_progress("Phase 1 done, starting phase 2", None, None))
 
     assert len(messages) == 1
@@ -1140,14 +1138,143 @@ def test_progress_tool_no_env_gives_graceful_message():
         if k not in ("GPTME_SUBAGENT_AGENT_ID", "GPTME_PROGRESS_FILE")
     }
 
-    with (
-        patch.dict(os.environ, clean_env, clear=True),
-        patch("gptme.tools.subagent.execution.get_current_agent_id", return_value=None),
-    ):
+    with patch.dict(os.environ, clean_env, clear=True):
         messages = list(execute_progress("some progress", None, None))
 
     assert len(messages) == 1
     assert "not" in messages[0].content.lower()
+
+
+def test_progress_tool_subprocess_env_does_not_queue_locally(tmp_path, monkeypatch):
+    """Subprocess env identity must write the file channel, not the local queue.
+
+    Regression for #4910: get_current_agent_id() also returns
+    GPTME_SUBAGENT_AGENT_ID, so execute_progress treated subprocess children as
+    thread-mode and enqueued into the child's private in-memory queue.
+    """
+    from gptme.tools.progress import execute_progress
+    from gptme.tools.subagent.types import _progress_queue
+
+    while not _progress_queue.empty():
+        _progress_queue.get_nowait()
+    progress_file = tmp_path / "progress.jsonl"
+    from gptme.tools.subagent import execution
+
+    monkeypatch.delattr(execution._thread_local, "agent_id", raising=False)
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "probe-child")
+    monkeypatch.setenv("GPTME_PROGRESS_FILE", str(progress_file))
+
+    messages = list(execute_progress(None, None, {"message": "probe update"}))
+
+    assert _progress_queue.empty()
+    assert progress_file.exists()
+    assert "file channel" in messages[0].content
+
+
+def test_progress_tool_subprocess_env_without_file_reports_nondelivery(monkeypatch):
+    """An env identity without a progress file is not a deliverable channel."""
+    from gptme.tools.progress import execute_progress
+    from gptme.tools.subagent.types import _progress_queue
+
+    while not _progress_queue.empty():
+        _progress_queue.get_nowait()
+    from gptme.tools.subagent import execution
+
+    monkeypatch.delattr(execution._thread_local, "agent_id", raising=False)
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "orphan-child")
+    monkeypatch.delenv("GPTME_PROGRESS_FILE", raising=False)
+
+    messages = list(execute_progress("lost update", None, None))
+
+    assert _progress_queue.empty()
+    assert "NOT delivered" in messages[0].content
+
+
+def test_progress_tool_unwritable_file_reports_nondelivery(tmp_path, monkeypatch):
+    """A failed file write must not produce a success receipt."""
+    from gptme.tools.progress import execute_progress
+    from gptme.tools.subagent import execution
+
+    monkeypatch.delattr(execution._thread_local, "agent_id", raising=False)
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "broken-child")
+    monkeypatch.setenv("GPTME_PROGRESS_FILE", str(tmp_path / "missing" / "p.jsonl"))
+
+    messages = list(execute_progress("lost update", None, None))
+
+    assert "NOT delivered" in messages[0].content
+
+
+def test_progress_from_real_subprocess_reaches_parent(tmp_path, monkeypatch):
+    """End-to-end across a real process boundary (#4910).
+
+    A separate Python process runs the progress tool with the env the parent
+    sets at spawn time. The parent's poller must then deliver the update to the
+    parent queue and the run's latest-progress snapshot. A local-queue entry or
+    a success receipt in the child alone cannot satisfy this test.
+    """
+    import os
+    import subprocess
+    import threading
+
+    from gptme.tools.subagent.execution import _poll_subprocess_progress
+    from gptme.tools.subagent.types import Subagent, _progress_queue
+
+    parent = tmp_path / "parent"
+    run = Subagent(
+        agent_id="real-child",
+        prompt="p",
+        thread=None,
+        logdir=tmp_path / "subagent-real-child",
+        model=None,
+        parent_logdir=parent,
+        parent_branch="main",
+    )
+    run.logdir.mkdir()
+    monkeypatch.setattr("gptme.tools.subagent.hooks._subagents", [run])
+    while not _progress_queue.empty():
+        _progress_queue.get_nowait()
+
+    child_code = (
+        "from gptme.tools.progress import execute_progress\n"
+        "from gptme.tools.subagent.types import _progress_queue\n"
+        "msgs = list(execute_progress('halfway: parsed inputs', None, None))\n"
+        "print(msgs[0].content)\n"
+        "print('local_qsize', _progress_queue.qsize())\n"
+    )
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("GPTME_SUBAGENT_AGENT_ID", "GPTME_PROGRESS_FILE")
+    }
+    # Mirror the env _run_subagent_subprocess sets for a managed child.
+    env["GPTME_SUBAGENT_AGENT_ID"] = "real-child"
+    env["GPTME_PROGRESS_FILE"] = str(run.logdir / "progress.jsonl")
+    result = subprocess.run(
+        [sys.executable, "-c", child_code],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "local_qsize 0" in result.stdout
+
+    try:
+        stop = threading.Event()
+        stop.set()
+        _poll_subprocess_progress(run, stop)
+
+        assert _progress_queue.get_nowait() == (
+            parent,
+            "real-child",
+            "halfway: parsed inputs",
+            "main",
+        )
+        assert run.latest_progress == "halfway: parsed inputs"
+    finally:
+        while not _progress_queue.empty():
+            _progress_queue.get_nowait()
 
 
 def test_poll_subprocess_progress_delivers_via_notify(tmp_path):

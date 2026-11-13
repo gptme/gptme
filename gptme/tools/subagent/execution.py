@@ -111,15 +111,28 @@ WRITER_GATE_FILENAME = "subagent-writer.gate"
 _thread_local = threading.local()
 
 
+def get_thread_agent_id() -> str | None:
+    """Return the agent_id of the thread-mode subagent running on this thread.
+
+    Only thread-mode subagents (set via _create_subagent_thread) own an
+    in-process parent: their updates may use the shared in-memory queues.
+    Subprocess-mode identity is deliberately excluded — a child process's
+    queues are private to it and never reach the parent.
+    """
+    return getattr(_thread_local, "agent_id", None)
+
+
 def get_current_agent_id() -> str | None:
     """Return the agent_id of the currently running subagent, or None.
 
     Thread-mode subagents: set via _create_subagent_thread (thread-local).
     Subprocess-mode subagents: set via GPTME_SUBAGENT_AGENT_ID env var.
+
+    This answers "am I a subagent?", not "how do I reach my parent?". Callers
+    delivering to the parent must use ``get_thread_agent_id()`` to pick the
+    in-process queue and the subprocess file channel otherwise.
     """
-    return getattr(_thread_local, "agent_id", None) or os.environ.get(
-        "GPTME_SUBAGENT_AGENT_ID"
-    )
+    return get_thread_agent_id() or os.environ.get("GPTME_SUBAGENT_AGENT_ID")
 
 
 def _ensure_subagent_signal_tools_loaded() -> None:

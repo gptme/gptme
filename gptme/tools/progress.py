@@ -23,7 +23,7 @@ import json
 import logging
 import os
 from collections.abc import Generator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
 from .base import Parameter, ToolSpec
@@ -41,14 +41,56 @@ _PROGRESS_FILE_ENVVAR = "GPTME_PROGRESS_FILE"
 _AGENT_ID_ENVVAR = "GPTME_SUBAGENT_AGENT_ID"
 
 
-def _write_progress_to_file(agent_id: str, message: str) -> None:
+def _write_progress_to_file(agent_id: str, message: str, progress_file: str) -> None:
     """Write a progress update to the file-based channel for subprocess mode."""
-    progress_file = os.environ.get(_PROGRESS_FILE_ENVVAR)
-    if not progress_file:
-        return
     entry = json.dumps({"agent_id": agent_id, "message": message})
     with open(progress_file, "a") as f:
         f.write(entry + "\n")
+
+
+def send_progress_to_parent(message: str) -> Literal["queue", "file"] | None:
+    """Deliver a progress update to the parent orchestrator.
+
+    Returns the channel used, or ``None`` when the update was not delivered.
+
+    Routing is decided by who actually owns the parent, not merely by whether
+    this process has a subagent identity:
+
+    - A thread-mode subagent (thread-local agent_id) shares a process with its
+      parent, so it uses the in-process ``_progress_queue``.
+    - Otherwise, a managed subprocess child (``GPTME_SUBAGENT_AGENT_ID`` *and*
+      ``GPTME_PROGRESS_FILE`` set) appends to the file channel the parent polls.
+      Its in-memory queue is private to the child and would never reach the
+      parent (#4910).
+    """
+    from .subagent.execution import get_thread_agent_id
+    from .subagent.hooks import notify_progress
+
+    agent_id = get_thread_agent_id()
+    if agent_id is not None:
+        notify_progress(agent_id, message)
+        logger.debug(
+            f"Progress update queued for subagent '{agent_id}': {message[:80]}"
+        )
+        return "queue"
+
+    agent_id = os.environ.get(_AGENT_ID_ENVVAR)
+    progress_file = os.environ.get(_PROGRESS_FILE_ENVVAR)
+    if not (agent_id and progress_file):
+        logger.warning(
+            "progress: no thread-mode subagent and no subprocess file channel "
+            f"({_AGENT_ID_ENVVAR}/{_PROGRESS_FILE_ENVVAR}) — update not delivered."
+        )
+        return None
+    try:
+        _write_progress_to_file(agent_id, message, progress_file)
+    except OSError as e:
+        logger.warning(f"progress: failed to write {progress_file}: {e}")
+        return None
+    logger.debug(
+        f"Progress update written to file for subagent '{agent_id}': {message[:80]}"
+    )
+    return "file"
 
 
 def execute_progress(
@@ -58,17 +100,9 @@ def execute_progress(
 ) -> Generator[Message, None, None]:
     """Send an intermediate progress update to the parent orchestrator.
 
-    In thread mode: reads the current agent_id from thread-local storage (set by
-    _create_subagent_thread) and pushes the update to the shared _progress_queue.
-    The parent's LOOP_CONTINUE hook delivers it as a ⏳ system message.
-
-    In subprocess mode: writes the update to the file pointed to by
-    GPTME_PROGRESS_FILE (set by the parent). The parent's monitor thread polls
-    that file and delivers the update via the same hook path.
+    See ``send_progress_to_parent()`` for channel selection. The receipt
+    reports delivery only when a parent-reachable channel accepted the update.
     """
-    from .subagent.execution import get_current_agent_id
-    from .subagent.hooks import notify_progress
-
     if code is None and kwargs:
         code = kwargs.get("message")
     message = (code or "").strip()
@@ -78,39 +112,17 @@ def execute_progress(
         )
         return
 
-    agent_id = get_current_agent_id()
-    if agent_id is None:
-        # Not in a thread-mode subagent context — check for subprocess env vars.
-        agent_id = os.environ.get(_AGENT_ID_ENVVAR)
-        if agent_id and os.environ.get(_PROGRESS_FILE_ENVVAR):
-            _write_progress_to_file(agent_id, message)
-            logger.debug(
-                f"Progress update written to file for subagent '{agent_id}': {message[:80]}"
-            )
-            yield Message(
-                "system",
-                "Progress update sent to parent orchestrator (via file channel).",
-                quiet=True,
-            )
-        else:
-            logger.warning(
-                "progress tool: no agent_id in thread-local and GPTME_PROGRESS_FILE "
-                "not set — progress update will not be delivered to parent."
-            )
-            yield Message(
-                "system",
-                "Progress update NOT delivered to parent (not running as a managed subagent).",
-                quiet=True,
-            )
-        return
-
-    notify_progress(agent_id, message)
-    logger.debug(f"Progress update queued for subagent '{agent_id}': {message[:80]}")
-    yield Message(
-        "system",
-        "Progress update sent to parent orchestrator.",
-        quiet=True,
-    )
+    channel = send_progress_to_parent(message)
+    if channel == "queue":
+        receipt = "Progress update sent to parent orchestrator."
+    elif channel == "file":
+        receipt = "Progress update sent to parent orchestrator (via file channel)."
+    else:
+        receipt = (
+            "Progress update NOT delivered to parent "
+            "(not running as a managed subagent, or the progress channel failed)."
+        )
+    yield Message("system", receipt, quiet=True)
 
 
 tool = ToolSpec(

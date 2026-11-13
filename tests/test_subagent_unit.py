@@ -7098,6 +7098,13 @@ class TestCancelCheckpointHook:
 
         _exe._thread_local.__dict__.pop("agent_id", None)
 
+    def teardown_method(self):
+        # _set_agent_id runs on the pytest main thread; don't leak thread-mode
+        # ownership into later tests (it reroutes their progress to the queue).
+        import gptme.tools.subagent.execution as _exe
+
+        _exe._thread_local.__dict__.pop("agent_id", None)
+
     def _make_manager(self, logdir: Path) -> MagicMock:
         m = MagicMock()
         m.logdir = logdir
