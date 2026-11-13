@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, cast
 from uuid import uuid4
 
+from rich.cells import cell_len, set_cell_size
 from rich.console import Console as RichConsole
 from rich.control import Control
 from rich.markdown import Markdown as RichMarkdown
@@ -2234,6 +2235,87 @@ def _build_work_summary(
     )
 
 
+_CHILD_STATUS_ICONS = {
+    "running": "⏳",
+    "success": "✓",
+    "failure": "✗",
+    "timeout": "⏱",
+    "cancelled": "✗",
+    "budget_exceeded": "✗",
+    "clarification_needed": "?",
+}
+# Short status labels for rows too narrow for the full ones.
+_CHILD_STATUS_SHORT = {
+    "running": "run",
+    "success": "ok",
+    "failure": "fail",
+    "timeout": "timeout",
+    "cancelled": "cancel",
+    "budget_exceeded": "budget",
+    "clarification_needed": "ask",
+    "unknown": "?",
+}
+# Cells an agent id keeps before the task/progress get any room.
+_CHILD_ID_MIN_CELLS = 8
+# Cells an ordinary agent id keeps whole when the task still fits beside it.
+_CHILD_ID_CELLS = 24
+# Cells of task/progress worth shortening the status for.
+_CHILD_DETAIL_MIN_CELLS = 6
+
+
+def _cut_cells(text: str, max_cells: int) -> str:
+    """Cut ``text`` to ``max_cells`` terminal cells, ending in an ellipsis if cut."""
+    if max_cells <= 0:
+        return ""
+    if cell_len(text) <= max_cells:
+        return text
+    return set_cell_size(text, max_cells - 1).rstrip() + "…"
+
+
+def _format_child_row(
+    sa: "SubagentSnapshot", *, selected: bool, unread: bool, width: int | None = None
+) -> str:
+    """Format one child of the Work overview as a single line.
+
+    The line leads with what must stay visible: selection, status, elapsed
+    and unread, then the agent id, then the task and progress (the child's
+    transcript shows those in full). The overview cuts the line at its right
+    edge rather than wrapping it. With ``width`` (in terminal cells) the head
+    is fitted so that cut only takes task/progress: the status shortens when
+    the full one leaves no room for the id, and a long id is capped so the
+    task keeps a share of the row.
+    """
+    status = sa.status
+    icon = _CHILD_STATUS_ICONS.get(status, "·")
+    elapsed = _fmt_elapsed(sa.elapsed_s)
+    agent_id = " ".join(sa.agent_id.split())
+    detail = " ".join(sa.prompt_preview.split())
+    if sa.latest_progress:
+        detail += f" — {' '.join(sa.latest_progress.split())[:160]}"
+    marker = "> " if selected else "  "
+    prefix = f"{marker}{icon} [{status}] {elapsed}{' · unread' if unread else ''}  "
+    if width is None:
+        return f"{prefix}{agent_id}  {detail}"
+
+    wanted = _CHILD_ID_MIN_CELLS + (2 + _CHILD_DETAIL_MIN_CELLS if detail else 0)
+    if cell_len(prefix) + wanted > width:
+        short = _CHILD_STATUS_SHORT.get(status, status)
+        prefix = f"{marker}{icon} [{short}] {elapsed}{' •' if unread else ''} "
+    remaining = width - cell_len(prefix)
+    # The id keeps half of what is left, or up to _CHILD_ID_CELLS while the
+    # task keeps its minimum; never less than _CHILD_ID_MIN_CELLS.
+    id_cells = max(
+        min(_CHILD_ID_MIN_CELLS, remaining),
+        remaining // 2,
+        min(_CHILD_ID_CELLS, remaining - 2 - _CHILD_DETAIL_MIN_CELLS),
+    )
+    shown_id = _cut_cells(agent_id, id_cells)
+    # Too narrow for even a glimpse of the task: the id takes the rest.
+    if not detail or remaining - cell_len(shown_id) - 2 < 3:
+        return f"{prefix}{_cut_cells(agent_id, remaining)}"
+    return f"{prefix}{shown_id}  {detail}"
+
+
 def _build_work_sections(
     logdir: Path | None,
     branch: str | None,
@@ -2241,12 +2323,15 @@ def _build_work_sections(
     children: list | None = None,
     cursor: int = 0,
     unread: set[tuple[str, float, str]] | None = None,
+    width: int | None = None,
 ) -> tuple[str, str]:
     """Build the children and monitors sections of the work summary.
 
     They render differently: a child is one line cut at the right edge (its
     transcript has the details), a monitor wraps (nothing else shows it).
-    Either section is an empty string when there is nothing to show.
+    With ``width`` (terminal cells), each child line is laid out to fit it;
+    see :func:`_format_child_row`. Either section is an empty string when
+    there is nothing to show.
     """
     lines: list[str] = []
     now = time.time()
@@ -2265,34 +2350,14 @@ def _build_work_sections(
     if children:
         lines.append("Children:")
         for index, sa in enumerate(children):
-            status = sa.status
-            elapsed = _fmt_elapsed(sa.elapsed_s)
-            unread_label = (
-                " · unread"
-                if unread and (sa.run_id, sa.started_at, status) in unread
-                else ""
-            )
-            icon = {
-                "running": "⏳",
-                "success": "✓",
-                "failure": "✗",
-                "timeout": "⏱",
-                "cancelled": "✗",
-                "budget_exceeded": "✗",
-                "clarification_needed": "?",
-            }.get(status, "·")
-            # One line per child; the overview cuts it at the right edge rather
-            # than wrapping, so selection, status and unread lead (always
-            # visible), then identity, then the task and progress (cut first).
-            prompt_preview = " ".join(sa.prompt_preview.split())
-            agent_id = " ".join(sa.agent_id.split())
             lines.append(
-                f"{'> ' if index == cursor else '  '}{icon} "
-                f"[{status}] {elapsed}{unread_label}  {agent_id}  {prompt_preview}"
-                + (
-                    f" — {' '.join(sa.latest_progress.split())[:160]}"
-                    if sa.latest_progress
-                    else ""
+                _format_child_row(
+                    sa,
+                    selected=index == cursor,
+                    unread=bool(
+                        unread and (sa.run_id, sa.started_at, sa.status) in unread
+                    ),
+                    width=width,
                 )
             )
 
@@ -2500,6 +2565,7 @@ class WorkOverviewScreen(ModalScreen):
             self._branch,
             children=self._children,
             cursor=self._cursor,
+            width=self._child_row_width(),
             unread={
                 (c.run_id, c.started_at, c.status)
                 for c in self._children
@@ -2532,8 +2598,21 @@ class WorkOverviewScreen(ModalScreen):
     def action_close(self) -> None:
         self.dismiss()
 
+    def _child_row_width(self) -> int | None:
+        """Cells available to one child row, once the overview is laid out."""
+        try:
+            width = self.query_one("#work-overview-content", Static).content_size.width
+        except NoMatches:
+            return None
+        return width or None
+
     def on_mount(self) -> None:
         self.set_interval(1.0, self._refresh_summary)
+        # Rows are fitted to the laid-out width, unknown until the first refresh.
+        self.call_after_refresh(self._refresh_summary)
+
+    def on_resize(self) -> None:
+        self.call_after_refresh(self._refresh_summary)
 
     def on_screen_resume(self) -> None:
         self._refresh_summary()

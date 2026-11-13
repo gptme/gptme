@@ -930,7 +930,8 @@ async def test_work_overview_renders_one_physical_row_per_child(
 
     manager = _make_manager(tmp_path)
     children = []
-    for index in range(3):
+    statuses = ("running", "success", "clarification_needed")
+    for index, status in enumerate(statuses):
         logdir = tmp_path / f"child-{index}"
         logdir.mkdir()
         children.append(
@@ -940,7 +941,8 @@ async def test_work_overview_renders_one_physical_row_per_child(
                     logdir=logdir,
                     prompt="分析日志 and [literal] markup " * 3,
                 ),
-                status="success" if index == 1 else "running",
+                status=status,
+                elapsed_s=3725,
                 latest_progress="全角の進捗レポート [bold]not markup[/bold] " * 6,
             )
         )
@@ -948,6 +950,10 @@ async def test_work_overview_renders_one_physical_row_per_child(
         "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
     )
     app = GptmeApp(manager, workspace=tmp_path)
+    # Finished children are unread until their transcript is opened.
+    monkeypatch.setattr(
+        app, "_work_unread", lambda logdir, branch, child: child.status != "running"
+    )
     async with app.run_test(size=size) as pilot:
         screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
         app.push_screen(screen)
@@ -964,14 +970,22 @@ async def test_work_overview_renders_one_physical_row_per_child(
             for strip in content.render_lines(content.region.reset_offset)
         ]
         assert len(rows) == 1 + len(children)
-        assert rows[1].startswith("> ⏳ [running]")
-        assert rows[2].startswith("  ✓ [success]")
-        for row in rows[1:]:
+        assert rows[1].startswith("> ⏳ [")
+        assert rows[2].startswith("  ✓ [")
+        assert rows[3].startswith("  ? [")
+        for index, row in enumerate(rows[1:]):
             assert cell_len(row) <= width
             assert row.endswith("…")
-        # Selection and status stay visible however narrow; identity when it fits.
-        if width >= 40:
-            assert "child-0-with" in rows[1]
+            assert "……" not in row
+            # However narrow: status, elapsed, unread and identity stay visible,
+            # and the task still gets a share of the row.
+            assert "1h02m" in row
+            assert ("•" in row or "unread" in row) == (index > 0)
+            assert f"child-{index}" in row
+            if width >= 45:
+                assert "分析" in row
+        if width >= 60:
+            assert "[running]" in rows[1] and "[success] 1h02m · unread" in rows[2]
         # Navigation tracks the physical row of the selected child.
         await pilot.press("down", "down")
         assert screen._cursor == 2
@@ -986,6 +1000,14 @@ async def test_work_overview_renders_one_physical_row_per_child(
         await pilot.pause()
         assert content.size.height == 1 + len(children)
         assert screen._selected_row() == 3
+        width = content.content_size.width
+        rows = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in content.render_lines(content.region.reset_offset)
+        ]
+        for index, row in enumerate(rows[1:]):
+            assert cell_len(row) <= width
+            assert "1h02m" in row and f"child-{index}" in row
 
 
 @pytest.mark.asyncio
@@ -1026,3 +1048,55 @@ async def test_work_overview_wraps_monitor_details(
         # The whole description is on screen, wrapped (not cut with an ellipsis).
         assert "".join(description.split()) in "".join(rendered.split())
         assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", [None, 120, 64, 45, 28, 20])
+def test_format_child_row_fits_width(width: int | None) -> None:
+    """Status, unread and id fit the width; only the task/progress tail is cut."""
+    from dataclasses import replace
+
+    from rich.cells import cell_len
+    from rich.text import Text
+
+    from gptme.tui.app import _format_child_row
+
+    child = replace(
+        _make_child_snapshot(
+            "an-agent-identifier-that-goes-on-and-on",
+            prompt="调查 [red]bug[/red]\nacross\tlines " * 4,
+        ),
+        status="clarification_needed",
+        elapsed_s=83,
+        latest_progress="step 3/9\nreading files " * 20,
+    )
+    row = _format_child_row(child, selected=True, unread=True, width=width)
+    assert "\n" not in row and "\t" not in row
+    assert row.startswith("> ? [")
+    if width is None:
+        # Unfitted: the whole line, for the overview's CSS to cut.
+        assert "[clarification_needed] 1m23s · unread  an-agent-identifier" in row
+        assert "step 3/9" in row
+        return
+    # What the overview shows: the row cut at its edge (text-overflow: ellipsis).
+    visible = Text(row)
+    visible.truncate(width, overflow="ellipsis")
+    shown = visible.plain
+    assert cell_len(shown) <= width
+    assert "1m23s" in shown
+    assert "unread" in shown or "•" in shown
+    if width >= 28:
+        assert "an-agen" in shown
+    if width >= 45:
+        assert "调查" in shown
+    # The id is cut in the head, never by the overview's edge cut.
+    head = row.split("  ")[-2] if width >= 45 else row
+    assert cell_len(head) <= width
+
+
+def test_format_child_row_short_fields_are_not_cut() -> None:
+    """Rows that already fit are left whole, with no ellipsis."""
+    from gptme.tui.app import _format_child_row
+
+    child = _make_child_snapshot("explore", prompt="read the docs")
+    row = _format_child_row(child, selected=False, unread=False, width=80)
+    assert row == "  ⏳ [running] 0s  explore  read the docs"

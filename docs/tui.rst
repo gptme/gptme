@@ -151,8 +151,11 @@ place; inspecting a child never takes its writer lock or redirects your input.
 
 The overview shows child status, elapsed time and the latest available progress
 update, one line per child: selection, status, elapsed time and the unread mark
-come first, and a long task or progress update is cut at the right edge with an
-ellipsis instead of wrapping. Open the child's transcript for the full text.
+come first, then the agent id, and a long task or progress update is cut at the
+right edge with an ellipsis instead of wrapping. A long agent id is shortened so
+the task keeps part of the row; on narrow terminals the status is abbreviated
+(``[ask]`` for ``clarification_needed``) and unread shows as ``•``. Open the
+child's transcript for the full text.
 Monitor descriptions wrap, since monitors have no detail view.
 Reading progress here does not consume the model's notification queue.
 Completed durations use the recorded duration when available; otherwise they
