@@ -805,6 +805,18 @@ class TestDurableAttemptOutcome:
         assert outcome is not None
         assert outcome.status == "cancelled"
 
+    def test_positional_usage_round_trips(self, tmp_path: Path) -> None:
+        """Cache fields must not shift the pre-existing positional arguments."""
+        sa = self._register(tmp_path / "subagent-positional-agent-ab12")
+        result = ReturnType("success", "done", 100, 20, 3, 12.5)
+        assert result.tool_uses == 3
+        assert result.duration_s == 12.5
+        assert result.cache_read_tokens is None
+        assert result.cache_creation_tokens is None
+        assert result.uncached_input_tokens == 100
+        assert persist_subagent_outcome(sa, result)
+        assert load_subagent_outcome(sa) == result
+
     def test_cache_usage_round_trips(self, tmp_path: Path):
         from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
 

@@ -258,6 +258,12 @@ class ReturnType:
     # None means unavailable (e.g. cached terminal result, pre-budget-tracking log).
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # Usage reporting (parity with Claude Code's Agent tool notification):
+    # total ToolUse invocations across the subagent's assistant messages, and
+    # wall-clock seconds from spawn to terminal result. None means unavailable
+    # (e.g. no conversation log was read, or spawn time wasn't tracked).
+    tool_uses: int | None = None
+    duration_s: float | None = None
     # Cache-aware breakdown of ``input_tokens``, which counts every prompt
     # token the provider processed: uncached input plus cache reads and cache
     # writes. Kept as a total for compatibility; the parts below let a parent
@@ -267,12 +273,6 @@ class ReturnType:
     cache_creation_tokens: int | None = None
     # Derived: input_tokens minus cache reads and writes. Not an init arg.
     uncached_input_tokens: int | None = field(default=None, init=False)
-    # Usage reporting (parity with Claude Code's Agent tool notification):
-    # total ToolUse invocations across the subagent's assistant messages, and
-    # wall-clock seconds from spawn to terminal result. None means unavailable
-    # (e.g. no conversation log was read, or spawn time wasn't tracked).
-    tool_uses: int | None = None
-    duration_s: float | None = None
 
     def __post_init__(self) -> None:
         if self.input_tokens is None:
