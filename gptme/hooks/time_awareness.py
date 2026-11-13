@@ -55,6 +55,8 @@ _DEADLINE_ENV = "GPTME_SESSION_DEADLINE"
 _START_ENV = "GPTME_SESSION_START"
 _FRACTIONS_ENV = "GPTME_TIME_NOTICE_FRACTIONS"
 _DEFAULT_FRACTIONS = "0.7,0.9"
+# Every variable that configures deadline mode, e.g. for test isolation.
+DEADLINE_ENV_VARS = (_START_ENV, _DEADLINE_ENV, _FRACTIONS_ENV)
 # Log markers for threshold state, so suppression survives resume and is
 # scoped to the exact start+deadline pair (a new runner budget must not be
 # suppressed by an old run's warning).
