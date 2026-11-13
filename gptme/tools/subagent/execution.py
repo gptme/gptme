@@ -129,7 +129,7 @@ def get_current_agent_id() -> str | None:
     Subprocess-mode subagents: set via GPTME_SUBAGENT_AGENT_ID env var.
 
     This answers "am I a subagent?", not "how do I reach my parent?". Callers
-    delivering to the parent must use :func:`get_thread_agent_id` to pick the
+    delivering to the parent must use ``get_thread_agent_id()`` to pick the
     in-process queue and the subprocess file channel otherwise.
     """
     return get_thread_agent_id() or os.environ.get("GPTME_SUBAGENT_AGENT_ID")

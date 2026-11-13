@@ -100,7 +100,7 @@ def execute_progress(
 ) -> Generator[Message, None, None]:
     """Send an intermediate progress update to the parent orchestrator.
 
-    See :func:`send_progress_to_parent` for channel selection. The receipt
+    See ``send_progress_to_parent()`` for channel selection. The receipt
     reports delivery only when a parent-reachable channel accepted the update.
     """
     if code is None and kwargs:
