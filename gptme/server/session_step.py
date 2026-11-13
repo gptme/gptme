@@ -15,7 +15,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -167,6 +167,8 @@ def _pending_peer_branches(logdir: Path) -> set[str]:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(record, dict):
+            continue
         if record.get("peer_sender") or record.get("peer_message_id"):
             branch = record.get("branch")
             if isinstance(branch, str) and branch.strip():
@@ -184,7 +186,12 @@ def _run_peer_wake_check() -> None:
         logdir = logs_dir / conversation_id
         if not (logdir / "prompt-queue.jsonl").exists():
             continue
-        for branch in _pending_peer_branches(logdir):
+        try:
+            branches = _pending_peer_branches(logdir)
+        except Exception:
+            logger.exception("Peer queue scan failed for %s", conversation_id)
+            continue
+        for branch in branches:
             try:
                 SessionManager.request_peer_wake(conversation_id, branch=branch)
             except Exception:
@@ -1999,11 +2006,13 @@ def start_tool_execution(
 
     # Propagate ContextVars from the request context into the execution thread.
     ctx = contextvars.copy_context()
+    worker, release_writer = _pin_writer_worker(session, execute_tool_thread)
     try:
-        thread = threading.Thread(target=ctx.run, args=(execute_tool_thread,))
+        thread = threading.Thread(target=ctx.run, args=(worker,))
         thread.daemon = True
         thread.start()
     except Exception:
+        release_writer()
         if reserved:
             with session.step_lock:
                 if session.step_seq == my_seq:
@@ -2011,6 +2020,27 @@ def start_tool_execution(
                     session.generating_since = None
         raise
     return thread
+
+
+def _pin_writer_worker(
+    session: ConversationSession, target: "Callable[[], None]"
+) -> tuple["Callable[[], None]", "Callable[[], None]"]:
+    """Pin a peer writer before thread dispatch, with an idempotent rollback."""
+    pinned = session.retain_writer_worker()
+
+    def release() -> None:
+        nonlocal pinned
+        if pinned:
+            pinned = False
+            session.release_writer_worker()
+
+    def run() -> None:
+        try:
+            target()
+        finally:
+            release()
+
+    return run, release
 
 
 def _start_step_thread(
@@ -2089,11 +2119,13 @@ def _start_step_thread(
     # Watch-wake must NOT inherit: it is invoked from the completing subagent
     # thread, whose tools/hooks/config would otherwise leak into the parent step.
     ctx = contextvars.copy_context() if inherit_context else contextvars.Context()
+    worker, release_writer = _pin_writer_worker(session, step_thread)
     try:
-        thread = threading.Thread(target=ctx.run, args=(step_thread,))
+        thread = threading.Thread(target=ctx.run, args=(worker,))
         thread.daemon = True
         thread.start()
     except Exception:
+        release_writer()
         # A reserved caller owns this slot; release it if dispatch itself fails.
         # Non-reserved callers reserved above and need the same rollback.
         # Compare-and-clear: only release if no newer step has taken ownership.

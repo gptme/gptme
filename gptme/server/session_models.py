@@ -23,6 +23,7 @@ from .api_v2_common import EventType
 
 if TYPE_CHECKING:
     from ..config import ChatConfig
+    from ..logmanager import LogManager
     from .acp_session_runtime import AcpSessionRuntime
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,39 @@ class ConversationSession(BaseSession):
     # epoch; successful user dispatches and tool continuations claim a new one.
     # Tool workers compare their captured epoch before releasing or continuing.
     step_seq: int = 0
+    # A peer wake promotes an observer to a writer until session removal.
+    # Protected by step_lock; worker pins defer release during session removal.
+    writer_manager: "LogManager | None" = field(default=None, repr=False)
+
+    _writer_workers: int = field(default=0, repr=False)
+    _writer_closing: bool = field(default=False, repr=False)
+
+    def retain_writer_worker(self) -> bool:
+        """Pin session ownership before dispatch, including tool continuations."""
+        with self.step_lock:
+            if self.writer_manager is None:
+                return False
+            self._writer_workers += 1
+            return True
+
+    def release_writer_worker(self) -> None:
+        """Drop a worker pin; the last worker finishes deferred session cleanup."""
+        with self.step_lock:
+            self._writer_workers -= 1
+            self._release_writer_if_idle()
+
+    def release_writer(self) -> None:
+        """Close ownership after removal/failure, once dispatched work exits."""
+        with self.step_lock:
+            self._writer_closing = True
+            self._release_writer_if_idle()
+
+    def _release_writer_if_idle(self) -> None:
+        """Called under step_lock; never unlock underneath a running worker."""
+        if self._writer_closing and not self._writer_workers:
+            manager, self.writer_manager = self.writer_manager, None
+            if manager is not None:
+                manager.__exit__(None, None, None)
 
     # Whether the task interrupted by a compaction checkpoint request still
     # owed a model response. Set when the request is injected (the request
@@ -499,6 +533,8 @@ class SessionManager:
                     if session.step_seq == step_seq:
                         session.generating = False
                         session.generating_since = None
+                if source == "Peer":
+                    session.release_writer()
             return True
         except Exception:
             logger.warning(
@@ -511,6 +547,8 @@ class SessionManager:
                 if session.step_seq == step_seq:
                     session.generating = False
                     session.generating_since = None
+            if source == "Peer":
+                session.release_writer()
             return True
 
     @classmethod
@@ -662,7 +700,6 @@ class SessionManager:
         from ..config import ChatConfig
         from ..dirs import get_logs_dir
         from ..logmanager import LogManager
-        from ..prompt_queue import drain_peer_prompts, requeue_prompts
 
         logdir = (get_logs_dir() / conversation_id).resolve()
         # Cheap pre-check so the common no-op poll never takes the lock: the
@@ -690,37 +727,32 @@ class SessionManager:
                 model = _resolve_watch_wake_model(config.model)
                 if model is None:
                     return False
-                # Drain only once the wake is known to be possible, so a busy
-                # or unresolvable poll leaves the messages durable.
-                messages = drain_peer_prompts(logdir, branch=branch)
-                if not messages:
-                    return False
+                # A live SSE observer is not a writer. Acquire the lifetime
+                # lock before draining and retain it for the session lifetime.
                 try:
-                    manager = LogManager.load(
-                        conversation_id, branch=branch, lock=False
-                    )
-                    for message in messages:
-                        manager.append(message)
-                    manager.write(sync=True)
-                except (OSError, ValueError):
-                    try:
-                        requeue_prompts(logdir, messages, prepend=True)
-                    except Exception:
-                        logger.warning(
-                            "Could not requeue peer messages for %s",
-                            conversation_id,
-                            exc_info=True,
+                    with LogManager.preserve_current():
+                        manager = LogManager.load(
+                            conversation_id, branch=branch, lock=True
                         )
-                    logger.warning(
-                        "Could not persist peer message for conversation %s",
-                        conversation_id,
-                        exc_info=True,
-                    )
+                except (OSError, ValueError, RuntimeError):
                     return False
-                session.step_seq += 1
-                step_seq = session.step_seq
-                session.generating = True
-                session.generating_since = datetime.now(tz=timezone.utc)
+                reserved = False
+                try:
+                    if not cls._persist_peer_inputs(manager, logdir, branch):
+                        return False
+                    session.step_seq += 1
+                    step_seq = session.step_seq
+                    session.generating = True
+                    session.generating_since = datetime.now(tz=timezone.utc)
+                    if session.writer_manager is None:
+                        session.writer_manager = manager
+                        session._writer_closing = False
+                    else:
+                        manager.__exit__(None, None, None)
+                    reserved = True
+                finally:
+                    if not reserved:
+                        manager.__exit__(None, None, None)
         return cls._dispatch_reserved_step(
             conversation_id,
             session,
@@ -730,6 +762,42 @@ class SessionManager:
             step_seq=step_seq,
             source="Peer",
         )
+
+    @classmethod
+    def _persist_peer_inputs(
+        cls, manager: "LogManager", logdir: Path, branch: str
+    ) -> bool:
+        """Drain under writer ownership and notify clients after durable save."""
+        from ..prompt_queue import drain_peer_prompts, requeue_prompts
+        from .api_v2_common import msg2dict
+
+        messages = drain_peer_prompts(logdir, branch=branch)
+        if not messages:
+            return False
+        try:
+            for message in messages:
+                manager.append(message)
+            manager.write(sync=True)
+        except Exception:
+            try:
+                requeue_prompts(logdir, messages, prepend=True)
+            except Exception:
+                logger.warning(
+                    "Could not requeue peer inputs for %s", logdir, exc_info=True
+                )
+            logger.warning(
+                "Could not persist peer inputs for %s", logdir, exc_info=True
+            )
+            return False
+        for message in messages:
+            cls.add_event(
+                logdir.name,
+                {
+                    "type": "message_added",
+                    "message": msg2dict(message, manager.workspace, manager.logdir),
+                },
+            )
+        return True
 
     _STUCK_GENERATING_TIMEOUT_MINUTES = 10
 
@@ -820,24 +888,28 @@ class SessionManager:
         for conversation_id, is_last, acp_rt, session in deferred:
             with session.step_lock:
                 session.finish_skill_turn("abandoned")
+            session.release_writer()
             if is_last:
                 logdir: Path | None = None
                 try:
                     from ..logmanager import LogManager
 
-                    manager = LogManager.load(conversation_id, lock=True)
-                    logdir = manager.logdir
-                    logger.debug(
-                        "Last session for conversation %s, triggering SESSION_END hook",
-                        conversation_id,
-                    )
-                    if session_end_msgs := trigger_hook(
-                        HookType.SESSION_END,
-                        manager=manager,
-                        server_managed=True,
+                    with (
+                        LogManager.preserve_current(),
+                        LogManager.load(conversation_id, lock=True) as manager,
                     ):
-                        for msg in session_end_msgs:
-                            manager.append(msg)
+                        logdir = manager.logdir
+                        logger.debug(
+                            "Last session for conversation %s, triggering SESSION_END hook",
+                            conversation_id,
+                        )
+                        if session_end_msgs := trigger_hook(
+                            HookType.SESSION_END,
+                            manager=manager,
+                            server_managed=True,
+                        ):
+                            for msg in session_end_msgs:
+                                manager.append(msg)
                 except Exception as e:
                     logger.warning(f"Failed to trigger SESSION_END hook: {e}")
                 cls._evict_idle_conversation_state(conversation_id, logdir)
@@ -880,24 +952,28 @@ class SessionManager:
         # Phase 2: outside lock — long-running side-effects
         with session.step_lock:
             session.finish_skill_turn("abandoned")
+        session.release_writer()
         if is_last_session:
             logdir: Path | None = None
             try:
                 from ..logmanager import LogManager
 
-                manager = LogManager.load(conversation_id, lock=True)
-                logdir = manager.logdir
-
-                logger.debug(
-                    f"Last session for conversation {conversation_id}, triggering SESSION_END hook"
-                )
-                if session_end_msgs := trigger_hook(
-                    HookType.SESSION_END,
-                    manager=manager,
-                    server_managed=True,
+                with (
+                    LogManager.preserve_current(),
+                    LogManager.load(conversation_id, lock=True) as manager,
                 ):
-                    for msg in session_end_msgs:
-                        manager.append(msg)
+                    logdir = manager.logdir
+
+                    logger.debug(
+                        f"Last session for conversation {conversation_id}, triggering SESSION_END hook"
+                    )
+                    if session_end_msgs := trigger_hook(
+                        HookType.SESSION_END,
+                        manager=manager,
+                        server_managed=True,
+                    ):
+                        for msg in session_end_msgs:
+                            manager.append(msg)
             except Exception as e:
                 logger.warning(f"Failed to trigger SESSION_END hook: {e}")
             cls._evict_idle_conversation_state(conversation_id, logdir)
