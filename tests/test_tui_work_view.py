@@ -691,7 +691,7 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
 
 
 def test_work_summary_finished_child_does_not_tick() -> None:
-    """A finished child reports its start age, not a duration that grows each refresh."""
+    """A finished child reports the snapshot duration, not its growing start age."""
     from dataclasses import replace
 
     from gptme.tui.app import _build_work_summary
@@ -701,10 +701,14 @@ def test_work_summary_finished_child_does_not_tick() -> None:
         _make_child_snapshot("finisher"),
         status="success",
         started_at=time.time() - 3600,
+        elapsed_s=83,
+        latest_progress="Tests pass\nincluding [literal] markup",
     )
     text = _build_work_summary(None, None, children=[running, done])
     assert "[running] 0s" in text
-    assert "[success] started 1h" in text and " ago" in text
+    assert "[success] 1m23s" in text
+    assert "Tests pass including [literal] markup" in text
+    assert len(text.splitlines()) == 3
     assert "[success] 1h" not in text
 
 

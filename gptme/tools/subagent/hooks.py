@@ -22,6 +22,7 @@ from .control import CONTROL_FILENAME, drain_control_ops
 from .types import (
     ReturnType,
     Status,
+    Subagent,
     _completion_queue,
     _progress_queue,
     _subagent_results,
@@ -416,6 +417,50 @@ def _session_end_subagent_cleanup(
     yield from ()
 
 
+def _remember_progress(
+    agent_id: str,
+    message: str,
+    parent_logdir: Path | None,
+    parent_branch: str | None,
+    *,
+    run: Subagent | None = None,
+) -> None:
+    """Attach the latest progress to its exact originating Subagent run.
+
+    Queues only carry delivery; draining one must not erase what a snapshot
+    shows. Exact identity comes from an explicit ``run`` or the executing thread for
+    thread-mode progress. There is no newest-by-agent_id fallback: a late
+    update from an old run whose ID was reused must never overwrite the
+    successor's progress. Branch and owner are checked even when a thread
+    matches, because callers can pass explicit ownership that disagrees.
+    """
+    if parent_logdir is None:
+        return
+    branch = parent_branch or "main"
+    if run is None:
+        current = threading.current_thread()
+        with _subagents_lock:
+            matches = [
+                s
+                for s in _subagents
+                if s.agent_id == agent_id
+                and s.thread is current
+                and s.parent_logdir == parent_logdir
+                and (s.parent_branch or "main") == branch
+            ]
+        run = matches[-1] if matches else None
+    if (
+        run is None
+        or run.agent_id != agent_id
+        or run.parent_logdir != parent_logdir
+        or (run.parent_branch or "main") != branch
+    ):
+        return
+    # Subagent is frozen; this runtime-only field is mutated like the other
+    # post-spawn fields (process, thread, acp_session_id).
+    object.__setattr__(run, "latest_progress", message)
+
+
 def notify_progress(
     agent_id: str,
     message: str,
@@ -430,14 +475,16 @@ def notify_progress(
     if parent_logdir is None:
         _progress_queue.put((parent_logdir, agent_id, message))
     else:
+        parent_branch = _notification_branch(agent_id, parent_logdir, parent_branch)
         _progress_queue.put(
             (
                 parent_logdir,
                 agent_id,
                 message,
-                _notification_branch(agent_id, parent_logdir, parent_branch),
+                parent_branch,
             )
         )
+    _remember_progress(agent_id, message, parent_logdir, parent_branch)
     from ...util.notification_ready import signal
 
     signal(parent_logdir)

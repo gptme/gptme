@@ -14,6 +14,11 @@ import pytest
 
 from gptme.tools import watch as watch_module
 from gptme.tools.subagent import Subagent, subagent_snapshots
+from gptme.tools.subagent.hooks import (
+    _remember_progress,
+    notify_progress,
+    take_queued_progress,
+)
 from gptme.tools.subagent.types import (
     ReturnType,
     _completion_queue,
@@ -322,3 +327,267 @@ def test_offline_stream_outcomes_do_not_depend_on_watch_registry(tmp_path):
         "Watch w1 fired: line arrived",
         "Watch w1 expired: deadline reached",
     ]
+
+
+def test_subagent_snapshot_exposes_latest_progress_without_draining(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    gate = threading.Event()
+    running = threading.Thread(target=gate.wait, daemon=True)
+    running.start()
+    try:
+        sa = _subagent("a", tmp_path / "a", parent, thread=running, started_at=1.0)
+        _remember_progress("a", "halfway there", parent, "main", run=sa)
+        notify_progress(
+            "a", "halfway there", parent_logdir=parent, parent_branch="main"
+        )
+
+        snaps = subagent_snapshots(parent, parent_branch="main")
+        assert snaps[0].latest_progress == "halfway there"
+
+        # The model delivery queue is untouched by the read model, and draining
+        # it must not erase the run's latest progress.
+        assert take_queued_progress(parent) == [("a", "halfway there")]
+        assert subagent_snapshots(parent)[0].latest_progress == "halfway there"
+    finally:
+        gate.set()
+        running.join(timeout=2)
+
+
+def test_progress_is_scoped_to_parent_and_branch(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent, stranger = tmp_path / "parent", tmp_path / "stranger"
+    run1 = _subagent("dup", tmp_path / "run1", parent, branch="side", started_at=1.0)
+    run2 = _subagent("dup", tmp_path / "run2", parent, branch="main", started_at=2.0)
+    stranger_run = _subagent("dup", tmp_path / "stranger-run", stranger, started_at=1.0)
+
+    _remember_progress("dup", "side update", parent, "side", run=run1)
+    _remember_progress("dup", "main update", parent, "main", run=run2)
+    _remember_progress("dup", "foreign update", stranger, "other", run=stranger_run)
+
+    snaps = {Path(s.run_id).name: s for s in subagent_snapshots(parent)}
+    assert snaps["run1"].latest_progress == "side update"
+    assert snaps["run2"].latest_progress == "main update"
+    assert [s.latest_progress for s in subagent_snapshots(stranger)] == [None]
+
+
+def test_progress_without_exact_run_identity_is_not_attributed(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    _subagent("dup", tmp_path / "run1", parent, started_at=1.0)
+    _subagent("dup", tmp_path / "run2", parent, started_at=2.0)
+
+    # No _run and no matching thread: picking the newest ID would be a guess.
+    notify_progress("dup", "ambiguous", parent_logdir=parent, parent_branch="main")
+
+    assert [s.latest_progress for s in subagent_snapshots(parent)] == [None, None]
+    assert take_queued_progress(parent) == [("dup", "ambiguous")]
+
+
+def test_progress_from_old_run_thread_does_not_touch_successor(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    emitted: list[None] = []
+
+    def emit_old_progress() -> None:
+        # No explicit owner: the thread identity must select the originating run
+        # even after a successor reuses the same agent_id.
+        notify_progress("dup", "old progress")
+        emitted.append(None)
+
+    old_thread = threading.Thread(target=emit_old_progress, daemon=True)
+    _subagent("dup", tmp_path / "run1", parent, thread=old_thread, started_at=1.0)
+    _subagent(
+        "dup",
+        tmp_path / "run2",
+        parent,
+        thread=threading.Thread(target=lambda: None, daemon=True),
+        started_at=2.0,
+    )
+    old_thread.start()
+    old_thread.join(timeout=2)
+    assert emitted == [None]
+
+    snaps = {Path(s.run_id).name: s for s in subagent_snapshots(parent)}
+    assert snaps["run1"].latest_progress == "old progress"
+    assert snaps["run2"].latest_progress is None
+
+    # A matching thread is not enough when the caller supplies a different
+    # branch; ownership is validated before the remembered update.
+    notify_progress("dup", "wrong branch", parent_logdir=parent, parent_branch="side")
+    snaps = {Path(s.run_id).name: s for s in subagent_snapshots(parent)}
+    assert snaps["run1"].latest_progress == "old progress"
+
+
+def test_snapshot_elapsed_uses_recorded_duration_for_newest_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    _subagent("dup", tmp_path / "run1", parent, started_at=1.0)
+    _subagent("dup", tmp_path / "run2", parent, started_at=2.0)
+    with _subagent_results_lock:
+        _subagent_results["dup"] = ReturnType("success", "done", duration_s=12.75)
+
+    snaps = {Path(s.run_id).name: s for s in subagent_snapshots(parent)}
+    assert snaps["run2"].status == "success"
+    assert snaps["run2"].elapsed_s == 12
+    # An older run must not borrow its successor's recorded duration.
+    assert snaps["run1"].status == "unknown"
+    assert snaps["run1"].elapsed_s != 12
+
+
+def test_snapshot_freezes_uncached_completed_duration(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    clock = [1000.0]
+
+    def read_log_with_clock(subagent: Subagent) -> ReturnType:
+        return ReturnType("success", "done", duration_s=clock[0] - subagent.started_at)
+
+    monkeypatch.setattr(Subagent, "_read_log", read_log_with_clock)
+    parent = tmp_path / "parent"
+    _subagent("a", tmp_path / "a", parent, started_at=1.0)
+
+    first = subagent_snapshots(parent)[0]
+    assert first.elapsed_s == 999
+    clock[0] += 1000.0
+    second = subagent_snapshots(parent)[0]
+    assert second.elapsed_s == 999
+
+    # An authoritative cached result may replace the first observed value.
+    with _subagent_results_lock:
+        _subagent_results["a"] = ReturnType("success", "done", duration_s=12.0)
+    assert subagent_snapshots(parent)[0].elapsed_s == 12
+
+
+def test_snapshot_freezes_terminal_result_without_duration(tmp_path, monkeypatch):
+    """Cancellation and legacy cached outcomes need a stable fallback duration too."""
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    clock = [100.0]
+    monkeypatch.setattr("gptme.tools.subagent.api.time.time", lambda: clock[0])
+    parent = tmp_path / "parent"
+    _subagent("a", tmp_path / "a", parent, started_at=10.0)
+    with _subagent_results_lock:
+        _subagent_results["a"] = ReturnType("cancelled", "stopped")
+    assert subagent_snapshots(parent)[0].elapsed_s == 90
+    clock[0] = 500.0
+    assert subagent_snapshots(parent)[0].elapsed_s == 90
+
+
+def test_snapshot_does_not_borrow_successor_duration_during_status(
+    tmp_path, monkeypatch
+):
+    """A same-ID handoff while status is read cannot attach its duration to the old run."""
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    old = _subagent("dup", tmp_path / "old", parent, started_at=1.0)
+
+    def handoff(sa: Subagent) -> ReturnType:
+        _subagent("dup", tmp_path / "new", parent, started_at=2.0)
+        with _subagent_results_lock:
+            _subagent_results["dup"] = ReturnType("failure", "new", duration_s=99)
+        return ReturnType("success", "old", duration_s=10)
+
+    monkeypatch.setattr(Subagent, "status", handoff)
+    snapshot = subagent_snapshots(parent)[0]
+    assert snapshot.status == "unknown"
+    assert old.frozen_duration_s is None
+
+
+def test_subprocess_final_progress_drain_keeps_exact_run(tmp_path, monkeypatch):
+    """An old poller's final drain updates that run, never a reused-ID successor."""
+    import json
+
+    from gptme.tools.subagent.execution import _poll_subprocess_progress
+
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    old = _subagent("dup", tmp_path / "old", parent, started_at=1.0)
+    _subagent("dup", tmp_path / "new", parent, started_at=2.0)
+    old.logdir.mkdir()
+    (old.logdir / "progress.jsonl").write_text(
+        json.dumps({"agent_id": "old", "message": "last old update"}) + "\n"
+    )
+    stopped = threading.Event()
+    stopped.set()
+    _poll_subprocess_progress(old, stopped)
+    snapshots = subagent_snapshots(parent)
+    assert snapshots[0].latest_progress == "last old update"
+    assert snapshots[1].latest_progress is None
+    assert take_queued_progress(parent) == [("old", "last old update")]
+
+
+def test_snapshot_recovers_from_observation_before_worker_start(tmp_path, monkeypatch):
+    """A pre-start missing log is not an authoritative outcome for a live worker."""
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    gate = threading.Event()
+    worker = threading.Thread(target=gate.wait, daemon=True)
+    sa = _subagent("child", tmp_path / "child", parent, thread=worker)
+
+    # Spawn registers the child before writing metadata and starting its thread.
+    assert subagent_snapshots(parent)[0].status == "failure"
+    assert sa.snapshot_outcome is not None
+    assert sa.frozen_duration_s is not None
+    worker.start()
+    try:
+        snapshot = subagent_snapshots(parent)[0]
+        assert snapshot.status == "running"
+        assert sa.snapshot_outcome is None
+        assert sa.frozen_duration_s is None
+    finally:
+        gate.set()
+        worker.join(timeout=2)
+
+    # On exit, observe the real log rather than resurrecting the pre-start failure
+    # or its frozen duration. Completed observations should still be reused.
+    reads = []
+
+    def read_log(subagent: Subagent) -> ReturnType:
+        reads.append(subagent.logdir)
+        return ReturnType("success", "done", duration_s=12)
+
+    monkeypatch.setattr(Subagent, "_read_log", read_log)
+    for _ in range(2):
+        snapshot = subagent_snapshots(parent)[0]
+        assert snapshot.status == "success"
+        assert snapshot.elapsed_s == 12
+    assert reads == [sa.logdir]
+
+
+def test_completed_snapshot_does_not_reread_child_transcript(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    calls = []
+
+    def read_log(sa: Subagent) -> ReturnType:
+        calls.append(sa.logdir)
+        return ReturnType("success", "done", duration_s=10)
+
+    monkeypatch.setattr(Subagent, "_read_log", read_log)
+    parent = tmp_path / "parent"
+    _subagent("child", tmp_path / "child", parent)
+    assert subagent_snapshots(parent)[0].status == "success"
+    assert subagent_snapshots(parent)[0].status == "success"
+    assert len(calls) == 1
