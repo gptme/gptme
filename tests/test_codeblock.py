@@ -2765,22 +2765,102 @@ def test_from_markdown_leading_whitespace_after_fence():
     # single space between fence and lang
     cb = Codeblock.from_markdown("``` python\nprint(1)\n```")
     assert cb.lang == "python"
-    assert cb.content == "print(1)\n"
+    assert cb.content == "print(1)"
 
     # multiple spaces between fence and lang
     cb = Codeblock.from_markdown("```  python\nprint(1)\n```")
     assert cb.lang == "python"
-    assert cb.content == "print(1)\n"
+    assert cb.content == "print(1)"
 
     # trailing space on the lang line is consumed, not leaked into content
     cb = Codeblock.from_markdown("``` python \nprint(1)\n```")
     assert cb.lang == "python"
-    assert cb.content == "print(1)\n"
+    assert cb.content == "print(1)"
 
     # path-like lang with leading whitespace (common in save blocks)
     cb = Codeblock.from_markdown("``` save path/to/file.py\nprint(1)\n```")
     assert cb.lang == "save path/to/file.py"
-    assert cb.content == "print(1)\n"
+    assert cb.content == "print(1)"
+
+
+def test_from_markdown_no_lang_tag():
+    """A fence immediately followed by a newline has no language tag; the first
+    line is content, not a language.
+
+    Regression test: from_markdown consumed the first content line as the lang,
+    so an empty-lang codeblock lost its entire content on a round-trip.
+    """
+    cb = Codeblock.from_markdown("```\nprint(1)\n```")
+    assert cb.lang == ""
+    assert cb.content == "print(1)"
+
+    # empty-lang round-trip preserves the content
+    original = Codeblock("", "print(1)")
+    restored = Codeblock.from_markdown(original.to_markdown())
+    assert restored.lang == ""
+    assert restored.content == "print(1)"
+
+
+def test_from_markdown_drops_trailing_separator_newline():
+    """to_markdown() writes "{fence}{lang}\n{content}\n{fence}"; the newline
+    before the closing fence is a separator, not content. from_markdown must
+    drop exactly that one newline so a round-trip is lossless and agrees with
+    iter_from_markdown.
+
+    Regression test: from_markdown kept the separator newline, so a round-trip
+    appended a stray trailing newline (two when the content already ended in
+    one), diverging from iter_from_markdown which never keeps it.
+    """
+    # Plain content: round-trip must not add a trailing newline.
+    cb = Codeblock("python", "print(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+    assert Codeblock.iter_from_markdown(cb.to_markdown()) == [cb]
+
+    # Multi-line content.
+    cb = Codeblock("python", "print(1)\nprint(2)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+    # Content already ending in a newline: keep it, drop only the separator.
+    cb = Codeblock("python", "print(1)\n")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+    # Content with a trailing space is preserved.
+    cb = Codeblock("python", "print(1) ")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+    # Empty content.
+    cb = Codeblock("", "")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+
+def test_from_markdown_preserves_leading_whitespace():
+    """Body indentation and leading blank lines must survive a round-trip.
+
+    The closing-fence cleanup used to strip() the whole body, so a code block
+    whose first content line was indented (or whose body began with a blank
+    line) lost that leading whitespace on a round-trip.
+    """
+    # Indented first line, with and without a lang tag.
+    cb = Codeblock("python", "    print(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+    cb = Codeblock("", "    print(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+    # A leading blank line is part of the body.
+    cb = Codeblock("python", "\nprint(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+
+def test_from_markdown_whitespace_only_fence_has_no_lang():
+    """An opening fence followed only by whitespace before the newline has no
+    language tag; the first content line must not be consumed as the lang."""
+    cb = Codeblock.from_markdown("``` \nprint(1)\n```")
+    assert cb.lang == ""
+    assert cb.content == "print(1)"
+
+    cb = Codeblock.from_markdown("```\t\nprint(1)\n```")
+    assert cb.lang == ""
+    assert cb.content == "print(1)"
 
 
 def test_extract_codeblocks_shell_quoted_non_heredoc_lt():
