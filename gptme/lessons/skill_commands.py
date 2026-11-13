@@ -97,7 +97,12 @@ def _make_skill_handler(skill: Lesson, index: LessonIndex) -> CommandHandler:
             return
         invocation_id = start_skill_invocation(ctx.manager.logdir, name, skill.path)
         try:
-            queue_prompt(ctx.manager.logdir, content, skill_invocation_id=invocation_id)
+            queue_prompt(
+                ctx.manager.logdir,
+                content,
+                skill_invocation_id=invocation_id,
+                branch=ctx.manager.current_branch,
+            )
         except Exception as e:
             record_skill_phase(
                 ctx.manager.logdir, invocation_id, "failed", error_type=type(e).__name__
