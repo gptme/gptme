@@ -2348,13 +2348,13 @@ class WorkScreen(ModalScreen):
                 id="work-screen-title",
             )
             with VerticalScroll(id="work-screen-scroll"):
-                yield Static(self._load_transcript(), id="work-screen-content")
+                yield Static(Text(self._load_transcript()), id="work-screen-content")
 
     def _load_transcript(self) -> str:
         """Load the child's JSONL log as plain text (best-effort, tolerates incomplete records)."""
         jsonl_path = self._logdir / "conversation.jsonl"
         if not jsonl_path.exists():
-            return f"No log at {markup_escape(str(jsonl_path))}"
+            return f"No log at {jsonl_path}"
         lines: list[str] = []
         try:
             raw = jsonl_path.read_text(errors="replace")
@@ -2378,13 +2378,13 @@ class WorkScreen(ModalScreen):
                     preview = str(content)[:500]
                     if len(str(content)) > 500:
                         preview += " …"
-                    # Escape Rich markup so roles and content render as literal text
-                    lines.append(f"{markup_escape(role)}: {markup_escape(preview)}")
+                    # The widget receives Text, never a markup-parsed string.
+                    lines.append(f"{role}: {preview}")
                 except json.JSONDecodeError:
                     # Tolerate incomplete trailing record while child is writing
                     pass
         except OSError as e:
-            return f"Could not read log: {markup_escape(str(e))}"
+            return f"Could not read log: {e}"
         return "\n\n".join(lines) if lines else "Empty log"
 
     def action_close(self) -> None:
