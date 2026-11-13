@@ -869,7 +869,11 @@ class LessonIndex:
             return lesson
 
         try:
-            materialized, _ = self._load_lesson_file(lesson.path)
+            materialized, from_cache = self._load_lesson_file(lesson.path)
+            if not from_cache:
+                # Stubs are parsed after the index scan's cache save. Persist
+                # selected skills too, so the next short-lived hook reuses them.
+                _save_disk_cache()
             return materialized
         except Exception as e:
             logger.warning(f"Failed to materialize stub {lesson.path}: {e}")

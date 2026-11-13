@@ -220,6 +220,65 @@ def test_cache_invalidated_when_symlink_target_changes(
     assert second.lessons[0].path == lesson_dir / "a.md"
 
 
+def test_manifest_materialization_persists_across_processes(tmp_path, monkeypatch):
+    """Lazy skill bodies persist, hit on the next run and reparse after edits."""
+    import json
+    import os
+
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    skills = tmp_path / "skills"
+    skill_file = skills / "deploy" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("---\nname: deploy\n---\n# Deployment\nOriginal body\n")
+    (skills / "index.json").write_text(
+        json.dumps(
+            {
+                "skills": [
+                    {"name": "deploy", "path": "deploy", "keywords": ["deployment"]}
+                ]
+            }
+        )
+    )
+    calls: list[Path] = []
+    real_parse = index_mod.parse_lesson
+
+    def counting_parse(path):
+        calls.append(path)
+        return real_parse(path)
+
+    monkeypatch.setattr(index_mod, "parse_lesson", counting_parse)
+
+    def materialize_fresh():
+        _fresh_cache(index_mod, monkeypatch, tmp_path)
+        index = index_mod.LessonIndex(lesson_dirs=[skills])
+        assert index.lessons[0].is_stub
+        return index.materialize_lesson(index.lessons[0])
+
+    first = materialize_fresh()
+    assert "Original body" in first.body
+    assert calls == [skill_file]
+    cache = index_mod._disk_cache_path()
+    assert cache is not None and cache.exists()
+    assert str(skill_file) in json.loads(cache.read_text())["entries"]
+
+    calls.clear()
+    second = materialize_fresh()
+    assert second.body == first.body
+    assert calls == []
+
+    skill_file.write_text("---\nname: deploy\n---\n# Deployment\nUpdated skill body\n")
+    st = skill_file.stat()
+    os.utime(skill_file, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    third = materialize_fresh()
+    assert "Updated skill body" in third.body
+    assert calls == [skill_file]
+    calls.clear()
+    assert materialize_fresh().body == third.body
+    assert calls == []
+
+
 def test_disk_cache_can_be_disabled(tmp_path, monkeypatch):
     from gptme.lessons import index as index_mod
 
