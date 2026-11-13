@@ -474,9 +474,11 @@ you need tighter control over what the subagent sees:
   history — trim without fully isolating. **Thread mode only**: subprocess mode
   cannot trim a partial window and warns that the parameter is ignored.
 
-`context_window=0` is equivalent to `context_mode="selective", context_include=["agent", "tools"]`
-but is a simpler one-parameter alternative. ACP mode ignores `context_window`
-because the ACP agent owns its own context.
+In thread mode, `context_window=0` is equivalent to
+`context_mode="selective", context_include=["agent", "tools"]` but is a simpler
+one-parameter alternative. In subprocess mode, use `context_window=0` to skip
+workspace context; selecting only `"agent"` and `"tools"` does not skip it.
+ACP mode ignores `context_window` because the ACP agent owns its own context.
 
 ## Agent Profiles for Subagents
 
