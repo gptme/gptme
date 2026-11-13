@@ -1522,6 +1522,8 @@ def _monitor_subprocess(
     tool_uses: int | None = None
     duration_s: float | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_creation_tokens: int | None = None
     result: str | dict[str, object] | None
 
     # Determine status based on return code
@@ -1551,6 +1553,8 @@ def _monitor_subprocess(
             result = log_status.result
             input_tokens = log_status.input_tokens
             output_tokens = log_status.output_tokens
+            cache_read_tokens = log_status.cache_read_tokens
+            cache_creation_tokens = log_status.cache_creation_tokens
             tool_uses = log_status.tool_uses
             duration_s = log_status.duration_s
         except Exception:
@@ -1576,6 +1580,8 @@ def _monitor_subprocess(
         result,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_creation_tokens=cache_creation_tokens,
         tool_uses=tool_uses,
         duration_s=duration_s,
     )

@@ -173,6 +173,8 @@ def persist_subagent_outcome(sa: Subagent, result: ReturnType) -> bool:
         "result": result.result,
         "input_tokens": result.input_tokens,
         "output_tokens": result.output_tokens,
+        "cache_read_tokens": result.cache_read_tokens,
+        "cache_creation_tokens": result.cache_creation_tokens,
         "tool_uses": result.tool_uses,
         "duration_s": result.duration_s,
     }
@@ -205,7 +207,13 @@ def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
             return None
         if data.get("status") not in TERMINAL_STATUSES:
             raise ValueError("subagent outcome status must be terminal")
-        for name in ("input_tokens", "output_tokens", "tool_uses"):
+        for name in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens",
+            "tool_uses",
+        ):
             value = data.get(name)
             if value is not None and (type(value) is not int or value < 0):
                 raise ValueError(
@@ -228,6 +236,8 @@ def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
             result,
             input_tokens=data.get("input_tokens"),
             output_tokens=data.get("output_tokens"),
+            cache_read_tokens=data.get("cache_read_tokens"),
+            cache_creation_tokens=data.get("cache_creation_tokens"),
             tool_uses=data.get("tool_uses"),
             duration_s=data.get("duration_s"),
         )

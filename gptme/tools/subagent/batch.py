@@ -184,6 +184,8 @@ class BatchJob:
                     result.get("result"),
                     input_tokens=result.get("input_tokens"),
                     output_tokens=result.get("output_tokens"),
+                    cache_read_tokens=result.get("cache_read_tokens"),
+                    cache_creation_tokens=result.get("cache_creation_tokens"),
                     tool_uses=result.get("tool_uses"),
                     duration_s=result.get("duration_s"),
                 )
@@ -452,6 +454,8 @@ class BatchJob:
                     raw.get("result"),
                     input_tokens=raw.get("input_tokens"),
                     output_tokens=raw.get("output_tokens"),
+                    cache_read_tokens=raw.get("cache_read_tokens"),
+                    cache_creation_tokens=raw.get("cache_creation_tokens"),
                 )
             except Exception as exc:
                 result = ReturnType("failure", str(exc))
