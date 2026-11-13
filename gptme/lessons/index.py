@@ -863,14 +863,14 @@ class LessonIndex:
         seen_rel_paths.add(relative_name)
         return True
 
-    def materialize_lesson(self, lesson: Lesson) -> Lesson:
-        """Load the full lesson body/title for manifest-backed skill stubs."""
+    def materialize_lesson(self, lesson: Lesson, *, persist: bool = True) -> Lesson:
+        """Load a skill stub, persisting it unless the caller will save a batch."""
         if not lesson.is_stub:
             return lesson
 
         try:
             materialized, from_cache = self._load_lesson_file(lesson.path)
-            if not from_cache:
+            if persist and not from_cache:
                 # Stubs are parsed after the index scan's cache save. Persist
                 # selected skills too, so the next short-lived hook reuses them.
                 _save_disk_cache()
@@ -920,7 +920,11 @@ class LessonIndex:
                 results.append(lesson)
                 continue
 
-        return [self.materialize_lesson(lesson) for lesson in results]
+        materialized = [
+            self.materialize_lesson(lesson, persist=False) for lesson in results
+        ]
+        _save_disk_cache()
+        return materialized
 
     def get_by_category(self, category: str) -> list[Lesson]:
         """Get all lessons in a category.
@@ -931,11 +935,13 @@ class LessonIndex:
         Returns:
             List of lessons in category (stubs are materialized on return)
         """
-        return [
-            self.materialize_lesson(lesson)
+        materialized = [
+            self.materialize_lesson(lesson, persist=False)
             for lesson in self.lessons
             if lesson.category == category
         ]
+        _save_disk_cache()
+        return materialized
 
     def refresh(self) -> None:
         """Refresh the index by re-parsing all lessons."""

@@ -279,6 +279,65 @@ def test_manifest_materialization_persists_across_processes(tmp_path, monkeypatc
     assert calls == []
 
 
+@pytest.mark.parametrize("operation", ["search", "category"])
+def test_manifest_batch_materialization_saves_once(tmp_path, monkeypatch, operation):
+    """Broad lookups persist all selected skills with one write, then reuse them."""
+    import json
+
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    skills = tmp_path / "skills"
+    entries = []
+    for number in range(4):
+        name = f"deploy-{number}"
+        skill = skills / name / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            f"---\nname: {name}\n---\n# Deployment {number}\nBody {number}\n"
+        )
+        entries.append({"name": name, "path": name, "keywords": ["deployment"]})
+    (skills / "index.json").write_text(json.dumps({"skills": entries}))
+    index = index_mod.LessonIndex(lesson_dirs=[skills])
+    assert len(index.lessons) == 4 and all(lesson.is_stub for lesson in index.lessons)
+    # Give every stub the same category for a multi-result category lookup.
+    for lesson in index.lessons:
+        lesson.category = "deployment"
+
+    writes = []
+    real_replace = index_mod.os.replace
+
+    def counting_replace(src, dst):
+        writes.append(dst)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(index_mod.os, "replace", counting_replace)
+
+    def lookup():
+        return (
+            index.search("deployment")
+            if operation == "search"
+            else index.get_by_category("deployment")
+        )
+
+    results = lookup()
+    assert len(results) == 4 and all(not lesson.is_stub for lesson in results)
+    cache = index_mod._disk_cache_path()
+    assert writes == [cache]
+    assert cache is not None
+    assert len(json.loads(cache.read_text())["entries"]) == 4
+
+    # A fresh process must hit the persisted bodies and never rewrite the cache.
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+
+    def unexpected_parse(path):
+        pytest.fail(f"Persisted skill was reparsed: {path}")
+
+    monkeypatch.setattr(index_mod, "parse_lesson", unexpected_parse)
+    assert [lesson.body for lesson in lookup()] == [lesson.body for lesson in results]
+    assert writes == [cache]
+
+
 def test_disk_cache_can_be_disabled(tmp_path, monkeypatch):
     from gptme.lessons import index as index_mod
 
