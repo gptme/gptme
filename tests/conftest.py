@@ -590,8 +590,12 @@ def cleanup_session_health_monitor(detect_leaked_threads):
     yield
     try:
         try:
-            from gptme.server.session_step import stop_session_health_monitor
+            from gptme.server.session_step import (
+                stop_peer_wake_monitor,
+                stop_session_health_monitor,
+            )
 
+            stop_peer_wake_monitor()
             stop_session_health_monitor()
         except ImportError:
             pass
