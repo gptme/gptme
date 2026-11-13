@@ -205,3 +205,99 @@ def test_discard_control_ops_keeps_other_ops(tmp_path: Path) -> None:
     assert discard_control_ops(tmp_path, "other") == 1
     assert not (tmp_path / CONTROL_FILENAME).exists()
     assert discard_control_ops(tmp_path, "cancel") == 0
+
+
+@pytest.mark.parametrize("mode", ["thread", "subprocess"])
+@pytest.mark.parametrize("pause_before_result", [False, True])
+def test_delayed_old_cancel_cannot_cancel_continuation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    pause_before_result: bool,
+) -> None:
+    """An old cancel must not write an op or result into a resumed attempt."""
+    logdir = tmp_path / "subagent-worker"
+    old = _cancelled_subagent(logdir, mode)
+    discard_control_ops(logdir, "cancel")
+    with types._subagent_results_lock:
+        types._subagent_results.clear()
+    old_finished = threading.Event()
+    old_thread = threading.Thread(target=old_finished.wait, daemon=True)
+    old_thread.start()
+    object.__setattr__(old, "thread", old_thread)
+    old_process = None
+    if mode == "subprocess":
+        old_process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"]
+        )
+        object.__setattr__(old, "process", old_process)
+
+    cancel_paused = threading.Event()
+    release_cancel = threading.Event()
+    child_started = threading.Event()
+    run_child = threading.Event()
+    generated: list[str] = []
+    errors: list[BaseException] = []
+    original_set_result = api.set_subagent_result_if_absent
+
+    def delayed_result(*args: Any, **kwargs: Any) -> bool:
+        is_cancel = args[1].status == "cancelled"
+        if is_cancel and pause_before_result:
+            cancel_paused.set()
+            assert release_cancel.wait(10)
+        result = original_set_result(*args, **kwargs)
+        if is_cancel and not pause_before_result:
+            cancel_paused.set()
+            assert release_cancel.wait(10)
+        return result
+
+    def execute(**kwargs: Any) -> None:
+        child_started.set()
+        assert run_child.wait(10)
+        _run_child_step(kwargs["logdir"], generated)
+
+    def launch(**kwargs: Any) -> subprocess.Popen:
+        execute(**kwargs)
+        kwargs["writer_lease"].close()
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        return proc
+
+    def cancel() -> None:
+        try:
+            api.subagent_cancel("worker")
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(api, "set_subagent_result_if_absent", delayed_result)
+    monkeypatch.setattr(api._exec, "_create_subagent_thread", execute)
+    monkeypatch.setattr(api._exec, "_run_subagent_subprocess", launch)
+    canceller = threading.Thread(target=cancel, daemon=True)
+    canceller.start()
+    try:
+        assert cancel_paused.wait(10)
+        old_finished.set()
+        old_thread.join(10)
+        if old_process is not None:
+            old_process.terminate()
+            old_process.wait(timeout=10)
+        api.subagent_continue("worker", "finish now", allow_cancelled=True)
+        assert child_started.wait(10)
+        release_cancel.set()
+        canceller.join(10)
+        assert not canceller.is_alive()
+        assert not errors
+        run_child.set()
+        current = _wait_current()
+        assert generated, "old cancellation stopped the resumed child's generation"
+        assert current.status().status == "success"
+        assert not (logdir / CONTROL_FILENAME).exists()
+    finally:
+        old_finished.set()
+        release_cancel.set()
+        run_child.set()
+        canceller.join(10)
+        old_thread.join(10)
+        if old_process is not None and old_process.poll() is None:
+            old_process.kill()
+            old_process.wait(timeout=10)
