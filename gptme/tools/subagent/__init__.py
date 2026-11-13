@@ -432,7 +432,9 @@ while not budget.exhausted():
 ```
 
 Each result dict has ``input_tokens`` / ``output_tokens`` fields so you can
-inspect per-agent spend. Budget is output-token-only (the expensive marginal
+inspect per-agent spend. ``input_tokens`` includes cache reads and writes; when
+the provider reports caching, ``cache_read_tokens``, ``cache_creation_tokens``
+and ``uncached_input_tokens`` show the split. Budget is output-token-only (the expensive marginal
 cost). Agents already running when the budget hits zero are allowed to finish
 normally — only *new* spawns are blocked.
 

@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 from contextvars import copy_context
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
@@ -241,14 +241,7 @@ def update_subagent_result_with_branch(
             amended = suffix.lstrip("\n")
         else:
             return  # structured (dict) result — cannot amend inline
-        _subagent_results[agent_id] = ReturnType(
-            existing.status,
-            amended,
-            input_tokens=existing.input_tokens,
-            output_tokens=existing.output_tokens,
-            tool_uses=existing.tool_uses,
-            duration_s=existing.duration_s,
-        )
+        _subagent_results[agent_id] = replace(existing, result=amended)
     _persist_cached_outcome(agent_id)
 
 
@@ -265,12 +258,29 @@ class ReturnType:
     # None means unavailable (e.g. cached terminal result, pre-budget-tracking log).
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # Cache-aware breakdown of ``input_tokens``, which counts every prompt
+    # token the provider processed: uncached input plus cache reads and cache
+    # writes. Kept as a total for compatibility; the parts below let a parent
+    # judge delegation cost (cache reads are billed far below fresh input).
+    # None means the log carried no cache metadata for this run.
+    cache_read_tokens: int | None = None
+    cache_creation_tokens: int | None = None
+    # Derived: input_tokens minus cache reads and writes. Not an init arg.
+    uncached_input_tokens: int | None = field(default=None, init=False)
     # Usage reporting (parity with Claude Code's Agent tool notification):
     # total ToolUse invocations across the subagent's assistant messages, and
     # wall-clock seconds from spawn to terminal result. None means unavailable
     # (e.g. no conversation log was read, or spawn time wasn't tracked).
     tool_uses: int | None = None
     duration_s: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.input_tokens is None:
+            return
+        cached = (self.cache_read_tokens or 0) + (self.cache_creation_tokens or 0)
+        object.__setattr__(
+            self, "uncached_input_tokens", max(self.input_tokens - cached, 0)
+        )
 
 
 @dataclass
@@ -515,26 +525,43 @@ class Subagent:
         return copy_context().run(LogManager.load, self.logdir, lock=False)
 
     def _read_token_stats(self) -> tuple[int | None, int | None]:
-        """Return (input_tokens, output_tokens) from the subagent's conversation log.
+        """Return (input_tokens, output_tokens); see :meth:`_read_usage`."""
+        usage = self._read_usage()
+        return usage["input_tokens"], usage["output_tokens"]
 
-        Reads the JSONL log file directly to sum up usage metadata across all
-        assistant turns — same approach as logmanager/conversations.py _full_scan().
-        Returns (None, None) on any error so missing stats never block the caller.
+    def _read_usage(self) -> dict[str, int | None]:
+        """Return token usage summed from the subagent's conversation log.
+
+        Keys match the ``ReturnType`` usage fields: ``input_tokens`` (uncached
+        input plus cache reads and writes), ``output_tokens``,
+        ``cache_read_tokens`` and ``cache_creation_tokens``. Reads the JSONL log
+        directly, the same approach as logmanager/conversations.py _full_scan().
+        All values are None on any error, so missing stats never block the
+        caller; the cache fields are also None when no message reported them.
         """
         import json
 
+        empty: dict[str, int | None] = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "cache_read_tokens": None,
+            "cache_creation_tokens": None,
+        }
         try:
             conv_fn = self.logdir / "conversation.jsonl"
             if not conv_fn.exists():
                 # Some log layouts use the directory name as the file
                 candidates = list(self.logdir.glob("*.jsonl"))
                 if not candidates:
-                    return None, None
+                    return empty
                 conv_fn = candidates[0]
 
             input_tokens = 0
             output_tokens = 0
+            cache_read_total = 0
+            cache_creation_total = 0
             saw_usage = False
+            saw_cache = False
             with open(conv_fn, "rb") as f:
                 for line in f:
                     line = line.strip()
@@ -556,21 +583,31 @@ class Subagent:
                         if not any(k in src for k in token_keys):
                             continue
                         saw_usage = True
+                        if "cache_read_tokens" in src or "cache_creation_tokens" in src:
+                            saw_cache = True
                         cache_read = src.get("cache_read_tokens", 0) or 0
+                        cache_creation = src.get("cache_creation_tokens", 0) or 0
+                        cache_read_total += cache_read
+                        cache_creation_total += cache_creation
                         input_tokens += (
                             (src.get("input_tokens", 0) or 0)
                             + cache_read
-                            + (src.get("cache_creation_tokens", 0) or 0)
+                            + cache_creation
                         )
                         output_tokens += src.get("output_tokens", 0) or 0
                     except (json.JSONDecodeError, TypeError):
                         continue
             if not saw_usage:
-                return None, None
-            return input_tokens, output_tokens
+                return empty
+            return {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cache_read_tokens": cache_read_total if saw_cache else None,
+                "cache_creation_tokens": cache_creation_total if saw_cache else None,
+            }
         except Exception as e:
             logger.debug("Could not read token stats for %s: %s", self.agent_id, e)
-            return None, None
+            return empty
 
     def continuation_blocker(self, *, allow_cancelled: bool = False) -> str | None:
         """Why a finished run cannot resume in its conversation, or None if it can.
@@ -729,7 +766,7 @@ class Subagent:
                 return _subagent_results[self.agent_id]
 
         # Read token stats once; attach to every terminal ReturnType we return.
-        in_tok, out_tok = self._read_token_stats()
+        usage = self._read_usage()
         duration_s = time.time() - self.started_at
 
         # Check if executor used the complete tool
@@ -739,16 +776,14 @@ class Subagent:
             return ReturnType(
                 "failure",
                 f"Subagent exited before creating a conversation log: {self.logdir}",
-                input_tokens=in_tok,
-                output_tokens=out_tok,
+                **usage,
                 duration_s=duration_s,
             )
         if not log:
             return ReturnType(
                 "failure",
                 "No messages in log",
-                input_tokens=in_tok,
-                output_tokens=out_tok,
+                **usage,
                 duration_s=duration_s,
             )
 
@@ -787,8 +822,7 @@ class Subagent:
             return ReturnType(
                 clarification_result.status,
                 clarification_result.result,
-                input_tokens=in_tok,
-                output_tokens=out_tok,
+                **usage,
                 tool_uses=n_tool_uses,
                 duration_s=duration_s,
             )
@@ -869,8 +903,7 @@ class Subagent:
             return ReturnType(
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
-                input_tokens=in_tok,
-                output_tokens=out_tok,
+                **usage,
                 tool_uses=n_tool_uses,
                 duration_s=duration_s,
             )
@@ -891,8 +924,7 @@ class Subagent:
                 return ReturnType(
                     "success",
                     result + f"\n\nFull log: {self.logdir}",
-                    input_tokens=in_tok,
-                    output_tokens=out_tok,
+                    **usage,
                     tool_uses=n_tool_uses,
                     duration_s=duration_s,
                 )
@@ -902,8 +934,7 @@ class Subagent:
             return ReturnType(
                 "success",
                 f"Task completed successfully. Full log: {self.logdir}",
-                input_tokens=in_tok,
-                output_tokens=out_tok,
+                **usage,
                 tool_uses=n_tool_uses,
                 duration_s=duration_s,
             )
@@ -918,8 +949,7 @@ class Subagent:
             return ReturnType(
                 yield_result.status,
                 yield_result.result,
-                input_tokens=in_tok,
-                output_tokens=out_tok,
+                **usage,
                 tool_uses=n_tool_uses,
                 duration_s=duration_s,
             )
@@ -928,8 +958,7 @@ class Subagent:
         return ReturnType(
             "failure",
             f"Task did not complete properly. Check log: {self.logdir}",
-            input_tokens=in_tok,
-            output_tokens=out_tok,
+            **usage,
             tool_uses=n_tool_uses,
             duration_s=duration_s,
         )

@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -823,17 +823,8 @@ def subagent(
                         sa_ref = next(
                             (s for s in _subagents if s.agent_id == agent_id), None
                         )
-                    in_tok, out_tok = (
-                        sa_ref._read_token_stats()
-                        if sa_ref is not None
-                        else (None, None)
-                    )
-                    result = ReturnType(
-                        status,
-                        summary,
-                        input_tokens=in_tok,
-                        output_tokens=out_tok,
-                    )
+                    usage = sa_ref._read_usage() if sa_ref is not None else {}
+                    result = ReturnType(status, summary, **usage)
                     if not set_subagent_result_if_absent(agent_id, result):
                         return
                     notify_completion(
@@ -1165,15 +1156,9 @@ def subagent(
                         and isinstance(result.result, str)
                         and not sa.output_schema
                     ):
-                        from .types import ReturnType as _ReturnType
-
-                        result = _ReturnType(
-                            result.status,
-                            f"{result.result}{preserved_notice(preserved_branch)}",
-                            input_tokens=result.input_tokens,
-                            output_tokens=result.output_tokens,
-                            tool_uses=result.tool_uses,
-                            duration_s=result.duration_s,
+                        result = replace(
+                            result,
+                            result=f"{result.result}{preserved_notice(preserved_branch)}",
                         )
                     if not set_subagent_result_if_absent(agent_id, result):
                         # Timeout/cancel won the cache race. Cleanup already ran above.

@@ -5713,6 +5713,61 @@ class TestTokenBudgetTracking:
         assert in_tok == 350  # 100 + 200 (cache_read) + 50 (cache_creation)
         assert out_tok == 30
 
+        # The breakdown stays visible to the parent (gptme/gptme#4901).
+        usage = sa._read_usage()
+        assert usage["cache_read_tokens"] == 200
+        assert usage["cache_creation_tokens"] == 50
+        rt = ReturnType("success", "done", **usage)
+        assert rt.input_tokens == 350
+        assert rt.uncached_input_tokens == 100
+        from dataclasses import asdict
+
+        assert asdict(rt)["uncached_input_tokens"] == 100
+
+    def test_read_usage_without_cache_metadata_leaves_cache_fields_none(self, tmp_path):
+        """No cache keys in the log: unknown, not zero; uncached equals input."""
+        import json
+
+        logdir = tmp_path / "test-agent-nocache"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "x",
+                    "metadata": {"usage": {"input_tokens": 70, "output_tokens": 5}},
+                }
+            )
+            + "\n"
+        )
+        sa = Subagent(
+            agent_id="test-token-nocache",
+            prompt="test",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        usage = sa._read_usage()
+        assert usage["cache_read_tokens"] is None
+        assert usage["cache_creation_tokens"] is None
+        rt = ReturnType("success", "done", **usage)
+        assert rt.uncached_input_tokens == 70
+
+    def test_return_type_replace_recomputes_uncached(self):
+        """Copying a result (e.g. to append a branch notice) keeps the breakdown."""
+        from dataclasses import replace
+
+        rt = ReturnType(
+            "success",
+            "done",
+            input_tokens=300,
+            cache_read_tokens=250,
+            cache_creation_tokens=10,
+        )
+        copied = replace(rt, result="done + notice")
+        assert copied.cache_read_tokens == 250
+        assert copied.uncached_input_tokens == 40
+
     def test_read_token_stats_returns_none_when_no_metadata(self, tmp_path):
         """_read_token_stats() returns (None, None) when no usage metadata is present."""
         import json

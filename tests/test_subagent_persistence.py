@@ -805,6 +805,28 @@ class TestDurableAttemptOutcome:
         assert outcome is not None
         assert outcome.status == "cancelled"
 
+    def test_cache_usage_round_trips(self, tmp_path: Path):
+        from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+        subagent_dir = tmp_path / "subagent-cache-agent-ab12"
+        sa = self._register(subagent_dir, agent_id="cache-agent")
+        assert set_subagent_result_if_absent(
+            "cache-agent",
+            ReturnType(
+                "success",
+                "done",
+                input_tokens=64860,
+                output_tokens=188,
+                cache_read_tokens=42368,
+                cache_creation_tokens=0,
+            ),
+        )
+        outcome = load_subagent_outcome(sa)
+        assert outcome is not None
+        assert outcome.cache_read_tokens == 42368
+        assert outcome.cache_creation_tokens == 0
+        assert outcome.uncached_input_tokens == 22492
+
     def test_outcome_from_earlier_attempt_is_ignored(self, tmp_path: Path):
         """A continuation starts a new generation in the same logdir."""
         subagent_dir = tmp_path / "subagent-gen-agent-gh78"
