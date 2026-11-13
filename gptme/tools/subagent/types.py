@@ -829,7 +829,8 @@ class Subagent:
                 # Native complete has no summary parameter. Providers persist prose
                 # either before the call in this message or as a separate message.
                 # Only recover adjacent, tool-free prose from this child's history:
-                # never cross a user turn, tool invocation, or fork boundary.
+                # never cross a user turn (harness nudges excepted), tool
+                # invocation, or fork boundary.
                 if complete_tool.kwargs is not None and len(native_tools) == 1:
                     from ...context import strip_reasoning
                     from ...message import _strip_think_sig
@@ -848,6 +849,14 @@ class Subagent:
                                     "tool"
                                 ):
                                     break
+                                continue
+                            # The harness's own "did you mean to finish?" nudge is
+                            # a user-role message but not a new task. Trust only
+                            # its recorded provenance: a user message that quotes
+                            # the nudge text is still a boundary.
+                            if previous.role == "user" and (
+                                previous.metadata or {}
+                            ).get("harness_nudge"):
                                 continue
                             if (
                                 previous.role == "assistant"

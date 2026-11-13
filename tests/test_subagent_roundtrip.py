@@ -208,6 +208,51 @@ class TestThreadModeCompletionRoundtrip:
         assert report in summary
         assert len(summary) > 200
 
+    def test_completion_notification_carries_report_across_nudge(
+        self, monkeypatch, tmp_path
+    ):
+        """Report -> production completion nudge -> native complete reaches the parent."""
+        from gptme.logmanager import Log
+        from gptme.message import Message
+        from gptme.tools.complete import auto_reply_hook
+
+        _setup_patches(monkeypatch, tmp_path)
+        report = "Findings: the bug is in parser.py:42."
+        manager = MagicMock()
+        manager.log = Log([Message("user", "task"), Message("assistant", report)])
+        (nudge,) = list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
+        assert isinstance(nudge, Message)
+
+        def fast_thread(**kwargs):
+            logdir = kwargs["logdir"]
+            logdir.mkdir(parents=True, exist_ok=True)
+            msgs = [
+                Message("user", "Task"),
+                Message("assistant", report),
+                nudge,
+                Message("assistant", "@complete(call_complete): {}"),
+            ]
+            (logdir / "conversation.jsonl").write_text(
+                "".join(json.dumps(m.to_dict()) + "\n" for m in msgs)
+            )
+
+        monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", fast_thread)
+        subagent("nudged-report", "task")
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "nudged-report")
+        assert sa.thread is not None
+        sa.thread.join(timeout=10)
+
+        notified = list(
+            _subagent_completion_hook(
+                MagicMock(logdir=sa.parent_logdir), interactive=False
+            )
+        )
+        assert len(notified) == 1
+        assert report in notified[0].content
+        assert "no summary provided" not in notified[0].content
+        assert report in subagent_wait("nudged-report", timeout=10)["result"]
+
     def test_result_stored_in_cache_for_subagent_wait(self, monkeypatch, tmp_path):
         """After thread completes, result is in _subagent_results for subagent_wait."""
         _setup_patches(monkeypatch, tmp_path)

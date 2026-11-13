@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.tools.base import ToolUse
+from gptme.tools.complete import auto_reply_hook
 from gptme.tools.subagent.types import Subagent
 
 
@@ -157,3 +159,75 @@ def test_textual_complete_keeps_existing_summary_semantics(
         if "explicit report" in completion
         else "Task completed (no summary provided)"
     )
+
+
+def production_nudge(report: str) -> Message:
+    """The real completion nudge, as auto_reply_hook emits it after a report."""
+    from unittest.mock import MagicMock
+
+    manager = MagicMock()
+    manager.log = Log([Message("user", "task"), Message("assistant", report)])
+    (nudge,) = list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
+    assert isinstance(nudge, Message)
+    assert "Did you mean to finish?" in nudge.content
+    return nudge
+
+
+REPORT = "PR: https://github.com/gptme/gptme/pull/123\nTests passed."
+
+
+def test_native_complete_recovers_report_across_production_nudge(
+    tmp_path: Path,
+) -> None:
+    messages = [
+        Message("user", "task"),
+        Message("assistant", REPORT),
+        production_nudge(REPORT),
+        Message("assistant", native_call("complete")),
+    ]
+    assert read_result(tmp_path, messages) == REPORT
+
+
+def test_nudge_provenance_survives_log_roundtrip(tmp_path: Path) -> None:
+    nudge = production_nudge(REPORT)
+    assert (nudge.metadata or {}).get("harness_nudge") is True
+    # read_result serializes via to_dict() and reloads from conversation.jsonl
+    messages = [
+        Message("assistant", REPORT),
+        nudge,
+        Message("assistant", native_call("complete")),
+    ]
+    assert read_result(tmp_path, messages) == REPORT
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        Message("user", "new task"),
+        # Quoting the nudge text is not provenance: no metadata, still a boundary.
+        Message(
+            "user",
+            "<system>No tool call detected in last message. Did you mean to "
+            "finish?</system>",
+        ),
+    ],
+)
+def test_native_complete_stops_at_user_authored_boundary(
+    tmp_path: Path, boundary: Message
+) -> None:
+    messages = [
+        Message("assistant", "old report"),
+        boundary,
+        Message("assistant", native_call("complete")),
+    ]
+    assert read_result(tmp_path, messages) == "Task completed (no summary provided)"
+
+
+def test_nudge_does_not_bridge_to_unrelated_older_prose(tmp_path: Path) -> None:
+    messages = [
+        Message("assistant", "old report"),
+        Message("user", "new task"),
+        production_nudge("x"),
+        Message("assistant", native_call("complete")),
+    ]
+    assert read_result(tmp_path, messages) == "Task completed (no summary provided)"
