@@ -8664,58 +8664,32 @@ class TestReasoningEffort:
 
         assert "--no-workspace" not in captured_subprocess_cmd["cmd"]
 
-    def test_reasoning_effort_acp_mode_warns(self, caplog):
-        """ACP mode does not support reasoning_effort; it is ignored with a warning.
-
-        The warning is logged synchronously before the ACP client thread starts,
-        so this doesn't depend on the ``acp`` package being installed or the
-        child thread's eventual (unrelated) success/failure.
-        """
+    @pytest.mark.parametrize(
+        ("parameter", "value"),
+        [("reasoning_effort", "medium"), ("context_window", 0)],
+    )
+    def test_acp_unsupported_context_option_warns(
+        self, caplog, monkeypatch, parameter, value
+    ):
+        """ACP warnings are synchronous; never start a real agent to assert them."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
-            subagent(
-                "test-acp-effort-warn",
-                "task",
-                use_acp=True,
-                reasoning_effort="medium",
-            )
-
-        assert any(
-            "reasoning_effort" in r.message and "ACP mode" in r.message
-            for r in caplog.records
-        )
-
-        with _subagents_lock:
-            _sa = next(
-                (s for s in _subagents if s.agent_id == "test-acp-effort-warn"), None
-            )
-        if _sa and _sa.thread:
-            _sa.thread.join(timeout=2.0)
-
-    def test_context_window_acp_mode_warns(self, caplog):
-        """ACP mode ignores context_window; say so instead of a silent no-op."""
-        import logging
+        start = MagicMock()
+        monkeypatch.setattr(threading.Thread, "start", start)
+        agent_id = f"test-acp-{parameter}-warn"
 
         with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
-            subagent(
-                "test-acp-ctx-warn",
-                "task",
-                use_acp=True,
-                context_window=0,
-            )
+            subagent(agent_id, "task", use_acp=True, **{parameter: value})
 
         assert any(
-            "context_window" in r.message and "ACP mode" in r.message
-            for r in caplog.records
+            parameter in r.message and "ACP mode" in r.message for r in caplog.records
         )
-
+        start.assert_called_once_with()
         with _subagents_lock:
-            _sa = next(
-                (s for s in _subagents if s.agent_id == "test-acp-ctx-warn"), None
-            )
-        if _sa and _sa.thread:
-            _sa.thread.join(timeout=2.0)
+            sa = next(s for s in _subagents if s.agent_id == agent_id)
+        assert sa.execution_mode == "acp"
+        assert sa.thread is not None
+        assert not sa.thread.is_alive()
 
     def test_subprocess_launch_forwards_context_window(self, monkeypatch, tmp_path):
         """The public API forwards context_window to the subprocess launcher."""
