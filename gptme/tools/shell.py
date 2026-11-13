@@ -107,8 +107,10 @@ from .base import (
 )
 from .pruner import plan_tool_output_prune
 from .shell_background import (
+    adopt_foreground_capture,
     background_job_completion_hook,
     background_job_wait_hook,
+    complete_adopted_job,
     complete_background_job,
     control_commands_help,
     execute_jobs_command,
@@ -672,6 +674,9 @@ class ShellSession:
     _restarting: bool
     _closed: bool
     _active_output: tuple[list[str], list[str]] | None
+    # Every command's (stdout, stderr) chunk lists for the ``run()`` in flight,
+    # in order.  A promoted job adopts this capture instead of re-reading it.
+    _capture_segments: list[tuple[list[str], list[str]]] | None
     _output_lock: threading.Lock
     _skip_os_chdir: bool
 
@@ -681,7 +686,10 @@ class ShellSession:
         self._restart_notice = None
         self._restarting = False
         self._closed = False
+        # Serialize process replacement with external close, not command execution.
+        self._lifecycle_lock = threading.RLock()
         self._active_output = None
+        self._capture_segments = None
         self._output_lock = threading.Lock()
         # Snapshot at construction: promotion runs ``shell.run()`` on a worker
         # thread, and ``threading.Thread`` does not copy ContextVars, so a
@@ -760,17 +768,20 @@ class ShellSession:
             sandbox
         )  # None if sandbox disabled → inherit os.environ
 
-        self.process = subprocess.Popen(
-            shell_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=0,  # Unbuffered
-            universal_newlines=True,
-            cwd=self._cwd,  # Use explicit workspace dir (thread-safe)
-            env=sandbox_env,  # None → inherit; dict → sanitized env
-            **popen_kwargs,
-        )
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("Shell session is closed")
+            self.process = subprocess.Popen(
+                shell_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,  # Unbuffered
+                universal_newlines=True,
+                cwd=self._cwd,  # Use explicit workspace dir (thread-safe)
+                env=sandbox_env,  # None → inherit; dict → sanitized env
+                **popen_kwargs,
+            )
         _record_shell_pgid(self.process.pid)
         # The running command shares the shell's process group. On low memory
         # the guard kills the whole group, shell included: killing only the
@@ -796,16 +807,16 @@ class ShellSession:
 
         # After a restart, restore cwd and exported variables from the snapshot
         # taken after the last command the previous shell completed. Must run
-        # first: every run() below rewrites the snapshot with the new shell's state.
+        # first: the setup command below rewrites the snapshot with the new state.
         if self._restarting and self._has_state_snapshot():
             assert self._state_path is not None
-            self.run(
+            self._run(
                 f"source {shlex.quote(self._state_path)} >/dev/null 2>&1 || true",
                 output=False,
             )
 
         # suppress pagers, prevent editors from opening, unbuffer Python output
-        self.run(
+        self._run(
             "export PAGER= GH_PAGER= GIT_PAGER=cat"
             " EDITOR=true GIT_EDITOR=true VISUAL=true"
             " PYTHONUNBUFFERED=1"
@@ -842,6 +853,14 @@ class ShellSession:
                 trim_blank_lines("".join(stdout)),
                 trim_blank_lines("".join(stderr)),
             )
+
+    def capture_segments(self) -> list[tuple[list[str], list[str]]] | None:
+        """Return the append-only chunk lists of the ``run()`` in flight.
+
+        One ``(stdout, stderr)`` pair per command, in execution order; a pair
+        stops growing once the next one is appended.  ``None`` outside ``run()``.
+        """
+        return getattr(self, "_capture_segments", None)
 
     def _capture_output(
         self, target: list[str], text: str, *, stream: IO[str], output: bool
@@ -898,6 +917,17 @@ class ShellSession:
         self, code: str, output=True, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
         """Runs a command in the shell and returns the output."""
+        # Establish ownership before parsing, which can outlast promotion.
+        # The adopter holds this list independently after run() releases it.
+        self._capture_segments = []
+        try:
+            return self._run_commands(code, output=output, timeout=timeout)
+        finally:
+            self._capture_segments = None
+
+    def _run_commands(
+        self, code: str, output: bool, timeout: float | None
+    ) -> tuple[int | None, str, str]:
         commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
@@ -1194,7 +1224,8 @@ class ShellSession:
 
     def detach(self) -> None:
         """Retire this shell from foreground use without stopping its process."""
-        self._closed = True
+        # Detachment is not closure: the in-flight run may still be parsing,
+        # moving between commands, or recovering its shell process.
         # The in-flight worker still calls _set_cwd when the command finishes.
         # Freeze process-wide chdir so a later `cd` cannot jump the CLI cwd
         # after a replacement shell has already taken over.
@@ -1379,6 +1410,10 @@ class ShellSession:
         stdout: list[str] = []
         stderr: list[str] = []
         self._active_output = (stdout, stderr)
+        segments = getattr(self, "_capture_segments", None)
+        # Recovery setup must not replace or extend the outer user's capture.
+        if segments is not None and not self._restarting:
+            segments.append((stdout, stderr))
         return_code: int | None = None
         start_time = time.time() if timeout else None
         max_output_bytes = _get_max_output_bytes()
@@ -2370,10 +2405,21 @@ class ShellSession:
         except Exception as e:
             logger.warning(f"Error terminating process: {e}")
 
-    def close(self):
-        if not getattr(self, "_restarting", False):
+    def close(self) -> None:
+        with self._lifecycle_lock:
             self._closed = True
+            self._close_process()
 
+        state_path = getattr(self, "_state_path", None)
+        if state_path:
+            for path in (state_path, state_path + ".tmp"):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    def _close_process(self) -> None:
+        """Clean up the current process without authorizing or cancelling recovery."""
         # Close stdin to signal no more input
         if self.process.stdin:
             self.process.stdin.close()
@@ -2387,20 +2433,15 @@ class ShellSession:
         if self.process.stderr:
             self.process.stderr.close()
 
-        state_path = getattr(self, "_state_path", None)
-        if state_path and not getattr(self, "_restarting", False):
-            for path in (state_path, state_path + ".tmp"):
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-
     def restart(self):
         if getattr(self, "_closed", False):
             return
         self._restarting = True
         try:
-            self.close()
+            with self._lifecycle_lock:
+                if self._closed:
+                    return
+                self._close_process()
             self._init()
         finally:
             self._restarting = False
@@ -3174,6 +3215,11 @@ def execute_shell_impl(
                     close_callback=shell.close,
                     output_callback=shell.active_output,
                 )
+                # Converge on the direct-job capture: the job follows the
+                # chunks this command already captured (and keeps capturing)
+                # into its launch-time spool.  Without a conversation logdir
+                # the job keeps the RAM-only callback path.
+                adopted = adopt_foreground_capture(job, shell.capture_segments())
                 _replace_promoted_shell(shell)
 
                 def publish() -> None:
@@ -3184,7 +3230,18 @@ def execute_shell_impl(
                     else:
                         job_returncode, stdout, stderr = result["value"]
                     process.finish(job_returncode if job_returncode is not None else -1)
-                    complete_background_job(job, stdout, stderr)
+                    if adopted:
+                        complete_adopted_job(
+                            job,
+                            error_text=str(error[0]) if error else None,
+                            partial_reason=(
+                                "foreground_byte_cap"
+                                if job_returncode == -125
+                                else None
+                            ),
+                        )
+                    else:
+                        complete_background_job(job, stdout, stderr)
                     shell.close()
                     job._close_callback = None
 

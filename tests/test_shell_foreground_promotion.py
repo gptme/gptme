@@ -1,6 +1,7 @@
 """Foreground shell commands promote to conversation-owned jobs at a soft timeout."""
 
 import os
+import shlex
 import threading
 import time
 from collections.abc import Generator
@@ -519,11 +520,16 @@ def test_completion_report_includes_output_tail_and_full_log(
     assert "LAST" in content and "oops" in content
     assert "FIRST" not in content
     assert "truncated, showing last 8000 of 20009 chars" in content
-    log_files = list((logdir / "tool-outputs" / "shell-jobs").glob("job-1-*.log"))
-    assert len(log_files) == 1
-    assert f"Full output: `{log_files[0]}`" in content
-    full = log_files[0].read_text()
-    assert "FIRST" in full and "LAST" in full and "oops" in full
+    # The promoted job adopts the foreground capture into the same per-stream
+    # spool a direct job uses; no second combined log is written.
+    jobs_dir = logdir / "tool-outputs" / "shell-jobs"
+    assert not list(jobs_dir.glob("job-1-*.log"))
+    (stdout_log,) = jobs_dir.glob("job-1-*.stdout.live")
+    (stderr_log,) = jobs_dir.glob("job-1-*.stderr.live")
+    assert f"Full output:\nstdout: `{stdout_log}`\nstderr: `{stderr_log}`" in content
+    full = stdout_log.read_text()
+    assert full.startswith("FIRST") and full.endswith("LAST")
+    assert stderr_log.read_text() == "oops"
 
 
 def test_explicit_timeout_beyond_hard_limit_still_promotes(
@@ -591,3 +597,359 @@ def test_promoted_multiline_completion_preserves_output_boundaries(
     assert job.get_output() == ("FIRST\n\nLAST", "ERR-FIRST\n\nERR-LAST")
     assert "FIRST\n\nLAST" in completions[0].content
     assert "ERR-FIRST\n\nERR-LAST" in completions[0].content
+
+
+def _promote_with_logdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str, *, soft: str = "1.5"
+):
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", soft)
+    logdir = tmp_path / "log"
+    monkeypatch.setattr("gptme.tools.shell_background._current_log_dir", lambda: logdir)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(execute_shell_impl(command, logdir=None, timeout=30))
+    assert "Promoted to background shell job #1" in messages[-1].content
+    return list_background_jobs()[0], messages[-1].content
+
+
+def test_promoted_job_adopts_capture_beyond_ram_buffer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Output from before promotion survives eviction from the 1 Mi-char tail."""
+    import json
+
+    # The command blocks on a gate file rather than a fixed sleep: rendering
+    # the promotion message for ~2.3M chars can outlast any sleep on a slow
+    # runner, and the job must provably still be running when it returns.
+    gate = tmp_path / "release-gate"
+    job, promoted = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        # ~2.3M chars before promotion, then the tail and a real failure after.
+        "printf 'BEGIN-MARKER\\n'; yes 'noisy output' | head -n 180000; "
+        f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.1; done; "
+        "printf 'END-MARKER\\n'; printf 'ERR-ONLY\\n' >&2; (exit 7)",
+    )
+    # The live resource exists at promotion, before the command finishes.
+    assert job.log_path is not None and job.log_path.name.endswith(".stdout.live")
+    assert str(job.log_path) in promoted
+    assert job.is_running()
+    gate.touch()
+
+    completions = _wait_for_completion(timeout=15)
+    assert len(completions) == 1
+    assert "exit code 7" in completions[0].content
+    assert "Full output" in completions[0].content
+    assert "not retained" not in completions[0].content
+
+    saved = job.log_path.read_text()
+    assert saved == "BEGIN-MARKER\n" + "noisy output\n" * 180000 + "END-MARKER\n"
+    assert job._stdout_buffer_start > 0  # the RAM tail did evict the prefix
+    assert job.stderr_log_path is not None
+    assert job.stderr_log_path.read_text() == "ERR-ONLY\n"
+
+    assert job.receipt_path is not None
+    receipt = json.loads(job.receipt_path.read_text())
+    assert receipt["capture_origin"] == "foreground_promotion"
+    assert receipt["capture_state"] == "complete"
+    assert receipt["exit_code"] == 7
+    assert receipt["stdout"]["committed_bytes"] == len(saved)
+    # One capture, one representation: no second combined log.
+    assert not list(job.log_path.parent.glob("*.log"))
+
+
+def test_promoted_multi_command_capture_is_exactly_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Commands finished before promotion and the one promoted are each kept once."""
+    job, _ = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        "printf 'ONE\\n'; printf 'E-ONE\\n' >&2\n"
+        "printf 'TWO\\n'\n"
+        "sleep 3; printf 'THREE\\n'; printf 'E-THREE' >&2",
+    )
+    assert len(_wait_for_completion(timeout=10)) == 1
+    assert job.log_path is not None and job.stderr_log_path is not None
+    assert job.log_path.read_text() == "ONE\nTWO\nTHREE\n"
+    assert job.stderr_log_path.read_text() == "E-ONE\nE-THREE"
+    assert job.get_output() == ("ONE\nTWO\nTHREE\n", "E-ONE\nE-THREE")
+
+
+def test_promoted_job_new_output_uses_byte_cursors_and_final_is_immutable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    job, _ = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        "printf 'early\\n'; sleep 3; printf 'late\\n'",
+    )
+    seen = ""
+    deadline = time.monotonic() + 5
+    while "early" not in seen and time.monotonic() < deadline:
+        seen += job.get_output(incremental=True)[0]
+        time.sleep(0.05)
+    assert seen == "early\n"
+    assert len(_wait_for_completion(timeout=10)) == 1
+    # Racing reads after the finish neither repeat nor lose committed output.
+    assert job.get_output(incremental=True)[0] == "late\n"
+    assert job.get_output(incremental=True) == ("", "")
+
+    assert job.log_path is not None and job.receipt_path is not None
+    before = (job.log_path.read_bytes(), job.receipt_path.read_bytes())
+    list(execute_output_command("1"))
+    list(execute_output_command("1 --new"))
+    assert (job.log_path.read_bytes(), job.receipt_path.read_bytes()) == before
+    assert not list(job.log_path.parent.glob("*.log"))
+
+
+def test_adopted_feed_is_exactly_once_under_concurrent_polls(tmp_path: Path) -> None:
+    """Producer appends, the feeder and racing polls: no duplicate or lost chunk."""
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    process = PromotedJobProcess()
+    job = BackgroundJob(1, "synthetic", process, time.time(), log_dir=tmp_path)
+    segments: list[tuple[list[str], list[str]]] = [([], [])]
+    expected_out: list[str] = []
+    expected_err: list[str] = []
+    assert adopt_foreground_capture(job, segments)
+
+    stop = threading.Event()
+
+    def poll() -> None:
+        while not stop.is_set():
+            job.get_output()
+
+    pollers = [threading.Thread(target=poll, daemon=True) for _ in range(3)]
+    for poller in pollers:
+        poller.start()
+    for seg in range(4):
+        if seg:
+            segments.append(([], []))
+        out, err = segments[-1]
+        for i in range(300):
+            # Chunks split lines and a multi-byte character boundary.
+            chunk = f"s{seg}-o{i}-é" + ("\n" if i % 3 == 0 else "")
+            out.append(chunk)
+            expected_out.append(chunk)
+            if i % 7 == 0:
+                err.append(f"s{seg}-e{i}\n")
+                expected_err.append(f"s{seg}-e{i}\n")
+    process.finish(3)
+    complete_adopted_job(job, error_text="worker failed")
+    stop.set()
+    for poller in pollers:
+        poller.join(timeout=5)
+
+    assert job.log_path is not None and job.stderr_log_path is not None
+    assert job.log_path.read_text() == "".join(expected_out)
+    assert job.stderr_log_path.read_text() == "".join(expected_err) + "worker failed"
+    assert job.get_output() == (
+        "".join(expected_out),
+        "".join(expected_err) + "worker failed",
+    )
+    assert job._adopted_segments is None  # foreground chunks released
+
+
+def test_adoption_without_logdir_keeps_callback_path() -> None:
+    from gptme.tools.shell_background import BackgroundJob, adopt_foreground_capture
+
+    job = BackgroundJob(
+        1, "synthetic", PromotedJobProcess(), 0, _output_callback=lambda: ("a", "b")
+    )
+    assert not adopt_foreground_capture(job, [([], [])])
+    assert job.get_output() == ("a", "b") and job._adopt_thread is None
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_run_releases_capture_on_return_or_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fails: bool
+) -> None:
+    shell = ShellSession(cwd=str(tmp_path))
+    try:
+        if fails:
+
+            def fail_split(_code: str) -> list[str]:
+                raise ValueError("parse failed")
+
+            monkeypatch.setattr("gptme.tools.shell.split_commands", fail_split)
+            with pytest.raises(ValueError, match="parse failed"):
+                shell.run("ignored", output=False)
+        else:
+            assert (
+                shell.run("printf first\nprintf last", output=False)[1] == "firstlast"
+            )
+        assert shell.capture_segments() is None
+    finally:
+        monkeypatch.undo()
+        shell.close()
+
+
+def test_promotion_during_parsing_keeps_current_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gptme.tools import shell as shell_module
+
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    shell.run("printf OLD", output=False)
+    real_split = shell_module.split_commands
+    entered, release = threading.Event(), threading.Event()
+    command = "printf NEW"
+
+    def delayed_split(code: str) -> list[str]:
+        if (
+            code == command
+            and threading.current_thread() is not threading.main_thread()
+        ):
+            entered.set()
+            assert release.wait(5)
+        return real_split(code)
+
+    monkeypatch.setattr(shell_module, "split_commands", delayed_split)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
+    )
+    try:
+        messages = list(execute_shell_impl(command, logdir=None, timeout=10))
+        assert entered.is_set()
+        assert "Promoted" in messages[-1].content
+    finally:
+        release.set()
+    assert len(_wait_for_completion(10)) == 1
+    job = list_background_jobs()[0]
+    assert job.log_path is not None
+    assert job.log_path.read_text() == "NEW"
+    assert shell.capture_segments() is None
+
+
+def test_promotion_after_shell_recovery_keeps_outer_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gate = tmp_path / "release"
+    job, _ = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        "printf 'FIRST\\n'; exit 0\n"
+        f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done; printf 'LAST\\n'",
+        soft="0.5",
+    )
+    gate.touch()
+    assert len(_wait_for_completion(10)) == 1
+    assert job.log_path is not None
+    assert job.log_path.read_text() == "FIRST\nLAST\n"
+
+
+def test_kill_promoted_job_during_recovery_prevents_later_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    entered, release = threading.Event(), threading.Event()
+    original_init = shell._init
+    gate, marker = tmp_path / "exit-gate", tmp_path / "must-not-run"
+
+    def paused_init() -> None:
+        entered.set()
+        assert release.wait(5)
+        original_init()
+
+    monkeypatch.setattr(shell, "_init", paused_init)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path / "log"
+    )
+    messages = list(
+        execute_shell_impl(
+            f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done; exit 0\n"
+            f"printf revived > {shlex.quote(str(marker))}",
+            logdir=None,
+            timeout=10,
+        )
+    )
+    assert "Promoted" in messages[-1].content
+    job = list_background_jobs()[0]
+    try:
+        gate.touch()
+        assert entered.wait(5)
+        job.kill()
+    finally:
+        release.set()
+    assert len(_wait_for_completion(10)) == 1
+    assert shell._closed
+    assert shell.process.poll() is not None
+    assert not marker.exists()
+    assert job.process.returncode == -15
+    assert job.is_output_complete()
+
+
+def test_promoted_byte_cap_receipt_is_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+
+    monkeypatch.setenv("GPTME_SHELL_MAX_OUTPUT_BYTES", "4096")
+    gate = tmp_path / "release"
+    job, _ = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done; yes capped",
+        soft="0.05",
+    )
+    gate.touch()
+    assert len(_wait_for_completion(10)) == 1
+    assert job.receipt_path is not None
+    receipt = json.loads(job.receipt_path.read_text())
+    assert receipt["exit_code"] == -125
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_byte_cap" in receipt["partial_reasons"]
+
+
+def test_adopted_reads_do_not_wait_for_feeder_and_completion_is_final(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    entered, release, read_done = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    original_feed = BackgroundJob._feed_adopted_chunk
+
+    def blocked_feed(self: BackgroundJob, is_stdout: bool, text: str) -> None:
+        entered.set()
+        assert release.wait(5)
+        original_feed(self, is_stdout, text)
+
+    monkeypatch.setattr(BackgroundJob, "_feed_adopted_chunk", blocked_feed)
+    process = PromotedJobProcess()
+    job = BackgroundJob(1, "synthetic", process, time.time(), log_dir=tmp_path)
+    assert adopt_foreground_capture(job, [(["last"], [])])
+    assert entered.wait(2)
+
+    def read() -> None:
+        job.get_output()
+        read_done.set()
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        assert read_done.wait(0.5), "output polling waited for the blocked feeder"
+        process.finish(0)
+        assert not job.is_output_complete(), "process exit is not capture completion"
+    finally:
+        release.set()
+        reader.join(5)
+        complete_adopted_job(job)
+    assert job.is_output_complete()
+    assert job.receipt_path is not None
+    assert job.log_path is not None and job.log_path.read_text() == "last"
