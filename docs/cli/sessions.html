@@ -634,16 +634,20 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-status">gptme-status</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-resume">gptme-resume</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint">gptme-checkpoint</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-create">create</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-diff">diff</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-list">list</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-restore">restore</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-peer-conversations">Local peer conversations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-reference">Command reference</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-status">gptme-status</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-resume">gptme-resume</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint">gptme-checkpoint</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-create">create</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-diff">diff</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-restore">restore</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-stats">gptme-stats</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-stats">gptme-stats</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -658,8 +662,40 @@
   <section id="sessions">
 <h1>Sessions<a class="headerlink" href="#sessions" title="Link to this heading">#</a></h1>
 <p>Commands for handing off, resuming, checkpointing, and analyzing gptme sessions.</p>
+<section id="local-peer-conversations">
+<h2>Local peer conversations<a class="headerlink" href="#local-peer-conversations" title="Link to this heading">#</a></h2>
+<p>Agents in separate gptme conversations can exchange attributed messages without
+sharing a parent/subagent relationship:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="n">chats</span> <span class="n">peers</span>
+<span class="n">gptme</span> <span class="n">chats</span> <span class="n">send</span> <span class="n">TARGET</span> <span class="o">--</span><span class="n">peer</span> <span class="o">--</span><span class="n">sender</span> <span class="n">SOURCE</span> <span class="s2">"Review my current approach"</span>
+<span class="n">gptme</span> <span class="n">chats</span> <span class="n">send</span> <span class="n">TARGET</span> <span class="o">--</span><span class="n">peer</span> <span class="o">--</span><span class="n">sender</span> <span class="n">SOURCE</span> <span class="o">--</span><span class="n">branch</span> <span class="n">experiment</span> <span class="s2">"New evidence"</span>
+</pre></div>
+</div>
+<p>Inside an agent session, the <code class="docutils literal notranslate"><span class="pre">chats</span></code> tool exposes <code class="docutils literal notranslate"><span class="pre">list_peers()</span></code> and
+<code class="docutils literal notranslate"><span class="pre">send_peer_message(conversation_id,</span> <span class="pre">message)</span></code>. The sender defaults to the
+current conversation. Discovery is advisory and reports whether a local runtime
+has an addressable gptme conversation; it does not grant access to another user
+or support injecting into unrelated external harnesses.</p>
+<p>Messages use the existing durable prompt queue. Updated TUI and server receivers
+can wake while idle; busy receivers consume peer input at a safe step boundary.
+A TUI wake preserves the unsent draft. Paused/interrupted or autowake-disabled
+receivers leave input queued. Plain CLI idle wake is not provided by this path.
+Both sender and receiver must use a version with peer support for idle wake.</p>
+<p>Server sessions using an ACP runtime defer automatic peer wakes and leave the
+input queued; they never answer that input through the in-process runtime.
+If a server saves peer input but cannot dispatch its response worker, clients
+receive an explicit error. The input remains in the transcript without being
+requeued or appended again: start a new step to respond to it. Automatic retry
+after a dispatch failure is not provided.</p>
+<p>Peer messages carry a sender conversation, PID and correlation ID. These are
+local same-user attribution, not authenticated identity or human approval. A
+successful send means <em>queued</em>, not read or executed. Do not automatically reply
+to every peer message or create unbounded agent-to-agent ping-pong loops.</p>
+</section>
+<section id="command-reference">
+<h2>Command reference<a class="headerlink" href="#command-reference" title="Link to this heading">#</a></h2>
 <section id="gptme-status">
-<h2>gptme-status<a class="headerlink" href="#gptme-status" title="Link to this heading">#</a></h2>
+<h3>gptme-status<a class="headerlink" href="#gptme-status" title="Link to this heading">#</a></h3>
 <p>Generate a portable operator handoff / session-status document.</p>
 <p>Produces a compact briefing: recent commits, disk usage, and any extra
 sections contributed by installed StatusProvider plugins.</p>
@@ -719,7 +755,7 @@ entry point — no workspace auto-detection, no cwd code loading.</p>
 
 </section>
 <section id="gptme-resume">
-<h2>gptme-resume<a class="headerlink" href="#gptme-resume" title="Link to this heading">#</a></h2>
+<h3>gptme-resume<a class="headerlink" href="#gptme-resume" title="Link to this heading">#</a></h3>
 <p>Rehydrate a &lt;&lt;RESUMED SESSION&gt;&gt; prompt from a prior session trajectory.</p>
 <p>Prints the resume prompt to stdout so it can be passed to gptme:</p>
 <div class="line-block">
@@ -781,7 +817,7 @@ entry point — no workspace auto-detection, no cwd code loading.</p>
 
 </section>
 <section id="gptme-checkpoint">
-<h2>gptme-checkpoint<a class="headerlink" href="#gptme-checkpoint" title="Link to this heading">#</a></h2>
+<h3>gptme-checkpoint<a class="headerlink" href="#gptme-checkpoint" title="Link to this heading">#</a></h3>
 <p>Lightweight session-level recovery markers for Git workspaces.</p>
 <p>Records the current <code class="docutils literal notranslate"><span class="pre">HEAD</span></code> so an agent run that touches more than
 expected can be rewound with <code class="docutils literal notranslate"><span class="pre">gptme-checkpoint</span> <span class="pre">restore</span></code>. Not a
@@ -791,7 +827,7 @@ replacement for <code class="docutils literal notranslate"><span class="pre">git
 </pre></div>
 </div>
 <section id="gptme-checkpoint-create">
-<h3>create<a class="headerlink" href="#gptme-checkpoint-create" title="Link to this heading">#</a></h3>
+<h4>create<a class="headerlink" href="#gptme-checkpoint-create" title="Link to this heading">#</a></h4>
 <p>Record a checkpoint at the current HEAD.</p>
 <p class="rubric">Usage</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-checkpoint<span class="w"> </span>create<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PATH<span class="o">]</span>
@@ -819,7 +855,7 @@ replacement for <code class="docutils literal notranslate"><span class="pre">git
 
 </section>
 <section id="gptme-checkpoint-diff">
-<h3>diff<a class="headerlink" href="#gptme-checkpoint-diff" title="Link to this heading">#</a></h3>
+<h4>diff<a class="headerlink" href="#gptme-checkpoint-diff" title="Link to this heading">#</a></h4>
 <p>Diff current state against a checkpoint.</p>
 <p class="rubric">Usage</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-checkpoint<span class="w"> </span>diff<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>IDENTIFIER<span class="w"> </span><span class="o">[</span>PATH<span class="o">]</span>
@@ -840,7 +876,7 @@ replacement for <code class="docutils literal notranslate"><span class="pre">git
 
 </section>
 <section id="gptme-checkpoint-list">
-<h3>list<a class="headerlink" href="#gptme-checkpoint-list" title="Link to this heading">#</a></h3>
+<h4>list<a class="headerlink" href="#gptme-checkpoint-list" title="Link to this heading">#</a></h4>
 <p>List recorded checkpoints for the workspace.</p>
 <p class="rubric">Usage</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-checkpoint<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>PATH<span class="o">]</span>
@@ -855,7 +891,7 @@ replacement for <code class="docutils literal notranslate"><span class="pre">git
 
 </section>
 <section id="gptme-checkpoint-restore">
-<h3>restore<a class="headerlink" href="#gptme-checkpoint-restore" title="Link to this heading">#</a></h3>
+<h4>restore<a class="headerlink" href="#gptme-checkpoint-restore" title="Link to this heading">#</a></h4>
 <p>Restore working tree to a checkpoint HEAD via <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">reset</span> <span class="pre">--hard</span></code>.</p>
 <p class="rubric">Usage</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-checkpoint<span class="w"> </span>restore<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>IDENTIFIER<span class="w"> </span><span class="o">[</span>PATH<span class="o">]</span>
@@ -884,7 +920,7 @@ replacement for <code class="docutils literal notranslate"><span class="pre">git
 </section>
 </section>
 <section id="gptme-stats">
-<h2>gptme-stats<a class="headerlink" href="#gptme-stats" title="Link to this heading">#</a></h2>
+<h3>gptme-stats<a class="headerlink" href="#gptme-stats" title="Link to this heading">#</a></h3>
 <p>Show global LLM usage and cost statistics across all conversation logs.</p>
 <p>Cache-read tokens are included in the input-token count, not added on top.</p>
 <p>See also: <code class="docutils literal notranslate"><span class="pre">gptme-sessions</span> <span class="pre">cost</span></code> (gptme-contrib) for cross-backend
@@ -913,6 +949,7 @@ pricing tables.</p>
 <dd><p>Output statistics as JSON.</p>
 </dd></dl>
 
+</section>
 </section>
 </section>
 
@@ -963,16 +1000,20 @@ pricing tables.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-status">gptme-status</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-resume">gptme-resume</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint">gptme-checkpoint</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-create">create</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-diff">diff</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-list">list</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-restore">restore</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-peer-conversations">Local peer conversations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-reference">Command reference</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-status">gptme-status</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-resume">gptme-resume</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint">gptme-checkpoint</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-create">create</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-diff">diff</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-list">list</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-checkpoint-restore">restore</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-stats">gptme-stats</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-stats">gptme-stats</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
