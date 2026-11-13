@@ -3489,6 +3489,54 @@ class TestPlannerForwardsContextWindow:
                 if not s.agent_id.startswith("planner-cw")
             ]
 
+    def test_planner_forwards_context_window_to_subprocess_executors(
+        self, monkeypatch, tmp_path
+    ):
+        """Subprocess-mode planner executors must not get wider context than asked.
+
+        role="verify" resolves to subprocess+isolated. Before this, the planner
+        forwarded context_window only to thread executors, so a verification
+        child silently received full workspace context the caller withheld.
+        """
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        types_mod = importlib.import_module("gptme.tools.subagent.types")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(exec_mod, "get_slot_sem", lambda: threading.Semaphore(10))
+        monkeypatch.setattr(exec_mod, "_monitor_subprocess", lambda sa: None)
+
+        captured: list[dict] = []
+
+        def fake_run_subprocess(**kwargs):
+            captured.append(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(exec_mod, "_run_subagent_subprocess", fake_run_subprocess)
+
+        subtasks = [{"id": "v1", "description": "verify it", "role": "verify"}]
+        exec_mod._run_planner(
+            agent_id="planner-cw-sub",
+            prompt="context",
+            subtasks=subtasks,
+            execution_mode="sequential",
+            context_window=0,
+        )
+
+        assert captured, "_run_subagent_subprocess was never called"
+        assert captured[0].get("context_window") == 0, (
+            f"Expected context_window=0, got {captured[0].get('context_window')}"
+        )
+
+        with types_mod._subagents_lock:
+            types_mod._subagents[:] = [
+                s
+                for s in types_mod._subagents
+                if not s.agent_id.startswith("planner-cw-sub")
+            ]
+
     def test_subagent_planner_mode_forwards_redact_secrets_false(
         self, monkeypatch, tmp_path
     ):

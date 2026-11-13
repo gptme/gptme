@@ -1815,6 +1815,7 @@ def _run_planner(
                 worktree_path=worktree_path,
                 repo_path=repo_path,
                 role=subtask_role,
+                context_window=context_window,
                 parent_logdir=parent_logdir,
                 parent_branch=parent_branch,
             )
@@ -1851,6 +1852,7 @@ def _run_planner(
                             context_include=context_include,
                             profile=_profile,
                             reasoning_effort=reasoning_effort,
+                            context_window=context_window,
                         )
                     except Exception as e:
                         logger.error(
