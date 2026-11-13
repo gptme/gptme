@@ -1206,6 +1206,21 @@ arriving in that window are recorded without a continuation.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_LOGS_HOME</span></code> - Override the default logs folder location</p></li>
 </ul>
 <p>All boolean flags accept “1”, “true” (case-insensitive) as truthy values.</p>
+<p class="rubric">Externally Enforced Session Deadlines</p>
+<p>Runners that terminate a session after a wall-clock limit can expose that budget
+through <code class="docutils literal notranslate"><span class="pre">GPTME_SESSION_START</span></code> and <code class="docutils literal notranslate"><span class="pre">GPTME_SESSION_DEADLINE</span></code>. Both must be
+ISO-8601 timestamps with a UTC offset (for example, <code class="docutils literal notranslate"><span class="pre">2026-01-01T12:00:00Z</span></code> and
+<code class="docutils literal notranslate"><span class="pre">2026-01-01T12:15:00Z</span></code>). The time-awareness hook then reports remaining time
+after tools at 70% and 90% of that budget, instead of its elapsed-time milestones.
+The last warning asks the agent to send any owed reply and save a handoff before
+committing. These notices do not enforce or extend the deadline; the runner
+still owns termination, and a long-running tool can cross both thresholds before
+returning. In that case only the highest crossed warning is emitted.</p>
+<p><code class="docutils literal notranslate"><span class="pre">GPTME_TIME_NOTICE_FRACTIONS</span></code> overrides the thresholds with comma-separated
+fractions in <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">1]</span></code> (for example, <code class="docutils literal notranslate"><span class="pre">0.5,0.8</span></code>). Warnings are recorded in the
+conversation log and suppressed across resume for the same start/deadline pair.
+A new runner budget starts a new warning schedule. Missing or invalid settings
+retain the default elapsed-time notices.</p>
 <p class="rubric">CLI Options via Environment Variables</p>
 <p>All CLI options can also be set via environment variables with the <code class="docutils literal notranslate"><span class="pre">GPTME_</span></code> prefix.
 The variable name is derived from the parameter name in uppercase.</p>
