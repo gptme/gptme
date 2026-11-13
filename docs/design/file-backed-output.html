@@ -662,7 +662,15 @@
 <p><strong>Status:</strong> contract. Production capture is rolling out in slices: writer-safety
 #4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB
 per-stream / 128 MiB conversation quota, receipt sidecar, independent byte
-cursors). Foreground/promotion convergence remains a later slice.</p>
+cursors). Promotion convergence (step 3) has landed: a foreground command
+promoted to a job adopts its existing capture into that same spool at the
+promotion boundary — the job follows the shell’s append-only chunk lists, so
+output from before and after promotion is ingested once, in stream order, with
+the same live files, quota, receipt (<code class="docutils literal notranslate"><span class="pre">capture_origin:</span> <span class="pre">foreground_promotion</span></code>)
+and byte cursors as a direct job, and no second combined log at completion.
+Without a conversation logdir the promoted job keeps the RAM-only path. A
+foreground command that finishes before the soft timeout is unchanged: it still
+spills through <code class="docutils literal notranslate"><span class="pre">save_large_output</span></code> after the fact, not through a streaming spool.</p>
 <p>The current receipt’s <code class="docutils literal notranslate"><span class="pre">byte_count_basis</span></code> is <code class="docutils literal notranslate"><span class="pre">sanitized_utf8_representation</span></code>:
 committed, accepted, discarded and cursor counts describe transformed output,
 not original pipe bytes. The four <code class="docutils literal notranslate"><span class="pre">raw_*_bytes</span></code> fields are explicitly <code class="docutils literal notranslate"><span class="pre">null</span></code>

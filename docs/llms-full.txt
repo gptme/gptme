@@ -18833,7 +18833,15 @@ audience: developer
 **Status:** contract. Production capture is rolling out in slices: writer-safety
 #4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB
 per-stream / 128 MiB conversation quota, receipt sidecar, independent byte
-cursors). Foreground/promotion convergence remains a later slice.
+cursors). Promotion convergence (step 3) has landed: a foreground command
+promoted to a job adopts its existing capture into that same spool at the
+promotion boundary — the job follows the shell's append-only chunk lists, so
+output from before and after promotion is ingested once, in stream order, with
+the same live files, quota, receipt (`capture_origin: foreground_promotion`)
+and byte cursors as a direct job, and no second combined log at completion.
+Without a conversation logdir the promoted job keeps the RAM-only path. A
+foreground command that finishes before the soft timeout is unchanged: it still
+spills through `save_large_output` after the fact, not through a streaming spool.
 
 The current receipt's `byte_count_basis` is `sanitized_utf8_representation`:
 committed, accepted, discarded and cursor counts describe transformed output,
