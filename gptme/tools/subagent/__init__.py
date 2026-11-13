@@ -399,8 +399,8 @@ Key features:
 - isolation="worktree": Run subagent in a git worktree for filesystem isolation (preferred over isolated=True)
 - workdir="/path/to/dir": Set the working directory for the subagent (defaults to cwd)
 - redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
-- context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
-- context_window=N: Limit workspace context to at most N messages
+- context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation; honored in thread and subprocess modes)
+- context_window=N: Limit workspace context to at most N messages (thread mode only)
 - subagent_parallel(tasks, timeout, max_concurrent=N, budget=SubagentBudget(...)): Fan out N subagents and wait for all — returns ordered list of results. Use max_concurrent to cap simultaneous agents (extras queue). Use budget= to gate new spawns once a token ceiling is hit.
 - subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 - subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
@@ -467,13 +467,16 @@ you need tighter control over what the subagent sees:
   identity and tool descriptions, no workspace files or context_cmd output. Use
   this when the subagent handles sensitive data (secrets, prompts) that should
   not leak into verification or analysis tasks. The subagent knows only what
-  you explicitly tell it in the task prompt.
+  you explicitly tell it in the task prompt. Works in **thread and subprocess**
+  modes (subprocess forwards it as the CLI's `--no-workspace`).
 - `context_window=N`: Limits workspace to at most N context messages. Useful when
   the default is too bloated but you still want the subagent to see some workspace
-  history — trim without fully isolating.
+  history — trim without fully isolating. **Thread mode only**: subprocess mode
+  cannot trim a partial window and warns that the parameter is ignored.
 
 `context_window=0` is equivalent to `context_mode="selective", context_include=["agent", "tools"]`
-but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
+but is a simpler one-parameter alternative. ACP mode ignores `context_window`
+because the ACP agent owns its own context.
 
 ## Agent Profiles for Subagents
 

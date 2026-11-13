@@ -842,6 +842,7 @@ def _run_subagent_subprocess(
     output_schema_dict: dict | None = None,
     profile: str | None = None,
     reasoning_effort: str | None = None,
+    context_window: int | None = None,
     *,
     resume: bool = False,
     writer_lease: BinaryIO | None = None,
@@ -872,6 +873,10 @@ def _run_subagent_subprocess(
             child process as the ``GPTME_THINKING_EFFORT`` environment variable.
             Scoped to this subprocess's own environment copy — never touches
             the parent process's or any sibling's environment.
+        context_window: Workspace context budget. ``0`` maps to the CLI's
+            ``--no-workspace`` (agent identity and tools only — no prompt files
+            or context_cmd output). ``N > 0`` is not supported in subprocess
+            mode and is ignored with a warning. ``None`` keeps the CLI default.
         resume: Continue the conversation already stored in ``logdir``.
         writer_lease: Pre-acquired writer lease (see ``acquire_writer_lease``).
             Ownership transfers here: it is handed to the child and closed in
@@ -919,26 +924,48 @@ def _run_subagent_subprocess(
     else:
         cmd.extend(["--tools", "+complete,+clarify,+progress,+yield"])
 
-    # Map context_mode/context_include to the --context CLI flag
-    if context_mode == "selective" and context_include:
-        # Map internal component names to CLI --context values
-        # Thread mode handles "agent"/"tools" internally; for subprocess mode,
-        # map to CLI-compatible values ("files", "cmd").
-        cli_values = []
-        for component in context_include:
-            if component in ("files", "cmd", "all"):
-                cli_values.append(component)
-            elif component == "workspace":
-                cli_values.append("files")
-            elif component in ("agent", "tools"):
-                # "agent" and "tools" are always included by the CLI,
-                # no need to pass them explicitly
-                pass
-            else:
-                logger.warning(f"Unknown context_include component: {component}")
-        if cli_values:
-            for val in cli_values:
-                cmd.extend(["--context", val])
+    # Map context_window/context_mode/context_include to CLI flags.
+    if context_window == 0:
+        # Thread mode's "agent + tools only" budget. The CLI expresses the same
+        # thing as --no-workspace, which is mutually exclusive with --context.
+        if (
+            context_mode == "selective"
+            and context_include
+            and (set(context_include) - {"agent", "tools"})
+        ):
+            logger.warning(
+                "context_window=0 overrides context_include=%r; only agent "
+                "identity and tools will be included",
+                context_include,
+            )
+        cmd.append("--no-workspace")
+    else:
+        if context_window is not None and context_window > 0:
+            logger.warning(
+                "context_window=%d is not supported in subprocess mode; "
+                "parameter is ignored (use context_window=0 to skip workspace "
+                "context, or context_mode='selective' with context_include)",
+                context_window,
+            )
+        if context_mode == "selective" and context_include:
+            # Map internal component names to CLI --context values
+            # Thread mode handles "agent"/"tools" internally; for subprocess mode,
+            # map to CLI-compatible values ("files", "cmd").
+            cli_values = []
+            for component in context_include:
+                if component in ("files", "cmd", "all"):
+                    cli_values.append(component)
+                elif component == "workspace":
+                    cli_values.append("files")
+                elif component in ("agent", "tools"):
+                    # "agent" and "tools" are always included by the CLI,
+                    # no need to pass them explicitly
+                    pass
+                else:
+                    logger.warning(f"Unknown context_include component: {component}")
+            if cli_values:
+                for val in cli_values:
+                    cmd.extend(["--context", val])
 
     if output_schema:
         cmd.extend(["--output-schema", output_schema])
