@@ -225,7 +225,7 @@ async def test_two_children_two_watches_preserve_parent_and_defer_timeout(
                 workers = tuple(app.workers)
                 log_before = list(manager.log)
 
-                await pilot.press("ctrl+w")
+                await pilot.press("ctrl+t")
                 assert isinstance(app.screen, WorkOverviewScreen)
                 overview = app.screen
                 content = overview.query_one("#work-overview-content", Static)
