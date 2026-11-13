@@ -2258,11 +2258,14 @@ def _build_work_summary(
                 "budget_exceeded": "✗",
                 "clarification_needed": "?",
             }.get(status, "·")
-            # One logical line per child keeps selection and scrolling aligned.
+            # One line per child; the overview cuts it at the right edge rather
+            # than wrapping, so selection, status and unread lead (always
+            # visible), then identity, then the task and progress (cut first).
             prompt_preview = " ".join(sa.prompt_preview.split())
+            agent_id = " ".join(sa.agent_id.split())
             lines.append(
-                f"{'> ' if index == cursor else '  '}{icon} {sa.agent_id}  "
-                f"[{status}] {elapsed}{unread_label}  {prompt_preview}"
+                f"{'> ' if index == cursor else '  '}{icon} "
+                f"[{status}] {elapsed}{unread_label}  {agent_id}  {prompt_preview}"
                 + (
                     f" — {' '.join(sa.latest_progress.split())[:160]}"
                     if sa.latest_progress
@@ -2426,6 +2429,12 @@ class WorkOverviewScreen(ModalScreen):
         background: ansi_default;
         padding: 0 1;
     }
+    /* one physical row per line: cut long tasks/progress, never wrap (the
+       selected child's transcript has the full details) */
+    #work-overview-content {
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
     """
 
     def __init__(self, logdir: Path | None, branch: str | None) -> None:
@@ -2512,12 +2521,9 @@ class WorkOverviewScreen(ModalScreen):
             )
 
     def _selected_row(self) -> int:
-        # Account for wrapped rows when keeping the selected child in view.
-        content = self.query_one("#work-overview-content", Static)
-        # +1: skip the "Children:" header line; the selected child is at the scroll target.
-        prefix = str(content.render()).splitlines()[: self._cursor + 1]
-        width = max(1, content.content_size.width)
-        return sum(len(Text(line).wrap(self.app.console, width)) for line in prefix)
+        # Lines never wrap (see CSS), so the row is the child's index plus the
+        # "Children:" header line.
+        return self._cursor + 1
 
     def action_open_child(self) -> None:
         if not self._children:

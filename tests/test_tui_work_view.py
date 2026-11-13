@@ -666,17 +666,13 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
         assert selected_line.startswith("> ")
         scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
         assert scroll.scroll_y > 0
-        # The selected physical row is inside the viewport, not merely scrolled.
-        from rich.text import Text
-
+        # The selected physical row is inside the viewport, not merely scrolled
+        # (lines never wrap, so a line's index is its row).
         lines = str(content.render()).splitlines()
-        width = max(1, content.content_size.width)
-        selected_index = next(
+        selected_row = next(
             index for index, line in enumerate(lines) if line.startswith("> ")
         )
-        selected_row = sum(
-            len(Text(line).wrap(app.console, width)) for line in lines[:selected_index]
-        )
+        assert selected_row == screen._selected_row()
         assert scroll.scroll_y <= selected_row < scroll.scroll_y + scroll.size.height
         children.insert(0, children.pop())
         await pilot.pause(1.2)
@@ -847,3 +843,75 @@ async def test_work_overview_scrolls_monitors_with_arrow_keys(
         await pilot.pause()
         assert scroll.scroll_y < previous_y
         assert screen._cursor == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(120, 30), (80, 24), (60, 20), (40, 16)])
+async def test_work_overview_renders_one_physical_row_per_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: tuple[int, int]
+) -> None:
+    """Long children are cut at the right edge, never wrapped onto more rows."""
+    from dataclasses import replace
+
+    from rich.cells import cell_len
+    from textual.containers import VerticalScroll
+    from textual.widgets import Static
+
+    manager = _make_manager(tmp_path)
+    children = []
+    for index in range(3):
+        logdir = tmp_path / f"child-{index}"
+        logdir.mkdir()
+        children.append(
+            replace(
+                _make_child_snapshot(
+                    f"child-{index}-with-a-rather-long-identifier",
+                    logdir=logdir,
+                    prompt="分析日志 and [literal] markup " * 3,
+                ),
+                status="success" if index == 1 else "running",
+                latest_progress="全角の進捗レポート [bold]not markup[/bold] " * 6,
+            )
+        )
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=size) as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        content = screen.query_one("#work-overview-content", Static)
+        scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
+        width = content.content_size.width
+        assert width < size[0]
+        # Header + one row per child: nothing wrapped, nothing scrolls sideways.
+        assert content.size.height == 1 + len(children)
+        assert scroll.max_scroll_x == 0
+        rows = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in content.render_lines(content.region.reset_offset)
+        ]
+        assert len(rows) == 1 + len(children)
+        assert rows[1].startswith("> ⏳ [running]")
+        assert rows[2].startswith("  ✓ [success]")
+        for row in rows[1:]:
+            assert cell_len(row) <= width
+            assert row.endswith("…")
+        # Selection and status stay visible however narrow; identity when it fits.
+        if width >= 40:
+            assert "child-0-with" in rows[1]
+        # Navigation tracks the physical row of the selected child.
+        await pilot.press("down", "down")
+        assert screen._cursor == 2
+        assert screen._selected_row() == 3
+        rows = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in content.render_lines(content.region.reset_offset)
+        ]
+        assert rows[3].startswith("> ")
+        # Shrinking the terminal re-cuts the rows instead of wrapping them.
+        await pilot.resize_terminal(36, size[1])
+        await pilot.pause()
+        assert content.size.height == 1 + len(children)
+        assert screen._selected_row() == 3
