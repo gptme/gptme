@@ -2166,7 +2166,17 @@ def subagent_snapshots(
             # status() honors cached cancellation/timeout before worker liveness.
             with _subagent_results_lock:
                 cached_outcome = _subagent_results.get(sa.agent_id)
-            outcome = cached_outcome or sa.snapshot_outcome or sa.status()
+            if cached_outcome is not None:
+                outcome = cached_outcome
+            elif sa.is_running():
+                # A poll between registration and thread.start() can observe a
+                # missing log. Liveness invalidates that fallback observation,
+                # but never overrides an authoritative cancellation/timeout.
+                object.__setattr__(sa, "snapshot_outcome", None)
+                object.__setattr__(sa, "frozen_duration_s", None)
+                outcome = sa.status()
+            else:
+                outcome = sa.snapshot_outcome or sa.status()
             status = outcome.status
             # status() can read logs while another attempt reuses this ID. Do
             # not attach that attempt's outcome or duration to the old run.

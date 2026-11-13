@@ -535,6 +535,46 @@ def test_subprocess_final_progress_drain_keeps_exact_run(tmp_path, monkeypatch):
     assert take_queued_progress(parent) == [("old", "last old update")]
 
 
+def test_snapshot_recovers_from_observation_before_worker_start(tmp_path, monkeypatch):
+    """A pre-start missing log is not an authoritative outcome for a live worker."""
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    gate = threading.Event()
+    worker = threading.Thread(target=gate.wait, daemon=True)
+    sa = _subagent("child", tmp_path / "child", parent, thread=worker)
+
+    # Spawn registers the child before writing metadata and starting its thread.
+    assert subagent_snapshots(parent)[0].status == "failure"
+    assert sa.snapshot_outcome is not None
+    assert sa.frozen_duration_s is not None
+    worker.start()
+    try:
+        snapshot = subagent_snapshots(parent)[0]
+        assert snapshot.status == "running"
+        assert sa.snapshot_outcome is None
+        assert sa.frozen_duration_s is None
+    finally:
+        gate.set()
+        worker.join(timeout=2)
+
+    # On exit, observe the real log rather than resurrecting the pre-start failure
+    # or its frozen duration. Completed observations should still be reused.
+    reads = []
+
+    def read_log(subagent: Subagent) -> ReturnType:
+        reads.append(subagent.logdir)
+        return ReturnType("success", "done", duration_s=12)
+
+    monkeypatch.setattr(Subagent, "_read_log", read_log)
+    for _ in range(2):
+        snapshot = subagent_snapshots(parent)[0]
+        assert snapshot.status == "success"
+        assert snapshot.elapsed_s == 12
+    assert reads == [sa.logdir]
+
+
 def test_completed_snapshot_does_not_reread_child_transcript(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
