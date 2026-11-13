@@ -257,18 +257,24 @@ confirmation, and a hook can deny the call by calling ``data.deny(reason)``:
 .. code-block:: python
 
    from gptme.hooks import HookType, register_hook
+   from gptme.tools.base import get_path
 
    def deny_writes_outside_workspace(data):
        tool_use = data.tool_use
-       if tool_use is None or tool_use.tool != "save":
+       if tool_use is None or tool_use.tool != "save" or data.workspace is None:
            return
-       path = str((tool_use.kwargs or {}).get("path", ""))
-       if data.workspace and not path.startswith(str(data.workspace)):
+       path = get_path(tool_use.content, tool_use.args, tool_use.kwargs).resolve()
+       if not path.is_relative_to(data.workspace.resolve()):
            data.deny("writes are confined to the workspace")
        yield from ()
 
    def register():
        register_hook("policy.workspace", HookType.TOOL_EXECUTE_PRE, deny_writes_outside_workspace)
+
+This example limits ``save`` only; it is not a filesystem sandbox. Paths are
+resolved from the current directory, just as the save tool resolves them, and
+existing symlinks are followed before checking containment. It does not prevent
+concurrent symlink changes or writes through other tools.
 
 A denied call does not execute, its ``TOOL_EXECUTE_POST`` hooks do not run, and
 the reasons are returned to the model as the call's result
