@@ -2219,6 +2219,7 @@ def _build_work_summary(
     *,
     children: list | None = None,
     cursor: int = 0,
+    unread: set[tuple[str, float, str]] | None = None,
 ) -> str:
     """Build a plain-text summary of children and watches for this conversation.
 
@@ -2242,10 +2243,12 @@ def _build_work_summary(
         lines.append("Children:")
         for index, sa in enumerate(children):
             status = sa.status
-            # Snapshots carry no end time, so a finished child's clock would
-            # keep ticking; report only how long ago it started.
-            age = _fmt_elapsed(now - sa.started_at)
-            elapsed = age if status == "running" else f"started {age} ago"
+            elapsed = _fmt_elapsed(sa.elapsed_s)
+            unread_label = (
+                " · unread"
+                if unread and (sa.run_id, sa.started_at, status) in unread
+                else ""
+            )
             icon = {
                 "running": "⏳",
                 "success": "✓",
@@ -2259,7 +2262,12 @@ def _build_work_summary(
             prompt_preview = " ".join(sa.prompt_preview.split())
             lines.append(
                 f"{'> ' if index == cursor else '  '}{icon} {sa.agent_id}  "
-                f"[{status}] {elapsed}  {prompt_preview}"
+                f"[{status}] {elapsed}{unread_label}  {prompt_preview}"
+                + (
+                    f" — {' '.join(sa.latest_progress.split())[:160]}"
+                    if sa.latest_progress
+                    else ""
+                )
             )
 
     # --- watches ---
@@ -2456,7 +2464,16 @@ class WorkOverviewScreen(ModalScreen):
             self._cursor = min(self._cursor, max(0, len(self._children) - 1))
         return (
             _build_work_summary(
-                self._logdir, self._branch, children=self._children, cursor=self._cursor
+                self._logdir,
+                self._branch,
+                children=self._children,
+                cursor=self._cursor,
+                unread={
+                    (c.run_id, c.started_at, c.status)
+                    for c in self._children
+                    if isinstance(self.app, GptmeApp)
+                    and self.app._work_unread(self._logdir, self._branch, c)
+                },
             )
             or "(No children or monitors for this conversation)"
         )
@@ -2479,6 +2496,9 @@ class WorkOverviewScreen(ModalScreen):
 
     def on_mount(self) -> None:
         self.set_interval(1.0, self._refresh_summary)
+
+    def on_screen_resume(self) -> None:
+        self._refresh_summary()
 
     def _refresh_summary(self, *, scroll: bool = False) -> None:
         cursor_before = self._cursor
@@ -2506,6 +2526,14 @@ class WorkOverviewScreen(ModalScreen):
         sa = self._children[idx]
         if sa.logdir and sa.logdir.exists():
             self.app.push_screen(WorkScreen(sa.logdir, sa.agent_id))
+            if isinstance(self.app, GptmeApp) and sa.status not in (
+                "running",
+                "unknown",
+            ):
+                self.app._work_acknowledged.add(
+                    self.app._work_key(self._logdir, self._branch, sa)
+                )
+                self.app._update_work_indicator()
 
     def action_cursor_down(self) -> None:
         if self._cursor >= len(self._children) - 1:
@@ -2713,6 +2741,11 @@ class GptmeApp(App):
         height: auto;
         background: ansi_default;
     }
+    #work-indicator {
+        height: auto;
+        margin: 0 2;
+        color: $text-muted;
+    }
     #queued {
         height: auto;
         max-height: 5;
@@ -2820,6 +2853,8 @@ class GptmeApp(App):
             if not isinstance(filter_, ANSIToTruecolor)
         ]
         self.manager = manager
+        # User acknowledgements belong to this TUI, not the model delivery queues.
+        self._work_acknowledged: set[tuple[str, str, str, float, str]] = set()
         self.tool_format: ToolFormat = tool_format
         self.workspace = workspace or manager.workspace
         self.auto_confirm = auto_confirm
@@ -2944,6 +2979,7 @@ class GptmeApp(App):
             yield from self._compose_input()
 
     def _compose_input(self) -> ComposeResult:
+        yield Static(id="work-indicator")
         with Horizontal(id="input-row"):
             yield Static(Text("❯"), id="prompt-marker")
             yield ChatInput(id="input")
@@ -3008,6 +3044,8 @@ class GptmeApp(App):
             self.watch(chat, "size", self._anchor_chat, init=False)
         self.query_one("#input", ChatInput).focus()
         self._update_status()
+        self._update_work_indicator()
+        self.set_interval(1.0, self._update_work_indicator)
         # watchdog: tools can reset the tty at any point during execution
         self.set_interval(0.5, self._restore_terminal)
         if self._statusline_cmd:
@@ -3602,6 +3640,49 @@ class GptmeApp(App):
             fd = sys.__stdin__.fileno()  # type: ignore[union-attr]
             if termios.tcgetattr(fd) != self._term_attrs:
                 termios.tcsetattr(fd, termios.TCSANOW, self._term_attrs)
+
+    @staticmethod
+    def _work_key(
+        logdir: Path | None, branch: str | None, child: "SubagentSnapshot"
+    ) -> tuple[str, str, str, float, str]:
+        return (
+            str(logdir.resolve()) if logdir else "",
+            branch or "main",
+            child.run_id,
+            child.started_at,
+            child.status,
+        )
+
+    def _work_unread(
+        self, logdir: Path | None, branch: str | None, child: "SubagentSnapshot"
+    ) -> bool:
+        return (
+            child.status not in ("running", "unknown")
+            and self._work_key(logdir, branch, child) not in self._work_acknowledged
+        )
+
+    def _update_work_indicator(self) -> None:
+        """Poll read-only snapshots even while a transcript/modal covers the parent."""
+        from ..tools.subagent import subagent_snapshots
+        from ..tools.watch import watch_snapshots
+
+        children = subagent_snapshots(
+            self.manager.logdir, parent_branch=self.manager.current_branch
+        )
+        watches = watch_snapshots(
+            self.manager.logdir, branch=self.manager.current_branch
+        )
+        running = sum(c.status == "running" for c in children)
+        unread = sum(
+            self._work_unread(self.manager.logdir, self.manager.current_branch, c)
+            for c in children
+        )
+        armed = sum(w.status == "armed" for w in watches)
+        indicator = self.screen_stack[0].query_one("#work-indicator", Static)
+        indicator.update(
+            Text(f"Work: {running} running · {armed} armed · {unread} unread · Ctrl+W")
+        )
+        indicator.display = bool(running or armed or unread)
 
     def _update_status(self, run_statusline: bool = True) -> None:
         parts = []

@@ -45,7 +45,14 @@ OUTCOME_FILENAME = "subagent-outcome.json"
 
 # Runtime objects that cannot round-trip through JSON.
 _RUNTIME_FIELDS = frozenset(
-    {"thread", "process", "cancel_event", "prompt_queue_closed"}
+    {
+        "thread",
+        "process",
+        "cancel_event",
+        "prompt_queue_closed",
+        "latest_progress",
+        "frozen_duration_s",
+    }
 )
 # Required Subagent.__init__ args that must round-trip even when null.
 _REQUIRED_FIELDS = frozenset({"agent_id", "prompt", "logdir", "model"})

@@ -2126,6 +2126,7 @@ class SubagentSnapshot:
     execution_mode: str
     prompt_preview: str
     logdir: Path
+    latest_progress: str | None = None
 
 
 def subagent_snapshots(
@@ -2141,7 +2142,9 @@ def subagent_snapshots(
 
     Results are cached per ``agent_id``, so a finished run whose ID was later
     reused cannot be told apart from its successor; it reports ``unknown``
-    rather than borrowing the newer run's outcome.
+    rather than borrowing the newer run's outcome or duration. A completed
+    newest run freezes ``elapsed_s`` at its recorded result duration when the
+    cache has one, instead of continuing to grow in the UI.
     """
     _maybe_rehydrate_registry()
     owner = Path(parent_logdir).resolve()
@@ -2158,13 +2161,50 @@ def subagent_snapshots(
         if parent_branch is not None and (sa.parent_branch or "main") != parent_branch:
             continue
         status: str
+        duration_s: float | None = None
         if newest[sa.agent_id] is sa:
             # status() honors cached cancellation/timeout before worker liveness.
-            status = sa.status().status
+            outcome = sa.status()
+            status = outcome.status
+            # status() can read logs while another attempt reuses this ID. Do
+            # not attach that attempt's outcome or duration to the old run.
+            with _subagents_lock:
+                still_newest = (
+                    next(
+                        (s for s in reversed(_subagents) if s.agent_id == sa.agent_id),
+                        None,
+                    )
+                    is sa
+                )
+            if not still_newest:
+                status = "running" if sa.is_running() else "unknown"
+            if status not in ("running", "unknown"):
+                with _subagent_results_lock:
+                    cached = _subagent_results.get(sa.agent_id)
+                if cached is outcome and outcome.duration_s is not None:
+                    # Use the same outcome observation, never a newer ID cache.
+                    duration_s = outcome.duration_s
+                    object.__setattr__(sa, "frozen_duration_s", duration_s)
+                else:
+                    # _read_log() derives duration from the current clock; older
+                    # cached outcomes may omit it. Freeze the first observation.
+                    if sa.frozen_duration_s is None:
+                        object.__setattr__(
+                            sa,
+                            "frozen_duration_s",
+                            outcome.duration_s
+                            if outcome.duration_s is not None
+                            else max(now - sa.started_at, 0),
+                        )
+                    duration_s = sa.frozen_duration_s
         elif sa.is_running():
             status = "running"
         else:
             status = "unknown"
+        if duration_s is not None:
+            elapsed_s = max(int(duration_s), 0)
+        else:
+            elapsed_s = max(int(now - sa.started_at), 0)
         prompt = sa.prompt[:97] + "..." if len(sa.prompt) > 100 else sa.prompt
         snapshots.append(
             SubagentSnapshot(
@@ -2172,10 +2212,11 @@ def subagent_snapshots(
                 agent_id=sa.agent_id,
                 status=status,
                 started_at=sa.started_at,
-                elapsed_s=max(int(now - sa.started_at), 0),
+                elapsed_s=elapsed_s,
                 execution_mode=sa.execution_mode,
                 prompt_preview=prompt,
                 logdir=sa.logdir,
+                latest_progress=sa.latest_progress,
             )
         )
     return sorted(snapshots, key=lambda snap: snap.started_at)

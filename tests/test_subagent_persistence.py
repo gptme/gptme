@@ -61,7 +61,11 @@ class TestSubagentToDict:
             logdir=tmp_path,
             model=None,
         )
+        object.__setattr__(sa, "latest_progress", "runtime progress")
+        object.__setattr__(sa, "frozen_duration_s", 12.0)
         data = _subagent_to_dict(sa)
+        assert "latest_progress" not in data
+        assert "frozen_duration_s" not in data
         assert "thread" not in data
         assert "process" not in data
         assert "cancel_event" not in data

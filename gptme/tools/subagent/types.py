@@ -417,6 +417,19 @@ class Subagent:
     # Conversation branch the parent was on at spawn. Watch-wake must append to
     # this branch instead of always writing to main.
     parent_branch: str | None = field(default=None)
+    # Latest progress update observed for this specific run. notify_progress()
+    # updates it in place because progress snapshots must survive delivery-queue
+    # drains. It is runtime-only: a rehydrated entry starts without it.
+    latest_progress: str | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
+    # First completed duration observed for a run whose outcome was derived from
+    # _read_log() rather than a cached result. _read_log() recomputes
+    # ``time.time() - started_at`` on every call, so snapshots must freeze it
+    # instead of letting the displayed elapsed time keep growing.
+    frozen_duration_s: float | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
     # In-memory fallback cancellation signal for thread mode.
     # Set by subagent_cancel() when the control-file write fails (OSError), so the
     # STEP_PRE checkpoint hook can still stop the thread without the file.

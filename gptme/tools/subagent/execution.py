@@ -42,7 +42,7 @@ from .._allowlist import (
 )
 from ..base import ToolFormat, ToolSpec
 from .concurrency import get_slot_sem
-from .hooks import notify_completion, notify_progress
+from .hooks import _remember_progress, notify_completion, notify_progress
 from .persistence import persist_subagent_meta
 from .types import (
     ReturnType,
@@ -1232,6 +1232,14 @@ def _poll_subprocess_progress(
     POLL_INTERVAL = 0.5
 
     def _notify(agent_id: str, message: str) -> None:
+        # The poller owns the exact run, including its final drain after exit.
+        _remember_progress(
+            agent_id,
+            message,
+            subagent.parent_logdir,
+            subagent.parent_branch,
+            run=subagent,
+        )
         notify_progress(
             agent_id,
             message,
