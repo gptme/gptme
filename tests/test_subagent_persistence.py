@@ -790,6 +790,100 @@ class TestDurableAttemptOutcome:
         assert load_subagent_outcome(continued) is None
         assert restore_subagent_outcome(continued) is False
 
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "success",
+            "failure",
+            "clarification_needed",
+            "timeout",
+            "budget_exceeded",
+            "cancelled",
+            "blocked_external",
+        ],
+    )
+    def test_terminal_outcome_roundtrips_with_usage(
+        self, tmp_path: Path, status, caplog
+    ):
+        """Every terminal attempt status reloads intact (gptme/gptme#4895)."""
+        sa = Subagent("roundtrip", "task", None, tmp_path, None)
+        expected = ReturnType(
+            status,
+            "Waiting for approval",
+            input_tokens=123,
+            output_tokens=7,
+            tool_uses=3,
+            duration_s=1.5,
+        )
+        assert persist_subagent_outcome(sa, expected)
+        with caplog.at_level("WARNING"):
+            assert load_subagent_outcome(sa) == expected
+        assert "Failed to load subagent outcome" not in caplog.text
+
+    @pytest.mark.parametrize("status", ["running", "cleanup_required", "bogus"])
+    def test_nonterminal_outcome_is_rejected(self, tmp_path: Path, status, caplog):
+        sa = Subagent("nonterminal", "task", None, tmp_path, None)
+        (tmp_path / OUTCOME_FILENAME).write_text(
+            json.dumps(
+                {
+                    "agent_id": sa.agent_id,
+                    "generation": sa.started_at,
+                    "status": status,
+                    "result": None,
+                }
+            )
+        )
+        with caplog.at_level("WARNING"):
+            assert load_subagent_outcome(sa) is None
+        assert "must be terminal" in caplog.text
+
+    def test_blocked_external_survives_parent_restart(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A yielded attempt keeps its persisted outcome and usage after restart,
+        instead of being reconstructed from the transcript."""
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        logs_dir = tmp_path / "logs"
+        subagent_dir = logs_dir / "subagent-yield-agent-yz12"
+        _interrupted_log(subagent_dir)
+        sa = self._register(subagent_dir, agent_id="yield-agent")
+        reason = "Waiting for: CI\nNext action: merge"
+        assert set_subagent_result_if_absent(
+            "yield-agent",
+            ReturnType(
+                "blocked_external",
+                reason,
+                input_tokens=123,
+                output_tokens=7,
+                tool_uses=3,
+                duration_s=1.5,
+            ),
+        )
+
+        self._simulate_restart()
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        status = subagent_status("yield-agent")
+        assert status["status"] == "blocked_external"
+        assert status["result"] == reason
+        assert status["tool_uses"] == 3
+        assert status["duration_s"] == 1.5
+
+        # A continuation starts a new generation: the yielded outcome must not
+        # be reused as the later attempt's result.
+        continued = Subagent(
+            agent_id="yield-agent",
+            prompt=sa.prompt,
+            thread=None,
+            logdir=subagent_dir,
+            model=None,
+            started_at=sa.started_at + 1,
+        )
+        assert load_subagent_outcome(continued) is None
+        assert restore_subagent_outcome(continued) is False
+
     def test_corrupt_outcome_falls_back_to_log(self, tmp_path: Path, monkeypatch):
         from gptme.tools.subagent.api import subagent_status
 

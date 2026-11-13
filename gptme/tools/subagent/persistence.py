@@ -43,6 +43,23 @@ META_FILENAME = "subagent-meta.json"
 # Terminal attempt outcome, keyed by the attempt's ``started_at`` generation.
 OUTCOME_FILENAME = "subagent-outcome.json"
 
+# Statuses that end an attempt. ``blocked_external`` is terminal for the
+# attempt even though the conversation can be continued: a continuation starts
+# a new generation, so this outcome never masks the later attempt.
+# ``running`` and ``cleanup_required`` (a release refusal, not an attempt
+# outcome) are rejected.
+_TERMINAL_OUTCOME_STATUSES = frozenset(
+    {
+        "success",
+        "failure",
+        "clarification_needed",
+        "timeout",
+        "budget_exceeded",
+        "cancelled",
+        "blocked_external",
+    }
+)
+
 # Runtime objects that cannot round-trip through JSON.
 _RUNTIME_FIELDS = frozenset(
     {
@@ -202,14 +219,7 @@ def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
             return None
         if float(data["generation"]) != sa.started_at:
             return None
-        if data.get("status") not in (
-            "success",
-            "failure",
-            "clarification_needed",
-            "timeout",
-            "budget_exceeded",
-            "cancelled",
-        ):
+        if data.get("status") not in _TERMINAL_OUTCOME_STATUSES:
             raise ValueError("subagent outcome status must be terminal")
         for name in ("input_tokens", "output_tokens", "tool_uses"):
             value = data.get(name)
