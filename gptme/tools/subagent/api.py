@@ -18,7 +18,7 @@ from typing import Any, Literal
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from . import execution as _exec
 from .concurrency import get_slot_sem
-from .control import append_control_op
+from .control import append_control_op, discard_control_ops
 from .hooks import notify_completion
 from .persistence import (
     load_subagent_by_id,
@@ -1323,34 +1323,52 @@ def subagent_cancel(agent_id: str) -> str:
         # can never observe the cancel op without a "cancelled" result already in
         # the cache — preventing a race where the hook's set_subagent_result_if_absent
         # would win with the wrong status.
-        if not set_subagent_result_if_absent(agent_id, cancelled_result):
+        if not set_subagent_result_if_absent(agent_id, cancelled_result, attempt=sa):
             return f"Subagent '{agent_id}' already finished before cancellation."
-        try:
-            append_control_op(sa.logdir, "cancel", agent_id=agent_id)
-        except OSError as e:
-            logger.warning(
-                "Failed to write cancel control op for '%s': %s", agent_id, e
+        with _subagents_lock:
+            current = next(
+                (s for s in reversed(_subagents) if s.agent_id == agent_id), None
             )
-        _exec._terminate_subprocess(sa.process, sa.logdir / _exec._SHELL_PGIDS_FILENAME)
+            if current is not sa:
+                return f"Subagent '{agent_id}' changed before cancellation."
+            try:
+                append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+            except OSError as e:
+                logger.warning(
+                    "Failed to write cancel control op for '%s': %s", agent_id, e
+                )
+            # Shell PGIDs also live in the shared logdir: finish escalation before
+            # a continuation can publish a new attempt and replace that file.
+            _exec._terminate_subprocess(
+                sa.process, sa.logdir / _exec._SHELL_PGIDS_FILENAME
+            )
         logger.info(f"Subagent '{agent_id}' subprocess terminated.")
         return f"Subagent '{agent_id}' cancelled."
     if sa.execution_mode == "thread":
         # Thread mode: mark result BEFORE writing the control file (same race fix).
         # The thread stops at its next STEP_PRE checkpoint and releases the slot.
-        if not set_subagent_result_if_absent(agent_id, cancelled_result):
+        if not set_subagent_result_if_absent(agent_id, cancelled_result, attempt=sa):
             return f"Subagent '{agent_id}' already finished before cancellation."
-        try:
-            append_control_op(sa.logdir, "cancel", agent_id=agent_id)
-        except OSError as e:
-            logger.warning(
-                "Failed to write cancel control op for '%s': %s — "
-                "falling back to in-memory cancel_event",
-                agent_id,
-                e,
+        # Serialize the enqueue with continuation's queue cleanup/publication.
+        # Result persistence above can yield after the old child has stopped.
+        with _subagents_lock:
+            current = next(
+                (s for s in reversed(_subagents) if s.agent_id == agent_id), None
             )
-            # Control file is unavailable; signal the thread in-memory so the
-            # STEP_PRE checkpoint hook can still stop it at its next step.
-            sa.cancel_event.set()
+            if current is not sa:
+                return f"Subagent '{agent_id}' changed before cancellation."
+            try:
+                append_control_op(sa.logdir, "cancel", agent_id=agent_id)
+            except OSError as e:
+                logger.warning(
+                    "Failed to write cancel control op for '%s': %s — "
+                    "falling back to in-memory cancel_event",
+                    agent_id,
+                    e,
+                )
+                # Control file is unavailable; signal the thread in-memory so the
+                # STEP_PRE checkpoint hook can still stop it at its next step.
+                sa.cancel_event.set()
         logger.info(
             f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
         )
@@ -1359,7 +1377,7 @@ def subagent_cancel(agent_id: str) -> str:
             "The background thread will stop at its next cooperative checkpoint."
         )
     # ACP mode: threads cannot be stopped; keep cache-mark-only behavior.
-    if not set_subagent_result_if_absent(agent_id, cancelled_result):
+    if not set_subagent_result_if_absent(agent_id, cancelled_result, attempt=sa):
         return f"Subagent '{agent_id}' already finished before cancellation."
     logger.info(
         f"Subagent '{agent_id}' (ACP) marked cancelled (no cooperative checkpoint)."
@@ -1902,6 +1920,23 @@ def subagent_continue(
                 raise ValueError(
                     f"Subagent '{agent_id}' changed while continuation was starting."
                 )
+            # The previous attempt has stopped (and, for subprocesses, we hold its
+            # writer lease), so any cancel still queued in control.jsonl was
+            # addressed to it and never drained. Fence it off before the new
+            # attempt becomes visible: subagent_cancel() can only target the new
+            # attempt after publication below, so this cannot drop a fresh cancel.
+            try:
+                if stale := discard_control_ops(sa.logdir, "cancel"):
+                    logger.info(
+                        "Discarded %d stale cancel op(s) for '%s' before continuation",
+                        stale,
+                        agent_id,
+                    )
+            except OSError as e:
+                raise ValueError(
+                    f"Subagent '{agent_id}' has an unreadable control file; "
+                    f"cannot clear stale cancellation before continuing: {e}"
+                ) from e
             _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
             _subagents.append(continued)
             persist_subagent_meta(continued)
