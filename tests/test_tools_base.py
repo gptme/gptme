@@ -1547,7 +1547,8 @@ class TestToolExecutePreDeny:
         assert "actual output" not in contents
         assert "post hook" not in contents, "a denied call has no post hook"
 
-    def test_denial_without_reason_still_blocks(self, monkeypatch):
+    @pytest.mark.parametrize("reason", ["", "   ", "\n\t"])
+    def test_denial_without_reason_still_blocks(self, monkeypatch, reason):
         ran: list[tuple] = []
 
         def execute(code, args, kwargs):
@@ -1556,15 +1557,20 @@ class TestToolExecutePreDeny:
 
         fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
         monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
-        monkeypatch.setattr(
-            "gptme.hooks.trigger_hook",
-            lambda hook_type, data: data.deny("policy") or [],
-        )
+
+        def deny(hook_type, data):
+            if hook_type == HookType.TOOL_EXECUTE_PRE:
+                data.deny(reason)
+            return []
+
+        monkeypatch.setattr("gptme.hooks.trigger_hook", deny)
 
         yielded = list(ToolUse("test_tool", [], None, start=0).execute())
 
         assert ran == []
-        assert any("denied" in msg.content for msg in yielded)
+        assert [msg.content for msg in yielded] == [
+            "Tool execution denied: Denied by policy"
+        ]
 
     def test_pre_hook_without_denial_does_not_block(self, monkeypatch):
         ran: list[tuple] = []

@@ -48,8 +48,9 @@ class ToolExecutePreData(ToolExecuteData):
     denials: list[str] = field(default_factory=list)
 
     def deny(self, reason: str) -> None:
-        """Prevent the tool from executing, reporting ``reason`` to the model."""
-        if reason and reason not in self.denials:
+        """Prevent execution, using a fallback explanation for blank reasons."""
+        reason = reason.strip() or "Denied by policy"
+        if reason not in self.denials:
             self.denials.append(reason)
 
     @property

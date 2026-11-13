@@ -991,6 +991,8 @@ class ToolUse:
                             Message(
                                 "system",
                                 "Tool execution denied: " + "; ".join(pre_data.denials),
+                                call_id=self.call_id,
+                                metadata={"tool": self.tool},
                             )
                         )
                         return
