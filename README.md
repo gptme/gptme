@@ -420,7 +420,7 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 
 ### Prerequisites
 
-- Python 3.11 or newer
+- Python 3.11.5 or newer
 - Credentials for at least one LLM provider:
   - Fastest no-credit-card path: start `gptme`, choose **OpenRouter** in the
     startup provider setup (browser OAuth), then run
@@ -442,7 +442,7 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 For full setup instructions, see the [Getting Started guide][docs-getting-started].
 
 ```sh
-# With pipx (recommended, requires Python 3.11+)
+# With pipx (recommended, requires Python 3.11.5+)
 pipx install gptme
 
 # With uv
@@ -700,7 +700,7 @@ Grok Bot, Devin). See [Alternatives][docs-alternatives] for the maintained table
 curl -sSf https://gptme.ai/install.sh | sh   # auto-detects uv or pipx
 ```
 
-Or install directly with `pipx install gptme` / `uv tool install gptme` (Python 3.11+).
+Or install directly with `pipx install gptme` / `uv tool install gptme` (Python 3.11.5+).
 See [Installation](#installation) above, the [Getting Started guide][docs-getting-started],
 and [System dependencies][docs-system-dependencies] for the extras individual tools need.
 

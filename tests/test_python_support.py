@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import tomli as tomllib
 from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 ROOT = Path(__file__).resolve().parent.parent
 SUPPORTED = SpecifierSet(
@@ -15,20 +16,54 @@ SUPPORTED = SpecifierSet(
 )
 
 
+def _supports_selector(selector: str) -> bool:
+    """Minor selectors track patched releases; full versions name exact releases."""
+    version = Version(selector)
+    if len(version.release) == 2:
+        # Consider the declared lower bounds as well as the .0 release, so a
+        # moving 3.11 selector can satisfy >=3.11.5 without admitting 3.10.
+        candidates = [version] + [
+            Version(spec.version) for spec in SUPPORTED if spec.operator == ">="
+        ]
+        return any(
+            candidate.release[:2] == version.release and candidate in SUPPORTED
+            for candidate in candidates
+        )
+    return version in SUPPORTED
+
+
+@pytest.mark.parametrize(
+    ("selector", "supported"),
+    [
+        ("3.10", False),
+        ("3.11", True),
+        ("3.11.4", False),
+        ("3.11.5", True),
+        ("3.12", True),
+        ("3.15", True),
+        ("3.16", False),
+    ],
+)
+def test_python_selector_support(selector: str, supported: bool) -> None:
+    assert _supports_selector(selector) is supported
+
+
 @pytest.mark.parametrize("workflow", ["lint.yml", "test.yml"])
 def test_ci_python_versions_are_supported(workflow: str) -> None:
     text = (ROOT / ".github" / "workflows" / workflow).read_text()
-    versions = re.findall(r"python-version: ['\"](3\.\d+)['\"]", text)
+    versions = re.findall(r"python-version: ['\"](3\.\d+(?:\.\d+)?)['\"]", text)
     assert versions, f"No explicit Python versions found in {workflow}"
     for version in versions:
-        assert version in SUPPORTED, f"{workflow} uses unsupported Python {version}"
+        assert _supports_selector(version), (
+            f"{workflow} uses unsupported Python {version}"
+        )
 
 
 def test_dev_docker_python_is_supported() -> None:
     text = (ROOT / "scripts" / "Dockerfile.dev").read_text()
-    match = re.search(r"^FROM python:(3\.\d+)-slim", text)
+    match = re.search(r"^FROM python:(3\.\d+(?:\.\d+)?)-slim", text)
     assert match
-    assert match[1] in SUPPORTED
+    assert _supports_selector(match[1])
 
 
 def test_computer_docker_uses_supported_ubuntu_python_in_venv() -> None:
@@ -84,7 +119,7 @@ def test_minimum_python_runs_tests_without_coverage() -> None:
 
 def test_readme_python_prerequisites_are_supported() -> None:
     versions = re.findall(
-        r"Python (3\.\d+)(?: or newer|\+)", (ROOT / "README.md").read_text()
+        r"Python (3\.\d+(?:\.\d+)?)(?: or newer|\+)", (ROOT / "README.md").read_text()
     )
     assert versions
     for version in versions:

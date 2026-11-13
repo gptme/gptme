@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Utilities",
     "Programming Language :: Python :: 3",
 ]
-requires-python = ">=3.11,<3.16"
+requires-python = ">=3.11.5,<3.16"
 dependencies = [
     "click>=8.4,<9",
     "click-default-group>=1.2.4,<2",
@@ -273,7 +273,9 @@ ignore = ["E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop ofte
 # has three unfixed advisories (GHSA-v4x8-3wr5-3wq8, GHSA-9vhv-jxww-xfm5,
 # GHSA-567q-5qvw-pf92) for ReadWriteLock/Windows usage. filelock 4.x fixes
 # them and requires Python>=3.11, matching our own floor.
-constraint-dependencies = ["filelock>=4.2.1"]
+# Soup Sieve <4 is vulnerable to GHSA-mmhr-3c5m-f64f (selector DoS).
+# Fixed releases require Python>=3.11.5, matching our patched Python floor.
+constraint-dependencies = ["filelock>=4.2.1", "soupsieve>=4"]
 
 [tool.mypy]
 check_untyped_defs = true
