@@ -762,3 +762,151 @@ def test_adoption_without_logdir_keeps_callback_path() -> None:
     )
     assert not adopt_foreground_capture(job, [([], [])])
     assert job.get_output() == ("a", "b") and job._adopt_thread is None
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_run_releases_capture_on_return_or_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fails: bool
+) -> None:
+    shell = ShellSession(cwd=str(tmp_path))
+    try:
+        if fails:
+
+            def fail_split(_code: str) -> list[str]:
+                raise ValueError("parse failed")
+
+            monkeypatch.setattr("gptme.tools.shell.split_commands", fail_split)
+            with pytest.raises(ValueError, match="parse failed"):
+                shell.run("ignored", output=False)
+        else:
+            assert (
+                shell.run("printf first\nprintf last", output=False)[1] == "firstlast"
+            )
+        assert shell.capture_segments() is None
+    finally:
+        monkeypatch.undo()
+        shell.close()
+
+
+def test_promotion_during_parsing_keeps_current_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gptme.tools import shell as shell_module
+
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    shell.run("printf OLD", output=False)
+    real_split = shell_module.split_commands
+    entered, release = threading.Event(), threading.Event()
+    command = "printf NEW"
+
+    def delayed_split(code: str) -> list[str]:
+        if (
+            code == command
+            and threading.current_thread() is not threading.main_thread()
+        ):
+            entered.set()
+            assert release.wait(5)
+        return real_split(code)
+
+    monkeypatch.setattr(shell_module, "split_commands", delayed_split)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
+    )
+    try:
+        messages = list(execute_shell_impl(command, logdir=None, timeout=10))
+        assert entered.is_set()
+        assert "Promoted" in messages[-1].content
+    finally:
+        release.set()
+    assert len(_wait_for_completion(10)) == 1
+    job = list_background_jobs()[0]
+    assert job.log_path is not None
+    assert job.log_path.read_text() == "NEW"
+    assert shell.capture_segments() is None
+
+
+def test_promotion_after_shell_recovery_keeps_outer_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gate = tmp_path / "release"
+    job, _ = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        "printf 'FIRST\\n'; exit 0\n"
+        f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done; printf 'LAST\\n'",
+        soft="0.5",
+    )
+    gate.touch()
+    assert len(_wait_for_completion(10)) == 1
+    assert job.log_path is not None
+    assert job.log_path.read_text() == "FIRST\nLAST\n"
+
+
+def test_promoted_byte_cap_receipt_is_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+
+    monkeypatch.setenv("GPTME_SHELL_MAX_OUTPUT_BYTES", "4096")
+    gate = tmp_path / "release"
+    job, _ = _promote_with_logdir(
+        monkeypatch,
+        tmp_path,
+        f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done; yes capped",
+        soft="0.05",
+    )
+    gate.touch()
+    assert len(_wait_for_completion(10)) == 1
+    assert job.receipt_path is not None
+    receipt = json.loads(job.receipt_path.read_text())
+    assert receipt["exit_code"] == -125
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_byte_cap" in receipt["partial_reasons"]
+
+
+def test_adopted_reads_do_not_wait_for_feeder_and_completion_is_final(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    entered, release, read_done = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    original_feed = BackgroundJob._feed_adopted_chunk
+
+    def blocked_feed(self: BackgroundJob, is_stdout: bool, text: str) -> None:
+        entered.set()
+        assert release.wait(5)
+        original_feed(self, is_stdout, text)
+
+    monkeypatch.setattr(BackgroundJob, "_feed_adopted_chunk", blocked_feed)
+    process = PromotedJobProcess()
+    job = BackgroundJob(1, "synthetic", process, time.time(), log_dir=tmp_path)
+    assert adopt_foreground_capture(job, [(["last"], [])])
+    assert entered.wait(2)
+
+    def read() -> None:
+        job.get_output()
+        read_done.set()
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        assert read_done.wait(0.5), "output polling waited for the blocked feeder"
+        process.finish(0)
+        assert not job.is_output_complete(), "process exit is not capture completion"
+    finally:
+        release.set()
+        reader.join(5)
+        complete_adopted_job(job)
+    assert job.is_output_complete()
+    assert job.receipt_path is not None
+    assert job.log_path is not None and job.log_path.read_text() == "last"

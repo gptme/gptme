@@ -802,16 +802,16 @@ class ShellSession:
 
         # After a restart, restore cwd and exported variables from the snapshot
         # taken after the last command the previous shell completed. Must run
-        # first: every run() below rewrites the snapshot with the new shell's state.
+        # first: the setup command below rewrites the snapshot with the new state.
         if self._restarting and self._has_state_snapshot():
             assert self._state_path is not None
-            self.run(
+            self._run(
                 f"source {shlex.quote(self._state_path)} >/dev/null 2>&1 || true",
                 output=False,
             )
 
         # suppress pagers, prevent editors from opening, unbuffer Python output
-        self.run(
+        self._run(
             "export PAGER= GH_PAGER= GIT_PAGER=cat"
             " EDITOR=true GIT_EDITOR=true VISUAL=true"
             " PYTHONUNBUFFERED=1"
@@ -912,12 +912,20 @@ class ShellSession:
         self, code: str, output=True, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
         """Runs a command in the shell and returns the output."""
+        # Establish ownership before parsing, which can outlast promotion.
+        # The adopter holds this list independently after run() releases it.
+        self._capture_segments = []
+        try:
+            return self._run_commands(code, output=output, timeout=timeout)
+        finally:
+            self._capture_segments = None
+
+    def _run_commands(
+        self, code: str, output: bool, timeout: float | None
+    ) -> tuple[int | None, str, str]:
         commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
-        # A fresh list per run: an adopter keeps its own reference, so a later
-        # run on this shell can never feed chunks into an earlier job.
-        self._capture_segments = []
         for cmd in commands:
             res_cur = self._run(cmd, output=output, timeout=timeout)
             res_code = res_cur[0]
@@ -1211,7 +1219,8 @@ class ShellSession:
 
     def detach(self) -> None:
         """Retire this shell from foreground use without stopping its process."""
-        self._closed = True
+        # Detachment is not closure: the in-flight run may still be parsing,
+        # moving between commands, or recovering its shell process.
         # The in-flight worker still calls _set_cwd when the command finishes.
         # Freeze process-wide chdir so a later `cd` cannot jump the CLI cwd
         # after a replacement shell has already taken over.
@@ -1397,7 +1406,8 @@ class ShellSession:
         stderr: list[str] = []
         self._active_output = (stdout, stderr)
         segments = getattr(self, "_capture_segments", None)
-        if segments is not None:
+        # Recovery setup must not replace or extend the outer user's capture.
+        if segments is not None and not self._restarting:
             segments.append((stdout, stderr))
         return_code: int | None = None
         start_time = time.time() if timeout else None
@@ -3211,7 +3221,13 @@ def execute_shell_impl(
                     process.finish(job_returncode if job_returncode is not None else -1)
                     if adopted:
                         complete_adopted_job(
-                            job, error_text=str(error[0]) if error else None
+                            job,
+                            error_text=str(error[0]) if error else None,
+                            partial_reason=(
+                                "foreground_byte_cap"
+                                if job_returncode == -125
+                                else None
+                            ),
                         )
                     else:
                         complete_background_job(job, stdout, stderr)

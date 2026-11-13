@@ -1111,8 +1111,8 @@ class BackgroundJob:
         self, *, incremental: bool = False, line_context: bool = False
     ) -> tuple[str, str]:
         """Get accumulated stdout and stderr, optionally since the last read."""
-        # An adopted capture is current only up to the feeder's last pass.
-        self._feed_adopted()
+        # Only the feeder ingests adopted chunks: polling must not wait on its
+        # disk backpressure or lock. Return the tail available at this instant.
         if incremental and self._spool_from_reader:
             # Independent committed-byte cursors: RAM character offsets can
             # lag or skip prefixes the live files already retained.
@@ -1158,7 +1158,9 @@ class BackgroundJob:
         return self.process.poll() is None
 
     def is_output_complete(self) -> bool:
-        """Check whether the reader has drained all inherited output pipes."""
+        """Check whether capture has drained and finalized its retained output."""
+        if self._adopt_thread is not None:
+            return self._capture_finished.is_set()
         return (
             self._capture_finished.is_set()
             or self._reader_thread is None
@@ -1589,12 +1591,20 @@ def adopt_foreground_capture(
     return True
 
 
-def complete_adopted_job(job: BackgroundJob, *, error_text: str | None = None) -> None:
+def complete_adopted_job(
+    job: BackgroundJob,
+    *,
+    error_text: str | None = None,
+    partial_reason: str | None = None,
+) -> None:
     """Finish an adopted capture and publish one completion.
 
     Call after the foreground worker returned, so the chunk lists are final.
     ``error_text`` is the worker's failure, which never reached those lists.
+    ``partial_reason`` records loss upstream of the spool (e.g. the byte cap).
     """
+    if partial_reason:
+        job._note_partial(partial_reason)
     job._adopt_stop.set()
     feeder = job._adopt_thread
     if feeder is not None and feeder is not threading.current_thread():
