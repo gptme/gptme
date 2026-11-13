@@ -340,6 +340,10 @@ jobs:
     # upload (#2644: fail-fast on a bad token). Timeout after publish is
     # not rerunnable (duplicate-version rejection), so do not lower this.
     timeout-minutes: 40
+    # Must match the PyPI trusted publisher: gptme/gptme, release.yml, pypi.
+    # Restrict this environment to master and v* tags: schedule/dispatch runs
+    # use the branch ref, while release:created runs use the release tag ref.
+    environment: pypi
     permissions:
       contents: write
       actions: write
@@ -381,9 +385,8 @@ jobs:
       run: make validate-release-package
 
     - name: Publish to PyPI
-      env:
-        UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: uv publish
+      # Fail closed if OIDC authentication fails; never fall back to a token.
+      run: uv publish --trusted-publishing always
 
     - name: Build gptme-acp shim
       continue-on-error: true
@@ -399,7 +402,7 @@ jobs:
         # Uses OIDC Trusted Publisher — no token needed.
         # Requires a pending trusted publisher configured at:
         #   https://pypi.org/manage/account/publishing/
-        # with: owner=gptme, repo=gptme, workflow=release.yml
+        # with: owner=gptme, repo=gptme, workflow=release.yml, environment=pypi
 
     - name: Upload packages to GitHub release
       env:
