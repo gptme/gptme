@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from .types import (
+    TERMINAL_STATUSES,
     ReturnType,
     Subagent,
     _subagent_results,
@@ -202,14 +203,7 @@ def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
             return None
         if float(data["generation"]) != sa.started_at:
             return None
-        if data.get("status") not in (
-            "success",
-            "failure",
-            "clarification_needed",
-            "timeout",
-            "budget_exceeded",
-            "cancelled",
-        ):
+        if data.get("status") not in TERMINAL_STATUSES:
             raise ValueError("subagent outcome status must be terminal")
         for name in ("input_tokens", "output_tokens", "tool_uses"):
             value = data.get(name)

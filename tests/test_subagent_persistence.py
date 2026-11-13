@@ -3,6 +3,7 @@
 import json
 import threading
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -22,7 +23,7 @@ from gptme.tools.subagent.persistence import (
     restore_subagent_outcome,
     scan_rehydrate_subagents,
 )
-from gptme.tools.subagent.types import ReturnType, Subagent
+from gptme.tools.subagent.types import TERMINAL_STATUSES, ReturnType, Status, Subagent
 
 
 def _completed_log(logdir: Path, content: str = "done") -> None:
@@ -753,6 +754,44 @@ class TestDurableAttemptOutcome:
 
         subagent_list()
         assert subagent_status("cancel-agent")["status"] == "cancelled"
+
+    def test_blocked_external_survives_parent_restart(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A yielded attempt's outcome must reload, not be dropped as non-terminal.
+
+        ``blocked_external`` is persisted by the yield path. The loader's
+        hardcoded terminal allowlist once omitted it, so a restart lost the
+        checkpoint status and every continuation logged a spurious warning.
+        """
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+        logs_dir = tmp_path / "logs"
+        subagent_dir = logs_dir / "subagent-yield-agent-ef78"
+        _interrupted_log(subagent_dir)
+        self._register(subagent_dir, agent_id="yield-agent")
+        reason = "Waiting for: CI green on PR #1"
+        assert set_subagent_result_if_absent(
+            "yield-agent", ReturnType("blocked_external", reason)
+        )
+
+        self._simulate_restart()
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        status = subagent_status("yield-agent")
+        assert status["status"] == "blocked_external"
+        assert status["result"] == reason
+
+    @pytest.mark.parametrize("status", sorted(TERMINAL_STATUSES))
+    def test_every_terminal_status_roundtrips(self, status: str, tmp_path: Path):
+        """The persisted outcome loader accepts every terminal Status."""
+        sa = Subagent(
+            agent_id="roundtrip", prompt="p", thread=None, logdir=tmp_path, model=None
+        )
+        persist_subagent_outcome(sa, ReturnType(cast(Status, status), f"r-{status}"))
+        loaded = load_subagent_outcome(sa)
+        assert loaded is not None and loaded.status == status
 
     def test_first_writer_still_wins_on_disk(self, tmp_path: Path):
         from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
