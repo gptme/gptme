@@ -1,6 +1,7 @@
 """Responses input remains replayable when tool execution produced no result."""
 
 import copy
+from typing import Any
 
 import pytest
 
@@ -180,3 +181,44 @@ def test_extra_output_after_earlier_call_already_paired_is_dropped() -> None:
         "extra output after an already-paired call must be dropped"
     )
     assert items[1]["output"] == "first"
+
+
+@pytest.mark.parametrize("message_format", ["gptme", "dict"])
+def test_mid_conversation_system_messages_keep_instructions_prefix_stable(
+    message_format: str,
+) -> None:
+    """Injected system notices must not rewrite ``instructions`` (prefix cache).
+
+    Regression for gptme/gptme#4882: hidden ``<system_warning>`` / time notices
+    were folded into ``instructions``, changing the top of the prompt each time
+    one appeared and collapsing the provider's cache read to the static prefix.
+    """
+    base: list[tuple[Any, str]] = [
+        ("system", "Static system prompt."),
+        ("system", "Workspace context."),
+        ("user", "Do the thing."),
+        ("assistant", "Sure."),
+    ]
+    notice: tuple[Any, str] = (
+        "system",
+        "<system_warning>Retained log estimate: 1/2</system_warning>",
+    )
+
+    def convert(pairs: list[tuple[Any, str]]):
+        if message_format == "gptme":
+            return _messages_to_responses_input([Message(r, c) for r, c in pairs])
+        return _messages_dicts_to_responses_input(
+            [{"role": r, "content": c} for r, c in pairs]
+        )
+
+    before_instructions, before_items = convert(base)
+    after_instructions, after_items = convert([*base, notice, ("user", "go on")])
+
+    assert before_instructions == "Static system prompt.\n\nWorkspace context."
+    assert after_instructions == before_instructions
+    # Earlier items are an exact prefix of the later request's items.
+    assert after_items[: len(before_items)] == before_items
+    assert after_items[len(before_items)] == {
+        "role": "developer",
+        "content": notice[1],
+    }

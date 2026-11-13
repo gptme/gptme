@@ -270,6 +270,24 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
     return paired_items
 
 
+def _route_system_text(
+    text: str, instructions_parts: list[str], items: list[dict[str, Any]]
+) -> None:
+    """Place a system message so the cacheable request prefix stays stable.
+
+    Leading system messages (before any conversation item) form the static
+    ``instructions``. Later ones (time updates, token warnings, hook-injected
+    notices) are kept in place as ``developer`` input items. Folding them into
+    ``instructions`` rewrites the very top of the prompt whenever one appears,
+    which invalidates the provider's prefix cache for the whole conversation
+    (cache read collapses to the static system prompt on that turn).
+    """
+    if items:
+        items.append({"role": "developer", "content": text})
+    else:
+        instructions_parts.append(text)
+
+
 def _messages_dicts_to_responses_input(
     messages_dicts: list[MessageDict],
 ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -303,7 +321,7 @@ def _messages_dicts_to_responses_input(
         if role == "system":
             text = _content_to_text(message["content"]).strip()
             if text:
-                instructions_parts.append(text)
+                _route_system_text(text, instructions_parts, items)
             continue
 
         if role == "assistant" and "responses_items" in message:
@@ -367,7 +385,7 @@ def _messages_to_responses_input(
         if msg.role == "system":
             text = _content_to_text(msg.content).strip()
             if text:
-                instructions_parts.append(text)
+                _route_system_text(text, instructions_parts, items)
             continue
 
         if msg.role == "assistant":
