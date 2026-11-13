@@ -139,6 +139,30 @@ Claude Code status line, set a command:
 
 See :ref:`tui-statusline` for what the command receives.
 
+Children and monitors
+---------------------
+
+When children are running, monitors are armed or a child has an unread outcome,
+"Work" appears above the input, independently of any custom status line. Press
+:kbd:`Ctrl+W` for this conversation branch's children and monitors. Use the
+arrow keys to select a child, :kbd:`Enter` to inspect its read-only transcript,
+and :kbd:`Escape` or :kbd:`q` to return. Parent generation and the draft stay in
+place; inspecting a child never takes its writer lock or redirects your input.
+
+The overview shows child status, elapsed time and the latest available progress
+update. Reading progress here does not consume the model's notification queue.
+Completed durations use the recorded duration when available; otherwise they
+freeze when first observed. Progress is kept in memory, so older resumed runs
+may not have an update.
+
+A child's terminal outcome stays **unread** until you open that child's
+transcript after the outcome appears. Merely opening the overview, viewing a
+still-running child or delivering its result to the parent model does not
+acknowledge completion. Acknowledgements are local to this TUI run and scoped to
+the parent branch and child run; restarting the TUI may show outcomes as unread
+again. Monitors show their armed, fired, expired or cancelled state in the
+overview; a timeout is not a successful condition.
+
 Keys
 ----
 
@@ -152,6 +176,7 @@ Key                Action
 :kbd:`Ctrl+C`      Interrupt generation, or quit when idle
 :kbd:`Ctrl+D`      Quit
 :kbd:`Ctrl+O`      Expand/collapse all tool outputs and thinking
+:kbd:`Ctrl+W`      Inspect children and monitors for this conversation branch
 =================  ==========================================================
 
 A prompt sent while the agent is working is queued. It joins the running

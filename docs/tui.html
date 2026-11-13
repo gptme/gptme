@@ -640,6 +640,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-settings">Display settings</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#status-line">Status line</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#children-and-monitors">Children and monitors</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys">Keys</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
@@ -777,6 +778,27 @@ Claude Code status line, set a command:</p>
 </div>
 <p>See <a class="reference internal" href="config.html#tui-statusline"><span class="std std-ref">TUI status line</span></a> for what the command receives.</p>
 </section>
+<section id="children-and-monitors">
+<h2>Children and monitors<a class="headerlink" href="#children-and-monitors" title="Link to this heading">#</a></h2>
+<p>When children are running, monitors are armed or a child has an unread outcome,
+“Work” appears above the input, independently of any custom status line. Press
+<kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">W</kbd> for this conversation branch’s children and monitors. Use the
+arrow keys to select a child, <kbd class="kbd docutils literal notranslate">Enter</kbd> to inspect its read-only transcript,
+and <kbd class="kbd docutils literal notranslate">Escape</kbd> or <kbd class="kbd docutils literal notranslate">q</kbd> to return. Parent generation and the draft stay in
+place; inspecting a child never takes its writer lock or redirects your input.</p>
+<p>The overview shows child status, elapsed time and the latest available progress
+update. Reading progress here does not consume the model’s notification queue.
+Completed durations use the recorded duration when available; otherwise they
+freeze when first observed. Progress is kept in memory, so older resumed runs
+may not have an update.</p>
+<p>A child’s terminal outcome stays <strong>unread</strong> until you open that child’s
+transcript after the outcome appears. Merely opening the overview, viewing a
+still-running child or delivering its result to the parent model does not
+acknowledge completion. Acknowledgements are local to this TUI run and scoped to
+the parent branch and child run; restarting the TUI may show outcomes as unread
+again. Monitors show their armed, fired, expired or cancelled state in the
+overview; a timeout is not a successful condition.</p>
+</section>
 <section id="keys">
 <h2>Keys<a class="headerlink" href="#keys" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -806,6 +828,9 @@ Claude Code status line, set a command:</p>
 </tr>
 <tr class="row-even"><td><p><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd></p></td>
 <td><p>Expand/collapse all tool outputs and thinking</p></td>
+</tr>
+<tr class="row-odd"><td><p><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">W</kbd></p></td>
+<td><p>Inspect children and monitors for this conversation branch</p></td>
 </tr>
 </tbody>
 </table>
@@ -895,6 +920,7 @@ keep using <code class="docutils literal notranslate"><span class="pre">gptme</s
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#display-settings">Display settings</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#status-line">Status line</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#children-and-monitors">Children and monitors</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keys">Keys</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
