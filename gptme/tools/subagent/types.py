@@ -17,7 +17,7 @@ import time
 from contextvars import copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired
@@ -43,6 +43,13 @@ Status = Literal[
     "blocked_external",
     "cleanup_required",
 ]
+
+# Statuses that terminate an attempt. Derived from ``Status`` so the persistence
+# allowlist cannot drift when a new terminal status is added: a hardcoded copy
+# once omitted ``blocked_external``, so a yielded attempt's persisted outcome was
+# discarded on load (and a spurious warning logged on every continuation).
+TERMINAL_STATUSES: frozenset[str] = frozenset(get_args(Status)) - {"running"}
+
 Role = Literal["general", "explore", "implement", "verify"]
 
 # Role → profile name mapping
