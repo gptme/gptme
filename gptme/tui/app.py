@@ -117,6 +117,9 @@ from .statusline import LogStats, build_payload, run_statusline
 if TYPE_CHECKING:
     from textual.timer import Timer
 
+    from ..tools.subagent import SubagentSnapshot
+
+
 logger = logging.getLogger(__name__)
 
 # Max messages rendered when resuming a long conversation
@@ -2183,6 +2186,345 @@ class _SequentialPrompt(str):
     the CLI), never joined into a running turn."""
 
 
+# ---------------------------------------------------------------------------
+# Work panel: compact children + monitors overview
+# ---------------------------------------------------------------------------
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as a compact string like '1m23s' or '45s'."""
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m{s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m"
+
+
+def _fmt_deadline(deadline: float | None) -> str:
+    """Format seconds remaining until a deadline."""
+    if deadline is None:
+        return "no deadline"
+    remaining = deadline - time.time()
+    if remaining <= 0:
+        return "overdue"
+    return f"{_fmt_elapsed(remaining)} left"
+
+
+def _build_work_summary(
+    logdir: Path | None,
+    branch: str | None,
+    *,
+    children: list | None = None,
+    cursor: int = 0,
+) -> str:
+    """Build a plain-text summary of children and watches for this conversation.
+
+    Returns an empty string when there is nothing to show.
+    """
+    lines: list[str] = []
+    now = time.time()
+
+    # --- children ---
+    if children is None:
+        try:
+            from ..tools.subagent import subagent_snapshots
+
+            children = (
+                subagent_snapshots(logdir, parent_branch=branch) if logdir else []
+            )
+        except Exception:
+            children = []
+
+    if children:
+        lines.append("Children:")
+        for index, sa in enumerate(children):
+            status = sa.status
+            # Snapshots carry no end time, so a finished child's clock would
+            # keep ticking; report only how long ago it started.
+            age = _fmt_elapsed(now - sa.started_at)
+            elapsed = age if status == "running" else f"started {age} ago"
+            icon = {
+                "running": "⏳",
+                "success": "✓",
+                "failure": "✗",
+                "timeout": "⏱",
+                "cancelled": "✗",
+                "budget_exceeded": "✗",
+                "clarification_needed": "?",
+            }.get(status, "·")
+            # One logical line per child keeps selection and scrolling aligned.
+            prompt_preview = " ".join(sa.prompt_preview.split())
+            lines.append(
+                f"{'> ' if index == cursor else '  '}{icon} {sa.agent_id}  "
+                f"[{status}] {elapsed}  {prompt_preview}"
+            )
+
+    # --- watches ---
+    try:
+        from ..tools.watch import watch_snapshots
+
+        watches = watch_snapshots(logdir, branch=branch) if logdir else []
+    except Exception:
+        watches = []
+
+    if watches:
+        lines.append("Monitors:")
+        for w in watches:
+            state_str = w.status
+            if state_str == "expired":
+                icon = "⏱"
+            elif state_str == "cancelled":
+                icon = "✗"
+            elif state_str == "fired":
+                icon = "✓"
+            else:
+                icon = "👁"  # still armed
+            age = _fmt_elapsed(now - w.created)
+            deadline_str = _fmt_deadline(w.deadline)
+            lines.append(
+                f"  {icon} {w.id} ({w.kind})  [{state_str}] age={age} {deadline_str}"
+            )
+            lines.append(f"    {w.description[:80]}")
+
+    return "\n".join(lines)
+
+
+class WorkScreen(ModalScreen):
+    """Read-only transcript viewer for a child agent's log.
+
+    Opens on top of the parent conversation. Pressing Escape or 'q' returns
+    to the parent without touching parent state (no lock acquisition, no
+    LogManager load, no input redirect).
+    """
+
+    BINDINGS = [
+        Binding("escape,q", "close", "Back to parent"),
+    ]
+
+    CSS = """
+    WorkScreen {
+        background: ansi_default;
+        align: center middle;
+    }
+    #work-screen-container {
+        width: 90%;
+        height: 90%;
+        background: ansi_default;
+        border: round $primary;
+    }
+    #work-screen-title {
+        background: $primary;
+        color: $text;
+        padding: 0 1;
+        text-style: bold;
+        height: 1;
+    }
+    #work-screen-scroll {
+        background: ansi_default;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self, logdir: Path, agent_id: str) -> None:
+        super().__init__()
+        self._logdir = logdir
+        self._agent_id = agent_id
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="work-screen-container"):
+            yield Static(
+                Text(f"Child: {self._agent_id}  [q/esc] back", style="bold"),
+                id="work-screen-title",
+            )
+            with VerticalScroll(id="work-screen-scroll"):
+                yield Static(self._load_transcript(), id="work-screen-content")
+
+    def _load_transcript(self) -> str:
+        """Load the child's JSONL log as plain text (best-effort, tolerates incomplete records)."""
+        jsonl_path = self._logdir / "conversation.jsonl"
+        if not jsonl_path.exists():
+            return f"No log at {markup_escape(str(jsonl_path))}"
+        lines: list[str] = []
+        try:
+            raw = jsonl_path.read_text(errors="replace")
+            # JSONL records end at LF; Unicode separators inside strings are data.
+            for line in raw.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                    if not isinstance(msg, dict):
+                        continue
+                    role = msg.get("role", "?")
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        # Anthropic native format: list of content blocks
+                        content = " ".join(
+                            b.get("text", "") for b in content if isinstance(b, dict)
+                        )
+                    # Truncate very long messages so the viewer stays usable
+                    preview = str(content)[:500]
+                    if len(str(content)) > 500:
+                        preview += " …"
+                    # Escape Rich markup so roles and content render as literal text
+                    lines.append(f"{markup_escape(role)}: {markup_escape(preview)}")
+                except json.JSONDecodeError:
+                    # Tolerate incomplete trailing record while child is writing
+                    pass
+        except OSError as e:
+            return f"Could not read log: {markup_escape(str(e))}"
+        return "\n\n".join(lines) if lines else "Empty log"
+
+    def action_close(self) -> None:
+        self.dismiss()
+
+
+class WorkOverviewScreen(ModalScreen):
+    """Overview screen: children + armed monitors for this conversation.
+
+    Navigate to a child by pressing Enter; Escape returns.
+    """
+
+    BINDINGS = [
+        Binding("escape,q", "close", "Close"),
+        Binding("enter", "open_child", "View transcript"),
+        Binding("j,down", "cursor_down", "Down", priority=True),
+        Binding("k,up", "cursor_up", "Up", priority=True),
+    ]
+
+    CSS = """
+    WorkOverviewScreen {
+        background: ansi_default;
+        align: center middle;
+    }
+    #work-overview-container {
+        width: 85%;
+        height: 80%;
+        background: ansi_default;
+        border: round $primary;
+    }
+    #work-overview-title {
+        background: $primary;
+        color: $text;
+        padding: 0 1;
+        text-style: bold;
+        height: 1;
+    }
+    #work-overview-scroll {
+        background: ansi_default;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self, logdir: Path | None, branch: str | None) -> None:
+        super().__init__()
+        self._logdir = logdir
+        self._branch = branch
+        self._children: list[SubagentSnapshot] = []
+        self._cursor = 0
+
+    def _snapshot_summary(self) -> str:
+        # Planner runs reuse their logdir, so run_id alone can repeat; the
+        # start time disambiguates which of those rows is selected.
+        selected_key = (
+            (
+                self._children[self._cursor].run_id,
+                self._children[self._cursor].started_at,
+            )
+            if self._children
+            else None
+        )
+        try:
+            from ..tools.subagent import subagent_snapshots
+
+            self._children = (
+                subagent_snapshots(self._logdir, parent_branch=self._branch)
+                if self._logdir
+                else []
+            )
+        except Exception:
+            self._children = []
+
+        keys = [(c.run_id, c.started_at) for c in self._children]
+        if selected_key in keys:
+            self._cursor = keys.index(selected_key)
+        else:
+            self._cursor = min(self._cursor, max(0, len(self._children) - 1))
+        return (
+            _build_work_summary(
+                self._logdir, self._branch, children=self._children, cursor=self._cursor
+            )
+            or "(No children or monitors for this conversation)"
+        )
+
+    def compose(self) -> ComposeResult:
+        summary = self._snapshot_summary()
+        with Vertical(id="work-overview-container"):
+            yield Static(
+                Text(
+                    "Work overview  [enter] view transcript  [q/esc] back",
+                    style="bold",
+                ),
+                id="work-overview-title",
+            )
+            with VerticalScroll(id="work-overview-scroll"):
+                yield Static(Text(summary), id="work-overview-content")
+
+    def action_close(self) -> None:
+        self.dismiss()
+
+    def on_mount(self) -> None:
+        self.set_interval(1.0, self._refresh_summary)
+
+    def _refresh_summary(self, *, scroll: bool = False) -> None:
+        cursor_before = self._cursor
+        summary = self._snapshot_summary()
+        content = self.query_one("#work-overview-content", Static)
+        content.update(Text(summary))
+        # A refresh can move the selected child to another row; follow it.
+        if (scroll or self._cursor != cursor_before) and self._children:
+            self.query_one("#work-overview-scroll", VerticalScroll).scroll_to(
+                y=self._selected_row(), animate=False
+            )
+
+    def _selected_row(self) -> int:
+        # Account for wrapped rows when keeping the selected child in view.
+        content = self.query_one("#work-overview-content", Static)
+        # +1: skip the "Children:" header line; the selected child is at the scroll target.
+        prefix = str(content.render()).splitlines()[: self._cursor + 1]
+        width = max(1, content.content_size.width)
+        return sum(len(Text(line).wrap(self.app.console, width)) for line in prefix)
+
+    def action_open_child(self) -> None:
+        if not self._children:
+            return
+        idx = max(0, min(self._cursor, len(self._children) - 1))
+        sa = self._children[idx]
+        if sa.logdir and sa.logdir.exists():
+            self.app.push_screen(WorkScreen(sa.logdir, sa.agent_id))
+
+    def action_cursor_down(self) -> None:
+        if self._cursor >= len(self._children) - 1:
+            self.query_one("#work-overview-scroll", VerticalScroll).scroll_down(
+                animate=False
+            )
+            return
+        self._cursor += 1
+        self._refresh_summary(scroll=True)
+
+    def action_cursor_up(self) -> None:
+        scroll = self.query_one("#work-overview-scroll", VerticalScroll)
+        if not self._children or scroll.scroll_y > self._selected_row():
+            scroll.scroll_up(animate=False)
+            return
+        self._cursor = max(0, self._cursor - 1)
+        self._refresh_summary(scroll=True)
+
+
 class GptmeApp(App):
     """gptme TUI: streaming chat with live input, queueing and collapsible output."""
 
@@ -2453,6 +2795,9 @@ class GptmeApp(App):
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding(
             "ctrl+o", "toggle_details", "Expand/collapse outputs+thinking", show=True
+        ),
+        Binding(
+            "ctrl+w", "show_work", "Show children/monitors", show=True, priority=True
         ),
     ]
 
@@ -4656,6 +5001,15 @@ class GptmeApp(App):
 
     def _is_modal_open(self) -> bool:
         return isinstance(self.screen, ModalScreen)
+
+    def action_show_work(self) -> None:
+        """Ctrl+W: open the work overview screen (children + monitors)."""
+        if self._is_modal_open():
+            return
+        manager = self.manager
+        logdir = manager.logdir if manager else None
+        branch = manager.current_branch if manager else None
+        self.push_screen(WorkOverviewScreen(logdir, branch))
 
     async def action_quit(self) -> None:
         self._request_exit()
