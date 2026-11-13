@@ -229,7 +229,8 @@ async def test_two_children_two_watches_preserve_parent_and_defer_timeout(
                 assert isinstance(app.screen, WorkOverviewScreen)
                 overview = app.screen
                 content = overview.query_one("#work-overview-content", Static)
-                summary = str(content.render())
+                monitor_view = overview.query_one("#work-overview-monitors", Static)
+                summary = f"{content.render()}\n{monitor_view.render()}"
                 assert len(overview._children) == 2
                 for label in ("child-a", "child-b", "timeout", "still-armed"):
                     assert label in summary
@@ -290,7 +291,7 @@ async def test_two_children_two_watches_preserve_parent_and_defer_timeout(
                     load_child.assert_not_called()
                 assert app.screen is overview
                 overview._refresh_summary()
-                summary = str(content.render())
+                summary = f"{content.render()}\n{monitor_view.render()}"
                 assert "[success]" in summary and "[running]" in summary
                 assert "[expired]" in summary and "[armed]" in summary
                 assert list(manager.log) == log_before

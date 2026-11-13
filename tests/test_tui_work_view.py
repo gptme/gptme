@@ -530,8 +530,8 @@ async def test_work_overview_shows_watch(tmp_path):
             await pilot.pause()
             from textual.widgets import Static
 
-            content = app.screen.query_one("#work-overview-content", Static)
-            rendered = str(content.render())
+            monitors = app.screen.query_one("#work-overview-monitors", Static)
+            rendered = str(monitors.render())
             assert "overview-watch" in rendered
             assert "timer" in rendered
     finally:
@@ -564,8 +564,10 @@ async def test_work_overview_unrelated_watches_excluded(tmp_path):
             await pilot.pause()
             from textual.widgets import Static
 
-            content = app.screen.query_one("#work-overview-content", Static)
-            rendered = str(content.render())
+            rendered = "\n".join(
+                str(app.screen.query_one(view_id, Static).render())
+                for view_id in ("#work-overview-content", "#work-overview-monitors")
+            )
             assert "overview-other-watch" not in rendered
     finally:
         from gptme.tools.watch import _watches, _watches_lock
@@ -666,17 +668,13 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
         assert selected_line.startswith("> ")
         scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
         assert scroll.scroll_y > 0
-        # The selected physical row is inside the viewport, not merely scrolled.
-        from rich.text import Text
-
+        # The selected physical row is inside the viewport, not merely scrolled
+        # (lines never wrap, so a line's index is its row).
         lines = str(content.render()).splitlines()
-        width = max(1, content.content_size.width)
-        selected_index = next(
+        selected_row = next(
             index for index, line in enumerate(lines) if line.startswith("> ")
         )
-        selected_row = sum(
-            len(Text(line).wrap(app.console, width)) for line in lines[:selected_index]
-        )
+        assert selected_row == screen._selected_row()
         assert scroll.scroll_y <= selected_row < scroll.scroll_y + scroll.size.height
         children.insert(0, children.pop())
         await pilot.pause(1.2)
@@ -796,13 +794,13 @@ async def test_work_overview_refreshes_while_open(
         screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
         app.push_screen(screen)
         await pilot.pause()
-        content = screen.query_one("#work-overview-content", Static)
-        assert "[armed]" in str(content.render())
+        monitors = screen.query_one("#work-overview-monitors", Static)
+        assert "[armed]" in str(monitors.render())
         watch.expired = True
         watch.fired = True
         await pilot.pause(1.2)
-        assert "[expired]" in str(content.render())
-        assert "wait [/tmp]" in str(content.render())
+        assert "[expired]" in str(monitors.render())
+        assert "wait [/tmp]" in str(monitors.render())
 
 
 @pytest.mark.asyncio
@@ -847,3 +845,115 @@ async def test_work_overview_scrolls_monitors_with_arrow_keys(
         await pilot.pause()
         assert scroll.scroll_y < previous_y
         assert screen._cursor == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(120, 30), (80, 24), (60, 20), (40, 16)])
+async def test_work_overview_renders_one_physical_row_per_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: tuple[int, int]
+) -> None:
+    """Long children are cut at the right edge, never wrapped onto more rows."""
+    from dataclasses import replace
+
+    from rich.cells import cell_len
+    from textual.containers import VerticalScroll
+    from textual.widgets import Static
+
+    manager = _make_manager(tmp_path)
+    children = []
+    for index in range(3):
+        logdir = tmp_path / f"child-{index}"
+        logdir.mkdir()
+        children.append(
+            replace(
+                _make_child_snapshot(
+                    f"child-{index}-with-a-rather-long-identifier",
+                    logdir=logdir,
+                    prompt="分析日志 and [literal] markup " * 3,
+                ),
+                status="success" if index == 1 else "running",
+                latest_progress="全角の進捗レポート [bold]not markup[/bold] " * 6,
+            )
+        )
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=size) as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        content = screen.query_one("#work-overview-content", Static)
+        scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
+        width = content.content_size.width
+        assert width < size[0]
+        # Header + one row per child: nothing wrapped, nothing scrolls sideways.
+        assert content.size.height == 1 + len(children)
+        assert scroll.max_scroll_x == 0
+        rows = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in content.render_lines(content.region.reset_offset)
+        ]
+        assert len(rows) == 1 + len(children)
+        assert rows[1].startswith("> ⏳ [running]")
+        assert rows[2].startswith("  ✓ [success]")
+        for row in rows[1:]:
+            assert cell_len(row) <= width
+            assert row.endswith("…")
+        # Selection and status stay visible however narrow; identity when it fits.
+        if width >= 40:
+            assert "child-0-with" in rows[1]
+        # Navigation tracks the physical row of the selected child.
+        await pilot.press("down", "down")
+        assert screen._cursor == 2
+        assert screen._selected_row() == 3
+        rows = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in content.render_lines(content.region.reset_offset)
+        ]
+        assert rows[3].startswith("> ")
+        # Shrinking the terminal re-cuts the rows instead of wrapping them.
+        await pilot.resize_terminal(36, size[1])
+        await pilot.pause()
+        assert content.size.height == 1 + len(children)
+        assert screen._selected_row() == 3
+
+
+@pytest.mark.asyncio
+async def test_work_overview_wraps_monitor_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Monitors have no detail view, so their descriptions wrap instead of being cut."""
+    from textual.widgets import Static
+
+    manager = _make_manager(tmp_path)
+    child = _make_child_snapshot(
+        "child", logdir=tmp_path / "child", prompt="inspect logs " * 10
+    )
+    description = "wait until " + "the deployment pipeline finishes " * 2 + "END"
+    watch = Watch(
+        id="long-watch",
+        kind="until",
+        description=description,
+        created=time.time(),
+    )
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: [child]
+    )
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshots", lambda *a, **kw: [watch])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(60, 20)) as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        content = screen.query_one("#work-overview-content", Static)
+        monitors = screen.query_one("#work-overview-monitors", Static)
+        assert content.size.height == 2
+        assert monitors.size.height > 3
+        rendered = "".join(
+            "".join(segment.text for segment in strip)
+            for strip in monitors.render_lines(monitors.region.reset_offset)
+        )
+        # The whole description is on screen, wrapped (not cut with an ellipsis).
+        assert "".join(description.split()) in "".join(rendered.split())
+        assert "…" not in rendered
