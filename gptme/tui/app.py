@@ -2225,6 +2225,29 @@ def _build_work_summary(
 
     Returns an empty string when there is nothing to show.
     """
+    return "\n".join(
+        section
+        for section in _build_work_sections(
+            logdir, branch, children=children, cursor=cursor, unread=unread
+        )
+        if section
+    )
+
+
+def _build_work_sections(
+    logdir: Path | None,
+    branch: str | None,
+    *,
+    children: list | None = None,
+    cursor: int = 0,
+    unread: set[tuple[str, float, str]] | None = None,
+) -> tuple[str, str]:
+    """Build the children and monitors sections of the work summary.
+
+    They render differently: a child is one line cut at the right edge (its
+    transcript has the details), a monitor wraps (nothing else shows it).
+    Either section is an empty string when there is nothing to show.
+    """
     lines: list[str] = []
     now = time.time()
 
@@ -2281,6 +2304,7 @@ def _build_work_summary(
     except Exception:
         watches = []
 
+    child_lines, lines = lines, []
     if watches:
         lines.append("Monitors:")
         for w in watches:
@@ -2300,7 +2324,7 @@ def _build_work_summary(
             )
             lines.append(f"    {w.description[:80]}")
 
-    return "\n".join(lines)
+    return "\n".join(child_lines), "\n".join(lines)
 
 
 class WorkScreen(ModalScreen):
@@ -2429,8 +2453,8 @@ class WorkOverviewScreen(ModalScreen):
         background: ansi_default;
         padding: 0 1;
     }
-    /* one physical row per line: cut long tasks/progress, never wrap (the
-       selected child's transcript has the full details) */
+    /* one physical row per child: cut long tasks/progress, never wrap (the
+       selected child's transcript has the full details); monitors wrap */
     #work-overview-content {
         text-wrap: nowrap;
         text-overflow: ellipsis;
@@ -2444,7 +2468,7 @@ class WorkOverviewScreen(ModalScreen):
         self._children: list[SubagentSnapshot] = []
         self._cursor = 0
 
-    def _snapshot_summary(self) -> str:
+    def _snapshot_summary(self) -> tuple[str, str]:
         # Planner runs reuse their logdir, so run_id alone can repeat; the
         # start time disambiguates which of those rows is selected.
         selected_key = (
@@ -2471,24 +2495,24 @@ class WorkOverviewScreen(ModalScreen):
             self._cursor = keys.index(selected_key)
         else:
             self._cursor = min(self._cursor, max(0, len(self._children) - 1))
-        return (
-            _build_work_summary(
-                self._logdir,
-                self._branch,
-                children=self._children,
-                cursor=self._cursor,
-                unread={
-                    (c.run_id, c.started_at, c.status)
-                    for c in self._children
-                    if isinstance(self.app, GptmeApp)
-                    and self.app._work_unread(self._logdir, self._branch, c)
-                },
-            )
-            or "(No children or monitors for this conversation)"
+        children, monitors = _build_work_sections(
+            self._logdir,
+            self._branch,
+            children=self._children,
+            cursor=self._cursor,
+            unread={
+                (c.run_id, c.started_at, c.status)
+                for c in self._children
+                if isinstance(self.app, GptmeApp)
+                and self.app._work_unread(self._logdir, self._branch, c)
+            },
         )
+        if not children and not monitors:
+            children = "(No children or monitors for this conversation)"
+        return children, monitors
 
     def compose(self) -> ComposeResult:
-        summary = self._snapshot_summary()
+        children, monitors = self._snapshot_summary()
         with Vertical(id="work-overview-container"):
             yield Static(
                 Text(
@@ -2498,7 +2522,12 @@ class WorkOverviewScreen(ModalScreen):
                 id="work-overview-title",
             )
             with VerticalScroll(id="work-overview-scroll"):
-                yield Static(Text(summary), id="work-overview-content")
+                content = Static(Text(children), id="work-overview-content")
+                content.display = bool(children)
+                yield content
+                monitor_view = Static(Text(monitors), id="work-overview-monitors")
+                monitor_view.display = bool(monitors)
+                yield monitor_view
 
     def action_close(self) -> None:
         self.dismiss()
@@ -2511,9 +2540,14 @@ class WorkOverviewScreen(ModalScreen):
 
     def _refresh_summary(self, *, scroll: bool = False) -> None:
         cursor_before = self._cursor
-        summary = self._snapshot_summary()
-        content = self.query_one("#work-overview-content", Static)
-        content.update(Text(summary))
+        children, monitors = self._snapshot_summary()
+        for view_id, text in (
+            ("#work-overview-content", children),
+            ("#work-overview-monitors", monitors),
+        ):
+            view = self.query_one(view_id, Static)
+            view.update(Text(text))
+            view.display = bool(text)
         # A refresh can move the selected child to another row; follow it.
         if (scroll or self._cursor != cursor_before) and self._children:
             self.query_one("#work-overview-scroll", VerticalScroll).scroll_to(
@@ -2521,8 +2555,8 @@ class WorkOverviewScreen(ModalScreen):
             )
 
     def _selected_row(self) -> int:
-        # Lines never wrap (see CSS), so the row is the child's index plus the
-        # "Children:" header line.
+        # Child lines never wrap (see CSS), so the row is the child's index
+        # plus the "Children:" header line.
         return self._cursor + 1
 
     def action_open_child(self) -> None:

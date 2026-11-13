@@ -530,8 +530,8 @@ async def test_work_overview_shows_watch(tmp_path):
             await pilot.pause()
             from textual.widgets import Static
 
-            content = app.screen.query_one("#work-overview-content", Static)
-            rendered = str(content.render())
+            monitors = app.screen.query_one("#work-overview-monitors", Static)
+            rendered = str(monitors.render())
             assert "overview-watch" in rendered
             assert "timer" in rendered
     finally:
@@ -564,8 +564,10 @@ async def test_work_overview_unrelated_watches_excluded(tmp_path):
             await pilot.pause()
             from textual.widgets import Static
 
-            content = app.screen.query_one("#work-overview-content", Static)
-            rendered = str(content.render())
+            rendered = "\n".join(
+                str(app.screen.query_one(view_id, Static).render())
+                for view_id in ("#work-overview-content", "#work-overview-monitors")
+            )
             assert "overview-other-watch" not in rendered
     finally:
         from gptme.tools.watch import _watches, _watches_lock
@@ -792,13 +794,13 @@ async def test_work_overview_refreshes_while_open(
         screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
         app.push_screen(screen)
         await pilot.pause()
-        content = screen.query_one("#work-overview-content", Static)
-        assert "[armed]" in str(content.render())
+        monitors = screen.query_one("#work-overview-monitors", Static)
+        assert "[armed]" in str(monitors.render())
         watch.expired = True
         watch.fired = True
         await pilot.pause(1.2)
-        assert "[expired]" in str(content.render())
-        assert "wait [/tmp]" in str(content.render())
+        assert "[expired]" in str(monitors.render())
+        assert "wait [/tmp]" in str(monitors.render())
 
 
 @pytest.mark.asyncio
@@ -915,3 +917,43 @@ async def test_work_overview_renders_one_physical_row_per_child(
         await pilot.pause()
         assert content.size.height == 1 + len(children)
         assert screen._selected_row() == 3
+
+
+@pytest.mark.asyncio
+async def test_work_overview_wraps_monitor_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Monitors have no detail view, so their descriptions wrap instead of being cut."""
+    from textual.widgets import Static
+
+    manager = _make_manager(tmp_path)
+    child = _make_child_snapshot(
+        "child", logdir=tmp_path / "child", prompt="inspect logs " * 10
+    )
+    description = "wait until " + "the deployment pipeline finishes " * 2 + "END"
+    watch = Watch(
+        id="long-watch",
+        kind="until",
+        description=description,
+        created=time.time(),
+    )
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: [child]
+    )
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshots", lambda *a, **kw: [watch])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(60, 20)) as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        content = screen.query_one("#work-overview-content", Static)
+        monitors = screen.query_one("#work-overview-monitors", Static)
+        assert content.size.height == 2
+        assert monitors.size.height > 3
+        rendered = "".join(
+            "".join(segment.text for segment in strip)
+            for strip in monitors.render_lines(monitors.region.reset_offset)
+        )
+        # The whole description is on screen, wrapped (not cut with an ellipsis).
+        assert "".join(description.split()) in "".join(rendered.split())
+        assert "…" not in rendered

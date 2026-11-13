@@ -153,6 +153,7 @@ The overview shows child status, elapsed time and the latest available progress
 update, one line per child: selection, status, elapsed time and the unread mark
 come first, and a long task or progress update is cut at the right edge with an
 ellipsis instead of wrapping. Open the child's transcript for the full text.
+Monitor descriptions wrap, since monitors have no detail view.
 Reading progress here does not consume the model's notification queue.
 Completed durations use the recorded duration when available; otherwise they
 freeze when first observed. Progress is kept in memory, so older resumed runs
