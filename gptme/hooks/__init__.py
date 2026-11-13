@@ -190,6 +190,9 @@ def init_hooks(
         "injection_screening": lambda: __import__(
             "gptme.hooks.injection_screening", fromlist=["register"]
         ).register(),
+        "peer_messages": lambda: __import__(
+            "gptme.hooks.peer_messages", fromlist=["register"]
+        ).register(),
         "workspace_agents": lambda: __import__(
             "gptme.hooks.workspace_agents", fromlist=["register"]
         ).register(),

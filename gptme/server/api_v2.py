@@ -2152,14 +2152,15 @@ def api_conversation_post(conversation_id: str):
             # a follow-up user prompt to the durable queue instead of yielding.
             # The CLI drains that queue at the top of its chat loop; drain
             # here so the next /step sees the prompt as a normal user message.
-            for queued in drain_prompt_queue(log.logdir):
+            for queued in drain_prompt_queue(log.logdir, branch=log.current_branch):
                 _emit(queued)
         except Exception as e:
             logger.exception("Error executing command: %s", msg.content)
             # Discard any prompt queued by a handler that raised, so stale
             # prompts don't leak into the next command's conversation turn.
+            # Scope to this branch so a named branch's queued intent survives.
             try:
-                list(drain_prompt_queue(log.logdir))
+                list(drain_prompt_queue(log.logdir, branch=log.current_branch))
             except Exception:
                 pass
             error_msg = Message("system", f"Command error: {e}")

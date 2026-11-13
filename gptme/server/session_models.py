@@ -22,6 +22,7 @@ from ..tools import ToolUse
 from .api_v2_common import EventType
 
 if TYPE_CHECKING:
+    from ..config import ChatConfig
     from .acp_session_runtime import AcpSessionRuntime
 
 logger = logging.getLogger(__name__)
@@ -396,7 +397,8 @@ class SessionManager:
 
     @classmethod
     def get_sessions_for_conversation(
-        cls, conversation_id: str
+        cls,
+        conversation_id: str,
     ) -> list[ConversationSession]:
         """Get all sessions for a conversation."""
         with cls._lock:
@@ -405,6 +407,16 @@ class SessionManager:
                 for sid in list(cls._conversation_sessions.get(conversation_id, set()))
                 if sid in cls._sessions
             ]
+
+    @classmethod
+    def active_conversation_ids(cls) -> list[str]:
+        """Conversation IDs with at least one live session.
+
+        Used by the peer wake poller so it only inspects conversations a
+        server actually owns.
+        """
+        with cls._lock:
+            return list(cls._conversation_sessions.keys())
 
     @classmethod
     def conversation_generating(cls, conversation_id: str) -> bool:
@@ -429,6 +441,79 @@ class SessionManager:
             session.event_flag.set()
 
     @classmethod
+    def _conversation_busy(
+        cls, conversation_id: str, sessions: list[ConversationSession]
+    ) -> bool:
+        """Whether generation, a command, or a tool owns the conversation.
+
+        Shared by the watch and peer wake paths so the two cannot drift on
+        what "idle enough to reserve a step" means.
+        """
+        return (
+            cls.conversation_generating(conversation_id)
+            or cls.command_is_active(conversation_id)
+            or any(item.pending_tools or item._executing_tools for item in sessions)
+        )
+
+    @classmethod
+    def _dispatch_reserved_step(
+        cls,
+        conversation_id: str,
+        session: ConversationSession,
+        model: str,
+        config: "ChatConfig",
+        *,
+        branch: str,
+        step_seq: int,
+        source: str,
+    ) -> bool:
+        """Dispatch a step already reserved by a wake path.
+
+        Shared by the watch and peer wakes so the dispatch block cannot
+        drift. Returns True whenever the message was persisted, even if the
+        dispatch failed: a False would let the caller drain-and-requeue the
+        same event and duplicate it. On dispatch failure the reservation is
+        released so a later poll can retry.
+        """
+        from .session_step import _start_step_thread
+
+        try:
+            started = _start_step_thread(
+                conversation_id,
+                session,
+                model,
+                config.workspace,
+                branch=branch,
+                stream=config.stream,
+                reserved=True,
+                step_seq=step_seq,
+                inherit_context=False,
+            )
+            if not started:
+                logger.warning(
+                    "%s wake persisted for %s but dispatch did not start",
+                    source,
+                    conversation_id,
+                )
+                with session.step_lock:
+                    if session.step_seq == step_seq:
+                        session.generating = False
+                        session.generating_since = None
+            return True
+        except Exception:
+            logger.warning(
+                "%s wake persisted for %s but dispatch failed",
+                source,
+                conversation_id,
+                exc_info=True,
+            )
+            with session.step_lock:
+                if session.step_seq == step_seq:
+                    session.generating = False
+                    session.generating_since = None
+            return True
+
+    @classmethod
     def request_watch_wake(
         cls,
         conversation_id: str,
@@ -439,7 +524,6 @@ class SessionManager:
         """Persist a watch message and reserve one idle server step."""
         from ..config import ChatConfig
         from ..dirs import get_logs_dir
-        from .session_step import _start_step_thread
 
         with cls.conversation_lock(conversation_id):
             sessions = cls.get_sessions_for_conversation(conversation_id)
@@ -447,13 +531,7 @@ class SessionManager:
                 return False
             session = max(sessions, key=lambda item: item.last_activity)
             with session.step_lock:
-                if (
-                    cls.conversation_generating(conversation_id)
-                    or cls.command_is_active(conversation_id)
-                    or any(
-                        item.pending_tools or item._executing_tools for item in sessions
-                    )
-                ):
+                if cls._conversation_busy(conversation_id, sessions):
                     return False
                 config = ChatConfig.load_or_create(
                     get_logs_dir() / conversation_id, ChatConfig()
@@ -497,41 +575,15 @@ class SessionManager:
                 session.generating = True
                 session.generating_since = datetime.now(tz=timezone.utc)
                 session.interrupted = False
-        try:
-            started = _start_step_thread(
-                conversation_id,
-                session,
-                model,
-                config.workspace,
-                branch=branch,
-                stream=config.stream,
-                reserved=True,
-                step_seq=step_seq,
-                inherit_context=False,
-            )
-            if not started:
-                logger.warning(
-                    "Watch wake persisted for %s but dispatch did not start",
-                    conversation_id,
-                )
-                with session.step_lock:
-                    if session.step_seq == step_seq:
-                        session.generating = False
-                        session.generating_since = None
-            # Persist succeeded. Returning False would queue the same
-            # completion for STEP_PRE and duplicate it in the log.
-            return True
-        except Exception:
-            logger.warning(
-                "Watch wake persisted for %s but dispatch failed",
-                conversation_id,
-                exc_info=True,
-            )
-            with session.step_lock:
-                if session.step_seq == step_seq:
-                    session.generating = False
-                    session.generating_since = None
-            return True
+        return cls._dispatch_reserved_step(
+            conversation_id,
+            session,
+            model,
+            config,
+            branch=branch,
+            step_seq=step_seq,
+            source="Watch",
+        )
 
     @classmethod
     def retry_deferred_watch_wakes(cls, conversation_id: str) -> None:
@@ -591,6 +643,93 @@ class SessionManager:
         )
         if not delivered:
             _completion_queue.put((logdir, agent_id, status, summary, parent_branch))
+
+    @classmethod
+    def request_peer_wake(cls, conversation_id: str, *, branch: str = "main") -> bool:
+        """Reserve one idle server step for durable peer messages.
+
+        Peer messages arrive from other processes through the durable prompt
+        queue. A busy session drains them at STEP_PRE; an idle one has no step
+        to drain at, so this poller-driven wake reserves one. Only a server
+        that owns a live session may wake it, and only while no generation,
+        command, or tool owns the conversation - otherwise the messages stay
+        queued on disk for the next idle poll or step end.
+
+        Returns True when a step was reserved (or the message was already
+        persisted), False when the conversation is unknown/busy or has no
+        peer messages. Busy is not an error: the queue keeps the message.
+        """
+        from ..config import ChatConfig
+        from ..dirs import get_logs_dir
+        from ..logmanager import LogManager
+        from ..prompt_queue import drain_peer_prompts, requeue_prompts
+
+        logdir = (get_logs_dir() / conversation_id).resolve()
+        # Cheap pre-check so the common no-op poll never takes the lock: the
+        # queue file only exists while something is pending.
+        if not (logdir / "prompt-queue.jsonl").exists():
+            return False
+
+        with cls.conversation_lock(conversation_id):
+            sessions = cls.get_sessions_for_conversation(conversation_id)
+            if not sessions:
+                return False
+            session = max(sessions, key=lambda item: item.last_activity)
+            with session.step_lock:
+                if cls._conversation_busy(conversation_id, sessions):
+                    return False
+                # A conversation the user explicitly stopped must not be
+                # restarted behind their back; leave the message queued.
+                if session.interrupted:
+                    return False
+                config = ChatConfig.load_or_create(logdir, ChatConfig())
+                # Same autowake policy as watch wake and the TUI: an explicit
+                # opt-out disables automatic peer wakes too.
+                if config.watch_autowake is False:
+                    return False
+                model = _resolve_watch_wake_model(config.model)
+                if model is None:
+                    return False
+                # Drain only once the wake is known to be possible, so a busy
+                # or unresolvable poll leaves the messages durable.
+                messages = drain_peer_prompts(logdir, branch=branch)
+                if not messages:
+                    return False
+                try:
+                    manager = LogManager.load(
+                        conversation_id, branch=branch, lock=False
+                    )
+                    for message in messages:
+                        manager.append(message)
+                    manager.write(sync=True)
+                except (OSError, ValueError):
+                    try:
+                        requeue_prompts(logdir, messages, prepend=True)
+                    except Exception:
+                        logger.warning(
+                            "Could not requeue peer messages for %s",
+                            conversation_id,
+                            exc_info=True,
+                        )
+                    logger.warning(
+                        "Could not persist peer message for conversation %s",
+                        conversation_id,
+                        exc_info=True,
+                    )
+                    return False
+                session.step_seq += 1
+                step_seq = session.step_seq
+                session.generating = True
+                session.generating_since = datetime.now(tz=timezone.utc)
+        return cls._dispatch_reserved_step(
+            conversation_id,
+            session,
+            model,
+            config,
+            branch=branch,
+            step_seq=step_seq,
+            source="Peer",
+        )
 
     _STUCK_GENERATING_TIMEOUT_MINUTES = 10
 

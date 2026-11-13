@@ -312,28 +312,57 @@ def chats_rename(id: str, name: str):
         print(f"Renamed '{id}' to '{name}'")
 
 
+@chats.command("peers")
+@click.option("--workspace", type=click.Path(file_okay=False))
+def chats_peers(workspace: str | None) -> None:
+    """Discover running local agents and addressable conversations."""
+    from ..peers import list_peers
+
+    click.echo(json.dumps(list_peers(workspace), indent=2))
+
+
 @chats.command("send")
 @click.argument("id")
 @click.argument("message", nargs=-1, required=True)
-def chats_send(id: str, message: tuple[str, ...]):
+@click.option(
+    "--peer",
+    is_flag=True,
+    help="Send attributed peer input; wake supported idle surfaces.",
+)
+@click.option("--branch", default="main", show_default=True)
+@click.option(
+    "--sender", help="Sender conversation ID for peer sends outside a running chat."
+)
+def chats_send(
+    id: str, message: tuple[str, ...], peer: bool, branch: str, sender: str | None
+) -> None:
     """Queue a prompt for the next turn of a running conversation.
 
-    This is useful when another gptme process is busy in the same chat and you
-    already know the next instruction you want to send.
+    Use --peer for attributed agent input and idle wake on supported surfaces.
     """
+    content = " ".join(message).strip()
+    if peer:
+        from ..peers import send_peer_message
+
+        try:
+            if sender is not None and not _is_valid_id(sender):
+                raise ValueError("Invalid sender conversation ID")
+            sender_logdir = get_logs_dir() / sender if sender is not None else None
+            receipt = send_peer_message(
+                id, content, branch=branch, sender_logdir=sender_logdir
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(json.dumps(receipt, indent=2))
+        return
     if not _is_valid_id(id):
-        click.echo(f"Chat '{id}' not found")
-        raise SystemExit(1)
+        raise click.ClickException(f"Chat '{id}' not found")
     logdir = get_logs_dir() / id
     if not logdir.exists():
-        click.echo(f"Chat '{id}' not found")
-        raise SystemExit(1)
-
-    content = " ".join(message).strip()
+        raise click.ClickException(f"Chat '{id}' not found")
     if not content:
         raise click.UsageError("Queued message must not be empty.")
-
-    queue_prompt(logdir, content)
+    queue_prompt(logdir, content, branch=branch)
     click.echo(f"Queued prompt for '{id}'")
 
 

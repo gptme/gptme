@@ -1884,9 +1884,15 @@ def _background_wait_input(
     # Use the existing locked readers, not file size: an idle CLI has no next
     # STEP_PRE to consume steering unless we actually queue that input here.
     # Invalid/partial records remain on disk and cannot cause a spurious exit.
-    messages = drain_prompt_queue(logdir, max_items=MAX_PROMPT_QUEUE_SIZE)
+    messages = drain_prompt_queue(
+        logdir,
+        max_items=MAX_PROMPT_QUEUE_SIZE,
+        branch=getattr(manager, "current_branch", "main"),
+    )
     messages += drain_steer_prompts(
-        logdir, max_items=MAX_PROMPT_QUEUE_SIZE - len(messages)
+        logdir,
+        max_items=MAX_PROMPT_QUEUE_SIZE - len(messages),
+        branch=getattr(manager, "current_branch", "main"),
     )
     if messages:
         return messages

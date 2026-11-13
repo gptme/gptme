@@ -332,8 +332,14 @@ def create_app(
     # started on the first use_acp step, so a plain webui/server deployment
     # never evicted sessions — each SSE connect without a session_id leaked a
     # session holding up to 10K events for the process lifetime.
-    from .session_step import start_session_health_monitor  # fmt: skip
+    from .session_step import (  # fmt: skip
+        start_peer_wake_monitor,
+        start_session_health_monitor,
+    )
 
     start_session_health_monitor()
+    # Wake idle sessions for durable peer messages published by other
+    # processes (the queue is cross-process; a busy session drains at STEP_PRE).
+    start_peer_wake_monitor()
 
     return app
