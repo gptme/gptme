@@ -8750,6 +8750,23 @@ class TestReasoningEffort:
         assert not sa.thread.is_alive()
 
         assert captured["context_window"] == 0
+        assert sa.context_window == 0
+
+        # Clarification replies re-spawn from the registered agent's fields.
+        # A launch-only assertion misses loss of isolation on that next attempt.
+        with _subagent_results_lock:
+            _subagent_results[sa.agent_id] = ReturnType(
+                "clarification_needed", "Which target?"
+            )
+        captured.clear()
+        subagent_api.subagent_reply(sa.agent_id, "The explicit target")
+        with _subagents_lock:
+            replied = next(s for s in _subagents if s.agent_id == sa.agent_id)
+        assert replied.thread is not None
+        replied.thread.join(timeout=5)
+        assert not replied.thread.is_alive()
+        assert captured["context_window"] == 0
+        assert replied.context_window == 0
 
     def test_subprocess_continuation_forwards_context_window(
         self, monkeypatch, tmp_path

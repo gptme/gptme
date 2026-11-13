@@ -1048,6 +1048,7 @@ def subagent(
             timeout=timeout,
             role=role,
             max_time=max_time,
+            context_window=context_window,
             context_turns=context_turns,
             reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
