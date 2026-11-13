@@ -94,3 +94,40 @@ def drain_control_ops(logdir: Path) -> list[dict[str, object]]:
         except OSError as e:
             logger.warning("Could not remove %s: %s", control_path, e)
         return operations
+
+
+def discard_control_ops(logdir: Path, op: str) -> int:
+    """Remove pending *op* operations from *logdir*, keeping all others.
+
+    Used to fence operations addressed to an attempt that has already stopped
+    (e.g. a cancel the previous child never drained) so they cannot leak into
+    the next attempt on the same conversation. Returns the number discarded.
+    Raises ``OSError`` if the control file cannot be read or rewritten.
+    """
+    control_path = _control_path(logdir)
+    if not control_path.exists():
+        return 0
+
+    with _control_lock(logdir):
+        if not control_path.exists():
+            return 0
+        kept: list[str] = []
+        discarded = 0
+        for line in control_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            if isinstance(record, dict) and record.get("op") == op:
+                discarded += 1
+            else:
+                kept.append(line)
+        if discarded:
+            if kept:
+                control_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            else:
+                control_path.unlink()
+        return discarded

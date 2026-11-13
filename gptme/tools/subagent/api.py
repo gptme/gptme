@@ -18,7 +18,7 @@ from typing import Any, Literal
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from . import execution as _exec
 from .concurrency import get_slot_sem
-from .control import append_control_op
+from .control import append_control_op, discard_control_ops
 from .hooks import notify_completion
 from .persistence import (
     load_subagent_by_id,
@@ -1917,6 +1917,23 @@ def subagent_continue(
                 raise ValueError(
                     f"Subagent '{agent_id}' changed while continuation was starting."
                 )
+            # The previous attempt has stopped (and, for subprocesses, we hold its
+            # writer lease), so any cancel still queued in control.jsonl was
+            # addressed to it and never drained. Fence it off before the new
+            # attempt becomes visible: subagent_cancel() can only target the new
+            # attempt after publication below, so this cannot drop a fresh cancel.
+            try:
+                if stale := discard_control_ops(sa.logdir, "cancel"):
+                    logger.info(
+                        "Discarded %d stale cancel op(s) for '%s' before continuation",
+                        stale,
+                        agent_id,
+                    )
+            except OSError as e:
+                raise ValueError(
+                    f"Subagent '{agent_id}' has an unreadable control file; "
+                    f"cannot clear stale cancellation before continuing: {e}"
+                ) from e
             _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
             _subagents.append(continued)
             persist_subagent_meta(continued)
