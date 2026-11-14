@@ -1547,6 +1547,34 @@ class TestToolExecutePreDeny:
         assert "actual output" not in contents
         assert "post hook" not in contents, "a denied call has no post hook"
 
+    def test_denial_callback_error_preserves_original_failure(self, monkeypatch):
+        def execute(code, args, kwargs):
+            pytest.fail("denied tool must not execute")
+
+        def deny(hook_type, data):
+            assert hook_type == HookType.TOOL_EXECUTE_PRE
+            data.deny("blocked by policy")
+            return []
+
+        def disconnected(message):
+            raise RuntimeError("stream disconnected")
+
+        monkeypatch.setattr(
+            "gptme.tools.get_tool",
+            lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+        )
+        monkeypatch.setattr("gptme.hooks.trigger_hook", deny)
+        results = list(
+            ToolUse("test_tool", [], None, call_id="call-denied").execute(
+                on_result_message=disconnected
+            )
+        )
+        assert len(results) == 1
+        assert results[0].content == (
+            "Error executing tool 'test_tool': stream disconnected"
+        )
+        assert results[0].call_id == "call-denied"
+
     @pytest.mark.parametrize("reason", ["", "   ", "\n\t"])
     def test_denial_without_reason_still_blocks(self, monkeypatch, reason):
         ran: list[tuple] = []

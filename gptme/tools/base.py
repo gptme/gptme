@@ -967,6 +967,10 @@ class ToolUse:
         def _execute_tool():
             tool = get_tool(self.tool)
             if tool and tool.execute:
+                import time
+
+                # Pre-hooks and result callbacks can fail before the tool starts.
+                start_time = time.time()
                 result_msgs: list[Message] = []
                 try:
                     from ..hooks.types import ToolExecutePreData  # fmt: skip
@@ -1007,8 +1011,6 @@ class ToolUse:
                         play_tool_sound(sound_type)
 
                     # Measure tool execution time
-                    import time
-
                     start_time = time.time()
 
                     # Set context var so tools can access current ToolUse
