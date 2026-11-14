@@ -168,6 +168,88 @@ def test_start_tool_execution_streams_only_real_tool_output(
     assert "post hook chatter" in system_messages
 
 
+@pytest.mark.parametrize("call_id", [None, "call-denied"])
+@pytest.mark.parametrize("denied", [True, False])
+def test_start_tool_execution_reports_policy_denial(
+    v2_conv, client: FlaskClient, monkeypatch, call_id, denied
+):
+    """A policy denial is streamed and completed as denied, not successful."""
+    from gptme.hooks import HookType
+    from gptme.message import Message
+    from gptme.server.api_v2_common import ToolCompleteEvent
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    executed = []
+    hooks_seen = []
+    output = "Tool execution denied: blocked by policy"
+
+    def execute(code, args, kwargs):
+        executed.append(True)
+        # Identical text from a real tool must not be mistaken for a denial.
+        yield Message("system", output)
+
+    def hook(hook_type, data):
+        hooks_seen.append(hook_type)
+        if hook_type == HookType.TOOL_EXECUTE_PRE:
+            if denied:
+                data.deny("blocked by policy")
+            return [Message("system", "pre hook chatter")]
+        return []
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", hook)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+    tool_exec = ToolExecution(
+        tool_id="tool-denied", tooluse=ToolUse("test_tool", [], None, call_id=call_id)
+    )
+    session.pending_tools[tool_exec.tool_id] = tool_exec
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        tool_exec.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert executed == ([] if denied else [True])
+    assert (HookType.TOOL_EXECUTE_POST in hooks_seen) is not denied
+    assert [e for e in session.events if e["type"] == "tool_output"] == [
+        {"type": "tool_output", "tool_id": tool_exec.tool_id, "output": output}
+    ]
+    complete = [
+        cast(ToolCompleteEvent, e)
+        for e in session.events
+        if e["type"] == "tool_complete"
+    ]
+    assert len(complete) == 1
+    assert complete[0]["success"] is not denied
+    assert complete[0]["status"] == ("denied" if denied else "completed")
+    assert tool_exec.status.value == complete[0]["status"]
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    messages = response.get_json()["log"]
+    results = [m for m in messages if m["content"] == output]
+    assert len(results) == 1
+    assert results[0].get("call_id") == call_id
+    assert continuation.call_count == 1
+    assert not session.pending_tools
+    assert not session._executing_tools
+
+
 def test_start_tool_execution_uses_branch_for_reload_and_continuation(
     v2_conv, client: FlaskClient, monkeypatch
 ):

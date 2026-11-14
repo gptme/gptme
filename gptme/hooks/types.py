@@ -5,7 +5,7 @@ throughout the hook infrastructure.
 """
 
 from collections.abc import Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -37,7 +37,25 @@ class ToolExecuteData:
 
 @dataclass
 class ToolExecutePreData(ToolExecuteData):
-    """Data passed to TOOL_EXECUTE_PRE hooks."""
+    """Data passed to TOOL_EXECUTE_PRE hooks.
+
+    A hook that decides a call must not run calls :meth:`deny`. This is the
+    central policy seam: it fires for every tool, before any tool-specific
+    confirmation, so a hook does not have to become the confirmer (and consume
+    the user's decision) to block a call.
+    """
+
+    denials: list[str] = field(default_factory=list)
+
+    def deny(self, reason: str) -> None:
+        """Prevent execution, using a fallback explanation for blank reasons."""
+        reason = reason.strip() or "Denied by policy"
+        if reason not in self.denials:
+            self.denials.append(reason)
+
+    @property
+    def denied(self) -> bool:
+        return bool(self.denials)
 
 
 @dataclass

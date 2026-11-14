@@ -316,3 +316,53 @@ def test_each_call_output_records_its_call(fake_echo_tool, monkeypatch):
     hooks = [r for r in results if r.content == "post-hook notification"]
     assert len(hooks) == 2
     assert all("tool_call" not in (h.metadata or {}) for h in hooks)
+
+
+def test_denied_native_call_keeps_one_paired_result(fake_echo_tool, monkeypatch):
+    """A denial is the call result, not an unpaired hook notification."""
+    from gptme.llm.llm_openai import _handle_tools
+    from gptme.llm.openai_responses import _messages_to_responses_input
+    from gptme.message import msgs2dicts
+
+    hook_msg = Message("system", "pre-hook notification")
+
+    def deny(hook_type, data, **kwargs):
+        assert hook_type == HookType.TOOL_EXECUTE_PRE, "denials skip post hooks"
+        data.deny("blocked by policy")
+        return [hook_msg]
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", deny)
+    call_id = "call-denied"
+    msg = Message("assistant", f'@echo({call_id}): {{"text": "hello"}}')
+    results = list(execute_msg(msg))
+
+    assert [r.content for r in results] == [
+        "pre-hook notification",
+        "Tool execution denied: blocked by policy",
+    ]
+    assert results[0].call_id is None
+    assert "tool_call" not in (results[0].metadata or {})
+    assert results[1].call_id == call_id
+    assert results[1].metadata == {
+        "tool": "echo",
+        "tool_call": 0,
+        "tool_status": "denied",
+    }
+
+    chat = list(_handle_tools(msgs2dicts([msg, *results])))
+    assert chat[0]["tool_calls"][0]["id"] == call_id
+    assert [r for r in chat if r["role"] == "tool"] == [
+        {
+            "role": "tool",
+            "content": "Tool execution denied: blocked by policy",
+            "tool_call_id": call_id,
+        }
+    ]
+    _, responses = _messages_to_responses_input([msg, *results])
+    assert [r for r in responses if r.get("type") == "function_call_output"] == [
+        {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": "Tool execution denied: blocked by policy",
+        }
+    ]
