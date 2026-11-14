@@ -505,3 +505,215 @@ def test_mcp_http_connect_failure_is_not_reported_as_closed() -> None:
             assert "fail" in message.lower()
         finally:
             client.close()
+
+
+def test_is_tls_verification_error_walks_cause_chain() -> None:
+    import ssl
+
+    from gptme.mcp.client import _is_tls_verification_error
+
+    cert_err = ssl.SSLCertVerificationError("self-signed certificate")
+    wrapped = OSError("handshake failed")
+    wrapped.__cause__ = cert_err
+    assert _is_tls_verification_error(cert_err)
+    assert _is_tls_verification_error(wrapped)
+    assert not _is_tls_verification_error(ConnectionRefusedError("connection refused"))
+
+
+@pytest.mark.parametrize(
+    "proxy_var", ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+)
+def test_diagnose_https_tls_failure_skips_environment_proxy(
+    monkeypatch: pytest.MonkeyPatch, proxy_var: str
+) -> None:
+    from unittest.mock import Mock
+
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv(proxy_var, "http://proxy.invalid:8080")
+    connect = Mock(side_effect=AssertionError("must not probe the origin directly"))
+    monkeypatch.setattr("gptme.mcp.client.socket.create_connection", connect)
+    assert _diagnose_https_tls_failure("https://example.com/mcp") is None
+    connect.assert_not_called()
+
+
+@pytest.mark.parametrize("reason", ["certificate has expired", "Hostname mismatch"])
+def test_diagnose_https_tls_failure_preserves_verification_reason(
+    monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    import ssl
+    from unittest.mock import Mock
+
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(key, raising=False)
+    error = ssl.SSLCertVerificationError(1, reason)
+    error.verify_message = reason
+    monkeypatch.setattr(
+        "gptme.mcp.client.socket.create_connection", Mock(side_effect=error)
+    )
+    message = _diagnose_https_tls_failure("https://example.com/mcp")
+    assert message is not None
+    assert reason in message
+    assert "not the problem" not in message
+    assert "If the certificate is self-signed or issued by a private CA" in message
+
+
+@pytest.mark.parametrize("url", ["https://example.com:abc/mcp", "https://[bad/mcp"])
+def test_diagnose_https_tls_failure_ignores_invalid_url(url: str) -> None:
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    assert _diagnose_https_tls_failure(url) is None
+
+
+def test_mcp_http_keyboard_interrupt_does_not_probe_tls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    from contextlib import asynccontextmanager
+    from unittest.mock import Mock
+
+    from gptme.mcp.client import MCPClient, MCPInterruptedError
+
+    client = MCPClient()
+    probe = Mock(return_value=None)
+    monkeypatch.setattr("gptme.mcp.client._diagnose_https_tls_failure", probe)
+
+    def interrupt() -> None:
+        raise KeyboardInterrupt
+
+    @asynccontextmanager
+    async def stalled_transport(*args, **kwargs):
+        client.loop.call_soon(interrupt)
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    monkeypatch.setattr("gptme.mcp.client.streamablehttp_client", stalled_transport)
+    try:
+        with pytest.raises(MCPInterruptedError):
+            client._run_async(
+                client._setup_http_connection("https://example.com/mcp", {})
+            )
+        probe.assert_not_called()
+        assert not client._interrupt_ops.is_set()
+    finally:
+        client.close()
+
+
+def test_diagnose_https_tls_failure_ignores_non_https_urls() -> None:
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    # Must not attempt a handshake; an HTTP URL is out of scope.
+    assert _diagnose_https_tls_failure("http://127.0.0.1:1/mcp") is None
+
+
+def test_diagnose_https_tls_failure_ignores_refused_connection() -> None:
+    import socket
+
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    # Nothing listens on this port any more: not a TLS problem.
+    assert _diagnose_https_tls_failure(f"https://127.0.0.1:{port}/mcp") is None
+
+
+def test_mcp_https_untrusted_cert_is_reported_as_tls_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A self-signed HTTPS MCP URL must name TLS verification, not cancel-masking.
+
+    The MCP SDK turns the TLS failure into CancelledError with no __cause__,
+    so without a diagnosis step the CLI tells the user to check the URL/transport
+    /auth headers. Independent openssl/httpx probes report CERTIFICATE_VERIFY_FAILED.
+    """
+    import http.server
+    import shutil
+    import ssl
+    import subprocess
+    import threading
+
+    from gptme.mcp.client import MCPClient
+
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("openssl is required to mint a self-signed fixture cert")
+
+    for key in (
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    cert = tmp_path / "cert.pem"
+    keyfile = tmp_path / "key.pem"
+    minted = subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            str(keyfile),
+            "-out",
+            str(cert),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if minted.returncode != 0:
+        pytest.skip(f"openssl could not mint a fixture cert: {minted.stderr[-400:]}")
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(400)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(cert), str(keyfile))
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = MCPClient()
+        try:
+            with pytest.raises(RuntimeError) as excinfo:
+                client._run_async(
+                    client._setup_http_connection(f"https://127.0.0.1:{port}/mcp", {})
+                )
+            message = str(excinfo.value)
+            assert "MCP client is closed" not in message
+            assert "cancelled while connecting" not in message
+            assert "TLS verification failed" in message
+            assert "certificate" in message.lower()
+        finally:
+            client.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
