@@ -1,11 +1,15 @@
 import asyncio
 import logging
 import os
+import socket
+import ssl
 import threading
 from collections.abc import Callable, Coroutine
 from contextlib import AsyncExitStack
 from typing import Any
+from urllib.parse import urlparse
 
+import httpx
 import mcp.types as types  # Import all types
 from mcp import ClientSession
 from mcp.client.session import RequestContext
@@ -56,8 +60,62 @@ def _is_connection_error(error: Exception) -> bool:
             "server closed",
             "process terminated",
             "no such process",
+            "tls verification failed",
+            "certificate verify failed",
         ]
     )
+
+
+def _is_tls_verification_error(error: BaseException) -> bool:
+    """True if this exception (or a nested cause) is a TLS cert verify failure."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+        text = str(current).upper()
+        if "CERTIFICATE_VERIFY_FAILED" in text or "CERTIFICATE VERIFY FAILED" in text:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+_TLS_VERIFICATION_MESSAGE = (
+    "MCP HTTPS TLS verification failed: the server certificate is not "
+    "trusted (self-signed or unknown CA). Use a certificate the trust store "
+    "accepts, or set SSL_CERT_FILE to a CA bundle that includes this server. "
+    "The URL, MCP transport, and auth headers are not the problem."
+)
+
+
+def _diagnose_https_tls_failure(url: str) -> str | None:
+    """Return a TLS-specific message if ``url`` fails certificate verification.
+
+    The MCP SDK's HTTP transports cancel their task group on a TLS handshake
+    failure, so the original ``SSLCertVerificationError`` is lost and we only
+    see ``CancelledError`` with no ``__cause__``. After such a cancel, repeat
+    just the TLS handshake with the same trust configuration httpx uses
+    (certifi / ``SSL_CERT_FILE``) to recover the real cause. Returns ``None``
+    for non-HTTPS URLs and for any failure that is not a verification error.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        return None
+    try:
+        context = httpx.create_ssl_context()
+        with (
+            socket.create_connection(
+                (parsed.hostname, parsed.port or 443), timeout=5.0
+            ) as sock,
+            context.wrap_socket(sock, server_hostname=parsed.hostname),
+        ):
+            return None
+    except OSError as e:
+        # ssl.SSLCertVerificationError is an OSError subclass
+        if _is_tls_verification_error(e):
+            return _TLS_VERIFICATION_MESSAGE
+        return None
 
 
 class MCPClient:
@@ -296,6 +354,10 @@ class MCPClient:
                 self.stack = None
             if self._closing.is_set():
                 raise RuntimeError("MCP client is closed") from None
+            # Recover the one cause we can still identify: TLS verification.
+            tls_message = await asyncio.to_thread(_diagnose_https_tls_failure, url)
+            if tls_message:
+                raise RuntimeError(tls_message) from None
             raise RuntimeError(
                 "MCP connection failed before initialization: the HTTP transport "
                 "cancelled while connecting, which discards the underlying HTTP "
