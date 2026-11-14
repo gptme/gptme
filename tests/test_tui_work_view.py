@@ -917,7 +917,7 @@ async def test_work_overview_scrolls_monitors_with_arrow_keys(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("size", [(120, 30), (80, 24), (60, 20), (40, 16)])
+@pytest.mark.parametrize("size", [(120, 30), (80, 24), (60, 20), (40, 16), (26, 16)])
 async def test_work_overview_renders_one_physical_row_per_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: tuple[int, int]
 ) -> None:
@@ -970,16 +970,17 @@ async def test_work_overview_renders_one_physical_row_per_child(
             for strip in content.render_lines(content.region.reset_offset)
         ]
         assert len(rows) == 1 + len(children)
-        assert rows[1].startswith("> ⏳ [")
-        assert rows[2].startswith("  ✓ [")
-        assert rows[3].startswith("  ? [")
+        assert rows[1].startswith("> ⏳")
+        assert rows[2].startswith("  ✓")
+        assert rows[3].startswith("  ?")
         for index, row in enumerate(rows[1:]):
             assert cell_len(row) <= width
             assert row.endswith("…")
             assert "……" not in row
-            # However narrow: status, elapsed, unread and identity stay visible,
-            # and the task still gets a share of the row.
-            assert "1h02m" in row
+            # Below the label/elapsed floor, status and unread become icons
+            # and elapsed gives way to identity.
+            if width >= 26:
+                assert "1h02m" in row
             assert ("•" in row or "unread" in row) == (index > 0)
             assert f"child-{index}" in row
             if width >= 45:
@@ -1071,7 +1072,7 @@ def test_format_child_row_fits_width(width: int | None) -> None:
     )
     row = _format_child_row(child, selected=True, unread=True, width=width)
     assert "\n" not in row and "\t" not in row
-    assert row.startswith("> ? [")
+    assert row.startswith("> ?")
     if width is None:
         # Unfitted: the whole line, for the overview's CSS to cut.
         assert "[clarification_needed] 1m23s · unread  an-agent-identifier" in row
@@ -1082,7 +1083,8 @@ def test_format_child_row_fits_width(width: int | None) -> None:
     visible.truncate(width, overflow="ellipsis")
     shown = visible.plain
     assert cell_len(shown) <= width
-    assert "1m23s" in shown
+    if width >= 28:
+        assert "1m23s" in shown
     assert "unread" in shown or "•" in shown
     if width >= 28:
         assert "an-agen" in shown
@@ -1091,6 +1093,33 @@ def test_format_child_row_fits_width(width: int | None) -> None:
     # The id is cut in the head, never by the overview's edge cut.
     head = row.split("  ")[-2] if width >= 45 else row
     assert cell_len(head) <= width
+
+
+@pytest.mark.parametrize("width", range(25))
+@pytest.mark.parametrize(
+    "status", ["running", "clarification_needed", "budget_exceeded"]
+)
+def test_format_child_row_ultranarrow_keeps_identity(width: int, status: str) -> None:
+    """Below the normal prefix width, prefer identity over elapsed and task text."""
+    from dataclasses import replace
+
+    from rich.cells import cell_len
+
+    from gptme.tui.app import _format_child_row
+
+    child = replace(
+        _make_child_snapshot("child-2-long-identifier", prompt="inspect the logs"),
+        status=status,
+        elapsed_s=3725,
+    )
+    row = _format_child_row(child, selected=True, unread=True, width=width)
+    assert cell_len(row) <= width
+    if width >= 9:
+        assert "ch" in row
+        assert row.startswith("> ")
+        assert "•" in row
+    if 14 <= width <= 20:
+        assert "child-2" in row
 
 
 def test_format_child_row_short_fields_are_not_cut() -> None:

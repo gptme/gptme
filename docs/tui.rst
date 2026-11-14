@@ -154,8 +154,10 @@ update, one line per child: selection, status, elapsed time and the unread mark
 come first, then the agent id, and a long task or progress update is cut at the
 right edge with an ellipsis instead of wrapping. A long agent id is shortened so
 the task keeps part of the row; on narrow terminals the status is abbreviated
-(``[ask]`` for ``clarification_needed``) and unread shows as ``•``. Open the
-child's transcript for the full text.
+(``[ask]`` for ``clarification_needed``) and unread shows as ``•``. If even that
+prefix leaves no useful identity, the status becomes just its icon and elapsed
+time is omitted; at widths too small for the icons, only the shortened id is
+shown. Open the child's transcript for the full text.
 Monitor descriptions wrap, since monitors have no detail view.
 Reading progress here does not consume the model's notification queue.
 Completed durations use the recorded duration when available; otherwise they

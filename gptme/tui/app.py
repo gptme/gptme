@@ -2302,6 +2302,13 @@ def _format_child_row(
         short = _CHILD_STATUS_SHORT.get(status, status)
         prefix = f"{marker}{icon} [{short}] {elapsed}{' •' if unread else ''} "
     remaining = width - cell_len(prefix)
+    if remaining < min(4, cell_len(agent_id)):
+        # Below the label/elapsed floor, keep status and unread as icons and
+        # spend the rest on identity. At tiny widths even those must give way.
+        prefix = f"{marker}{icon}{'•' if unread else ''} "
+        if width - cell_len(prefix) < 3:
+            return _cut_cells(agent_id, width)
+        return f"{prefix}{_cut_cells(agent_id, width - cell_len(prefix))}"
     # The id keeps half of what is left, or up to _CHILD_ID_CELLS while the
     # task keeps its minimum; never less than _CHILD_ID_MIN_CELLS.
     id_cells = max(
