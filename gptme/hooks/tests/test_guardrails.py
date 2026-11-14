@@ -418,124 +418,170 @@ class TestRegister:
 
 
 # ---------------------------------------------------------------------------
-# execute_read wiring — TOOL_CONFIRM must actually run for the read tool
+# The TOOL_EXECUTE_PRE seam — read's secret-path policy
 # ---------------------------------------------------------------------------
 
 
-class TestExecuteReadInvokesGuardrail:
-    """The read tool does not go through execute_with_confirmation().
+class TestReadSecretPathSeam:
+    """read's secret-path policy lives on TOOL_EXECUTE_PRE, not in read.py.
 
-    execute_read() must invoke the guardrail hook itself — not the full
-    TOOL_CONFIRM chain. The chain would fall through to server_confirm in
-    shadow/off and prompt on sensitive reads, breaking those modes' zero
-    behavior-change guarantee. Enforce still blocks.
+    ``read`` never calls ``execute_with_confirmation()``, so TOOL_CONFIRM cannot
+    see it. The pre-execution seam fires for every tool *before* any
+    confirmation, so it can deny without prompting — which is why it replaces
+    read.py's inline import of this module.
     """
 
-    def test_execute_read_blocks_secret_path_in_enforce(self, monkeypatch):
-        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
-        from gptme.hooks import clear_hooks
-        from gptme.tools.read import execute_read
+    @staticmethod
+    def _pre_data(tool_use):
+        from ..types import ToolExecutePreData
+
+        return ToolExecutePreData(tool_use=tool_use)
+
+    @staticmethod
+    def _fire(data):
+        """Run the registered pre hooks exactly as ToolUse.execute() does."""
+        from .. import HookType, trigger_hook
+
+        list(trigger_hook(HookType.TOOL_EXECUTE_PRE, data))
+
+    def test_register_covers_both_seams(self, monkeypatch):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "shadow")
+        from .. import HookType, clear_hooks, get_hooks
 
         clear_hooks()
         register()
-        msgs = list(execute_read(None, ["~/.ssh/id_rsa"], None))
-        assert any(
-            "Blocked by guardrail" in m.content or "Secret path" in m.content
-            for m in msgs
-        ), f"Expected a guardrail block; got: {[m.content for m in msgs]}"
 
-    def test_execute_read_allows_safe_path_in_enforce(self, monkeypatch, tmp_path):
+        confirm = [
+            h for h in get_hooks(HookType.TOOL_CONFIRM) if h.name == "guardrails"
+        ]
+        pre = [
+            h for h in get_hooks(HookType.TOOL_EXECUTE_PRE) if h.name == "guardrails"
+        ]
+        assert confirm, "shell/patch policy still needs the confirmation seam"
+        assert pre, "read policy needs the pre-execution seam"
+        assert pre[0].priority >= 200, "must run before anomaly_watchdog (150)"
+
+    def test_denies_secret_read_in_enforce(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
-        from gptme.hooks import clear_hooks
-        from gptme.tools.read import execute_read
+        from ...tools.base import ToolUse
+        from .. import clear_hooks
+
+        clear_hooks()
+        register()
+        data = self._pre_data(
+            ToolUse(tool="read", args=["~/.ssh/id_rsa"], content=None)
+        )
+        self._fire(data)
+
+        assert data.denied
+        assert "Secret path access blocked" in data.denials[0]
+        assert "[policy-block]" in data.denials[0]
+
+    def test_denies_secret_path_in_kwargs(self, monkeypatch):
+        """Native/tool-format calls carry the path in kwargs['path']."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from ...tools.base import ToolUse
+        from .. import clear_hooks
+
+        clear_hooks()
+        register()
+        data = self._pre_data(
+            ToolUse(
+                tool="read",
+                args=None,
+                content=None,
+                kwargs={"path": "~/.aws/credentials"},
+            )
+        )
+        self._fire(data)
+
+        assert data.denied
+
+    def test_allows_safe_read_in_enforce(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from ...tools.base import ToolUse
+        from .. import clear_hooks
 
         clear_hooks()
         register()
         safe = tmp_path / "notes.txt"
         safe.write_text("hello\n")
-        msgs = list(execute_read(None, [str(safe)], None))
-        assert any("hello" in m.content for m in msgs), (
-            f"Safe read should succeed; got: {[m.content for m in msgs]}"
-        )
+        data = self._pre_data(ToolUse(tool="read", args=[str(safe)], content=None))
+        self._fire(data)
 
-    def test_execute_read_does_not_prompt_in_shadow(self, monkeypatch, tmp_path):
-        """Shadow must execute the read and never enter the TOOL_CONFIRM chain."""
+        assert not data.denied
+
+    def test_shadow_logs_but_does_not_deny(self, monkeypatch, caplog):
+        """Shadow mode must not change behavior for reads either."""
         monkeypatch.setenv("GPTME_GUARDRAILS", "shadow")
-        import importlib
-        from unittest.mock import patch
+        import logging
 
-        from gptme.hooks import clear_hooks
-        from gptme.tools.read import execute_read
+        from ...tools.base import ToolUse
+        from .. import clear_hooks
 
         clear_hooks()
         register()
-        pem = tmp_path / "server.pem"
-        pem.write_text("pem-secret\n")
-        # gptme.hooks re-exports `confirm` as a function, so a dotted patch
-        # path or `import gptme.hooks.confirm` resolves to that function.
-        confirm_mod = importlib.import_module("gptme.hooks.confirm")
-        with patch.object(
-            confirm_mod,
-            "get_confirmation",
-            side_effect=AssertionError(
-                "TOOL_CONFIRM chain must not run in shadow mode"
-            ),
-        ):
-            msgs = list(execute_read(None, [str(pem)], None))
-        assert any("pem-secret" in m.content for m in msgs), (
-            f"Shadow mode must execute the read; got: {[m.content for m in msgs]}"
+        data = self._pre_data(
+            ToolUse(tool="read", args=["~/.ssh/id_rsa"], content=None)
         )
+        with caplog.at_level(logging.WARNING):
+            self._fire(data)
 
-    def test_execute_read_does_not_prompt_in_off(self, monkeypatch, tmp_path):
-        """Off mode is a no-op: execute the read, never enter TOOL_CONFIRM."""
+        assert not data.denied
+        assert "would block" in caplog.text
+
+    def test_off_does_not_deny(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "off")
-        import importlib
-        from unittest.mock import patch
+        from ...tools.base import ToolUse
+        from .. import clear_hooks
 
-        from gptme.hooks import clear_hooks
-        from gptme.tools.read import execute_read
+        clear_hooks()
+        register()  # no-op in off mode
+        data = self._pre_data(
+            ToolUse(tool="read", args=["~/.ssh/id_rsa"], content=None)
+        )
+        self._fire(data)
+
+        assert not data.denied
+
+    def test_other_tools_are_not_denied_at_the_seam(self, monkeypatch):
+        """The seam carries only read's policy; shell still uses TOOL_CONFIRM."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from ...tools.base import ToolUse
+        from .. import clear_hooks
 
         clear_hooks()
         register()
-        pem = tmp_path / "server.pem"
-        pem.write_text("pem-secret\n")
-        confirm_mod = importlib.import_module("gptme.hooks.confirm")
-        with patch.object(
-            confirm_mod,
-            "get_confirmation",
-            side_effect=AssertionError("TOOL_CONFIRM chain must not run in off mode"),
-        ):
-            msgs = list(execute_read(None, [str(pem)], None))
-        assert any("pem-secret" in m.content for m in msgs), (
-            f"Off mode must execute the read; got: {[m.content for m in msgs]}"
+        data = self._pre_data(
+            ToolUse(tool="shell", args=[], content="cat ~/.ssh/id_rsa")
         )
+        self._fire(data)
 
-    def test_execute_read_skips_when_hook_not_registered(self, monkeypatch, tmp_path):
-        """Direct invocation must not enforce when the hook is not registered."""
+        assert not data.denied
+
+    def test_disabled_pre_hook_does_not_deny(self, monkeypatch):
+        """disable_hook semantics must apply to reads exactly as to shell."""
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
-        from gptme.hooks import clear_hooks
-        from gptme.tools.read import execute_read
-
-        clear_hooks()
-        pem = tmp_path / "server.pem"
-        pem.write_text("pem-secret\n")
-        msgs = list(execute_read(None, [str(pem)], None))
-        assert any("pem-secret" in m.content for m in msgs), (
-            f"Unregistered guardrail must not block reads; got: {[m.content for m in msgs]}"
-        )
-
-    def test_execute_read_skips_when_hook_disabled(self, monkeypatch, tmp_path):
-        """disable_hook must apply to reads the same way it applies to shell."""
-        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
-        from gptme.hooks import clear_hooks, disable_hook
-        from gptme.tools.read import execute_read
+        from ...tools.base import ToolUse
+        from .. import HookType, clear_hooks, disable_hook
 
         clear_hooks()
         register()
-        disable_hook("guardrails")
-        pem = tmp_path / "server.pem"
-        pem.write_text("pem-secret\n")
-        msgs = list(execute_read(None, [str(pem)], None))
-        assert any("pem-secret" in m.content for m in msgs), (
-            f"Disabled guardrail must not block reads; got: {[m.content for m in msgs]}"
+        disable_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+        data = self._pre_data(
+            ToolUse(tool="read", args=["~/.ssh/id_rsa"], content=None)
         )
+        self._fire(data)
+
+        assert not data.denied
+
+    def test_is_active_sees_pre_seam(self, monkeypatch):
+        """is_guardrail_active must not assume the TOOL_CONFIRM seam only."""
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        from .. import HookType, clear_hooks, unregister_hook
+
+        clear_hooks()
+        register()
+        unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+
+        assert is_guardrail_active()
