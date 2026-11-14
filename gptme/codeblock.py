@@ -80,11 +80,7 @@ class Codeblock:
         # newline for readability. Strip only that padding so content that
         # itself begins or ends with newlines round-trips losslessly (the old
         # .strip("\n") also removed the content's own leading/trailing newlines).
-        text = root.text or ""
-        if text.startswith("\n"):
-            text = text[1:]
-        if text.endswith("\n"):
-            text = text[:-1]
+        text = (root.text or "").removeprefix("\n").removesuffix("\n")
         return cls(
             root.attrib.get("lang", ""),
             text,
