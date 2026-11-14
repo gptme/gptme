@@ -1562,3 +1562,72 @@ def test_copy_context_unload_does_not_clean_parent_tool_list(
             assert get_tool(tool_name) is parent_tool
     finally:
         _set_available_tools_cache(None)
+
+
+def test_bound_mcp_result_passes_short_results_through(monkeypatch):
+    from gptme.tools.mcp_adapter import MCP_MAX_OUTPUT_CHARS_ENV, _bound_mcp_result
+
+    monkeypatch.setenv(MCP_MAX_OUTPUT_CHARS_ENV, "100")
+    assert _bound_mcp_result("x" * 100, "srv", "tool") == "x" * 100
+
+
+def test_bound_mcp_result_keeps_head_and_tail_and_saves_full_text(
+    monkeypatch, tmp_path
+):
+    from gptme.tools.mcp_adapter import MCP_MAX_OUTPUT_CHARS_ENV, _bound_mcp_result
+
+    monkeypatch.setenv(MCP_MAX_OUTPUT_CHARS_ENV, "100")
+    manager = SimpleNamespace(logdir=tmp_path)
+    full = "HEAD" + "x" * 5000 + "TAIL"
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        bounded = _bound_mcp_result(full, "srv", "tool")
+
+    assert bounded.startswith("HEAD") and bounded.endswith("TAIL")
+    assert len(bounded) < 300
+    assert f"{len(full) - 100} characters omitted" in bounded
+    saved = [p for p in (tmp_path / "tool-outputs").rglob("*") if p.is_file()]
+    assert len(saved) == 1 and saved[0].read_text() == full
+    assert str(saved[0]) in bounded
+
+
+def test_bound_mcp_result_still_bounds_without_a_conversation_dir(monkeypatch):
+    from gptme.tools.mcp_adapter import MCP_MAX_OUTPUT_CHARS_ENV, _bound_mcp_result
+
+    monkeypatch.setenv(MCP_MAX_OUTPUT_CHARS_ENV, "100")
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        bounded = _bound_mcp_result("x" * 5000, "srv", "tool")
+    assert len(bounded) < 300 and "4900 characters omitted" in bounded
+    assert "saved to" not in bounded
+
+
+def test_bound_mcp_result_invalid_env_falls_back_to_default(monkeypatch):
+    from gptme.tools.mcp_adapter import (
+        _DEFAULT_MCP_MAX_OUTPUT_CHARS,
+        MCP_MAX_OUTPUT_CHARS_ENV,
+        _mcp_max_output_chars,
+    )
+
+    for bad in ("abc", "0", "-5"):
+        monkeypatch.setenv(MCP_MAX_OUTPUT_CHARS_ENV, bad)
+        assert _mcp_max_output_chars() == _DEFAULT_MCP_MAX_OUTPUT_CHARS
+
+
+def test_mcp_execute_bounds_an_oversized_tool_result(
+    mock_config, mock_mcp_client, monkeypatch
+):
+    """The dispatch path must bound the result, not just the helper."""
+    from gptme.tools.mcp_adapter import MCP_MAX_OUTPUT_CHARS_ENV
+
+    monkeypatch.setenv(MCP_MAX_OUTPUT_CHARS_ENV, "100")
+    mock_mcp_client.call_tool.return_value = "A" + "x" * 5000 + "Z"
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+    tool = next(t for t in tools if t.name == "test-server.test_tool")
+    assert tool.execute is not None
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        result = tool.execute(None, None, {"param1": "value"})
+        messages = list(result) if hasattr(result, "__iter__") else [result]
+    assert len(messages) == 1
+    text = messages[0].content
+    assert text.startswith("A") and text.endswith("Z") and len(text) < 300
+    assert "characters omitted" in text
