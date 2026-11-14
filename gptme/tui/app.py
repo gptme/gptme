@@ -2243,6 +2243,7 @@ _CHILD_STATUS_ICONS = {
     "cancelled": "✗",
     "budget_exceeded": "✗",
     "clarification_needed": "?",
+    "blocked_external": "⏸",
 }
 # Short status labels for rows too narrow for the full ones.
 _CHILD_STATUS_SHORT = {
@@ -2253,6 +2254,7 @@ _CHILD_STATUS_SHORT = {
     "cancelled": "cancel",
     "budget_exceeded": "budget",
     "clarification_needed": "ask",
+    "blocked_external": "blocked",
     "unknown": "?",
 }
 # Cells an agent id keeps before the task/progress get any room.

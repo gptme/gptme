@@ -1097,7 +1097,7 @@ def test_format_child_row_fits_width(width: int | None) -> None:
 
 @pytest.mark.parametrize("width", range(25))
 @pytest.mark.parametrize(
-    "status", ["running", "clarification_needed", "budget_exceeded"]
+    "status", ["running", "clarification_needed", "budget_exceeded", "blocked_external"]
 )
 def test_format_child_row_ultranarrow_keeps_identity(width: int, status: str) -> None:
     """Below the normal prefix width, prefer identity over elapsed and task text."""
@@ -1120,6 +1120,34 @@ def test_format_child_row_ultranarrow_keeps_identity(width: int, status: str) ->
         assert "•" in row
     if 14 <= width <= 20:
         assert "child-2" in row
+
+
+@pytest.mark.parametrize("width", [30, 40, 80])
+@pytest.mark.parametrize("unread", [False, True])
+def test_format_child_row_blocked_status_stays_visible(
+    width: int, unread: bool
+) -> None:
+    """Blocked children retain status, elapsed and identity in narrow rows."""
+    from dataclasses import replace
+
+    from rich.text import Text
+
+    from gptme.tui.app import _format_child_row
+
+    child = replace(
+        _make_child_snapshot("child-2-long-identifier", prompt="inspect the logs"),
+        status="blocked_external",
+        elapsed_s=3725,
+    )
+    row = _format_child_row(child, selected=True, unread=unread, width=width)
+    visible = Text(row)
+    visible.truncate(width, overflow="ellipsis")
+    shown = visible.plain
+    assert shown.startswith("> ⏸")
+    assert "[blocked]" in shown or "[blocked_external]" in shown
+    assert "1h02m" in shown
+    assert "child-2" in shown
+    assert ("•" in shown or "unread" in shown) == unread
 
 
 def test_format_child_row_short_fields_are_not_cut() -> None:
