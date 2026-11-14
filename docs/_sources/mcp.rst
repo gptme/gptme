@@ -98,6 +98,14 @@ Configuration Options
   - ``headers``: HTTP headers dictionary (for HTTP servers)
   - ``env``: Environment variables for the server
 
+Large tool results
+~~~~~~~~~~~~~~~~~~
+
+A tool result longer than 100,000 characters (about 25k tokens) is cut to its head and tail
+before it reaches the model. When a conversation directory is active, the full text is saved
+under ``tool-outputs/`` and the omission marker names the file. Set
+``GPTME_MCP_MAX_OUTPUT_CHARS`` to change the limit.
+
 MCP Server Examples
 -------------------
 

@@ -638,6 +638,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#large-tool-results">Large tool results</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-examples">MCP Server Examples</a><ul class="pst-show_toc_level nav section-nav flex-column">
@@ -745,6 +746,13 @@ so approve only project servers you trust.</p>
 </ul>
 </li>
 </ul>
+</section>
+<section id="large-tool-results">
+<h3>Large tool results<a class="headerlink" href="#large-tool-results" title="Link to this heading">#</a></h3>
+<p>A tool result longer than 100,000 characters (about 25k tokens) is cut to its head and tail
+before it reaches the model. When a conversation directory is active, the full text is saved
+under <code class="docutils literal notranslate"><span class="pre">tool-outputs/</span></code> and the omission marker names the file. Set
+<code class="docutils literal notranslate"><span class="pre">GPTME_MCP_MAX_OUTPUT_CHARS</span></code> to change the limit.</p>
 </section>
 </section>
 <section id="mcp-server-examples">
@@ -937,6 +945,7 @@ across multiple tool calls.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#large-tool-results">Large tool results</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-examples">MCP Server Examples</a><ul class="pst-show_toc_level nav section-nav flex-column">
