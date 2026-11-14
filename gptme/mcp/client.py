@@ -82,10 +82,10 @@ def _is_tls_verification_error(error: BaseException) -> bool:
 
 
 _TLS_VERIFICATION_MESSAGE = (
-    "MCP HTTPS TLS verification failed: the server certificate is not "
-    "trusted (self-signed or unknown CA). Use a certificate the trust store "
-    "accepts, or set SSL_CERT_FILE to a CA bundle that includes this server. "
-    "The URL, MCP transport, and auth headers are not the problem."
+    "MCP HTTPS TLS verification failed: {reason}. Check the certificate's "
+    "validity and that its hostname matches the URL. If the certificate is "
+    "self-signed or issued by a private CA, set SSL_CERT_FILE to a CA bundle "
+    "that includes the issuing CA."
 )
 
 
@@ -96,25 +96,39 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
     failure, so the original ``SSLCertVerificationError`` is lost and we only
     see ``CancelledError`` with no ``__cause__``. After such a cancel, repeat
     just the TLS handshake with the same trust configuration httpx uses
-    (certifi / ``SSL_CERT_FILE``) to recover the real cause. Returns ``None``
-    for non-HTTPS URLs and for any failure that is not a verification error.
+    (certifi / ``SSL_CERT_FILE``) to recover the verification reason. Skip
+    this direct probe whenever an HTTPS/all-proxy environment variable is
+    configured (even with NO_PROXY): it may inspect a different TLS peer.
+    Returns ``None`` for invalid/non-HTTPS URLs and non-verification failures.
     """
-    parsed = urlparse(url)
-    if parsed.scheme.lower() != "https" or not parsed.hostname:
+    if any(
+        os.environ.get(key)
+        for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
+    ):
+        return None
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            return None
+        port = parsed.port or 443
+    except ValueError:
         return None
     try:
         context = httpx.create_ssl_context()
         with (
-            socket.create_connection(
-                (parsed.hostname, parsed.port or 443), timeout=5.0
-            ) as sock,
+            socket.create_connection((parsed.hostname, port), timeout=5.0) as sock,
             context.wrap_socket(sock, server_hostname=parsed.hostname),
         ):
             return None
     except OSError as e:
         # ssl.SSLCertVerificationError is an OSError subclass
         if _is_tls_verification_error(e):
-            return _TLS_VERIFICATION_MESSAGE
+            # OpenSSL's verification reason does not include the credential-
+            # bearing URL; avoid exposing arbitrary exception text here.
+            reason = (
+                getattr(e, "verify_message", None) or "certificate verification failed"
+            )
+            return _TLS_VERIFICATION_MESSAGE.format(reason=reason)
         return None
 
 
@@ -130,8 +144,8 @@ class MCPClient:
         # already using it.
         self._op_lock = threading.Lock()
         self._closing = threading.Event()
-        # Set only while close() is interrupting an in-flight call. Cleared
-        # before stack aexit so a queued cancel callback cannot cancel cleanup.
+        # Set while close() or Ctrl-C interrupts an in-flight call. close()
+        # clears it before stack aexit so queued callbacks cannot cancel cleanup.
         self._interrupt_ops = threading.Event()
         # Don't call asyncio.set_event_loop() — each client owns its own loop
         # and uses it exclusively via self.loop.run_until_complete() in _run_async().
@@ -178,6 +192,9 @@ class MCPClient:
                 # Cancel the pending task gracefully instead of letting the interrupt
                 # propagate and potentially kill the MCP server process
                 logger.info("MCP operation interrupted by user")
+                # Mark this as a user cancellation before tasks unwind, so an
+                # interrupted HTTP connection cannot start a fresh TLS probe.
+                self._interrupt_ops.set()
                 # Cancel any pending tasks in the event loop
                 for task in asyncio.all_tasks(self.loop):
                     if not task.done():
@@ -187,6 +204,8 @@ class MCPClient:
                     self.loop.run_until_complete(asyncio.sleep(0.1))
                 except (asyncio.CancelledError, KeyboardInterrupt):
                     pass
+                finally:
+                    self._interrupt_ops.clear()
                 # Raise a regular exception instead of re-raising KeyboardInterrupt
                 # This prevents the interrupt from propagating to the stdio_client
                 # context manager and killing the server process
@@ -338,6 +357,7 @@ class MCPClient:
 
             return (self.tools, self.session)
         except asyncio.CancelledError:
+            user_interrupted = self._interrupt_ops.is_set()
             # A failed streamable-HTTP request (401/404, TLS error, refused
             # connection) tears down the transport's task group, so the MCP SDK
             # reports it as a cancellation and the HTTP-level error is lost.
@@ -354,6 +374,8 @@ class MCPClient:
                 self.stack = None
             if self._closing.is_set():
                 raise RuntimeError("MCP client is closed") from None
+            if user_interrupted or self._interrupt_ops.is_set():
+                raise
             # Recover the one cause we can still identify: TLS verification.
             tls_message = await asyncio.to_thread(_diagnose_https_tls_failure, url)
             if tls_message:
