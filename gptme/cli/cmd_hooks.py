@@ -85,8 +85,9 @@ def install(workspace: Path, global_install: bool, force: bool) -> None:
     Use --global to install into ~/.claude/settings.json instead.
 
     After installation, Claude Code will automatically inject relevant gptme
-    lessons as additionalContext when the prompt or tool inputs match lesson
-    keywords.
+    lessons and keyworded memories as additionalContext when the prompt or tool
+    inputs match their keywords. This is the only hook you need for both: no
+    separate ``memory match`` hook is required.
     """
     workspace = workspace.resolve()
 
@@ -276,11 +277,14 @@ def run(workspace: Path | None = None) -> None:
     - PreToolUse: matches against tool name, inputs, and recent transcript
 
     Output JSON format:
-    {"additionalContext": "...", "continue": true}
+    {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                            "additionalContext": "..."}, "continue": true}
 
     Lessons are matched using gptme's keyword/pattern system and workspace's
-    gptme.toml [lessons] dirs. Already-injected lessons are tracked per session
-    to avoid duplicates.
+    gptme.toml [lessons] dirs. Keyworded memories (``gptme-util memory save
+    --keyword``) are matched in the same pass, so this one hook covers both;
+    set GPTME_LESSONS_INCLUDE_MEMORIES=false to leave them out. Already-injected
+    lessons are tracked per session to avoid duplicates.
     """
     # Suppress diagnostic output since this command must output only JSON.
     # Only relevant if message rendering is loaded at all; importing
@@ -353,9 +357,14 @@ def run(workspace: Path | None = None) -> None:
     for user_dir in _user_lesson_dirs():
         if user_dir not in lesson_dirs:
             lesson_dirs.append(user_dir)
-    if not lesson_dirs:
+    # Keyworded memories are triggered rules too (gptme#3734). Matching them here
+    # makes ``hooks install`` the one hook to install: lessons and memories both
+    # fire on the prompt and on the agent's own pending tool call (gptme#4868).
+    memory_candidates = _memory_candidates(workspace)
+    if not lesson_dirs and not memory_candidates:
         logger.debug(
-            "No gptme.toml or user lesson dirs found; skipping lesson injection"
+            "No gptme.toml, user lesson dirs or keyworded memories found; "
+            "skipping lesson injection"
         )
         _output_empty()
         return
@@ -365,10 +374,11 @@ def run(workspace: Path | None = None) -> None:
         from ..lessons.index import LessonIndex
         from ..lessons.matcher import LessonMatcher, MatchContext
 
-        index = LessonIndex(lesson_dirs=lesson_dirs)
+        index = LessonIndex(lesson_dirs=lesson_dirs) if lesson_dirs else None
+        candidates = [*(index.lessons if index is not None else []), *memory_candidates]
         matcher = LessonMatcher()
         ctx = MatchContext(message=match_text)
-        results = matcher.match(index.lessons, ctx)
+        results = matcher.match(candidates, ctx)
     except Exception as e:
         logger.debug("Lesson matching error: %s", e)
         _output_empty()
@@ -389,7 +399,7 @@ def run(workspace: Path | None = None) -> None:
     # Take top N
     new_results = new_results[:max_lessons]
     for result in new_results:
-        if result.lesson.is_stub:
+        if result.lesson.is_stub and index is not None:
             result.lesson = index.materialize_lesson(result.lesson)
 
     # Build context text
@@ -409,7 +419,13 @@ def run(workspace: Path | None = None) -> None:
     if event_type == _PRETOOLUSE:
         _update_throttle(session_id)
 
-    output = {"additionalContext": context, "continue": True}
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": event_type,
+            "additionalContext": context,
+        },
+        "continue": True,
+    }
     print(json.dumps(output))
 
 
@@ -529,6 +545,31 @@ def _load_lesson_dirs(workspace: Path) -> list[Path]:
         return [workspace / "lessons"]
 
 
+def _memory_candidates(workspace: Path | None) -> list:
+    """Keyworded living memories as lesson candidates, as ``gptme chat`` includes them.
+
+    Opt out with ``GPTME_LESSONS_INCLUDE_MEMORIES=false``, like lesson
+    auto-inclusion. A hook must never fail, so any error yields no candidates.
+    """
+    if os.environ.get("GPTME_LESSONS_INCLUDE_MEMORIES", "").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return []
+    try:
+        from ..memory import MemoryStore
+        from ..memory.match import memory_lessons
+
+        # None lets the shared resolver find the Git root even when the hook
+        # runs from a subdirectory of a repository without gptme.toml.
+        return memory_lessons(MemoryStore.from_workspace(workspace))
+    except Exception as e:
+        logger.debug("Skipping memory lessons: %s", e)
+        return []
+
+
 def _user_lesson_dirs() -> list[Path]:
     """The user's lesson dirs: gptme's config dir and ``[lessons] dirs`` in user config.
 
@@ -633,7 +674,9 @@ def _extract_pretooluse_text(hook_input: dict) -> str:
 
     tool_input = hook_input.get("tool_input", {})
     if isinstance(tool_input, dict):
-        parts.extend(v for v in tool_input.values() if isinstance(v, str))
+        from .cmd_memory import _string_values
+
+        parts.extend(_string_values(tool_input))
 
     # Recent transcript (assistant + tool output) for context-aware matching
     transcript = hook_input.get("transcript", [])

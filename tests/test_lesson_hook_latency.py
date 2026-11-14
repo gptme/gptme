@@ -404,7 +404,8 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
         set_output_format(prev_format)
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
-    assert "Keep transcripts" in out.get("additionalContext", "")
+    assert out["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+    assert "Keep transcripts" in out["hookSpecificOutput"]["additionalContext"]
     cache_path = tmp_path / "cache" / "gptme" / "lessons-cache.json"
     assert index_mod._disk_cache_path() == cache_path
     assert str(lessons / "persist.md") in json.loads(cache_path.read_text())["entries"]

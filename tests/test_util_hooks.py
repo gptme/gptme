@@ -358,9 +358,7 @@ def test_run_no_matching_lesson_returns_continue(
     )
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
-    # Should return continue=True; additionalContext may or may not be set
-    assert out.get("continue") is True
-    assert "additionalContext" not in out
+    assert out == {"continue": True}
 
 
 def test_run_matching_lesson_returns_context(runner: CliRunner, tmp_path: Path) -> None:
@@ -392,8 +390,8 @@ def test_run_matching_lesson_returns_context(runner: CliRunner, tmp_path: Path) 
     )
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
-    assert "additionalContext" in out
-    assert "Frob Lesson" in out["additionalContext"]
+    assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "Frob Lesson" in out["hookSpecificOutput"]["additionalContext"]
     assert out.get("continue") is True
 
 
@@ -427,7 +425,7 @@ def test_run_archived_lesson_skipped(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
     # Archived lesson should not appear
-    assert "additionalContext" not in out or "Archived Lesson" not in out.get(
+    assert "Archived Lesson" not in out.get("hookSpecificOutput", {}).get(
         "additionalContext", ""
     )
 
@@ -496,8 +494,8 @@ def test_run_missing_session_id_uses_unique_fallback(
         assert result.exit_code == 0, result.output
         out = json.loads(result.output)
         # Each anonymous invocation should see the lesson (no cross-session dedup)
-        assert "additionalContext" in out, "lesson should be injected for anon session"
-        assert "Frob Lesson" in out["additionalContext"]
+        assert "hookSpecificOutput" in out, "lesson should be injected for anon session"
+        assert "Frob Lesson" in out["hookSpecificOutput"]["additionalContext"]
 
 
 # ---------------------------------------------------------------------------
@@ -577,3 +575,209 @@ def test_hook_lifecycle_preserves_mixed_entry(
     result = runner.invoke(main, args)
     assert result.exit_code == 0, result.output
     assert json.loads(settings_path.read_text()) == settings
+
+
+# ---------------------------------------------------------------------------
+# Keyworded memories fire through the same hook (gptme/gptme#4868)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def memory_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A workspace with no lessons and one keyworded memory."""
+    from gptme.memory.schema import MemoryEntry
+
+    (tmp_path / "gptme.toml").write_text("[agent]\nname = 'Test'\n")
+    mem = tmp_path / "memory"
+    mem.mkdir()
+    (mem / "persist-transcripts.md").write_text(
+        MemoryEntry(
+            name="persist-transcripts",
+            type="feedback",
+            keywords=["no-session-persistence"],
+            body="Never disable session persistence, even for one-shot calls.",
+        ).to_markdown()
+    )
+    (mem / "ambient.md").write_text(
+        MemoryEntry(name="ambient", body="no-session-persistence facts").to_markdown()
+    )
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem))
+    monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "true")
+    # Memory-only assertions must not depend on the developer's user lessons.
+    monkeypatch.setattr(cmd_hooks, "_user_lesson_dirs", lambda: [])
+    return tmp_path
+
+
+def _run_hook(runner: CliRunner, workspace: Path, event: str) -> dict:
+    result = runner.invoke(
+        main,
+        ["hooks", "run", "--workspace", str(workspace)],
+        input=event,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)
+
+
+@pytest.mark.parametrize("event_type", ["UserPromptSubmit", "PreToolUse"])
+def test_run_context_uses_claude_code_event_envelope(
+    runner: CliRunner, memory_workspace: Path, event_type: str
+) -> None:
+    """Claude Code consumes context from hookSpecificOutput, not the top level."""
+    event = _make_event(
+        event_type=event_type,
+        prompt="should we use no-session-persistence?",
+        tool_name="SendMessage",
+        tool_input={"message": "add --no-session-persistence"},
+    )
+    out = _run_hook(runner, memory_workspace, event)
+    assert out["continue"] is True
+    assert "additionalContext" not in out
+    specific = out["hookSpecificOutput"]
+    assert specific["hookEventName"] == event_type
+    assert "Never disable session persistence" in specific["additionalContext"]
+
+
+def test_run_injects_keyworded_memory_on_pending_tool_call(
+    runner: CliRunner, memory_workspace: Path
+) -> None:
+    """The incident: a SendMessage carrying the flag triggers the memory pre-send."""
+    event = _make_event(
+        event_type="PreToolUse",
+        tool_name="SendMessage",
+        tool_input={
+            "message": "add --no-session-persistence to both, looks safe",
+        },
+    )
+    out = _run_hook(runner, memory_workspace, event)
+    context = out["hookSpecificOutput"]["additionalContext"]
+    assert "Never disable session persistence" in context
+    assert "ambient" not in context
+
+
+def test_run_memory_in_nested_tool_arguments(
+    runner: CliRunner, memory_workspace: Path
+) -> None:
+    event = _make_event(
+        event_type="PreToolUse",
+        tool_name="SendMessage",
+        tool_input={"args": [{"text": "add --no-session-persistence"}, None, 3]},
+    )
+    out = _run_hook(runner, memory_workspace, event)
+    assert (
+        "Never disable session persistence"
+        in out["hookSpecificOutput"]["additionalContext"]
+    )
+
+
+def test_run_injects_keyworded_memory_on_prompt_once_per_session(
+    runner: CliRunner, memory_workspace: Path
+) -> None:
+    event = _make_event(prompt="should we use no-session-persistence here?")
+    first = _run_hook(runner, memory_workspace, event)
+    assert (
+        "Never disable session persistence"
+        in first["hookSpecificOutput"]["additionalContext"]
+    )
+    # Same session: already delivered, so the hook stays silent.
+    assert _run_hook(runner, memory_workspace, event) == {"continue": True}
+
+
+def test_run_memory_from_git_root_without_gptme_config(
+    runner: CliRunner, memory_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Global hooks find the same project memories as memory save/match."""
+    import subprocess
+
+    (memory_workspace / "gptme.toml").unlink()
+    subprocess.run(
+        ["git", "init", str(memory_workspace)], check=True, capture_output=True
+    )
+    subdir = memory_workspace / "src"
+    subdir.mkdir()
+    monkeypatch.chdir(subdir)
+    monkeypatch.delenv("GPTME_WORKSPACE", raising=False)
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.setenv("HOME", str(memory_workspace / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(memory_workspace / "config"))
+    result = runner.invoke(
+        main,
+        ["hooks", "run"],
+        input=_make_event(prompt="add no-session-persistence?"),
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    out = json.loads(result.output)
+    assert (
+        "Never disable session persistence"
+        in out["hookSpecificOutput"]["additionalContext"]
+    )
+
+
+def test_run_memory_only_does_not_scan_lessons(
+    runner: CliRunner, memory_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No lesson dirs means no default discovery, even when memories match."""
+    (memory_workspace / "gptme.toml").write_text("[lessons]\ndirs = []\n")
+    monkeypatch.setattr(cmd_hooks, "_user_lesson_dirs", lambda: [])
+    scans: list[object] = []
+
+    def unexpected_index(*args: object, **kwargs: object) -> None:
+        scans.append(kwargs)
+        raise AssertionError("Memory-only hooks must not construct a lesson index")
+
+    monkeypatch.setattr("gptme.lessons.index.LessonIndex", unexpected_index)
+    out = _run_hook(
+        runner, memory_workspace, _make_event(prompt="add no-session-persistence?")
+    )
+    assert scans == []
+    assert (
+        "Never disable session persistence"
+        in out["hookSpecificOutput"]["additionalContext"]
+    )
+
+
+def test_run_memory_opt_out(
+    runner: CliRunner, memory_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "false")
+    event = _make_event(prompt="should we use no-session-persistence here?")
+    assert _run_hook(runner, memory_workspace, event) == {"continue": True}
+
+
+def test_run_memory_store_failure_is_silent(
+    runner: CliRunner, memory_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise OSError("unreadable memory dir")
+
+    monkeypatch.setattr("gptme.memory.MemoryStore.from_workspace", boom)
+    event = _make_event(prompt="should we use no-session-persistence here?")
+    out = _run_hook(runner, memory_workspace, event)
+    assert out == {"continue": True}
+
+
+def test_run_memory_and_lesson_together(
+    runner: CliRunner, memory_workspace: Path
+) -> None:
+    lessons = memory_workspace / "lessons"
+    lessons.mkdir()
+    (memory_workspace / "gptme.toml").write_text(f'[lessons]\ndirs = ["{lessons}"]\n')
+    (lessons / "persist.md").write_text(
+        textwrap.dedent("""\
+            ---
+            match:
+              keywords:
+                - no-session-persistence
+            status: active
+            ---
+            # Trajectory Persistence
+            Never disable trajectories.
+        """)
+    )
+    event = _make_event(prompt="add no-session-persistence?")
+    ctx = _run_hook(runner, memory_workspace, event)["hookSpecificOutput"][
+        "additionalContext"
+    ]
+    assert "Trajectory Persistence" in ctx
+    assert "Never disable session persistence" in ctx
