@@ -1075,7 +1075,24 @@ spaces or punctuation. Empty keywords and a lone <code class="docutils literal n
 matching keyword scores one point. Equal scores keep name order.</p>
 <section id="claude-code-hook">
 <h3>Claude Code hook<a class="headerlink" href="#claude-code-hook" title="Link to this heading">#</a></h3>
-<p>Add the command below to a <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> hook in
+<p><strong>Recommended: one command.</strong> <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">hooks</span> <span class="pre">install</span></code> registers
+<code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">hooks</span> <span class="pre">run</span></code> for <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> and for <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> on every
+tool (edits, writes, subagent dispatches and messages to other agents included),
+in the workspace <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (or <code class="docutils literal notranslate"><span class="pre">~/.claude/settings.json</span></code> with
+<code class="docutils literal notranslate"><span class="pre">--global</span></code>). That one hook injects matching lessons (workspace, user and
+<code class="docutils literal notranslate"><span class="pre">[lessons]</span> <span class="pre">dirs</span></code>) and keyworded memories, once per session, with a short
+<code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> cooldown. <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">hooks</span> <span class="pre">status</span></code> shows whether both events
+are installed. Set <code class="docutils literal notranslate"><span class="pre">GPTME_LESSONS_INCLUDE_MEMORIES=false</span></code> to leave memories
+out of it.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>hooks<span class="w"> </span>install<span class="w"> </span>--global
+<span class="gp">$ </span>gptme-util<span class="w"> </span>hooks<span class="w"> </span>status
+</pre></div>
+</div>
+<p>Do not add a <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> hook on top of it: both would inject the same
+rule. Use the manual configuration below only when you need what <code class="docutils literal notranslate"><span class="pre">hooks</span> <span class="pre">run</span></code>
+does not offer, such as <code class="docutils literal notranslate"><span class="pre">--lesson-dir</span></code> for a shared lesson collection outside
+your configured dirs, or <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">recall</span></code> at the start of a turn.</p>
+<p><strong>Manual configuration.</strong> Add the command below to a <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> hook in
 <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>. It reads Claude Code’s JSON event from stdin and
 returns a valid <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> response:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>

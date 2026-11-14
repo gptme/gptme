@@ -12901,7 +12901,27 @@ matching keyword scores one point. Equal scores keep name order.
 Claude Code hook
 ~~~~~~~~~~~~~~~~
 
-Add the command below to a ``UserPromptSubmit`` hook in
+**Recommended: one command.** ``gptme-util hooks install`` registers
+``gptme-util hooks run`` for ``UserPromptSubmit`` and for ``PreToolUse`` on every
+tool (edits, writes, subagent dispatches and messages to other agents included),
+in the workspace ``.claude/settings.json`` (or ``~/.claude/settings.json`` with
+``--global``). That one hook injects matching lessons (workspace, user and
+``[lessons] dirs``) and keyworded memories, once per session, with a short
+``PreToolUse`` cooldown. ``gptme-util hooks status`` shows whether both events
+are installed. Set ``GPTME_LESSONS_INCLUDE_MEMORIES=false`` to leave memories
+out of it.
+
+.. code-block:: console
+
+   $ gptme-util hooks install --global
+   $ gptme-util hooks status
+
+Do not add a ``memory match`` hook on top of it: both would inject the same
+rule. Use the manual configuration below only when you need what ``hooks run``
+does not offer, such as ``--lesson-dir`` for a shared lesson collection outside
+your configured dirs, or ``memory recall`` at the start of a turn.
+
+**Manual configuration.** Add the command below to a ``UserPromptSubmit`` hook in
 ``.claude/settings.json``. It reads Claude Code's JSON event from stdin and
 returns a valid ``additionalContext`` response:
 
