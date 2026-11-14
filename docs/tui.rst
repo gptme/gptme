@@ -41,6 +41,31 @@ apply to any resumed generation. An interrupt suppresses automatic continuation.
 The interactive CLI uses the same setting and preserves unsent prompt text
 across the wake. Non-interactive shutdown policy is unchanged.
 
+Inspecting and guiding child agents
+----------------------------------
+
+Open the Work overview with :kbd:`Ctrl+T` and select a child with Enter. Its
+conversation opens in the main view with the normal message and expandable tool
+rendering, a child identity/state banner, and a separate composer. The parent
+continues working without changing its model, tools or conversation ownership.
+
+Enter sends guidance to a running child through its existing input queue. For a
+stopped child, use ``/continue <message>`` to explicitly request a safe resume;
+unsupported or ineligible resumes show an error and retain your draft. Other
+slash-command text is sent to the child as text, not executed against the parent.
+
+Escape, :kbd:`Ctrl+C`, or **Back to parent** returns to the parent without
+interrupting it. Parent and child drafts are separate; returning restores the
+parent's cursor and scroll position. The child view shows parent status/new
+messages and any waiting confirmation. Idle parent notification wakes wait until
+you return; a parent turn already running can finish in the background.
+
+Inspection reads the child's transcript without taking its writer lock. Inline
+mode opens an expanded inspection region while leaving the parent's native
+terminal scrollback intact. This is child inspection/guidance, not a general
+multi-conversation editor; cancellation and arbitrary parent slash commands are
+not redirected to the child.
+
 Installation
 ------------
 
