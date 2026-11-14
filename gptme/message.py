@@ -289,6 +289,7 @@ class MessageMetadata(TypedDict, total=False):
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
     panel_hints: list[PanelHint]
     tool: str  # tool that produced this result message
+    tool_status: Literal["denied"]  # policy blocked execution; not inferred from text
     # which tool call produced this message: its index among the tool calls of
     # the preceding assistant message (set by execute_msg; not sent to models)
     tool_call: int

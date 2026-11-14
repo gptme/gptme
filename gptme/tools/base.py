@@ -987,14 +987,17 @@ class ToolUse:
                     # tool-specific confirmation or execution. Denials are
                     # reported to the model as the call's result.
                     if pre_data.denied:
-                        yield own(
+                        denial = own(
                             Message(
                                 "system",
                                 "Tool execution denied: " + "; ".join(pre_data.denials),
                                 call_id=self.call_id,
-                                metadata={"tool": self.tool},
+                                metadata={"tool": self.tool, "tool_status": "denied"},
                             )
                         )
+                        if on_result_message:
+                            on_result_message(denial)
+                        yield denial
                         return
 
                     # Play tool sound if enabled

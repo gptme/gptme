@@ -66,6 +66,7 @@ class ToolStatus(Enum):
     COMPLETED = "completed"
     SKIPPED = "skipped"
     FAILED = "failed"
+    DENIED = "denied"
 
 
 @dataclass

@@ -343,7 +343,11 @@ def test_denied_native_call_keeps_one_paired_result(fake_echo_tool, monkeypatch)
     assert results[0].call_id is None
     assert "tool_call" not in (results[0].metadata or {})
     assert results[1].call_id == call_id
-    assert results[1].metadata == {"tool": "echo", "tool_call": 0}
+    assert results[1].metadata == {
+        "tool": "echo",
+        "tool_call": 0,
+        "tool_status": "denied",
+    }
 
     chat = list(_handle_tools(msgs2dicts([msg, *results])))
     assert chat[0]["tool_calls"][0]["id"] == call_id

@@ -1779,8 +1779,17 @@ def start_tool_execution(
                         stream_tool_id = current_tool_id
 
                         def stream_tool_output(
-                            tool_output: Message, tool_id: str = stream_tool_id
+                            tool_output: Message,
+                            tool_id: str = stream_tool_id,
+                            execution: ToolExecution | None = tool_exec,
                         ) -> None:
+                            assert execution is not None  # claimed before execution
+                            # Only real results reach this callback; hook chatter
+                            # must not determine the execution outcome.
+                            if (tool_output.metadata or {}).get(
+                                "tool_status"
+                            ) == "denied":
+                                execution.status = ToolStatus.DENIED
                             if (
                                 tool_output.role == "system"
                                 and not tool_output.hide
@@ -1802,6 +1811,8 @@ def start_tool_execution(
                                 on_result_message=stream_tool_output,
                             )
                         )
+                        if tool_exec.status != ToolStatus.DENIED:
+                            tool_exec.status = ToolStatus.COMPLETED
                         logger.info(
                             f"Tool execution complete, outputs: {len(tool_outputs)}"
                         )
@@ -1851,7 +1862,8 @@ def start_tool_execution(
                                 "type": "tool_complete",
                                 "tool_id": current_tool_id,
                                 "duration_ms": duration_ms,
-                                "success": tool_exec.status != ToolStatus.FAILED,
+                                "success": tool_exec.status == ToolStatus.COMPLETED,
+                                "status": tool_exec.status.value,
                             },
                         )
 
