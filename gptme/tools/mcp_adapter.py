@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from logging import getLogger
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -29,6 +30,13 @@ from .base import (
 # ConfirmFunc type removed - confirmation now uses hook system
 
 logger = getLogger(__name__)
+
+# A single MCP tool result is returned to the model verbatim, so a server that
+# answers with megabytes of text (a log dump, a full page scrape) would be
+# appended to the conversation whole. shell, tmux and read already bound their
+# output and spool the full text to the conversation's ``tool-outputs/``.
+MCP_MAX_OUTPUT_CHARS_ENV = "GPTME_MCP_MAX_OUTPUT_CHARS"
+_DEFAULT_MCP_MAX_OUTPUT_CHARS = 100_000  # about 25k tokens
 
 # Global storage for MCP clients
 _mcp_clients: dict[str, MCPClient] = {}
@@ -114,6 +122,58 @@ def _extract_content_text(
             return f"[Resource: {uri}]\n{resource.text}"
         return f"[Resource: {uri}]"
     return str(item)
+
+
+def _mcp_max_output_chars() -> int:
+    raw = os.environ.get(MCP_MAX_OUTPUT_CHARS_ENV)
+    if raw is None:
+        return _DEFAULT_MCP_MAX_OUTPUT_CHARS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        logger.warning(
+            "Ignoring invalid %s=%r (expected a positive integer)",
+            MCP_MAX_OUTPUT_CHARS_ENV,
+            raw,
+        )
+        return _DEFAULT_MCP_MAX_OUTPUT_CHARS
+    return value
+
+
+def _bound_mcp_result(result: str, server_name: str, tool_name: str) -> str:
+    """Keep the head and tail of an oversized MCP tool result.
+
+    The full text is saved under the conversation's ``tool-outputs/`` when a
+    conversation directory is active, and the omission marker names the file.
+    """
+    limit = _mcp_max_output_chars()
+    if len(result) <= limit:
+        return result
+
+    saved_path = None
+    try:
+        from ..logmanager import LogManager
+        from ..util.output_storage import save_large_output
+
+        manager = LogManager.get_current_log()
+        if manager and manager.logdir:
+            _, saved_path = save_large_output(
+                content=result,
+                logdir=manager.logdir,
+                output_type="mcp",
+                command_info=f"{server_name}.{tool_name}",
+            )
+    except Exception as e:  # saving is best-effort; the bound must still apply
+        logger.warning("Could not save full MCP output: %s", e)
+
+    head = limit // 2
+    tail = limit - head
+    marker = f"[... {len(result) - limit} characters omitted"
+    marker += f", full output saved to {saved_path}" if saved_path else ""
+    marker += "]"
+    return f"{result[:head]}\n{marker}\n{result[-tail:]}"
 
 
 def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
@@ -464,7 +524,7 @@ def create_mcp_execute_function(
             result = _call_mcp_tool_with_retry(
                 server_name, tool_name, kwargs, config, clients=clients
             )
-            yield Message("system", result)
+            yield Message("system", _bound_mcp_result(result, server_name, tool_name))
         except MCPInterruptedError:
             # User interrupted the operation - don't log as error, just inform
             yield Message(
