@@ -2782,7 +2782,7 @@ class GptmeApp(App):
         background: ansi_default;
     }
     #work-indicator {
-        height: auto;
+        height: 1;
         margin: 0 2;
         color: $text-muted;
     }
@@ -3022,10 +3022,11 @@ class GptmeApp(App):
             yield from self._compose_input()
 
     def _compose_input(self) -> ComposeResult:
-        yield Static(id="work-indicator")
         with Horizontal(id="input-row"):
             yield Static(Text("❯"), id="prompt-marker")
             yield ChatInput(id="input")
+        # below the composer, directly above the statusline (gptme/gptme#4897)
+        yield Static(id="work-indicator")
         with Horizontal(id="status-row"):
             yield Static(id="status")
             yield Static(
@@ -3756,8 +3757,14 @@ class GptmeApp(App):
         )
         armed = sum(w.status == "armed" for w in watches)
         indicator = self.screen_stack[0].query_one("#work-indicator", Static)
+        # one line that never wraps: a count change must not grow the bottom
+        # area and push the composer around
         indicator.update(
-            Text(f"Work: {running} running · {armed} armed · {unread} unread · Ctrl+T")
+            Text(
+                f"Work: {running} running · {armed} armed · {unread} unread · Ctrl+T",
+                no_wrap=True,
+                overflow="ellipsis",
+            )
         )
         indicator.display = bool(running or armed or unread)
 
