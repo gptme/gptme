@@ -42,7 +42,7 @@ The interactive CLI uses the same setting and preserves unsent prompt text
 across the wake. Non-interactive shutdown policy is unchanged.
 
 Inspecting and guiding child agents
-----------------------------------
+-----------------------------------
 
 Open the Work overview with :kbd:`Ctrl+T` and select a child with Enter. Its
 conversation opens in the main view with the normal message and expandable tool

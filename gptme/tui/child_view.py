@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Collapsible, Static
@@ -106,6 +107,17 @@ def send_child_message(
 
 class ChildInput(ChatInput):
     """Child prompts are literal messages, not parent slash commands."""
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            # Unlike parent submission, child delivery can be rejected. Retain
+            # the expansion mappings until the selected draft is delivered.
+            self._clear_completions()
+            self.post_message(self.Submitted(self._expand_pastes(self.text)))
+            return
+        await super()._on_key(event)
 
     def _cycle_completion(self) -> None:
         return  # Do not advertise slash commands that operate on the parent.
@@ -239,8 +251,21 @@ class ChildView(Vertical):
         chat = self.query_one("#child-chat", ChatScroll)
         at_end = not self._messages or chat.is_vertical_scroll_end
         if shown[: len(self._messages)] != self._messages:
-            await chat.remove_children()
-            self._messages = []
+            # The bounded tail rolls forward. Preserve overlapping widgets (and
+            # their expansion state), removing only records that left the tail.
+            overlap = next(
+                (
+                    n
+                    for n in range(min(len(shown), len(self._messages)), 0, -1)
+                    if self._messages[-n:] == shown[:n]
+                ),
+                0,
+            )
+            # read_child_messages admits only roles with a message widget.
+            dropped = len(self._messages) - overlap
+            for dropped_widget in list(chat.children)[:dropped]:
+                await dropped_widget.remove()
+            self._messages = self._messages[-overlap:] if overlap else []
         for msg in shown[len(self._messages) :]:
             widget = message_widget(
                 msg, show_thinking=self.show_thinking, highlight=self.highlight
@@ -270,6 +295,10 @@ class ChildView(Vertical):
         message = text[len("/continue ") :].strip() if continuation else text
         if not message:
             return
+        editor = self.query_one("#child-input", ChatInput)
+        app = self.app
+        assert isinstance(app, GptmeApp)
+        submitted = (editor.text, dict(editor._pastes))
         self._sending = True
         try:
             result = await asyncio.to_thread(
@@ -295,8 +324,16 @@ class ChildView(Vertical):
                 )
                 if continued is not None:
                     self.child = continued
+            # Editing may continue while delivery runs off-loop. Never erase a
+            # newer instruction (including its collapsed paste mappings).
             if self.is_attached:
-                self.query_one("#child-input", ChatInput).text = ""
+                if (editor.text, editor._pastes) == submitted:
+                    editor.text = ""
+                    editor._pastes.clear()
+            else:
+                saved = app._child_drafts.get(self.child.run_id)
+                if saved and (saved[0], saved[2]) == submitted:
+                    app._child_drafts.pop(self.child.run_id, None)
         finally:
             self._sending = False
         if self.is_attached:

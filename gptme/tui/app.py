@@ -3045,6 +3045,7 @@ class GptmeApp(App):
         from .child_view import ChildView
 
         if self._child_view is not None:
+            self.call_later(self._switch_child, child)
             return
         view = ChildView(
             child,
@@ -3071,9 +3072,7 @@ class GptmeApp(App):
         self.default_screen.add_class("child-inspection")
         self.default_screen.mount(view)
 
-    def close_child(self) -> None:
-        if self._child_view is None:
-            return
+    def _save_child_draft(self) -> None:
         from .child_view import ChildView
 
         if isinstance(self._child_view, ChildView):
@@ -3083,12 +3082,41 @@ class GptmeApp(App):
                 editor.selection,
                 dict(editor._pastes),
             )
+
+    async def _switch_child(self, child: "SubagentSnapshot") -> None:
+        """Replace only the child view, without restoring/waking the parent."""
+        from .child_view import ChildView
+
+        previous = self._child_view
+        if previous is None:
+            self.open_child(child)
+            return
+        if isinstance(previous, ChildView) and previous.child.run_id == child.run_id:
+            return
+        self._save_child_draft()
+        await previous.remove()
+        view = ChildView(
+            child,
+            self.manager.logdir,
+            self.manager.current_branch,
+            show_thinking=self.show_thinking,
+            highlight=self.highlight,
+        )
+        self._child_view = view
+        await self.default_screen.mount(view)
+
+    def close_child(self) -> None:
+        if self._child_view is None:
+            return
+        self._save_child_draft()
         self._child_view.remove()
         self._child_view = None
         self.default_screen.remove_class("child-inspection")
         for widget, visible in self._parent_visibility:
             widget.display = visible
         self._parent_visibility.clear()
+        if self.inline:
+            self._update_queued_view()
         self.call_after_refresh(self._restore_parent_view)
         if self._pending_parent_confirm is not None:
             dialog, callback = self._pending_parent_confirm
@@ -3834,7 +3862,7 @@ class GptmeApp(App):
         indicator.update(
             Text(f"Work: {running} running · {armed} armed · {unread} unread · Ctrl+T")
         )
-        indicator.display = bool(running or armed or unread)
+        self._set_parent_display(indicator, bool(running or armed or unread))
 
     def _update_status(self, run_statusline: bool = True) -> None:
         parts = []
@@ -3898,7 +3926,17 @@ class GptmeApp(App):
         text = Text("\n".join(lines))
         queued = self.query_one("#queued", Static)
         queued.update(text)
-        queued.display = bool(self.prompt_queue)
+        self._set_parent_display(queued, bool(self.prompt_queue))
+
+    def _set_parent_display(self, widget: Widget, visible: bool) -> None:
+        """Remember live parent visibility without exposing inline rows in a child."""
+        if self._child_view is not None:
+            for i, (parent_widget, _) in enumerate(self._parent_visibility):
+                if parent_widget is widget:
+                    self._parent_visibility[i] = (widget, visible)
+                    widget.display = False
+                    return
+        widget.display = visible
 
     def _request_statusline(self, payload: dict) -> None:
         """Run the statusline command off the UI thread; while one runs, keep
