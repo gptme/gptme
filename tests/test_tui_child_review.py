@@ -191,3 +191,58 @@ async def test_rolling_tail_keeps_overlapping_expanded_widgets(
         await view.refresh_snapshot()
         assert retained.is_attached and not block.collapsed
         assert len(chat.children) == MAX_INITIAL_MESSAGES
+
+
+@pytest.mark.asyncio
+async def test_select_continued_run_with_same_logdir(child_app: ChildApp) -> None:
+    manager, children = child_app
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        app.open_child(children[0])
+        await pilot.pause()
+        children[0] = replace(children[0], started_at=2)
+        app.open_child(children[0])
+        await pilot.pause()
+        assert app.query_one(ChildView).child.started_at == 2
+
+
+@pytest.mark.asyncio
+async def test_pending_delivery_survives_close_and_reopen(
+    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, children = child_app
+    started, release = Event(), Event()
+    sends: list[str] = []
+
+    def send(child, owner, branch, message, **kwargs) -> str:
+        sends.append(message)
+        started.set()
+        assert release.wait(10)
+        return "Sent"
+
+    monkeypatch.setattr("gptme.tui.child_view.send_child_message", send)
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        app.open_child(children[0])
+        await pilot.pause()
+        view = app.query_one(ChildView)
+        editor = view.query_one("#child-input", ChatInput)
+        editor.text = "deliver exactly once"
+        delivery = asyncio.create_task(
+            view.on_chat_input_submitted(ChatInput.Submitted(editor.text))
+        )
+        assert await asyncio.to_thread(started.wait, 5)
+        try:
+            app.close_child()
+            await pilot.pause()
+            app.open_child(children[0])
+            await pilot.pause()
+            reopened = app.query_one(ChildView)
+            await reopened.on_chat_input_submitted(
+                ChatInput.Submitted("deliver exactly once")
+            )
+        finally:
+            release.set()
+        await delivery
+        assert sends == ["deliver exactly once"]
+        assert reopened.query_one("#child-input", ChatInput).text == ""

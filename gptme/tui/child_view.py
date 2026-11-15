@@ -153,7 +153,6 @@ class ChildView(Vertical):
         self.highlight = highlight
         self._messages: list[Message] = []
         self._refreshing = False
-        self._sending = False
         self._parent_seen = 0
 
     def compose(self) -> ComposeResult:
@@ -282,7 +281,10 @@ class ChildView(Vertical):
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         event.stop()
         text = event.value.strip()
-        if not text or self._sending:
+        app = self.app
+        assert isinstance(app, GptmeApp)
+        send_key = (self.child.run_id, self.child.started_at)
+        if not text or send_key in app._child_sends:
             return
         continuation = text.startswith("/continue ")
         if self.child.status != "running" and not continuation:
@@ -296,10 +298,8 @@ class ChildView(Vertical):
         if not message:
             return
         editor = self.query_one("#child-input", ChatInput)
-        app = self.app
-        assert isinstance(app, GptmeApp)
         submitted = (editor.text, dict(editor._pastes))
-        self._sending = True
+        app._child_sends.add(send_key)
         try:
             result = await asyncio.to_thread(
                 send_child_message,
@@ -326,16 +326,17 @@ class ChildView(Vertical):
                     self.child = continued
             # Editing may continue while delivery runs off-loop. Never erase a
             # newer instruction (including its collapsed paste mappings).
-            if self.is_attached:
-                if (editor.text, editor._pastes) == submitted:
-                    editor.text = ""
-                    editor._pastes.clear()
-            else:
-                saved = app._child_drafts.get(self.child.run_id)
-                if saved and (saved[0], saved[2]) == submitted:
-                    app._child_drafts.pop(self.child.run_id, None)
+            current = app._child_view
+            if isinstance(current, ChildView) and current.child.run_id == send_key[0]:
+                current_editor = current.query_one("#child-input", ChatInput)
+                if (current_editor.text, current_editor._pastes) == submitted:
+                    current_editor.text = ""
+                    current_editor._pastes.clear()
+            saved = app._child_drafts.get(send_key[0])
+            if saved and (saved[0], saved[2]) == submitted:
+                app._child_drafts.pop(send_key[0], None)
         finally:
-            self._sending = False
+            app._child_sends.discard(send_key)
         if self.is_attached:
             self.query_one("#child-feedback", Static).update(Text(result))
 

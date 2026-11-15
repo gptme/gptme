@@ -2925,6 +2925,7 @@ class GptmeApp(App):
         # Inspection never replaces the parent manager, context or widgets.
         self._child_view: Widget | None = None
         self._child_drafts: dict[str, tuple[str, Selection, dict[str, str]]] = {}
+        self._child_sends: set[tuple[str, float]] = set()
         self._pending_parent_confirm: (
             tuple[ConfirmScreen, Callable[[ConfirmationResult | None], None]] | None
         ) = None
@@ -3091,7 +3092,11 @@ class GptmeApp(App):
         if previous is None:
             self.open_child(child)
             return
-        if isinstance(previous, ChildView) and previous.child.run_id == child.run_id:
+        if (
+            isinstance(previous, ChildView)
+            and previous.child.run_id == child.run_id
+            and previous.child.started_at == child.started_at
+        ):
             return
         self._save_child_draft()
         await previous.remove()
