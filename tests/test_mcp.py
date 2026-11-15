@@ -1089,3 +1089,17 @@ def test_mcp_http_auth_diagnostic_preserves_configured_headers(
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=2)
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_http_auth_diagnostic_ignores_broken_ca_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, no_http_proxy: None, exists: bool
+) -> None:
+    from gptme.mcp.client import _diagnose_http_auth_failure
+
+    ca_file = tmp_path / "broken-ca.pem"
+    if exists:
+        ca_file.write_text("not a certificate")
+    monkeypatch.setenv("SSL_CERT_FILE", str(ca_file))
+    # A diagnostic failure must not replace the original connection error.
+    assert _diagnose_http_auth_failure("https://example.com/mcp") is None

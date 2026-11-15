@@ -219,7 +219,7 @@ def _diagnose_http_auth_failure(
             status = response.status_code
             www_auth = response.headers.get("www-authenticate")
             # Only the status and headers matter. Never buffer an error body.
-    except httpx.HTTPError:
+    except (httpx.HTTPError, OSError):
         return None
     if status not in (401, 403):
         return None
