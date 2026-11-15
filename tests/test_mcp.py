@@ -980,6 +980,16 @@ def test_mcp_http_401_without_oauth_metadata_still_names_status(
             "https://example.com/meta",
         ),
         ('Bearer other_resource_metadata="https://example.com/meta"', None),
+        ('Bearer realm="please use resource_metadata=https://example.com/meta"', None),
+        (
+            'Bearer realm="escaped \\" resource_metadata=https://example.com/fake", '
+            'resource_metadata="https://example.com/real"',
+            "https://example.com/real",
+        ),
+        (
+            'Bearer resource_metadata="https://example.com/a\\"b"',
+            'https://example.com/a"b',
+        ),
     ],
 )
 def test_www_authenticate_field_parameter_syntax(

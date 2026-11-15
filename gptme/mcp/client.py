@@ -135,14 +135,20 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
 
 def _www_authenticate_field(header: str, field_name: str) -> str | None:
     """Return a WWW-Authenticate parameter value, quoted or unquoted."""
-    match = re.search(
-        rf'(?:^|[\s,]){re.escape(field_name)}\s*=\s*(?:"([^"]+)"|([^\s,]+))',
+    # Consume whole quoted strings even for unrelated parameters, so a field
+    # name inside a realm/error description cannot masquerade as a parameter.
+    quoted = r'"(?:\\.|[^"\\])*"'
+    for match in re.finditer(
+        rf"(?:^|[\s,]){re.escape(field_name)}\s*=\s*"
+        rf'(?:({quoted})|([^\s,"]+))|{quoted}',
         header,
         re.IGNORECASE,
-    )
-    if not match:
-        return None
-    return match.group(1) or match.group(2)
+    ):
+        if match.group(1) is not None:
+            return re.sub(r"\\(.)", r"\1", match.group(1)[1:-1])
+        if match.group(2) is not None:
+            return match.group(2)
+    return None
 
 
 _HTTP_AUTH_FAILURE_MESSAGE = (
