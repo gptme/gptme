@@ -967,6 +967,10 @@ class ToolUse:
         def _execute_tool():
             tool = get_tool(self.tool)
             if tool and tool.execute:
+                import time
+
+                # Pre-hooks and result callbacks can fail before the tool starts.
+                start_time = time.time()
                 result_msgs: list[Message] = []
                 try:
                     from ..hooks.types import ToolExecutePreData  # fmt: skip
@@ -983,6 +987,23 @@ class ToolUse:
                     ):
                         yield from pre_hook_msgs
 
+                    # A pre-hook that denied the call stops it here, before any
+                    # tool-specific confirmation or execution. Denials are
+                    # reported to the model as the call's result.
+                    if pre_data.denied:
+                        denial = own(
+                            Message(
+                                "system",
+                                "Tool execution denied: " + "; ".join(pre_data.denials),
+                                call_id=self.call_id,
+                                metadata={"tool": self.tool, "tool_status": "denied"},
+                            )
+                        )
+                        if on_result_message:
+                            on_result_message(denial)
+                        yield denial
+                        return
+
                     # Play tool sound if enabled
                     from ..util.sound import get_tool_sound_for_tool, play_tool_sound
 
@@ -990,8 +1011,6 @@ class ToolUse:
                         play_tool_sound(sound_type)
 
                     # Measure tool execution time
-                    import time
-
                     start_time = time.time()
 
                     # Set context var so tools can access current ToolUse

@@ -318,11 +318,14 @@ class ToolOutputEvent(BaseEvent):
 
 
 class ToolCompleteEvent(BaseEvent):
-    """Sent when a tool has finished executing."""
+    """Sent when a tool has finished executing or was denied by policy."""
 
     tool_id: str
     duration_ms: float
     success: bool
+    status: NotRequired[
+        str
+    ]  # completed, failed or denied; success stays backward-compatible
 
 
 class FormFieldDict(TypedDict):

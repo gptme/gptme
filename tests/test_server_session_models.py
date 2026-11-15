@@ -88,9 +88,19 @@ class TestToolStatus:
     def test_failed_value(self):
         assert ToolStatus.FAILED.value == "failed"
 
+    def test_denied_value(self):
+        assert ToolStatus.DENIED.value == "denied"
+
     def test_all_statuses_present(self):
         values = {s.value for s in ToolStatus}
-        assert values == {"pending", "executing", "completed", "skipped", "failed"}
+        assert values == {
+            "pending",
+            "executing",
+            "completed",
+            "skipped",
+            "failed",
+            "denied",
+        }
 
 
 # ---------------------------------------------------------------------------
