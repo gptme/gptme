@@ -1045,9 +1045,15 @@ Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span
 <section id="example-guardrail-plugin">
 <h2>Example: Guardrail Plugin<a class="headerlink" href="#example-guardrail-plugin" title="Link to this heading">#</a></h2>
 <p>A complete example of a plugin that blocks dangerous shell commands using the
-<code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook. <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> is the canonical hook for deny decisions
-— returning <code class="docutils literal notranslate"><span class="pre">ConfirmationResult.skip()</span></code> prevents the tool from executing at all.
-This is the right hook for deterministic, below-the-model guardrails.</p>
+<code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook. Returning <code class="docutils literal notranslate"><span class="pre">ConfirmationResult.skip()</span></code> prevents the tool
+from executing at all. <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> owns <em>consent</em>, and it is the right hook
+for tools that route through the confirmation chain (<code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">save</span></code>,
+<code class="docutils literal notranslate"><span class="pre">patch</span></code>, …).</p>
+<p>If the policy must cover <strong>every</strong> tool — including <code class="docutils literal notranslate"><span class="pre">read</span></code>, <code class="docutils literal notranslate"><span class="pre">gh</span></code>, <code class="docutils literal notranslate"><span class="pre">browser</span></code>
+and <code class="docutils literal notranslate"><span class="pre">convert</span></code>, which never confirm — register at <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> instead
+and call <code class="docutils literal notranslate"><span class="pre">data.deny(reason)</span></code>. That seam runs before any confirmation, so the
+denial neither prompts nor consumes the user’s decision. See
+<code class="docutils literal notranslate"><span class="pre">docs/hooks.rst</span></code> → “The Pre-Execution Deny Seam”.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># my_guardrail/hooks/shell_guard.py</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>

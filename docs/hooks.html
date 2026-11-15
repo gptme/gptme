@@ -647,6 +647,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-pre-execution-deny-seam">The Pre-Execution Deny Seam</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#secret-paths-reached-indirectly">Secret paths reached indirectly</a></li>
 </ul>
@@ -717,7 +718,8 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="tool-lifecycle-hooks">
 <h3>Tool Lifecycle Hooks<a class="headerlink" href="#tool-lifecycle-hooks" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code>: Before executing any tool</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code>: Before executing any tool; a hook can deny the call
+(see <a class="reference internal" href="#pre-execution-deny-seam"><span class="std std-ref">The Pre-Execution Deny Seam</span></a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code>: After executing any tool</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>: Transform tool execution</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code>: Blocking confirmation/deny decision before execution
@@ -918,13 +920,59 @@ execution in autonomous runs. This is what makes the hook usable as a real
 guardrail rather than a prompt.</p>
 </div>
 </section>
+<section id="the-pre-execution-deny-seam">
+<span id="pre-execution-deny-seam"></span><h3>The Pre-Execution Deny Seam<a class="headerlink" href="#the-pre-execution-deny-seam" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> owns <strong>user consent</strong>: it decides whether to ask, and its
+result <em>is</em> the user’s answer. A policy that only needs to say “no” should not
+register there — it would have to out-rank the interactive hooks, and answering
+<code class="docutils literal notranslate"><span class="pre">confirm()</span></code> would consume the decision the user should have made.</p>
+<p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> is the policy seam. It runs for <strong>every</strong> tool, before any
+confirmation, and a hook can deny the call by calling <code class="docutils literal notranslate"><span class="pre">data.deny(reason)</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_path</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">deny_writes_outside_workspace</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="n">tool_use</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">tool_use</span>
+    <span class="k">if</span> <span class="n">tool_use</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">!=</span> <span class="s2">"save"</span> <span class="ow">or</span> <span class="n">data</span><span class="o">.</span><span class="n">workspace</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">get_path</span><span class="p">(</span><span class="n">tool_use</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">kwargs</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">is_relative_to</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">workspace</span><span class="o">.</span><span class="n">resolve</span><span class="p">()):</span>
+        <span class="n">data</span><span class="o">.</span><span class="n">deny</span><span class="p">(</span><span class="s2">"writes are confined to the workspace"</span><span class="p">)</span>
+    <span class="k">yield from</span> <span class="p">()</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">"policy.workspace"</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_PRE</span><span class="p">,</span> <span class="n">deny_writes_outside_workspace</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This example limits <code class="docutils literal notranslate"><span class="pre">save</span></code> only; it is not a filesystem sandbox. Paths are
+resolved from the current directory, just as the save tool resolves them, and
+existing symlinks are followed before checking containment. It does not prevent
+concurrent symlink changes or writes through other tools.</p>
+<p>A denied call does not execute, its <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code> hooks do not run, and
+the reasons are returned to the model as the call’s result
+(<code class="docutils literal notranslate"><span class="pre">Tool</span> <span class="pre">execution</span> <span class="pre">denied:</span> <span class="pre">…</span></code>). Because the seam is central, it covers tools
+that never call <code class="docutils literal notranslate"><span class="pre">execute_with_confirmation()</span></code> — <code class="docutils literal notranslate"><span class="pre">read</span></code>, <code class="docutils literal notranslate"><span class="pre">gh</span></code>, <code class="docutils literal notranslate"><span class="pre">browser</span></code>
+and <code class="docutils literal notranslate"><span class="pre">convert</span></code> — with no per-tool wiring, and because it runs first, a denial
+never produces a prompt.</p>
+<p>Which seam to use:</p>
+<ul class="simple">
+<li><p><strong>Consent</strong> (ask the user, or auto-confirm on the user’s behalf) →
+<code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code>.</p></li>
+<li><p><strong>Policy</strong> (decide no, independently of the user) → <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code>.</p></li>
+</ul>
+<p>The built-in <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> hook uses both: credential/destructive-command rules
+at <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> (priority 200), and the secret-path rule for <code class="docutils literal notranslate"><span class="pre">read</span></code> at
+<code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> (priority 200), since <code class="docutils literal notranslate"><span class="pre">read</span></code> never reaches confirmation.
+Both registrations share one hook name, so <code class="docutils literal notranslate"><span class="pre">HOOK_ALLOWLIST</span></code> and
+<code class="docutils literal notranslate"><span class="pre">disable_hook(&quot;guardrails&quot;)</span></code> apply to both.</p>
+</section>
 <section id="built-in-credential-output-policy">
 <h3>Built-in Credential-Output Policy<a class="headerlink" href="#built-in-credential-output-policy" title="Link to this heading">#</a></h3>
-<p>The built-in <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> confirmation hook (priority 200) also recognizes
-obvious credential-output shell commands. Like its existing destructive-command
-and secret-path rules, it follows <code class="docutils literal notranslate"><span class="pre">GPTME_GUARDRAILS</span></code>: <code class="docutils literal notranslate"><span class="pre">shadow</span></code> (default) logs
-and allows, <code class="docutils literal notranslate"><span class="pre">enforce</span></code> skips execution, and <code class="docutils literal notranslate"><span class="pre">off</span></code> disables the hook. Merely
-installing this detector does <strong>not</strong> enable enforcement. The hook must also
+<p>The built-in <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> hooks (priority 200) also recognize obvious
+credential-output shell commands. Like its existing destructive-command and
+shell secret-path rules, it follows <code class="docutils literal notranslate"><span class="pre">GPTME_GUARDRAILS</span></code>: <code class="docutils literal notranslate"><span class="pre">shadow</span></code> (default)
+logs and allows, <code class="docutils literal notranslate"><span class="pre">enforce</span></code> skips execution, and <code class="docutils literal notranslate"><span class="pre">off</span></code> disables the hook.
+Merely installing this detector does <strong>not</strong> enable enforcement. The hook must also
 be registered and allowed by the runtime’s hook configuration.</p>
 <p>Covered literal syntax includes shell xtrace (<code class="docutils literal notranslate"><span class="pre">bash</span> <span class="pre">-eux</span></code>, <code class="docutils literal notranslate"><span class="pre">sh</span> <span class="pre">-x</span></code>,
 <code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">-x</span></code>, <code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">-o</span> <span class="pre">xtrace</span></code>, <code class="docutils literal notranslate"><span class="pre">BASH_XTRACEFD</span></code> assignments), environment dumps
@@ -1369,6 +1417,7 @@ If not provided, defaults will be loaded from env/config.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-pre-execution-deny-seam">The Pre-Execution Deny Seam</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#secret-paths-reached-indirectly">Secret paths reached indirectly</a></li>
 </ul>

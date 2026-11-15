@@ -28,7 +28,8 @@ multiple times inside one turn if the assistant keeps calling tools.
 Tool Lifecycle Hooks
 ~~~~~~~~~~~~~~~~~~~~
 
-- ``TOOL_EXECUTE_PRE``: Before executing any tool
+- ``TOOL_EXECUTE_PRE``: Before executing any tool; a hook can deny the call
+  (see :ref:`pre-execution-deny-seam`)
 - ``TOOL_EXECUTE_POST``: After executing any tool
 - ``TOOL_TRANSFORM``: Transform tool execution
 - ``TOOL_CONFIRM``: Blocking confirmation/deny decision before execution
@@ -240,14 +241,68 @@ execution is auto-confirmed (autonomous mode).
    execution in autonomous runs. This is what makes the hook usable as a real
    guardrail rather than a prompt.
 
+.. _pre-execution-deny-seam:
+
+The Pre-Execution Deny Seam
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``TOOL_CONFIRM`` owns **user consent**: it decides whether to ask, and its
+result *is* the user's answer. A policy that only needs to say "no" should not
+register there — it would have to out-rank the interactive hooks, and answering
+``confirm()`` would consume the decision the user should have made.
+
+``TOOL_EXECUTE_PRE`` is the policy seam. It runs for **every** tool, before any
+confirmation, and a hook can deny the call by calling ``data.deny(reason)``:
+
+.. code-block:: python
+
+   from gptme.hooks import HookType, register_hook
+   from gptme.tools.base import get_path
+
+   def deny_writes_outside_workspace(data):
+       tool_use = data.tool_use
+       if tool_use is None or tool_use.tool != "save" or data.workspace is None:
+           return
+       path = get_path(tool_use.content, tool_use.args, tool_use.kwargs).resolve()
+       if not path.is_relative_to(data.workspace.resolve()):
+           data.deny("writes are confined to the workspace")
+       yield from ()
+
+   def register():
+       register_hook("policy.workspace", HookType.TOOL_EXECUTE_PRE, deny_writes_outside_workspace)
+
+This example limits ``save`` only; it is not a filesystem sandbox. Paths are
+resolved from the current directory, just as the save tool resolves them, and
+existing symlinks are followed before checking containment. It does not prevent
+concurrent symlink changes or writes through other tools.
+
+A denied call does not execute, its ``TOOL_EXECUTE_POST`` hooks do not run, and
+the reasons are returned to the model as the call's result
+(``Tool execution denied: …``). Because the seam is central, it covers tools
+that never call ``execute_with_confirmation()`` — ``read``, ``gh``, ``browser``
+and ``convert`` — with no per-tool wiring, and because it runs first, a denial
+never produces a prompt.
+
+Which seam to use:
+
+- **Consent** (ask the user, or auto-confirm on the user's behalf) →
+  ``TOOL_CONFIRM``.
+- **Policy** (decide no, independently of the user) → ``TOOL_EXECUTE_PRE``.
+
+The built-in ``guardrails`` hook uses both: credential/destructive-command rules
+at ``TOOL_CONFIRM`` (priority 200), and the secret-path rule for ``read`` at
+``TOOL_EXECUTE_PRE`` (priority 200), since ``read`` never reaches confirmation.
+Both registrations share one hook name, so ``HOOK_ALLOWLIST`` and
+``disable_hook("guardrails")`` apply to both.
+
 Built-in Credential-Output Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The built-in ``guardrails`` confirmation hook (priority 200) also recognizes
-obvious credential-output shell commands. Like its existing destructive-command
-and secret-path rules, it follows ``GPTME_GUARDRAILS``: ``shadow`` (default) logs
-and allows, ``enforce`` skips execution, and ``off`` disables the hook. Merely
-installing this detector does **not** enable enforcement. The hook must also
+The built-in ``guardrails`` hooks (priority 200) also recognize obvious
+credential-output shell commands. Like its existing destructive-command and
+shell secret-path rules, it follows ``GPTME_GUARDRAILS``: ``shadow`` (default)
+logs and allows, ``enforce`` skips execution, and ``off`` disables the hook.
+Merely installing this detector does **not** enable enforcement. The hook must also
 be registered and allowed by the runtime's hook configuration.
 
 Covered literal syntax includes shell xtrace (``bash -eux``, ``sh -x``,
