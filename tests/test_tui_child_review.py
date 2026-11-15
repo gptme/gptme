@@ -207,8 +207,9 @@ async def test_select_continued_run_with_same_logdir(child_app: ChildApp) -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("continuation", [False, True])
 async def test_pending_delivery_survives_close_and_reopen(
-    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch
+    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch, continuation: bool
 ) -> None:
     manager, children = child_app
     started, release = Event(), Event()
@@ -218,6 +219,8 @@ async def test_pending_delivery_survives_close_and_reopen(
         sends.append(message)
         started.set()
         assert release.wait(10)
+        if continuation:
+            children[0] = replace(children[0], started_at=2)
         return "Sent"
 
     monkeypatch.setattr("gptme.tui.child_view.send_child_message", send)
@@ -227,7 +230,9 @@ async def test_pending_delivery_survives_close_and_reopen(
         await pilot.pause()
         view = app.query_one(ChildView)
         editor = view.query_one("#child-input", ChatInput)
-        editor.text = "deliver exactly once"
+        editor.text = (
+            "/continue deliver exactly once" if continuation else "deliver exactly once"
+        )
         delivery = asyncio.create_task(
             view.on_chat_input_submitted(ChatInput.Submitted(editor.text))
         )
@@ -246,3 +251,4 @@ async def test_pending_delivery_survives_close_and_reopen(
         await delivery
         assert sends == ["deliver exactly once"]
         assert reopened.query_one("#child-input", ChatInput).text == ""
+        assert reopened.child.started_at == children[0].started_at

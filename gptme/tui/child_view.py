@@ -324,6 +324,13 @@ class ChildView(Vertical):
                 )
                 if continued is not None:
                     self.child = continued
+                    current = app._child_view
+                    if (
+                        isinstance(current, ChildView)
+                        and (current.child.run_id, current.child.started_at) == send_key
+                    ):
+                        current.child = continued
+                        current._update_banner()
             # Editing may continue while delivery runs off-loop. Never erase a
             # newer instruction (including its collapsed paste mappings).
             current = app._child_view
