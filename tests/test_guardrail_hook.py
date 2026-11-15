@@ -9,7 +9,8 @@ import pytest
 
 from gptme.hooks import HookType, get_hooks, register_hook, unregister_hook
 from gptme.hooks.confirm import ConfirmationResult
-from gptme.tools.base import ToolUse
+from gptme.message import Message
+from gptme.tools.base import ToolSpec, ToolUse
 
 
 @pytest.fixture(autouse=True)
@@ -552,3 +553,119 @@ class TestAllowEdit:
             and "Nothing was executed" in message.content
             for message in messages
         )
+
+
+class TestPreExecutionSeam:
+    """The central TOOL_EXECUTE_PRE seam is the policy seam for unarmed tools.
+
+    ``read``, ``gh``, ``browser`` and ``convert`` never call
+    ``execute_with_confirmation()``, so TOOL_CONFIRM cannot police them. A
+    pre-hook denial fires for every tool before any confirmation, so it both
+    reaches them and never consumes a user's decision.
+    """
+
+    @staticmethod
+    def _register_guardrails(monkeypatch, mode: str) -> None:
+        from gptme.hooks.guardrails import register
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        register()
+
+    @staticmethod
+    def _unregister_guardrails() -> None:
+        unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+        unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+
+    def test_read_secret_path_denied_end_to_end(self, tmp_path, monkeypatch):
+        """A real ``read`` call never runs on a secret path."""
+        from gptme.tools import load_tool
+
+        load_tool("read")  # not in the default tool set
+        secret = tmp_path / ".env"
+        secret.write_text("TOKEN=unique-synthetic-value\n")
+        self._register_guardrails(monkeypatch, "enforce")
+        try:
+            msgs = list(
+                ToolUse(tool="read", args=[str(secret)], content=None).execute()
+            )
+        finally:
+            self._unregister_guardrails()
+
+        contents = "\n".join(m.content for m in msgs)
+        assert "unique-synthetic-value" not in contents
+        assert "[policy-block]" in contents
+        assert "Secret path access blocked" in contents
+
+    def test_read_safe_path_still_reads(self, tmp_path, monkeypatch):
+        from gptme.tools import load_tool
+
+        load_tool("read")
+        notes = tmp_path / "notes.txt"
+        notes.write_text("ordinary notes\n")
+        self._register_guardrails(monkeypatch, "enforce")
+        try:
+            msgs = list(ToolUse(tool="read", args=[str(notes)], content=None).execute())
+        finally:
+            self._unregister_guardrails()
+
+        assert any("ordinary notes" in m.content for m in msgs)
+
+    def test_seam_denial_skips_the_confirmation_chain(self, tmp_path, monkeypatch):
+        """Policy blocks without becoming the confirmer (the Tracekit root cause).
+
+        A denial at the seam fires *before* TOOL_CONFIRM, so no prompt is
+        produced and no confirmation hook gets to answer for the user.
+        """
+        called: list[str] = []
+
+        def spy_confirm(tool_use, preview=None, workspace=None):
+            called.append(tool_use.tool)
+            return
+
+        def deny_all(data):
+            data.deny("policy decision at the seam")
+            return []
+
+        register_hook(
+            "test.spy_confirm", HookType.TOOL_CONFIRM, spy_confirm, priority=1000
+        )
+        register_hook("test.deny", HookType.TOOL_EXECUTE_PRE, deny_all)
+        try:
+            msgs = list(
+                ToolUse(tool="shell", args=[], content="touch never-created").execute()
+            )
+        finally:
+            unregister_hook("test.deny", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("test.spy_confirm", HookType.TOOL_CONFIRM)
+
+        assert called == [], "a seam denial must not reach the consent chain"
+        contents = "\n".join(m.content for m in msgs)
+        assert "policy decision at the seam" in contents
+
+    @pytest.mark.parametrize("tool_name", ["gh", "browser", "convert"])
+    def test_deny_covers_tools_without_confirmation(self, tool_name, monkeypatch):
+        """Tools that never confirm are still stoppable, with no per-tool wiring."""
+        ran: list[str] = []
+
+        def execute(code, args, kwargs):
+            ran.append(tool_name)
+            yield Message("system", "ran")
+
+        spec = ToolSpec(name=tool_name, desc="test", execute=execute)
+
+        def deny_all(data):
+            data.deny("covered by the central seam")
+            return []
+
+        monkeypatch.setattr(
+            "gptme.tools.get_tool",
+            lambda name: spec if name == tool_name else None,
+        )
+        register_hook("test.deny", HookType.TOOL_EXECUTE_PRE, deny_all)
+        try:
+            msgs = list(ToolUse(tool=tool_name, args=[], content="payload").execute())
+        finally:
+            unregister_hook("test.deny", HookType.TOOL_EXECUTE_PRE)
+
+        assert ran == [], f"a denied {tool_name} call must not execute"
+        assert any("covered by the central seam" in m.content for m in msgs)

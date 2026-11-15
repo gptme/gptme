@@ -380,9 +380,16 @@ Example: Guardrail Plugin
 -------------------------
 
 A complete example of a plugin that blocks dangerous shell commands using the
-``TOOL_CONFIRM`` hook. ``TOOL_CONFIRM`` is the canonical hook for deny decisions
-— returning ``ConfirmationResult.skip()`` prevents the tool from executing at all.
-This is the right hook for deterministic, below-the-model guardrails.
+``TOOL_CONFIRM`` hook. Returning ``ConfirmationResult.skip()`` prevents the tool
+from executing at all. ``TOOL_CONFIRM`` owns *consent*, and it is the right hook
+for tools that route through the confirmation chain (``shell``, ``save``,
+``patch``, …).
+
+If the policy must cover **every** tool — including ``read``, ``gh``, ``browser``
+and ``convert``, which never confirm — register at ``TOOL_EXECUTE_PRE`` instead
+and call ``data.deny(reason)``. That seam runs before any confirmation, so the
+denial neither prompts nor consumes the user's decision. See
+``docs/hooks.rst`` → "The Pre-Execution Deny Seam".
 
 .. code-block:: python
 
