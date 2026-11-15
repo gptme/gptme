@@ -252,3 +252,35 @@ async def test_pending_delivery_survives_close_and_reopen(
         assert sends == ["deliver exactly once"]
         assert reopened.query_one("#child-input", ChatInput).text == ""
         assert reopened.child.started_at == children[0].started_at
+
+
+@pytest.mark.asyncio
+async def test_repeated_enter_during_delivery_is_not_queued_twice(
+    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, children = child_app
+    started, release = Event(), Event()
+    sends: list[str] = []
+
+    def send(child, owner, branch, message, **kwargs) -> str:
+        sends.append(message)
+        started.set()
+        assert release.wait(10)
+        return "Sent"
+
+    monkeypatch.setattr("gptme.tui.child_view.send_child_message", send)
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        app.open_child(children[0])
+        await pilot.pause()
+        editor = app.query_one("#child-input", ChatInput)
+        editor.text = "deliver once"
+        editor.post_message(events.Key("enter", None))
+        assert await asyncio.to_thread(started.wait, 5)
+        try:
+            # Dispatch through Textual, not a concurrent direct handler call.
+            await editor._on_key(events.Key("enter", None))
+        finally:
+            release.set()
+        await pilot.pause()
+        assert sends == ["deliver once"]

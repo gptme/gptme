@@ -108,6 +108,8 @@ def send_child_message(
 class ChildInput(ChatInput):
     """Child prompts are literal messages, not parent slash commands."""
 
+    _submission_pending = False
+
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
             event.stop()
@@ -115,6 +117,9 @@ class ChildInput(ChatInput):
             # Unlike parent submission, child delivery can be rejected. Retain
             # the expansion mappings until the selected draft is delivered.
             self._clear_completions()
+            if self._submission_pending:
+                return
+            self._submission_pending = True
             self.post_message(self.Submitted(self._expand_pastes(self.text)))
             return
         await super()._on_key(event)
@@ -280,7 +285,16 @@ class ChildView(Vertical):
 
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         event.stop()
-        text = event.value.strip()
+        editor = self.query_one("#child-input", ChildInput)
+        try:
+            await self._submit(event.value)
+        finally:
+            # Release at the producer too: Textual queues async handlers, so a
+            # handler-only guard cannot reject a second already-posted Enter.
+            editor._submission_pending = False
+
+    async def _submit(self, value: str) -> None:
+        text = value.strip()
         app = self.app
         assert isinstance(app, GptmeApp)
         send_key = (self.child.run_id, self.child.started_at)
