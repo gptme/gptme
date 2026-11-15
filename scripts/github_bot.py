@@ -17,7 +17,7 @@ Environment Variables:
     GITHUB_EVENT_PATH: Path to GitHub event JSON (optional, for CI)
     OPENAI_API_KEY: OpenAI API key (optional)
     ANTHROPIC_API_KEY: Anthropic API key (optional)
-    MODEL: Model to use (default: anthropic/claude-sonnet-4-20250514)
+    MODEL: Model to use (default: anthropic/claude-sonnet-4-6)
     ALLOWLIST: Comma-separated list of GitHub usernames allowed to trigger the bot
     DRY_RUN: If set, don't make changes (for testing)
     RESOLVE_LABEL: Label name that triggers resolve mode (default: bot:resolve)
@@ -596,7 +596,7 @@ Examples:
 
     # Get configuration from environment
     token = get_env("GITHUB_TOKEN", required=True)
-    model = get_env("MODEL", "anthropic/claude-sonnet-4-20250514")
+    model = get_env("MODEL", "anthropic/claude-sonnet-4-6")
     allowlist = get_env("ALLOWLIST", "ErikBjare")
     dry_run = args.dry_run or bool(os.environ.get("DRY_RUN"))
     resolve_label = get_env("RESOLVE_LABEL", "bot:resolve")

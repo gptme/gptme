@@ -15,6 +15,7 @@ from gptme.llm.models import (
     _find_closest_model_properties,
     _get_models_for_provider,
     get_model,
+    get_model_list,
     get_recommended_model,
     list_models,
 )
@@ -316,6 +317,49 @@ def test_recommended_models_have_metadata(provider):
         assert not MODELS[provider][name].get("deprecated"), (
             f"{provider}/{name} is deprecated"
         )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Deprecated 2026-09-30, retires 2026-11-30 (gptme/gptme#4930)
+        "claude-sonnet-4-5-20250929",
+        # Already retired upstream
+        "claude-opus-4-1-20250805",
+        "claude-opus-4-20250514",
+        "claude-sonnet-4-20250514",
+    ],
+)
+def test_retiring_anthropic_models_are_deprecated(name):
+    """Anthropic models past (or near) retirement are flagged deprecated.
+
+    They stay resolvable when requested explicitly, but are hidden from the
+    default model listing.
+    See https://platform.claude.com/docs/en/about-claude/model-deprecations
+    """
+    assert MODELS["anthropic"][name].get("deprecated") is True
+    # Still resolvable via explicit --model, including through its alias
+    assert get_model(f"anthropic/{name}").deprecated
+    listed = {
+        m.model
+        for m in get_model_list(provider_filter="anthropic", dynamic_fetch=False)
+    }
+    assert name not in listed
+    listed_all = {
+        m.model
+        for m in get_model_list(
+            provider_filter="anthropic", include_deprecated=True, dynamic_fetch=False
+        )
+    }
+    assert name in listed_all
+
+
+def test_sonnet_4_5_alias_resolves_to_deprecated_model():
+    """The bare claude-sonnet-4-5 alias still works but carries the deprecated flag."""
+    assert MODEL_ALIASES["anthropic"]["claude-sonnet-4-5"] == (
+        "claude-sonnet-4-5-20250929"
+    )
+    assert get_model("anthropic/claude-sonnet-4-5").deprecated
 
 
 def test_deepseek_v41_aliases_share_current_capabilities():

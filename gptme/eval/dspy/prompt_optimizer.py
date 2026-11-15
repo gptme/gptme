@@ -62,7 +62,7 @@ class ModelNameMapper:
     def get_reflection_model(base_model: str) -> str:
         """Get a more powerful model for reflection tasks."""
         if base_model.startswith("anthropic/"):
-            return "claude-sonnet-4-5"
+            return "claude-sonnet-5-5"
         if base_model.startswith("openai/"):
             return "gpt-5"
         if "gemini" in base_model or base_model.startswith("google/"):
@@ -255,12 +255,12 @@ class PromptOptimizer:
     Usage Example:
 
         optimizer = PromptOptimizer(
-            model="anthropic/claude-sonnet-4-5",
+            model="anthropic/claude-sonnet-5-5",
             optimizer_type="miprov2",
         )
 
     Args:
-        model: Base model for prompt execution (e.g., "anthropic/claude-sonnet-4-5")
+        model: Base model for prompt execution (e.g., "anthropic/claude-sonnet-5-5")
         optimizer_type: Optimization algorithm ("miprov2" or "gepa")
         max_demos: Maximum number of demonstration examples to include
         num_trials: Number of optimization trials to run
