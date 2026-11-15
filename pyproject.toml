@@ -41,7 +41,7 @@ dependencies = [
 
     # providers
     "openai>=2.48,<3",  # OpenAI 3 requires migrating the httpx transport integration.
-    "anthropic>=1.8,<3",
+    "anthropic>=1.8,<=1.13.0",  # Newer native tracing duplicates instrumentor spans.
     "httpx>=0.28.1,<1",  # LLM recovery and stream errors import httpx directly.
     "httpx2>=2.0.0,<3",  # Anthropic transport exceptions are imported directly.
 
