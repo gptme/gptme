@@ -750,11 +750,15 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
         assert screen._children[screen._cursor].agent_id == "child-25"
         await pilot.press("enter")
         await pilot.pause()
-        assert isinstance(app.screen, WorkScreen)
-        assert app.screen._logdir == tmp_path / "child-25"
-        await pilot.press("q")
+        from gptme.tui.child_view import ChildView
+
+        view = app.query_one("#child-view", ChildView)
+        assert view.child.logdir == tmp_path / "child-25"
+        assert len(app.screen_stack) == 1
+        await pilot.press("escape")
         await pilot.pause()
-        assert app.screen is screen
+        assert app._child_view is None
+        assert app.screen is app.default_screen
 
 
 def test_work_summary_finished_child_does_not_tick() -> None:

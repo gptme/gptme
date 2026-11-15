@@ -37,8 +37,8 @@ from gptme.tui.app import (
     ChatScroll,
     GptmeApp,
     WorkOverviewScreen,
-    WorkScreen,
 )
+from gptme.tui.child_view import ChildView
 
 if TYPE_CHECKING:
     from textual.widget import Widget
@@ -242,10 +242,11 @@ async def test_two_children_two_watches_preserve_parent_and_defer_timeout(
                     LogManager, "load", side_effect=AssertionError("child load")
                 ) as load_child:
                     await pilot.press("enter")
-                    assert isinstance(app.screen, WorkScreen)
-                    child_text = str(
-                        app.screen.query_one("#work-screen-content", Static).render()
-                    )
+                    assert app.screen is parent_screen
+                    assert overview not in app.screen_stack
+                    child_view = app._child_view
+                    assert isinstance(child_view, ChildView)
+                    child_text = "\n".join(msg.content for msg in child_view._messages)
                     assert "child transcript only" in child_text
                     assert "unfinished" not in child_text
                     assert app.manager is manager
@@ -289,12 +290,22 @@ async def test_two_children_two_watches_preserve_parent_and_defer_timeout(
                     assert len(turns) == int(busy)
                     await pilot.press("escape")
                     load_child.assert_not_called()
-                assert app.screen is overview
+                assert app.screen is parent_screen
+                assert app._child_view is None
+                # Esc returns directly to the parent; reopen the overview to
+                # inspect the completed child and expired watch explicitly.
+                await pilot.press("ctrl+t")
+                overview = app.screen
+                assert isinstance(overview, WorkOverviewScreen)
                 overview._refresh_summary()
+                content = overview.query_one("#work-overview-content", Static)
+                monitor_view = overview.query_one("#work-overview-monitors", Static)
                 summary = f"{content.render()}\n{monitor_view.render()}"
                 assert "[success]" in summary and "[running]" in summary
                 assert "[expired]" in summary and "[armed]" in summary
-                assert list(manager.log) == log_before
+                # Returning from ChildView already releases deferred delivery.
+                # The untouched-parent-log assertion above belongs before Esc,
+                # not after reopening this new overview from the parent.
                 await pilot.press("escape")
                 assert app.screen is parent_screen
                 assert app.focused is field

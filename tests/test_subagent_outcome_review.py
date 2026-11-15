@@ -311,3 +311,24 @@ def test_concurrent_lookup_never_observes_unrestored_outcome(
     assert not first.is_alive()
     assert not errors
     assert api.subagent_status("worker")["status"] == "timeout"
+
+
+def test_continue_newest_reused_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = types.Subagent("worker", "old", None, tmp_path / "old", None)
+    latest = types.Subagent("worker", "latest", None, tmp_path / "latest", None)
+    latest.logdir.mkdir()
+    (latest.logdir / "conversation.jsonl").write_text("")
+    with types._subagents_lock:
+        types._subagents.extend([old, latest])
+    monkeypatch.setattr(api._exec, "_create_subagent_thread", lambda **kw: None)
+    api.subagent_continue(
+        "worker", "follow up", expected_run=(latest.logdir, latest.started_at)
+    )
+    with types._subagents_lock:
+        current = types._subagents[-1]
+    assert current.logdir == latest.logdir and current is not latest
+    assert current.thread is not None
+    current.thread.join(5)
+    assert not current.thread.is_alive()

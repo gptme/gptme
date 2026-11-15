@@ -14,7 +14,8 @@ from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.tools.subagent.api import SubagentSnapshot
 from gptme.tools.watch import Watch
-from gptme.tui.app import GptmeApp, WorkOverviewScreen, WorkScreen
+from gptme.tui.app import GptmeApp, WorkOverviewScreen
+from gptme.tui.child_view import ChildView
 
 
 def _manager(tmp_path: Path) -> LogManager:
@@ -65,11 +66,14 @@ async def test_indicator_and_completion_acknowledgement(
         assert "custom status" in str(app.query_one("#status", Static).render())
         app.action_show_work()
         await pilot.pause()
+        parent = app.screen_stack[0]
         overview = app.screen
         assert isinstance(overview, WorkOverviewScreen)
         await pilot.press("enter")
         await pilot.pause()
-        assert isinstance(app.screen, WorkScreen)
+        assert isinstance(app._child_view, ChildView)
+        assert app.screen is parent
+        assert overview not in app.screen_stack
         # Looking at a running child does not acknowledge its future completion.
         children[:] = [replace(child, status="success", elapsed_s=14)]
         watch.expired = True
@@ -79,6 +83,12 @@ async def test_indicator_and_completion_acknowledgement(
         assert "0 armed" in str(indicator.render())
         await pilot.press("escape")
         await pilot.pause()
+        assert app.screen is parent
+        assert app._child_view is None
+        app.action_show_work()
+        await pilot.pause()
+        overview = app.screen
+        assert isinstance(overview, WorkOverviewScreen)
         overview._refresh_summary()
         assert "unread" in str(
             overview.query_one("#work-overview-content", Static).render()
@@ -92,9 +102,15 @@ async def test_indicator_and_completion_acknowledgement(
         )
         await pilot.press("enter")
         await pilot.pause()
-        assert isinstance(app.screen, WorkScreen)
+        assert isinstance(app._child_view, ChildView)
+        assert app.screen is parent
         await pilot.press("escape")
         await pilot.pause()
+        assert app.screen is parent
+        assert app._child_view is None
+        app.action_show_work()
+        await pilot.pause()
+        assert isinstance(app.screen, WorkOverviewScreen)
         assert "unread" not in str(
             app.screen.query_one("#work-overview-content", Static).render()
         )
@@ -117,9 +133,14 @@ async def test_acknowledgement_does_not_cross_parent_branch(
     )
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
+        parent = app.screen
         app.push_screen(WorkOverviewScreen(manager.logdir, "main"))
         await pilot.pause()
         await pilot.press("enter", "escape")
+        await pilot.pause()
+        assert app.screen is parent
+        assert app._child_view is None
+        app.push_screen(WorkOverviewScreen(manager.logdir, "main"))
         await pilot.pause()
         assert "unread" not in str(
             app.screen.query_one("#work-overview-content", Static).render()
@@ -234,11 +255,15 @@ async def test_real_snapshots_keep_unread_and_progress_after_model_delivery(
         assert "decoy" not in summary
         assert "[success] 14s · unread" in summary
         assert child.logdir == agents[0].logdir
-        await pilot.press("enter", "escape")
+        await pilot.press("enter")
         await pilot.pause()
+        assert isinstance(app._child_view, ChildView)
+        assert not isinstance(app.screen, WorkOverviewScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app._child_view is None
         assert "0 unread" in str(indicator.render())
         assert take_queued_completions(owner, branch=branch) == []
-        await pilot.press("escape")
 
 
 @pytest.mark.asyncio
@@ -279,7 +304,9 @@ async def test_parent_can_finish_while_child_transcript_is_open(
             app.action_show_work()
             await pilot.pause()
             await pilot.press("enter")
-            assert isinstance(app.screen, WorkScreen)
+            assert app.screen is parent
+            child_view = app._child_view
+            assert isinstance(child_view, ChildView)
             children[:] = [replace(child, status="success", elapsed_s=23)]
             release.set()
             await app.workers.wait_for_complete()
@@ -290,8 +317,16 @@ async def test_parent_can_finish_while_child_transcript_is_open(
             assert "1 unread" in str(
                 app.screen_stack[0].query_one("#work-indicator", Static).render()
             )
-            await pilot.press("escape", "escape")
+            assert app._child_view is child_view
+            assert "idle" in str(
+                child_view.query_one("#child-parent-status", Static).render()
+            )
+            assert "1 new messages" in str(
+                child_view.query_one("#child-parent-status", Static).render()
+            )
+            await pilot.press("escape")
             await pilot.pause()
+            assert app._child_view is None
             assert app.screen is parent
             assert field.text == "unsent draft"
     finally:

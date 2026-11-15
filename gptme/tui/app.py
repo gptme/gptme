@@ -18,7 +18,7 @@ import os.path
 import re
 import signal
 import sys
-from collections.abc import Awaitable, Generator, Sequence
+from collections.abc import Awaitable, Callable, Generator, Sequence
 from dataclasses import dataclass
 
 try:
@@ -2401,6 +2401,25 @@ def _build_work_sections(
     return "\n".join(child_lines), "\n".join(lines)
 
 
+def message_widget(
+    msg: Message,
+    *,
+    show_thinking: bool = False,
+    highlight: bool = True,
+    expanded: bool = False,
+) -> Widget | None:
+    """Normal transcript widgets, independent of live conversation state."""
+    if msg.role == "user":
+        return UserMessage(msg.content)
+    if msg.role == "assistant":
+        return AssistantMessage(
+            msg.content, show_thinking=show_thinking, highlight=highlight
+        )
+    if msg.role == "system":
+        return SystemMessage(msg.content, highlight=highlight, expanded=expanded)
+    return None
+
+
 class WorkScreen(ModalScreen):
     """Read-only transcript viewer for a child agent's log.
 
@@ -2653,7 +2672,10 @@ class WorkOverviewScreen(ModalScreen):
         idx = max(0, min(self._cursor, len(self._children) - 1))
         sa = self._children[idx]
         if sa.logdir and sa.logdir.exists():
-            self.app.push_screen(WorkScreen(sa.logdir, sa.agent_id))
+            if not isinstance(self.app, GptmeApp):
+                return
+            self.dismiss()
+            self.app.open_child(sa)
             if isinstance(self.app, GptmeApp) and sa.status not in (
                 "running",
                 "unknown",
@@ -2697,6 +2719,10 @@ class GptmeApp(App):
            the full-screen layout has neither */
         border-top: none;
         border-bottom: none;
+    }
+    Screen.child-inspection {
+        height: 100%;
+        max-height: 100%;
     }
     #live {
         height: auto;
@@ -2984,6 +3010,15 @@ class GptmeApp(App):
             if not isinstance(filter_, ANSIToTruecolor)
         ]
         self.manager = manager
+        # Inspection never replaces the parent manager, context or widgets.
+        self._child_view: Widget | None = None
+        self._child_drafts: dict[str, tuple[str, Selection, dict[str, str]]] = {}
+        self._child_sends: set[tuple[str, float]] = set()
+        self._pending_parent_confirm: (
+            tuple[ConfirmScreen, Callable[[ConfirmationResult | None], None]] | None
+        ) = None
+        self._parent_visibility: list[tuple[Widget, bool]] = []
+        self._parent_scroll: tuple[float, float, bool, bool] | None = None
         # User acknowledgements belong to this TUI, not the model delivery queues.
         self._work_acknowledged: set[tuple[str, str, str, float, str]] = set()
         self.tool_format: ToolFormat = tool_format
@@ -3093,6 +3128,110 @@ class GptmeApp(App):
         self._inline_sigwinch_installed = False
 
     # ------------------------------------------------------------------ UI
+
+    def open_child(self, child: "SubagentSnapshot") -> None:
+        """Inspect a child while the parent keeps running underneath."""
+        from .child_view import ChildView
+
+        if self._child_view is not None:
+            self.call_later(self._switch_child, child)
+            return
+        view = ChildView(
+            child,
+            self.manager.logdir,
+            self.manager.current_branch,
+            show_thinking=self.show_thinking,
+            highlight=self.highlight,
+        )
+        self._child_view = view
+        if not self.inline:
+            chat = self.query_one("#chat", ChatScroll)
+            self._parent_scroll = (
+                chat.scroll_x,
+                chat.scroll_y,
+                chat.is_anchored,
+                chat._anchor_released,
+            )
+        self._parent_visibility = [
+            (widget, widget.display) for widget in self.default_screen.children
+        ]
+        for widget, _ in self._parent_visibility:
+            widget.display = False
+        # Inline inspection expands the region, not the parent's scrollback.
+        self.default_screen.add_class("child-inspection")
+        self.default_screen.mount(view)
+
+    def _save_child_draft(self) -> None:
+        from .child_view import ChildView
+
+        if isinstance(self._child_view, ChildView):
+            editor = self._child_view.query_one("#child-input", ChatInput)
+            self._child_drafts[self._child_view.child.run_id] = (
+                editor.text,
+                editor.selection,
+                dict(editor._pastes),
+            )
+
+    async def _switch_child(self, child: "SubagentSnapshot") -> None:
+        """Replace only the child view, without restoring/waking the parent."""
+        from .child_view import ChildView
+
+        previous = self._child_view
+        if previous is None:
+            self.open_child(child)
+            return
+        if (
+            isinstance(previous, ChildView)
+            and previous.child.run_id == child.run_id
+            and previous.child.started_at == child.started_at
+        ):
+            return
+        self._save_child_draft()
+        await previous.remove()
+        view = ChildView(
+            child,
+            self.manager.logdir,
+            self.manager.current_branch,
+            show_thinking=self.show_thinking,
+            highlight=self.highlight,
+        )
+        self._child_view = view
+        await self.default_screen.mount(view)
+
+    def close_child(self) -> None:
+        if self._child_view is None:
+            return
+        self._save_child_draft()
+        self._child_view.remove()
+        self._child_view = None
+        self.default_screen.remove_class("child-inspection")
+        for widget, visible in self._parent_visibility:
+            widget.display = visible
+        self._parent_visibility.clear()
+        if self.inline:
+            self._update_queued_view()
+        self.call_after_refresh(self._restore_parent_view)
+        if self._pending_parent_confirm is not None:
+            dialog, callback = self._pending_parent_confirm
+            self._pending_parent_confirm = None
+            self.push_screen(dialog, callback)
+
+    def _restore_parent_view(self) -> None:
+        if self._child_view is not None:
+            return
+        if self._parent_scroll is not None:
+            x, y, anchored, released = self._parent_scroll
+            self._parent_scroll = None
+            chat = self.query_one("#chat", ChatScroll)
+            chat.anchor(anchored)
+            if released or not anchored:
+                # is_anchored describes the policy, not whether the user has
+                # released it by scrolling up. Preserve both independently.
+                chat.release_anchor()
+                chat.scroll_to(x, y, animate=False, force=True, immediate=True)
+        if not self._is_modal_open():
+            self.query_one("#input", ChatInput).focus(scroll_visible=False)
+        self.post_message(self.NotificationReady())
 
     def compose(self) -> ComposeResult:
         if self.inline:
@@ -3219,6 +3358,7 @@ class GptmeApp(App):
             or self._initial_prompts
             or self.prompt_queue
             or len(self.screen_stack) > 1
+            or self._child_view is not None
         ):
             return
         from ..tools.subagent.hooks import (
@@ -3541,23 +3681,20 @@ class GptmeApp(App):
         re-anchors). Not before overflowing: Textual would then bottom-align
         a short chat instead of starting it at the top.
         """
+        if self._child_view is not None:
+            return
         chat = self.query_one("#chat", VerticalScroll)
         height = chat.container_size.height
         if not chat.is_anchored and 0 < height < chat.virtual_size.height:
             chat.anchor()
 
     def _widget_for(self, msg: Message) -> Widget | None:
-        if msg.role == "user":
-            return UserMessage(msg.content)
-        if msg.role == "assistant":
-            return AssistantMessage(
-                msg.content, show_thinking=self.show_thinking, highlight=self.highlight
-            )
-        if msg.role == "system":
-            return SystemMessage(
-                msg.content, highlight=self.highlight, expanded=self._outputs_expanded
-            )
-        return None
+        return message_widget(
+            msg,
+            show_thinking=self.show_thinking,
+            highlight=self.highlight,
+            expanded=self._outputs_expanded,
+        )
 
     def _print_above(self, *renderables) -> None:
         """Print rich renderables into the terminal's native scrollback,
@@ -3854,7 +3991,7 @@ class GptmeApp(App):
                 overflow="ellipsis",
             )
         )
-        indicator.display = bool(running or armed or unread)
+        self._set_parent_display(indicator, bool(running or armed or unread))
 
     def _update_status(self, run_statusline: bool = True) -> None:
         parts = []
@@ -3918,7 +4055,17 @@ class GptmeApp(App):
         text = Text("\n".join(lines))
         queued = self.query_one("#queued", Static)
         queued.update(text)
-        queued.display = bool(self.prompt_queue)
+        self._set_parent_display(queued, bool(self.prompt_queue))
+
+    def _set_parent_display(self, widget: Widget, visible: bool) -> None:
+        """Remember live parent visibility without exposing inline rows in a child."""
+        if self._child_view is not None:
+            for i, (parent_widget, _) in enumerate(self._parent_visibility):
+                if parent_widget is widget:
+                    self._parent_visibility[i] = (widget, visible)
+                    widget.display = False
+                    return
+        widget.display = visible
 
     def _request_statusline(self, payload: dict) -> None:
         """Run the statusline command off the UI thread; while one runs, keep
@@ -4032,6 +4179,11 @@ class GptmeApp(App):
 
     def _set_state(self, state: str) -> None:
         self.state = state
+        if self._child_view is not None:
+            from .child_view import ChildView
+
+            if isinstance(self._child_view, ChildView):
+                self._child_view.update_parent_status()
         self._sync_program_status()
         self._update_status()
 
@@ -4067,6 +4219,8 @@ class GptmeApp(App):
         w.display = True
 
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+        if self._child_view is not None:
+            return  # ChildView owns its composer; never route it to parent.
         text = event.value.strip()
         chat_input = self.query_one("#input", ChatInput)
         self._hold_input_height()
@@ -4368,7 +4522,9 @@ class GptmeApp(App):
     def _refocus_input_after_toggle(self) -> None:
         # Clicking a title focuses it (drawn bold) and takes keyboard focus
         # from the input; hand it back so typing keeps working.
-        if not isinstance(self.screen, ModalScreen):
+        if self._child_view is not None:
+            self._child_view.query_one("#child-input").focus()
+        elif not isinstance(self.screen, ModalScreen):
             self.query_one("#input").focus()
 
     # Textual posts the Toggled subclasses, whose handler names differ
@@ -5140,7 +5296,11 @@ class GptmeApp(App):
                 result["r"] = r or ConfirmationResult.skip("Dialog dismissed")
                 done.set()
 
-            self.push_screen(ConfirmScreen(tool_use, preview), on_result)
+            dialog = ConfirmScreen(tool_use, preview)
+            if self._child_view is not None:
+                self._pending_parent_confirm = (dialog, on_result)
+            else:
+                self.push_screen(dialog, on_result)
 
         self.call_from_thread(show)
         while not done.wait(timeout=0.5):
@@ -5168,6 +5328,9 @@ class GptmeApp(App):
         return True
 
     def action_interrupt(self) -> None:
+        if self._child_view is not None:
+            self.close_child()
+            return
         self._dismiss_dialog()
         # An idle parent can still have children or watches in flight. Keep
         # their notifications visible, but suppress autowake until a user turn.
@@ -5205,6 +5368,12 @@ class GptmeApp(App):
         ).start()
 
     def action_interrupt_or_quit(self) -> None:
+        if self._child_view is not None:
+            if isinstance(self.screen, WorkOverviewScreen):
+                self.screen.dismiss()
+                return
+            self.close_child()
+            return
         if self.generating:
             self.action_interrupt()
         elif not self._dismiss_dialog():  # e.g. the URL dialog before a turn
@@ -5212,6 +5381,12 @@ class GptmeApp(App):
 
     def action_toggle_details(self) -> None:
         """Ctrl+O: expand outputs and thinking, or collapse both if expanded."""
+        if self._child_view is not None:
+            from .child_view import ChildView
+
+            if isinstance(self._child_view, ChildView):
+                self._child_view.toggle_details()
+            return
         on = not (self._outputs_expanded and self.show_thinking)
         self._set_outputs(on)
         self._set_thinking(on)
@@ -5250,6 +5425,8 @@ class GptmeApp(App):
         rules, and the input should simply keep focus.
         """
         chat_input = self.query_one("#input", ChatInput)
+        if self._child_view is not None:
+            chat_input = self._child_view.query_one("#child-input", ChatInput)
         if focus and self.screen.focused is None and not self._is_modal_open():
             self.screen.set_focus(chat_input, scroll_visible=False)
         chat_input.redraw_cursor()
