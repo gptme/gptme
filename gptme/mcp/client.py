@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import socket
 import ssl
 import threading
@@ -130,6 +131,102 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
             )
             return _TLS_VERIFICATION_MESSAGE.format(reason=reason)
         return None
+
+
+def _www_authenticate_field(header: str, field_name: str) -> str | None:
+    """Return a WWW-Authenticate parameter value, quoted or unquoted."""
+    # Consume whole quoted strings even for unrelated parameters, so a field
+    # name inside a realm/error description cannot masquerade as a parameter.
+    quoted = r'"(?:\\.|[^"\\])*"'
+    for match in re.finditer(
+        rf"(?:^|[\s,]){re.escape(field_name)}\s*=\s*"
+        rf'(?:({quoted})|([^\s,"]+))|{quoted}',
+        header,
+        re.IGNORECASE,
+    ):
+        if match.group(1) is not None:
+            return re.sub(r"\\(.)", r"\1", match.group(1)[1:-1])
+        if match.group(2) is not None:
+            return match.group(2)
+    return None
+
+
+_HTTP_AUTH_FAILURE_MESSAGE = (
+    "MCP HTTP authentication failed ({status}): the server rejected the request "
+    "before MCP initialization. gptme currently sends only static "
+    "[mcp.servers.headers] values (for example Authorization = "
+    '"Bearer <token>"); it does not run the MCP OAuth authorization-code flow.'
+)
+_HTTP_OAUTH_METADATA_NOTE = (
+    " The server advertised OAuth protected-resource metadata in WWW-Authenticate."
+)
+
+
+def _diagnose_http_auth_failure(
+    url: str, headers: dict[str, str] | None = None
+) -> str | None:
+    """Return an auth-specific message if ``url`` answers 401/403.
+
+    Streamable-HTTP cancels its task group on a 401 the same way it does for
+    TLS failures, so the CLI otherwise reports a generic "cancelled while
+    connecting". A short probe with the configured headers recovers the status
+    and WWW-Authenticate challenge without blaming an anonymous rejection on
+    a working token. Skip whenever an HTTP/HTTPS/all-proxy
+    environment variable is set: the probe may then inspect a different peer.
+    The URL is never interpolated into the message (it may carry credentials).
+    """
+    if any(
+        os.environ.get(key)
+        for key in (
+            "HTTP_PROXY",
+            "http_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        )
+    ):
+        return None
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+            return None
+    except ValueError:
+        return None
+    probe_headers = httpx.Headers(
+        {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+    )
+    probe_headers.update(headers or {})
+    try:
+        # Disable proxy discovery, but retain httpx's environment CA settings.
+        with (
+            httpx.Client(
+                timeout=5.0,
+                trust_env=False,
+                verify=httpx.create_ssl_context(),
+                follow_redirects=False,
+            ) as client,
+            client.stream(
+                "POST",
+                url,
+                headers=probe_headers,
+                content=b"{}",
+            ) as response,
+        ):
+            status = response.status_code
+            www_auth = response.headers.get("www-authenticate")
+            # Only the status and headers matter. Never buffer an error body.
+    except (httpx.HTTPError, OSError):
+        return None
+    if status not in (401, 403):
+        return None
+    message = _HTTP_AUTH_FAILURE_MESSAGE.format(status=status)
+    if www_auth and _www_authenticate_field(www_auth, "resource_metadata"):
+        message += _HTTP_OAUTH_METADATA_NOTE
+    return message
 
 
 class MCPClient:
@@ -376,10 +473,15 @@ class MCPClient:
                 raise RuntimeError("MCP client is closed") from None
             if user_interrupted or self._interrupt_ops.is_set():
                 raise
-            # Recover the one cause we can still identify: TLS verification.
+            # Recover the causes we can still identify: TLS, then HTTP 401/403.
             tls_message = await asyncio.to_thread(_diagnose_https_tls_failure, url)
             if tls_message:
                 raise RuntimeError(tls_message) from None
+            auth_message = await asyncio.to_thread(
+                _diagnose_http_auth_failure, url, headers
+            )
+            if auth_message:
+                raise RuntimeError(auth_message) from None
             raise RuntimeError(
                 "MCP connection failed before initialization: the HTTP transport "
                 "cancelled while connecting, which discards the underlying HTTP "
