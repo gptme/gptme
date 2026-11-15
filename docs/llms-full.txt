@@ -9810,7 +9810,7 @@ repository itself uses only the label trigger.
 |-------|-------------|----------|---------|
 | `openai_api_key` | OpenAI API key | No* | - |
 | `anthropic_api_key` | Anthropic API key | No* | - |
-| `model` | Model to use | No | `anthropic/claude-sonnet-4-20250514` |
+| `model` | Model to use | No | `anthropic/claude-sonnet-4-6` |
 | `github_token` | GitHub token for API access | Yes | - |
 | `allowlist` | Comma-separated usernames allowed to trigger | Yes | `ErikBjare` |
 
