@@ -137,7 +137,8 @@ it.each(['server', 'account', 'disconnect'])(
       </ApiProvider>
     );
     await waitFor(() => expect(screen.getByText('provider-A')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Pick: synthetic/default-A' }));
+    // The picker value is populated by an effect after the provider label renders.
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick: synthetic/default-A' }));
     expect(screen.getByRole('button', { name: 'Pick: synthetic/draft-A' })).toBeEnabled();
 
     if (transition === 'server') fireEvent.click(screen.getByRole('button', { name: 'Switch B' }));
