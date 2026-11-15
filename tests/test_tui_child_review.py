@@ -284,3 +284,29 @@ async def test_repeated_enter_during_delivery_is_not_queued_twice(
             release.set()
         await pilot.pause()
         assert sends == ["deliver once"]
+
+
+@pytest.mark.asyncio
+async def test_ctrl_c_dismisses_overview_before_returning_from_child(
+    child_app: ChildApp,
+) -> None:
+    from gptme.tui.app import WorkOverviewScreen
+
+    manager, children = child_app
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        app.open_child(children[0])
+        await pilot.pause()
+        view = app.query_one(ChildView)
+        app.action_show_work()
+        await pilot.pause()
+        assert isinstance(app.screen, WorkOverviewScreen)
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+        assert app.screen is app.default_screen
+        assert app._child_view is view
+        assert not app._interrupt_event.is_set()
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+        assert app._child_view is None
+        assert app.is_running and not app._interrupt_event.is_set()

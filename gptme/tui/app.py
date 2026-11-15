@@ -5243,6 +5243,9 @@ class GptmeApp(App):
 
     def action_interrupt_or_quit(self) -> None:
         if self._child_view is not None:
+            if isinstance(self.screen, WorkOverviewScreen):
+                self.screen.dismiss()
+                return
             self.close_child()
             return
         if self.generating:

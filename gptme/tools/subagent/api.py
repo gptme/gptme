@@ -1942,7 +1942,9 @@ def subagent_continue(
         # both observe the same terminal child and launch concurrent writers against
         # one conversation log.
         with _subagents_lock:
-            current = next((s for s in _subagents if s.agent_id == agent_id), None)
+            current = next(
+                (s for s in reversed(_subagents) if s.agent_id == agent_id), None
+            )
             if current is not sa:
                 raise ValueError(
                     f"Subagent '{agent_id}' changed while continuation was starting."
