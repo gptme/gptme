@@ -167,7 +167,11 @@ _skill_cost_counter = None
 # package is on sys.path, not whether all required extras (exporter.otlp,
 # instrumentation.flask, etc.) are present. Use is_telemetry_enabled() to gate
 # on both availability and the GPTME_TELEMETRY_ENABLED env var.
-TELEMETRY_AVAILABLE = _importlib_util.find_spec("opentelemetry") is not None
+try:
+    TELEMETRY_AVAILABLE = _importlib_util.find_spec("opentelemetry") is not None
+except ModuleNotFoundError:
+    # Import hooks can reject optional dependencies rather than returning no spec.
+    TELEMETRY_AVAILABLE = False
 TELEMETRY_IMPORT_ERROR: str | None = None
 if not TELEMETRY_AVAILABLE:
     TELEMETRY_IMPORT_ERROR = "opentelemetry packages not installed"

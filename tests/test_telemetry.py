@@ -20,6 +20,30 @@ def _has_telemetry_deps():
     )
 
 
+def test_telemetry_import_with_blocked_optional_dependency() -> None:
+    """An import hook rejecting telemetry must behave like an absent extra."""
+    code = """
+import importlib.util
+from unittest.mock import patch
+
+with patch.object(importlib.util, "find_spec", side_effect=ModuleNotFoundError("opentelemetry")):
+    from gptme.util._telemetry import (
+        TELEMETRY_AVAILABLE, TELEMETRY_IMPORT_ERROR, init_telemetry, is_telemetry_enabled,
+    )
+
+assert not TELEMETRY_AVAILABLE
+assert TELEMETRY_IMPORT_ERROR == "opentelemetry packages not installed"
+init_telemetry()
+assert not is_telemetry_enabled()
+"""
+    subprocess.run(
+        [sys.executable, "-c", code],
+        env={**os.environ, "GPTME_TELEMETRY_ENABLED": "true"},
+        check=True,
+        timeout=30,
+    )
+
+
 def test_telemetry_imports_lazy():
     """Importing gptme.telemetry must not eagerly import opentelemetry.
 
