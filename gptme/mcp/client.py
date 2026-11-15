@@ -135,7 +135,11 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
 
 def _www_authenticate_field(header: str, field_name: str) -> str | None:
     """Return a WWW-Authenticate parameter value, quoted or unquoted."""
-    match = re.search(rf'{re.escape(field_name)}=(?:"([^"]+)"|([^\s,]+))', header)
+    match = re.search(
+        rf'(?:^|[\s,]){re.escape(field_name)}\s*=\s*(?:"([^"]+)"|([^\s,]+))',
+        header,
+        re.IGNORECASE,
+    )
     if not match:
         return None
     return match.group(1) or match.group(2)
@@ -152,13 +156,16 @@ _HTTP_OAUTH_METADATA_NOTE = (
 )
 
 
-def _diagnose_http_auth_failure(url: str) -> str | None:
+def _diagnose_http_auth_failure(
+    url: str, headers: dict[str, str] | None = None
+) -> str | None:
     """Return an auth-specific message if ``url`` answers 401/403.
 
     Streamable-HTTP cancels its task group on a 401 the same way it does for
     TLS failures, so the CLI otherwise reports a generic "cancelled while
-    connecting". A short unauthenticated probe recovers the status and
-    WWW-Authenticate challenge. Skip whenever an HTTP/HTTPS/all-proxy
+    connecting". A short probe with the configured headers recovers the status
+    and WWW-Authenticate challenge without blaming an anonymous rejection on
+    a working token. Skip whenever an HTTP/HTTPS/all-proxy
     environment variable is set: the probe may then inspect a different peer.
     The URL is never interpolated into the message (it may carry credentials).
     """
@@ -180,26 +187,37 @@ def _diagnose_http_auth_failure(url: str) -> str | None:
             return None
     except ValueError:
         return None
+    probe_headers = httpx.Headers(
+        {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+    )
+    probe_headers.update(headers or {})
     try:
-        with httpx.Client(
-            timeout=5.0, trust_env=False, follow_redirects=False
-        ) as client:
-            response = client.post(
+        # Disable proxy discovery, but retain httpx's environment CA settings.
+        with (
+            httpx.Client(
+                timeout=5.0,
+                trust_env=False,
+                verify=httpx.create_ssl_context(),
+                follow_redirects=False,
+            ) as client,
+            client.stream(
+                "POST",
                 url,
-                headers={
-                    "Accept": "application/json, text/event-stream",
-                    "Content-Type": "application/json",
-                },
+                headers=probe_headers,
                 content=b"{}",
-            )
+            ) as response,
+        ):
+            status = response.status_code
+            www_auth = response.headers.get("www-authenticate")
+            # Only the status and headers matter. Never buffer an error body.
     except httpx.HTTPError:
         return None
-    if response.status_code not in (401, 403):
+    if status not in (401, 403):
         return None
-    message = _HTTP_AUTH_FAILURE_MESSAGE.format(status=response.status_code)
-    www_auth = response.headers.get("www-authenticate") or response.headers.get(
-        "WWW-Authenticate"
-    )
+    message = _HTTP_AUTH_FAILURE_MESSAGE.format(status=status)
     if www_auth and _www_authenticate_field(www_auth, "resource_metadata"):
         message += _HTTP_OAUTH_METADATA_NOTE
     return message
@@ -453,7 +471,9 @@ class MCPClient:
             tls_message = await asyncio.to_thread(_diagnose_https_tls_failure, url)
             if tls_message:
                 raise RuntimeError(tls_message) from None
-            auth_message = await asyncio.to_thread(_diagnose_http_auth_failure, url)
+            auth_message = await asyncio.to_thread(
+                _diagnose_http_auth_failure, url, headers
+            )
             if auth_message:
                 raise RuntimeError(auth_message) from None
             raise RuntimeError(
