@@ -90,8 +90,11 @@ class Codeblock:
           </codeblock>
         """
         root = ElementTree.fromstring(content)
-        # Strip leading/trailing newlines added by to_xml() formatting
-        text = (root.text or "").strip("\n")
+        # to_xml() pads the element with exactly one leading and one trailing
+        # newline for readability. Strip only that padding so content that
+        # itself begins or ends with newlines round-trips losslessly (the old
+        # .strip("\n") also removed the content's own leading/trailing newlines).
+        text = (root.text or "").removeprefix("\n").removesuffix("\n")
         return cls(
             root.attrib.get("lang", ""),
             text,

@@ -2725,6 +2725,16 @@ def test_xml_roundtrip_special_chars():
     assert restored.content == original.content
 
 
+def test_xml_roundtrip_preserves_leading_trailing_newlines():
+    """XML round-trip must preserve content's own leading/trailing newlines."""
+    for content in ("print(1)\n", "\nprint(1)\n", "\n\nleading\n\n", "\n", ""):
+        original = Codeblock("python", content)
+        restored = Codeblock.from_xml(original.to_xml())
+        assert restored.content == content, (
+            f"content {content!r} round-tripped to {restored.content!r}"
+        )
+
+
 def test_from_markdown_normalizes_crlf():
     """CRLF input must produce the same content as LF input (no carriage returns)."""
     crlf = Codeblock.from_markdown("```python\r\nprint(1)\r\n```")
