@@ -635,6 +635,7 @@
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#asynchronous-work">Asynchronous work</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inspecting-and-guiding-child-agents">Inspecting and guiding child agents</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
@@ -687,6 +688,27 @@ boundary. Results for another branch wait until you return to that branch.</p>
 apply to any resumed generation. An interrupt suppresses automatic continuation.
 The interactive CLI uses the same setting and preserves unsent prompt text
 across the wake. Non-interactive shutdown policy is unchanged.</p>
+</section>
+<section id="inspecting-and-guiding-child-agents">
+<h2>Inspecting and guiding child agents<a class="headerlink" href="#inspecting-and-guiding-child-agents" title="Link to this heading">#</a></h2>
+<p>Open the Work overview with <kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">T</kbd> and select a child with Enter. Its
+conversation opens in the main view with the normal message and expandable tool
+rendering, a child identity/state banner, and a separate composer. The parent
+continues working without changing its model, tools or conversation ownership.</p>
+<p>Enter sends guidance to a running child through its existing input queue. For a
+stopped child, use <code class="docutils literal notranslate"><span class="pre">/continue</span> <span class="pre">&lt;message&gt;</span></code> to explicitly request a safe resume;
+unsupported or ineligible resumes show an error and retain your draft. Other
+slash-command text is sent to the child as text, not executed against the parent.</p>
+<p>Escape, <kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">C</kbd>, or <strong>Back to parent</strong> returns to the parent without
+interrupting it. Parent and child drafts are separate; returning restores the
+parent’s cursor and scroll position. The child view shows parent status/new
+messages and any waiting confirmation. Idle parent notification wakes wait until
+you return; a parent turn already running can finish in the background.</p>
+<p>Inspection reads the child’s transcript without taking its writer lock. Inline
+mode opens an expanded inspection region while leaving the parent’s native
+terminal scrollback intact. This is child inspection/guidance, not a general
+multi-conversation editor; cancellation and arbitrary parent slash commands are
+not redirected to the child.</p>
 </section>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
@@ -924,6 +946,7 @@ keep using <code class="docutils literal notranslate"><span class="pre">gptme</s
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#asynchronous-work">Asynchronous work</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inspecting-and-guiding-child-agents">Inspecting and guiding child agents</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
