@@ -717,3 +717,215 @@ def test_mcp_https_untrusted_cert_is_reported_as_tls_failure(
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=2)
+
+
+def test_www_authenticate_field_quoted_and_unquoted() -> None:
+    from gptme.mcp.client import _www_authenticate_field
+
+    header = (
+        'Bearer realm="mcp", error="invalid_token", '
+        'resource_metadata="http://127.0.0.1/.well-known/oauth-protected-resource"'
+    )
+    assert _www_authenticate_field(header, "error") == "invalid_token"
+    assert (
+        _www_authenticate_field(header, "resource_metadata")
+        == "http://127.0.0.1/.well-known/oauth-protected-resource"
+    )
+    assert _www_authenticate_field("Bearer realm=mcp", "resource_metadata") is None
+
+
+@pytest.mark.parametrize(
+    "proxy_var",
+    [
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ],
+)
+def test_diagnose_http_auth_failure_skips_environment_proxy(
+    monkeypatch: pytest.MonkeyPatch, proxy_var: str
+) -> None:
+    from unittest.mock import Mock
+
+    from gptme.mcp.client import _diagnose_http_auth_failure
+
+    for key in (
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv(proxy_var, "http://proxy.invalid:8080")
+    client_cls = Mock(side_effect=AssertionError("must not probe through a proxy"))
+    monkeypatch.setattr("gptme.mcp.client.httpx.Client", client_cls)
+    assert _diagnose_http_auth_failure("http://127.0.0.1:1/mcp") is None
+    client_cls.assert_not_called()
+
+
+def test_diagnose_http_auth_failure_ignores_invalid_url() -> None:
+    from gptme.mcp.client import _diagnose_http_auth_failure
+
+    assert _diagnose_http_auth_failure("http://[bad/mcp") is None
+    assert _diagnose_http_auth_failure("ftp://127.0.0.1/mcp") is None
+
+
+def test_diagnose_http_auth_failure_ignores_refused_connection() -> None:
+    import socket
+
+    from gptme.mcp.client import _diagnose_http_auth_failure
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    assert _diagnose_http_auth_failure(f"http://127.0.0.1:{port}/mcp") is None
+
+
+def test_diagnose_http_auth_failure_ignores_non_auth_status() -> None:
+    import http.server
+    import threading
+
+    from gptme.mcp.client import _diagnose_http_auth_failure
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert _diagnose_http_auth_failure(f"http://127.0.0.1:{port}/mcp") is None
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
+
+
+def test_mcp_http_401_oauth_challenge_is_reported_as_auth_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 401 with RFC 9728 WWW-Authenticate must name auth, not cancel-masking.
+
+    Independent curl against the same fixture returns 401 plus
+    resource_metadata. The MCP SDK still surfaces CancelledError.
+    """
+    import http.server
+    import threading
+
+    from gptme.mcp.client import MCPClient
+
+    for key in (
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(401)
+            self.send_header(
+                "WWW-Authenticate",
+                'Bearer realm="mcp", error="invalid_token", '
+                'resource_metadata="http://127.0.0.1/.well-known/oauth-protected-resource"',
+            )
+            self.send_header("Content-Type", "application/json")
+            body = b'{"error":"invalid_token"}'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = MCPClient()
+        try:
+            with pytest.raises(RuntimeError) as excinfo:
+                client._run_async(
+                    client._setup_http_connection(f"http://127.0.0.1:{port}/mcp", {})
+                )
+            message = str(excinfo.value)
+            assert "MCP client is closed" not in message
+            assert "cancelled while connecting" not in message
+            assert "authentication failed (401)" in message
+            assert "OAuth protected-resource metadata" in message
+            assert "does not run the MCP OAuth authorization-code flow" in message
+            assert "http://127.0.0.1" not in message
+        finally:
+            client.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
+
+
+def test_mcp_http_401_without_oauth_metadata_still_names_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import http.server
+    import threading
+
+    from gptme.mcp.client import MCPClient
+
+    for key in (
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            body = b'{"error":"unauthorized"}'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    port = httpd.server_address[1]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = MCPClient()
+        try:
+            with pytest.raises(RuntimeError) as extra:
+                client._run_async(
+                    client._setup_http_connection(f"http://127.0.0.1:{port}/mcp", {})
+                )
+            message = str(extra.value)
+            assert "authentication failed (401)" in message
+            assert "OAuth protected-resource metadata" not in message
+            assert "cancelled while connecting" not in message
+        finally:
+            client.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
