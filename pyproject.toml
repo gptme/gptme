@@ -50,7 +50,7 @@ dependencies = [
     "tree-sitter-bash>=0.25.1,<0.26",
 
     # evals
-    "multiprocessing-logging>=0.3.4,<0.5",
+    "multiprocessing-logging>=0.3.4,<0.4",
 
     # datascience essentials
     "pillow",  # non-optional, needed for image scaling in vision

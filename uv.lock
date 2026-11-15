@@ -2331,7 +2331,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'datascience'" },
     { name = "mcp", specifier = ">=1.28.1,<2" },
-    { name = "multiprocessing-logging", specifier = ">=0.3.4,<0.5" },
+    { name = "multiprocessing-logging", specifier = ">=0.3.4,<0.4" },
     { name = "numpy", marker = "extra == 'all'" },
     { name = "numpy", marker = "extra == 'datascience'" },
     { name = "openai", specifier = ">=2.48,<3" },
@@ -4233,11 +4233,10 @@ wheels = [
 
 [[package]]
 name = "multiprocessing-logging"
-version = "0.4.0"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e4/9d/5751e234a12525994a8b41a962b4ab974f4ac074eb7d5367ba94440b2d57/multiprocessing_logging-0.4.0.tar.gz", hash = "sha256:152d209f4d1fd7fed500e695c92848bd72016f3a54b98a80283d64abcc27e0bc", size = 9415, upload-time = "2026-08-19T17:04:45.066Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/99/a1/1affd609ca8e22383f56ba1e4289e47bc2f11af0a0ae4f2b944aac4a6616/multiprocessing_logging-0.4.0-py3-none-any.whl", hash = "sha256:0d76dae0f187343d9009aec4cada11e7323ba8189869e11797ddeab3c90dc687", size = 7168, upload-time = "2026-08-19T17:04:44.054Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/fe/32bd864bcb604b0607924a4cf618ed267a0ef21ac9c3e255109256046e1f/multiprocessing_logging-0.3.4-py2.py3-none-any.whl", hash = "sha256:8a5be02b02edbd6fa6e3e89499af7680db69db9e2d8707fcd28d445fa248f23e", size = 8770, upload-time = "2023-02-05T17:06:20.632Z" },
 ]
 
 [[package]]
