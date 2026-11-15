@@ -14,6 +14,64 @@ if TYPE_CHECKING:
     from .models import _ModelDictMeta  # fmt: skip
 
 ANTHROPIC_MODELS_DEPRECATED: dict[str, "_ModelDictMeta"] = {
+    # Lifecycle dates below are from
+    # https://platform.claude.com/docs/en/about-claude/model-deprecations
+    #
+    # Claude Sonnet 4.5: deprecated 2026-09-30, retires 2026-11-30.
+    # Recommended replacement: claude-sonnet-5-5.
+    "claude-sonnet-4-5-20250929": {
+        "context": 200_000,
+        "max_output": 64_000,
+        "price_input": 3,
+        "price_output": 15,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(
+            2025, 7, 1, tzinfo=timezone.utc
+        ),  # training cutoff Jul 2025, reliable Jan 2025
+        "deprecated": True,
+    },
+    # Claude Opus 4.1: retired 2026-08-05 (replacement: claude-opus-4-8)
+    "claude-opus-4-1-20250805": {
+        "context": 200_000,
+        "max_output": 32_000,
+        "price_input": 15,
+        "price_output": 75,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
+        "deprecated": True,
+    },
+    # Claude Opus 4: retired 2026-06-15 (replacement: claude-opus-4-8)
+    "claude-opus-4-20250514": {
+        "context": 200_000,
+        "max_output": 32_000,
+        "price_input": 15,
+        "price_output": 75,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
+        "deprecated": True,
+    },
+    # Claude Sonnet 4: retired 2026-06-15 (replacement: claude-sonnet-5-5)
+    "claude-sonnet-4-20250514": {
+        "context": 200_000,
+        "max_output": 64_000,
+        "price_input": 3,
+        "price_output": 15,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+        "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
+        "deprecated": True,
+    },
     # Claude 3.7 Sonnet (superseded by claude-sonnet-4+)
     "claude-3-7-sonnet-20250219": {
         "context": 200_000,

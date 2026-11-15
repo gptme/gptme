@@ -317,3 +317,57 @@ async def test_indicator_snapshot_read_is_off_ui_thread(
         await app._update_work_indicator()
     assert observed
     assert all(thread is not ui_thread for thread in observed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("inline", [False, True])
+@pytest.mark.parametrize("draft", ["", "a half-written prompt\nwith two lines"])
+async def test_indicator_sits_below_input_above_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inline: bool, draft: str
+) -> None:
+    """The Work indicator lives between the composer and the statusline (#4897)."""
+    from gptme.tui.app import ChatInput
+
+    manager = _manager(tmp_path)
+    children: list[SubagentSnapshot] = []
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
+    )
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshots", lambda *a, **kw: [])
+    app = GptmeApp(manager, workspace=tmp_path, inline=inline)
+    async with app.run_test(size=(40, 30)) as pilot:
+        chat_input = app.query_one("#input", ChatInput)
+        chat_input.text = draft
+        await pilot.pause()
+        indicator = app.query_one("#work-indicator", Static)
+        input_row = app.query_one("#input-row")
+        status_row = app.query_one("#status-row")
+        assert not indicator.display
+
+        # no work -> work: the indicator appears between input and statusline
+        children.append(_child(tmp_path))
+        await app._update_work_indicator()
+        await pilot.pause()
+        assert indicator.display
+        assert input_row.region.bottom <= indicator.region.y
+        assert indicator.region.bottom <= status_row.region.y
+        # compact: one line, even when the terminal is too narrow for the text
+        assert indicator.region.height == 1
+
+        # count changes while visible do not move the composer
+        input_y = input_row.region.y
+        children[:] = [replace(children[0], status="success")]
+        await app._update_work_indicator()
+        await pilot.pause()
+        assert "1 unread" in str(indicator.render())
+        assert input_row.region.y == input_y
+        assert indicator.region.height == 1
+        assert chat_input.text == draft
+
+        # work -> no work hides it again without disturbing the draft
+        children.clear()
+        app._work_acknowledged.clear()
+        await app._update_work_indicator()
+        await pilot.pause()
+        assert not indicator.display
+        assert chat_input.text == draft

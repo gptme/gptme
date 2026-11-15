@@ -3035,9 +3035,7 @@ def api_conversation_config_patch(conversation_id: str):
             chat_patch["model"], str | type(None)
         ):
             return flask.jsonify(
-                {
-                    "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
-                }
+                {"error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-5-5')"}
             ), 400
 
     normalized_tools, forbidden = _resolve_requested_tools(tool_allowlist)
@@ -3423,9 +3421,7 @@ def api_user_api_key():
         return flask.jsonify({"error": "api_key must be a string"}), 400
     if model is not None and not isinstance(model, str):
         return flask.jsonify(
-            {
-                "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
-            }
+            {"error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-5-5')"}
         ), 400
     if not isinstance(skip_validation, bool):
         return flask.jsonify({"error": "skip_validation must be a boolean"}), 400
@@ -3517,9 +3513,7 @@ def api_user_default_model():
     model = req_json.get("model")
     if not isinstance(model, str):
         return flask.jsonify(
-            {
-                "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
-            }
+            {"error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-5-5')"}
         ), 400
 
     try:

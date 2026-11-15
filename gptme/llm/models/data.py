@@ -247,19 +247,6 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
         },
-        "claude-sonnet-4-5-20250929": {
-            "context": 200_000,
-            "max_output": 64_000,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "supports_parallel_tool_calls": True,
-            "preferred_edit_format": "diff",
-            "knowledge_cutoff": datetime(
-                2025, 7, 1, tzinfo=timezone.utc
-            ),  # training cutoff Jul 2025, reliable Jan 2025
-        },
         "claude-haiku-4-5-20251001": {
             "context": 200_000,
             "max_output": 64_000,
@@ -273,39 +260,6 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # "reliable cutoff" is Feb 2025
-        },
-        "claude-opus-4-1-20250805": {
-            "context": 200_000,
-            "max_output": 32_000,
-            "price_input": 15,
-            "price_output": 75,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "supports_parallel_tool_calls": True,
-            "preferred_edit_format": "diff",
-            "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
-        },
-        "claude-opus-4-20250514": {
-            "context": 200_000,
-            "max_output": 32_000,
-            "price_input": 15,
-            "price_output": 75,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "supports_parallel_tool_calls": True,
-            "preferred_edit_format": "diff",
-            "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
-        },
-        "claude-sonnet-4-20250514": {
-            "context": 200_000,
-            "max_output": 64_000,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "supports_parallel_tool_calls": True,
-            "preferred_edit_format": "diff",
-            "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         # Deprecated models merged from separate file
         **ANTHROPIC_MODELS_DEPRECATED,
