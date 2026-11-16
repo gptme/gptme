@@ -223,6 +223,7 @@ dev = [
     "sphinx-sitemap>=2.9,<3",
     "sphinx-autobuild>=2024.10.3,<2026",
     "sphinx-llms-txt>=0.7.1,<0.8",
+    "sphinxext-opengraph>=0.13,<0.14",
     "sphinxcontrib-programoutput",
     "sphinxcontrib-asciinema",
     "sphinxcontrib-mermaid>=2.1,<3",

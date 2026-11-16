@@ -177,6 +177,7 @@ extensions = [
     "sphinxcontrib.asciinema",
     "sphinx_sitemap",
     "sphinx_llms_txt",
+    "sphinxext.opengraph",
 ]
 
 # Intersphinx mapping for cross-references to Python standard library
@@ -190,6 +191,15 @@ sitemap_excludes = [
     "search.html",
     "genindex.html",
 ]
+
+# OpenGraph + <meta name="description"> so shared docs links get a preview card.
+# og:description and the meta description are generated from each page's text.
+ogp_site_url = html_baseurl
+ogp_site_name = "gptme"
+ogp_image = "https://gptme.org/media/logo.png"  # same card image as the landing page
+ogp_image_alt = "gptme logo"
+ogp_enable_meta_description = True
+ogp_social_cards = {"enable": False}  # static ogp_image; avoids a matplotlib dependency
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "lessons/**"]
