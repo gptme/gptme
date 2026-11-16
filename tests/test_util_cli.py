@@ -2252,3 +2252,45 @@ def test_models_list_json_provider_validation_is_log_silent(mocker):
     assert json.loads(result.output) == []
     assert observed["disabled"] == _logging.CRITICAL
     assert _logging.root.manager.disable == _logging.NOTSET
+
+
+def test_models_list_includes_gptme_plugins_provider(monkeypatch):
+    """Providers registered via ``gptme.plugins`` show up in ``models list``.
+
+    ``models`` must initialise the plugin registry itself: without it the
+    listing falls back to the legacy ``gptme.providers`` group only.
+    """
+    from gptme.llm.models.types import ModelMeta, ProviderPlugin
+    from gptme.plugins import registry
+    from gptme.plugins.plugin import GptmePlugin
+
+    provider = ProviderPlugin(
+        name="fakeplug",
+        base_url="https://api.fakeplug.test/v1",
+        models=[
+            ModelMeta(
+                provider="unknown",
+                model="fakeplug/model-a",
+                context=32_000,
+                price_input=1.0,
+                price_output=2.0,
+            )
+        ],
+    )
+
+    def fake_discover(folder_paths=None, enabled_plugins=None, errors=None):
+        registry._all_plugins[:] = [GptmePlugin(name="fakeplug", provider=provider)]
+        registry._initialized = True
+        return list(registry._all_plugins)
+
+    registry.clear_registry()
+    monkeypatch.setattr("gptme.plugins.discover_all_plugins", fake_discover)
+    try:
+        result = CliRunner().invoke(
+            main, ["models", "list", "--provider", "fakeplug", "--simple"]
+        )
+    finally:
+        registry.clear_registry()
+
+    assert result.exit_code == 0, result.output
+    assert "fakeplug/model-a" in result.output

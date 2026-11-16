@@ -1696,6 +1696,18 @@ def _is_slash_command_token(word: str) -> bool:
 @main.group()
 def models():
     """Model-related utilities."""
+    # Provider plugins registered via the ``gptme.plugins`` entry-point group are
+    # only visible once the plugin registry is initialised (``gptme`` does this
+    # in ``init()``); without it, listing sees just the legacy ``gptme.providers``
+    # group and reports plugin models as unknown.
+    try:
+        from ..init import _init_plugins  # fmt: skip
+
+        _init_plugins()
+    except Exception as exc:
+        logging.getLogger(__name__).debug(
+            "Plugin discovery failed for models command: %s", exc
+        )
 
 
 @models.command("list")
