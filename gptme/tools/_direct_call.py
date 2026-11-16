@@ -161,7 +161,7 @@ def make_direct_call_tool(tool: ToolSpec) -> ToolSpec:
     ) -> Generator[Message, None, None]:
         if code is None and kwargs is not None:
             code = kwargs.get("code")
-        if not code or not code.strip():
+        if not isinstance(code, str) or not code.strip():
             yield Message("system", f"No function call given. {_usage(tool)}")
             return
         try:

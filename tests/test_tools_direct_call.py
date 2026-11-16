@@ -193,6 +193,24 @@ def test_direct_call_uses_callable_name_not_metadata_alias():
     assert "Unknown function 'metadata_alias'" in _run(tool, 'metadata_alias("u")')
 
 
+def test_direct_call_with_non_string_code_explains_usage():
+    tool = make_direct_call_tool(_fn_tool())
+    assert "No function call given" in _run(tool, None, {"code": 123})
+
+
+def test_unloaded_function_only_tool_hint_does_not_suggest_ipython(monkeypatch):
+    """Allowlisting the tool is enough now; never steer toward granting ipython."""
+    monkeypatch.setattr("gptme.tools.python.registered_functions", {})
+    set_tool_format("tool")
+    init_tools(allowlist=["shell"])
+    results = list(
+        execute_msg(Message("assistant", '@subagent(call-x): {"code": "x()"}'))
+    )
+    assert len(results) == 1
+    assert "not available for execution" in results[0].content
+    assert "ipython" not in results[0].content
+
+
 def test_make_direct_call_tool_requires_function_only_tool():
     with pytest.raises(ValueError, match="not function-only"):
         make_direct_call_tool(make_direct_call_tool(_fn_tool()))

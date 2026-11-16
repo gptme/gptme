@@ -732,14 +732,19 @@ def _enable_hint_for_disabled_tool(tool_name: str) -> str:
     if tool is None:
         return ""
     if tool.is_function_only:
-        # Allowlisting the tool alone never makes it executable (#4953):
-        # its functions are only reachable through ipython.
+        # With ipython loaded, function-only tools keep no call path of their
+        # own (#4953): their functions are reachable through ipython.
         if has_tool(FUNCTION_CALL_TOOL):
             return (
                 f" Its functions are called from Python code through the "
                 f"'{FUNCTION_CALL_TOOL}' tool, e.g. {tool_name}(...)."
             )
-        return " " + _function_only_hint(tool_name, subject="It")
+        # Without ipython, a loaded function-only tool is directly callable
+        # (with_direct_function_calls); one that is still uncallable was
+        # installed bypassing that path. An unloaded one only needs to be
+        # allowlisted, so never steer toward granting ipython (#4964).
+        if has_tool(tool_name):
+            return " " + _function_only_hint(tool_name, subject="It")
     if tool.disabled_by_default and not _is_session_allowlisted(tool):
         return f" Add --tools +{tool_name} to enable it."
     return ""
