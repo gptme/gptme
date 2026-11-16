@@ -307,7 +307,7 @@ class TestCompletePendingToolCalls:
             for call in agent._conn.session_update.await_args_list
         }
         assert updates == {
-            "call_pending": "completed",
+            "call_pending": "failed",
             "call_progress": "completed",
             "call_done": "completed",
             "call_failed": "failed",
@@ -326,6 +326,43 @@ class TestCompletePendingToolCalls:
         assert updates["call_progress"] == "failed"
         assert updates["call_done"] == "completed"
         assert not agent._tool_calls["session_1"]
+
+    def test_failed_permission_check_marks_call_failed(self):
+        """A denial that bypasses the normal reply path must not stay PENDING."""
+        agent = GptmeAgent()
+        conn = MagicMock()
+        conn.session_update = AsyncMock()
+        agent._conn = conn
+
+        async def broken_permission(session_id, tool_call):
+            raise RuntimeError("client went away")
+
+        agent._request_tool_permission = broken_permission  # type: ignore[method-assign]
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+        try:
+            confirm = agent._create_confirm_with_tools("session_1", loop)
+            assert confirm("Run command: ls") is False
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=5)
+            loop.close()
+
+        statuses = [
+            call.kwargs["update"]["status"]
+            for call in conn.session_update.await_args_list
+            if call.kwargs["update"].get("sessionUpdate") == "tool_call_update"
+        ]
+        assert statuses == ["failed"]
+        # The delivered FAILED outcome leaves nothing for the end-of-turn sweep.
+        assert not agent._tool_calls["session_1"]
+        _run(agent._complete_pending_tool_calls("session_1"))
+        assert "completed" not in [
+            call.kwargs["update"]["status"]
+            for call in conn.session_update.await_args_list
+            if "status" in call.kwargs["update"]
+        ]
 
     def test_no_tool_calls_for_session(self):
         agent = GptmeAgent()

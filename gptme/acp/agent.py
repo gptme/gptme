@@ -549,17 +549,40 @@ class GptmeAgent:
             # Longer timeout allows users time to review complex operations
             permission_timeout = 60.0
             future = asyncio.run_coroutine_threadsafe(report_and_request(), loop)
+
+            def _deny_tool_call(reason: str) -> None:
+                """Report the denial so the client never sees a call that did not run as completed."""
+                # A late client answer must not move the denied call to in_progress.
+                future.cancel()
+                update = self._update_tool_call(
+                    session_id,
+                    tool_call.tool_call_id,
+                    ToolCallStatus.FAILED,
+                    content=[
+                        {
+                            "type": "content",
+                            "content": {"type": "text", "text": reason},
+                        }
+                    ],
+                )
+                try:
+                    asyncio.run_coroutine_threadsafe(update, loop).result(timeout=5.0)
+                except Exception as exc:
+                    logger.debug("Failed to report denied tool call: %s", exc)
+
             try:
                 return future.result(timeout=permission_timeout)
             except TimeoutError:
                 logger.warning(
                     f"Tool permission request timed out after {permission_timeout}s, denying for safety"
                 )
+                _deny_tool_call("Permission request timed out")
                 return False
             except Exception as e:
                 logger.warning(
                     "Tool permission check failed: %s, denying for safety", e
                 )
+                _deny_tool_call("Permission check failed")
                 return False
 
         return confirm_callback
@@ -581,8 +604,12 @@ class GptmeAgent:
         for tool_call_id, tool_call in list(self._tool_calls[session_id].items()):
             # A stored terminal status is an undelivered outcome, not a call
             # whose result can be inferred from the turn's overall success.
+            # A PENDING call never got permission to run, so it cannot have
+            # completed; only IN_PROGRESS calls take the turn's outcome.
             status = tool_call.status
-            if status in (ToolCallStatus.IN_PROGRESS, ToolCallStatus.PENDING):
+            if status == ToolCallStatus.PENDING:
+                status = ToolCallStatus.FAILED
+            elif status == ToolCallStatus.IN_PROGRESS:
                 status = ToolCallStatus.COMPLETED if success else ToolCallStatus.FAILED
             await self._update_tool_call(
                 session_id,
