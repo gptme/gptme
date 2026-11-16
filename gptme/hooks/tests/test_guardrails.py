@@ -288,6 +288,40 @@ class TestGuardrailHookEnforceMode:
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
 
+    @pytest.mark.parametrize("dirname", ["work[1]", "work*", "work?", "work$", "work`"])
+    @pytest.mark.parametrize("reader", ["cat {}", "cat < {}"])
+    @pytest.mark.parametrize("target", [".ssh", ".ssh-backup"])
+    def test_shell_quoted_literal_traversal(
+        self, monkeypatch, tmp_path, dirname, reader, target
+    ):
+        import shlex
+        import subprocess
+
+        home = tmp_path / "home"
+        (home / target).mkdir(parents=True)
+        (home / target / "config").write_text("fake-secret\n")
+        (home / dirname).mkdir()
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(server)
+        cmd = reader.format(shlex.quote(f"{dirname}/../{target}/config"))
+        # Confirm the shell really reads our fake secret, not a glob expansion.
+        assert subprocess.check_output(cmd, shell=True, cwd=home, text=True) == (
+            "fake-secret\n"
+        )
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=home
+        )
+
+        if target == ".ssh":
+            assert isinstance(result, ConfirmationResult)
+            assert result.action == ConfirmAction.SKIP
+        else:
+            assert result is None
+
     @pytest.mark.parametrize("dirname", ["project[1]", "project*", "project?"])
     @pytest.mark.parametrize("cmd", ["grep -r TOKEN .", "cat .e*"])
     def test_shell_workspace_glob_characters_are_literal(

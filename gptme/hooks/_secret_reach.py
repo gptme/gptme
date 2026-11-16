@@ -735,7 +735,7 @@ def find_secret_reach(
     *,
     workspace: Path | None = None,
 ) -> str | None:
-    """Find a literal reader's glob or shallow recursive-grep secret operand."""
+    """Find a literal reader's direct, glob or shallow recursive secret operand."""
     from ..tools.shell import _parse_bash
 
     def anchor(path: str) -> str:
@@ -779,7 +779,9 @@ def find_secret_reach(
         patterns: dict[str, list[str]] = {word: [word] for word in extra_files}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()
-            expanded_patterns = _glob_patterns(raw, include_literal=recursive)
+            # Quoted metacharacters are literal filenames too. Include them so
+            # the lexical scanner's glob/substitution skip cannot hide a read.
+            expanded_patterns = _glob_patterns(raw, include_literal=True)
             if expanded_patterns:
                 try:
                     patterns.setdefault(shlex.split(raw)[0], []).extend(
@@ -795,7 +797,7 @@ def find_secret_reach(
                 continue
             files.append(word)
             stdin_operands.add(word)
-            expanded_patterns = _glob_patterns(raw, include_literal=recursive)
+            expanded_patterns = _glob_patterns(raw, include_literal=True)
             if expanded_patterns:
                 patterns.setdefault(word, []).extend(expanded_patterns)
         for operand in files:
