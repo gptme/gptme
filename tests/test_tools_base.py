@@ -1017,7 +1017,7 @@ class TestToolUseFormatting:
         )
 
         assert yielded[0].call_id == "call-1"
-        assert yielded[0].metadata == {"tool": "test_tool"}
+        assert yielded[0].metadata == {"tool": "test_tool", "tool_status": "failed"}
         assert "boom" in yielded[0].content
 
     def test_execute_on_result_message_streams_generator_progressively(
