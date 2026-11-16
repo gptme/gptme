@@ -116,7 +116,7 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
     if any(
         os.environ.get(key)
         for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
-    ) and not proxy_bypass_environment(parsed.hostname):
+    ) and not proxy_bypass_environment(f"{parsed.hostname}:{port}"):
         return None
     try:
         context = httpx.create_ssl_context()

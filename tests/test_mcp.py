@@ -542,16 +542,23 @@ def test_diagnose_https_tls_failure_skips_environment_proxy(
 
 
 @pytest.mark.parametrize(
-    ("no_proxy", "probed"),
+    ("no_proxy", "url", "probed"),
     [
-        ("api.example.com", True),  # exact host: bypasses the proxy, same TLS peer
-        (".example.com", True),  # domain suffix
-        ("*", True),
-        ("other.test", False),  # unrelated host: still goes through the proxy
+        # Exact host: bypasses the proxy, same TLS peer.
+        ("api.example.com", "https://api.example.com/mcp", True),
+        (".example.com", "https://api.example.com/mcp", True),  # domain suffix
+        ("*", "https://api.example.com/mcp", True),
+        # Unrelated host: still goes through the proxy.
+        ("other.test", "https://api.example.com/mcp", False),
+        ("api.example.com:8443", "https://api.example.com:8443/mcp", True),
+        ("api.example.com:8443", "https://api.example.com:9443/mcp", False),
+        ("api.example.com:443", "https://api.example.com/mcp", True),
+        ("api.example.com:443", "https://api.example.com:443/mcp", True),
+        (".example.com:8443", "https://api.example.com:8443/mcp", True),
     ],
 )
 def test_diagnose_https_tls_failure_honors_no_proxy(
-    monkeypatch: pytest.MonkeyPatch, no_proxy: str, probed: bool
+    monkeypatch: pytest.MonkeyPatch, no_proxy: str, url: str, probed: bool
 ) -> None:
     import ssl
     from unittest.mock import Mock
@@ -567,7 +574,7 @@ def test_diagnose_https_tls_failure_honors_no_proxy(
     connect = Mock(side_effect=error)
     monkeypatch.setattr("gptme.mcp.client.socket.create_connection", connect)
 
-    message = _diagnose_https_tls_failure("https://api.example.com/mcp")
+    message = _diagnose_https_tls_failure(url)
 
     if probed:
         connect.assert_called_once()
