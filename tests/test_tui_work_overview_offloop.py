@@ -119,6 +119,11 @@ async def test_cursor_moves_reuse_the_last_snapshot(tmp_path, monkeypatch):
             screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
             app.push_screen(screen)
             await pilot.pause(0.3)
+            # Pause the periodic refreshes (the app's work indicator and the
+            # overview's own) so only cursor-triggered reads can move the count.
+            for pump in (app, screen):
+                for timer in list(pump._timers):
+                    timer.pause()
             before = len(calls)
             await pilot.press("j")
             await pilot.press("j")
