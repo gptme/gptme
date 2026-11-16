@@ -297,6 +297,46 @@ class TestInitSkill:
         assert success, msg
         assert (target / "SKILL.md").exists()
 
+    @pytest.mark.parametrize(
+        ("description", "author", "tags"),
+        [
+            ("Does foo: bar then baz", "bob", []),
+            ("Uses #hashtags in text", "bob", []),
+            ("* leading asterisk", "bob", []),
+            ("true", "bob", []),
+            ("Parses JSON {key} values", "bob", []),
+            ('Says "hello" to the user', "bob", []),
+            ("Gör saker med ÅÄÖ", "Erik: Bob", ["coding", "testing"]),
+        ],
+    )
+    def test_init_quotes_yaml_special_scalars(
+        self, tmp_path: Path, description: str, author: str, tags: list[str]
+    ):
+        """Unquoted YAML would drop # comments, coerce booleans, or fail to parse."""
+        import yaml
+
+        target = tmp_path / "quoted-skill"
+        success, msg = init_skill(
+            target,
+            name="quoted-skill",
+            description=description,
+            author=author,
+            tags=", ".join(tags),
+        )
+        assert success, msg
+
+        content = (target / "SKILL.md").read_text(encoding="utf-8")
+        parts = content.split("---", 2)
+        fm = yaml.safe_load(parts[1])
+        assert fm["name"] == "quoted-skill"
+        assert fm["description"] == description
+        assert fm["metadata"]["author"] == author
+        assert fm["metadata"]["tags"] == tags
+
+        errors = validate_skill(target)
+        real_errors = [e for e in errors if "recommended" not in e.lower()]
+        assert real_errors == [], f"Unexpected errors: {real_errors}"
+
 
 class TestPublishSkill:
     def test_publish_valid_skill(self, skill_dir: Path):

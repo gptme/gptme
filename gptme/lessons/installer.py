@@ -6,6 +6,7 @@ Supports installing skills from:
 - Registry names (resolved from gptme-contrib index)
 """
 
+import json
 import logging
 import os
 import re
@@ -827,18 +828,7 @@ def dependency_graph() -> dict[str, list[str]]:
 
 # --- Skill template for init ---
 
-SKILL_TEMPLATE = """\
----
-name: {name}
-description: {description}
-# depends: [other-skill]  # Optional: list skill dependencies
-metadata:
-  author: {author}
-  version: "0.1.0"
-  tags: [{tags}]
-  license: MIT
----
-
+SKILL_BODY = """\
 # {title}
 
 ## Instructions
@@ -851,6 +841,15 @@ Describe what this skill does and when to use it.
 # Example usage
 ```
 """
+
+
+def _yaml_double_quoted(value: str) -> str:
+    """JSON strings are valid YAML double-quoted scalars and stay one line.
+
+    Unquoted YAML would treat ``: ``, ``#``, ``*``, and booleans as syntax,
+    so user-supplied name/description/author must always be quoted.
+    """
+    return json.dumps(value, ensure_ascii=False)
 
 
 def init_skill(
@@ -881,23 +880,20 @@ def init_skill(
 
     path.mkdir(parents=True, exist_ok=True)
 
-    # Format tags for YAML
-    tag_list = ", ".join(f'"{t.strip()}"' for t in tags.split(",") if t.strip())
-
-    # Create SKILL.md from template.
-    # Escape braces in user-supplied values to prevent KeyError when
-    # the template is rendered via str.format().  Input like "Parses JSON {key}"
-    # would otherwise raise KeyError instead of writing the file.
-    def _esc(s: str) -> str:
-        return s.replace("{", "{{").replace("}", "}}")
-
+    tag_items = [t.strip() for t in tags.split(",") if t.strip()]
     title = skill_name.replace("-", " ").replace("_", " ").title()
-    content = SKILL_TEMPLATE.format(
-        name=_esc(skill_name),
-        description=_esc(description),
-        author=_esc(author or "your-name"),
-        tags=tag_list,
-        title=_esc(title),
+    content = (
+        "---\n"
+        f"name: {_yaml_double_quoted(skill_name)}\n"
+        f"description: {_yaml_double_quoted(description)}\n"
+        "# depends: [other-skill]  # Optional: list skill dependencies\n"
+        "metadata:\n"
+        f"  author: {_yaml_double_quoted(author or 'your-name')}\n"
+        '  version: "0.1.0"\n'
+        f"  tags: {json.dumps(tag_items, ensure_ascii=False)}\n"
+        "  license: MIT\n"
+        "---\n"
+        "\n" + SKILL_BODY.replace("{title}", title)
     )
 
     skill_md_path = path / "SKILL.md"
