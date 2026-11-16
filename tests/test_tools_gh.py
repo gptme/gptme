@@ -1315,6 +1315,9 @@ class TestNativeRefRepoFlag:
             ["pr", "checks", "#4451", "-R", "other/repo"],
             ["pr", "checks", "4451", "--repo=other/repo"],
             ["pr", "checks", "4451", "-Rother/repo"],
+            ["pr", "checks", "4451", "--repo", "github.com/other/repo"],
+            ["pr", "checks", "4451", "--repo=https://github.com/other/repo"],
+            ["pr", "checks", "4451", "-R", "https://github.com/other/repo/"],
         ],
     )
     @patch("gptme.tools.gh._wait_for_checks")
@@ -1373,6 +1376,10 @@ class TestNativeRefRepoFlag:
         [
             ["pr", "checks", "42", "--repo"],
             ["pr", "view", "42", "--repo", "noslash"],
+            # Native handlers only reach github.com; another host must not
+            # silently resolve against it.
+            ["pr", "view", "42", "--repo", "ghe.example.com/other/repo"],
+            ["pr", "view", "42", "--repo", "github.com/a/b/c"],
         ],
     )
     def test_invalid_repo_flag_errors(self, argv):
