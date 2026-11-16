@@ -2,7 +2,7 @@
 
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -427,6 +427,14 @@ class TestScanRehydrate:
 
 
 class TestRegistryRehydration:
+    @pytest.fixture(autouse=True)
+    def clear_current_log(self) -> Iterator[None]:
+        from gptme.logmanager import LogManager, _current_log_var
+
+        with LogManager.preserve_current():
+            _current_log_var.set(None)
+            yield
+
     def setup_method(self):
         import gptme.tools.subagent.types as types_mod
         from gptme.tools.subagent.types import (
@@ -597,6 +605,63 @@ class TestRegistryRehydration:
             staticmethod(lambda: SimpleNamespace(logdir=mine)),
         )
         assert [entry["agent_id"] for entry in subagent_list()] == ["own"]
+
+    @pytest.mark.parametrize("mode", ["serial-capped", "parallel-capped", "pipeline"])
+    def test_batch_children_keep_conversation_owner(
+        self, tmp_path: Path, monkeypatch, mode: str
+    ):
+        from gptme.logmanager import LogManager
+        from gptme.tools.subagent import batch
+        from gptme.tools.subagent.api import subagent_list
+
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+        parent = LogManager(logdir=tmp_path / "parent", lock=False)
+        barrier = threading.Barrier(2) if mode != "serial-capped" else None
+
+        def spawn(agent_id: str, prompt: str, **kwargs) -> None:
+            current = LogManager.get_current_log()
+            if barrier:
+                barrier.wait(timeout=5)
+            subagent_dir = logs_dir / f"subagent-{agent_id}"
+            _completed_log(subagent_dir, agent_id)
+            persist_subagent_meta(
+                Subagent(
+                    agent_id=agent_id,
+                    prompt=prompt,
+                    thread=None,
+                    logdir=subagent_dir,
+                    model=None,
+                    parent_logdir=current.logdir if current else None,
+                )
+            )
+
+        monkeypatch.setattr(batch, "subagent", spawn)
+        monkeypatch.setattr(
+            batch,
+            "subagent_wait",
+            lambda *args, **kwargs: {"status": "success", "result": "done"},
+        )
+        tasks = [("a", "work a"), ("b", "work b")]
+        if mode == "pipeline":
+            pipeline_results = batch.subagent_pipeline(
+                tasks, lambda item, _: item, lambda item, prev: prev, timeout=10
+            )
+            assert all(
+                r["status"] == "success" for row in pipeline_results for r in row
+            )
+            expected = {"a-s0", "a-s1", "b-s0", "b-s1"}
+        else:
+            results = batch.subagent_parallel(
+                tasks, max_concurrent=1 if mode == "serial-capped" else 2, timeout=10
+            )
+            assert all(r["status"] == "success" for r in results)
+            expected = {"a", "b"}
+
+        assert LogManager.get_current_log() is parent
+        assert {entry["agent_id"] for entry in subagent_list()} == expected
+        children = scan_rehydrate_subagents(logs_dir)
+        assert all(child.parent_logdir == parent.logdir.resolve() for child in children)
 
     def test_list_keeps_newest_when_id_is_reused(self, tmp_path: Path, monkeypatch):
         from gptme.tools.subagent.api import subagent_list
