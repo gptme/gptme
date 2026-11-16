@@ -177,7 +177,11 @@ def mcp_info(server_name: str):
     if server:
         # Show local configuration
         click.echo(f"📋 MCP Server: {server.name}")
-        click.echo(f"   Type: {'HTTP' if server.is_http else 'stdio'}")
+        if server.is_http:
+            server_type = "HTTP (SSE)" if server.is_sse else "HTTP"
+        else:
+            server_type = "stdio"
+        click.echo(f"   Type: {server_type}")
         click.echo(f"   Enabled: {'✅' if server.enabled else '❌'}")
         sources = _server_sources(config, server.name)
         if sources:

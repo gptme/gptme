@@ -315,6 +315,26 @@ class TestMCPInfo:
         assert "Environment: 1 variables" in result.output
         assert "Connected" in result.output
 
+    def test_local_sse_server_shows_transport(self, mock_config, mock_mcp_client):
+        """SSE servers are labelled so `mcp info` shows the transport in use."""
+        from gptme.config import MCPServerConfig
+
+        for transport, url, expected in [
+            ("", "http://localhost:8080/sse", "Type: HTTP (SSE)"),
+            ("sse", "http://localhost:8080/events", "Type: HTTP (SSE)"),
+            ("", "http://localhost:8080/mcp", "Type: HTTP\n"),
+        ]:
+            server = MCPServerConfig(name="s", url=url, transport=transport)
+            mock_config.mcp.servers = [server]
+            tools_mock = Mock()
+            tools_mock.tools = []
+            mock_mcp_client.connect.return_value = (tools_mock, Mock())
+
+            result = CliRunner().invoke(main, ["mcp", "info", "s"])
+
+            assert result.exit_code == 0, result.output
+            assert expected in result.output, result.output
+
     def test_local_http_server(self, mock_config, mock_mcp_client):
         """Test info for locally configured HTTP server."""
         server = Mock()
