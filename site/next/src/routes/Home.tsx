@@ -442,7 +442,7 @@ function Agents() {
           <div className="flex min-w-0 flex-col gap-[14px] max-sm:gap-[10px]">
             <p className={cn(eyebrow, "text-muted-text")}>The reference agent</p>
             <h3 className="m-0 text-[26px] font-semibold leading-[1.3] text-heading [text-wrap:balance] max-sm:text-[21px] max-sm:leading-[1.3]">
-              Bob has been running on gptme since 2024, without taking a day off.
+              Bob has been building on gptme since late 2024, running autonomously since September 2025.
             </h3>
             <p className={panelText}>
               He picks up his own work, opens and reviews pull requests, fixes CI, writes blog posts, and keeps the
@@ -458,8 +458,8 @@ function Agents() {
           </div>
           <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-5 self-start max-sm:gap-x-3">
             {[
-              ["4,000+", "merged public PRs"],
-              ["24/7", "since late 2024"],
+              ["5,800+", "merged public PRs"],
+              ["24/7", "since Sep 2025"],
             ].map(([value, label]) => (
               <div key={label} className="flex flex-col-reverse justify-end gap-1 max-sm:gap-0.5">
                 <dt className="text-[15px] leading-[1.4] text-muted-text max-sm:text-sm">{label}</dt>
