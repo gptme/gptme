@@ -281,8 +281,15 @@ accessor rather than re-parsing or importing underscore-private helpers.
 ``gptme.tools.patch_many.get_patch_many_targets(tool_use)`` returns the resolved
 ``(path, patch)`` pairs a ``patch_many`` call would write, whichever input shape
 it uses (``None`` for other tools, ``[]`` for a call the tool will reject).
+Pass ``resolve_symlinks=False`` to inspect requested names too: a secret-path
+policy should check both the requested name and resolved destination, so a
+protected ``.env`` symlink cannot hide behind an ordinary target name.
 ``gptme.tools.tmux.get_tmux_operations(tool_use)`` does the same for ``tmux``,
-returning ``(verb, arguments)`` pairs such as ``("new-session", "<shell command>")``:
+returning ``(verb, arguments)`` pairs such as ``("new-session", "<shell command>")``.
+``get_tmux_key_text(keys)`` decodes ``send-keys`` quoting and common submission
+and whitespace keys for literal-input checks. It is not terminal emulation:
+existing pane state and arbitrary control-key editing remain outside the policy.
+For example:
 
 .. code-block:: python
 
@@ -312,6 +319,9 @@ at ``TOOL_CONFIRM`` (priority 200), and the secret-path rule for ``read`` at
 ``TOOL_EXECUTE_PRE`` (priority 200), since ``read`` never reaches confirmation.
 The same seam checks ``patch_many`` targets and the shell text that ``tmux``
 ``new-session`` and ``send-keys`` hand to a shell through the accessors above.
+These policies also run at ``TOOL_CONFIRM`` for direct MCP execution, which
+bypasses the pre-execution seam. For ``patch_many`` reconfirmation, the policy
+inspects the edited multi-file preview rather than the original call's targets.
 Both registrations share one hook name, so ``HOOK_ALLOWLIST`` and
 ``disable_hook("guardrails")`` apply to both.
 

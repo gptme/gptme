@@ -337,3 +337,18 @@ def test_get_tmux_operations():
     # kwargs (function-call) form
     kw = ToolUse("tmux", None, None, {"command": "kill-session gptme_2"})
     assert get_tmux_operations(kw) == [("kill-session", "gptme_2")]
+
+
+@pytest.mark.parametrize(
+    ("keys", "text"),
+    [
+        ("'printenv' Enter", "printenv\n"),
+        ("'print' 'env' C-m", "printenv\n"),
+        ("'echo' Space 'hello' Tab Enter", "echo hello\t\n"),
+        ("'unclosed", "'unclosed"),
+    ],
+)
+def test_get_tmux_key_text(keys, text):
+    from gptme.tools.tmux import get_tmux_key_text
+
+    assert get_tmux_key_text(keys) == text

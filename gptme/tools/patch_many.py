@@ -65,7 +65,7 @@ on an earlier one landing.
 """.strip()
 
 
-def _resolve_path(raw_path: str) -> Path:
+def _resolve_path(raw_path: str, *, resolve_symlinks: bool = True) -> Path:
     """Resolve a path and reject relative traversal outside the current directory."""
     path_display = Path(raw_path).expanduser()
     path = path_display.resolve()
@@ -80,7 +80,7 @@ def _resolve_path(raw_path: str) -> Path:
                 f"which is outside current directory {cwd}"
             ) from err
 
-    return path
+    return path if resolve_symlinks else path_display.absolute()
 
 
 def _parse_patches_from_content(
@@ -104,7 +104,9 @@ def _parse_patches_from_content(
     return list(zip(paths, patches))
 
 
-def _parse_patches_from_kwargs(kwargs: Mapping[str, object]) -> list[tuple[Path, str]]:
+def _parse_patches_from_kwargs(
+    kwargs: Mapping[str, object], *, resolve_symlinks: bool = True
+) -> list[tuple[Path, str]]:
     """Parse patches from kwargs format: {patches: [{path, patch}, ...]}."""
     raw = kwargs.get("patches")
     if raw is None:
@@ -130,7 +132,9 @@ def _parse_patches_from_kwargs(kwargs: Mapping[str, object]) -> list[tuple[Path,
                 f"Patch entry {i} must use string 'path' and 'patch' values"
             )
 
-        result.append((_resolve_path(path_value), patch_value))
+        result.append(
+            (_resolve_path(path_value, resolve_symlinks=resolve_symlinks), patch_value)
+        )
 
     return result
 
@@ -160,7 +164,9 @@ def _serialize_confirmation_payload(
     )
 
 
-def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
+def _parse_confirmation_payload(
+    content: str, *, resolve_symlinks: bool = True
+) -> list[tuple[Path, str]]:
     """Parse file sections, treating headers inside patch hunks as literal text."""
     sections: list[tuple[Path, list[str]]] = []
     end_marker: str | None = None
@@ -188,7 +194,14 @@ def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
             match = _CONFIRM_HEADER_RE.fullmatch("\n".join(header))
             if match is None:
                 raise ValueError("Invalid patch_many payload: empty path header")
-            sections.append((_resolve_path(match.group("path")), []))
+            sections.append(
+                (
+                    _resolve_path(
+                        match.group("path"), resolve_symlinks=resolve_symlinks
+                    ),
+                    [],
+                )
+            )
         elif sections and line == ORIGINAL.strip():
             sections[-1][1].append(line)
             end_marker = DIVIDER.strip()
@@ -480,6 +493,8 @@ def _entries_from_call(
     code: str | None,
     args: list[str] | None,
     kwargs: Mapping[str, str] | None,
+    *,
+    resolve_symlinks: bool = True,
 ) -> list[tuple[Path, str | Patch]]:
     """Resolve a call's ``(path, patch)`` entries from whichever of the three
     input shapes it uses (kwargs ``patches``, ``=== PATH: ===`` headers, or
@@ -490,7 +505,9 @@ def _entries_from_call(
     """
     if code is None and kwargs is not None and "patches" in kwargs:
         try:
-            return list(_parse_patches_from_kwargs(kwargs))
+            return list(
+                _parse_patches_from_kwargs(kwargs, resolve_symlinks=resolve_symlinks)
+            )
         except (ValueError, json.JSONDecodeError) as e:
             raise _CallInputError(f"Error parsing patches from kwargs: {e}") from e
 
@@ -502,7 +519,9 @@ def _entries_from_call(
     # literal path headers inside its ORIGINAL or UPDATED content.
     if _CONFIRM_HEADER_RE.match(code.lstrip()):
         try:
-            return list(_parse_confirmation_payload(code))
+            return list(
+                _parse_confirmation_payload(code, resolve_symlinks=resolve_symlinks)
+            )
         except ValueError as e:
             raise _CallInputError(f"Error parsing patches: {e}") from e
 
@@ -513,19 +532,25 @@ def _entries_from_call(
         )
 
     try:
-        paths = [_resolve_path(arg) for arg in args]
+        paths = [_resolve_path(arg, resolve_symlinks=resolve_symlinks) for arg in args]
         return list(_parse_patches_from_content(code, paths))
     except ValueError as e:
         raise _CallInputError(f"Error parsing patches: {e}") from e
 
 
-def get_patch_many_targets(tool_use: ToolUse) -> list[tuple[Path, str]] | None:
+def get_patch_many_targets(
+    tool_use: ToolUse, *, resolve_symlinks: bool = True
+) -> list[tuple[Path, str]] | None:
     """Public structured input of a ``patch_many`` call, for policy hooks.
 
     Returns the resolved ``(path, patch)`` pairs the call would write, in
     order, or ``None`` when ``tool_use`` is not a ``patch_many`` call. An
     unusable call (malformed, or a relative path escaping the working
     directory) returns ``[]``: the tool rejects it before writing anything.
+
+    Set ``resolve_symlinks=False`` to inspect requested names as well as resolved
+    destinations (e.g. a protected ``.env`` alias to an ordinary filename).
+    Traversal validation still applies in both modes.
 
     Intended for ``TOOL_EXECUTE_PRE`` hooks, e.g.::
 
@@ -539,7 +564,12 @@ def get_patch_many_targets(tool_use: ToolUse) -> list[tuple[Path, str]] | None:
     if tool_use.tool != "patch_many":
         return None
     try:
-        entries = _entries_from_call(tool_use.content, tool_use.args, tool_use.kwargs)
+        entries = _entries_from_call(
+            tool_use.content,
+            tool_use.args,
+            tool_use.kwargs,
+            resolve_symlinks=resolve_symlinks,
+        )
     except _CallInputError:
         return []
     return [(path, _stringify_patch(patch_src)) for path, patch_src in entries]

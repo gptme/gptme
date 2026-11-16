@@ -1309,3 +1309,37 @@ class TestGetPatchManyTargets:
         assert get_patch_many_targets(ToolUse("patch_many", [], self.PATCH)) == []
         escape = ToolUse("patch_many", ["../../../../etc/x"], self.PATCH)
         assert get_patch_many_targets(escape) == []
+
+
+@pytest.mark.parametrize("form", ["kwargs", "headers", "positional"])
+def test_get_patch_many_targets_preserves_requested_symlink(tmp_path, form):
+    import json
+
+    from gptme.tools.base import ToolUse
+    from gptme.tools.patch_many import get_patch_many_targets
+
+    alias, target = tmp_path / ".env", tmp_path / "runtime"
+    target.write_text("old\n")
+    alias.symlink_to(target)
+    patch = TestGetPatchManyTargets.PATCH
+    if form == "kwargs":
+        use = ToolUse(
+            "patch_many",
+            None,
+            None,
+            {"patches": json.dumps([{"path": str(alias), "patch": patch}])},
+        )
+    elif form == "headers":
+        use = ToolUse("patch_many", [], f"=== PATH: {alias} ===\n{patch}")
+    else:
+        use = ToolUse("patch_many", [str(alias)], patch)
+    assert get_patch_many_targets(use) == [(target, patch)]
+    assert get_patch_many_targets(use, resolve_symlinks=False) == [(alias, patch)]
+
+
+def test_requested_targets_still_reject_traversal():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.patch_many import get_patch_many_targets
+
+    use = ToolUse("patch_many", ["../../../../etc/x"], TestGetPatchManyTargets.PATCH)
+    assert get_patch_many_targets(use, resolve_symlinks=False) == []

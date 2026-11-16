@@ -252,6 +252,33 @@ def new_session(command: str) -> Message:
     )
 
 
+def _parse_send_keys(keys: str) -> list[str]:
+    """Decode the literal key arguments passed to tmux, including quoting."""
+    try:
+        return shlex.split(keys)
+    except ValueError:
+        return [keys]
+
+
+def get_tmux_key_text(keys: str) -> str:
+    """Return typed text for literal-input policy checks, not terminal emulation.
+
+    tmux concatenates argument text without spaces. Common submission/whitespace
+    keys are decoded; arbitrary control keys and existing pane state are outside
+    this stateless policy's scope.
+    """
+    special = {
+        "Enter": "\n",
+        "Return": "\n",
+        "C-m": "\n",
+        "C-j": "\n",
+        "Space": " ",
+        "Tab": "\t",
+        "C-i": "\t",
+    }
+    return "".join(special.get(key, key) for key in _parse_send_keys(keys))
+
+
 def send_keys(pane_id: str, keys: str) -> Message:
     if pane_id.startswith("%") and pane_id[1:].isdigit():
         # Native pane IDs cannot be prefixed. Check ownership before accepting
@@ -279,13 +306,8 @@ def send_keys(pane_id: str, keys: str) -> Message:
             )
     elif not pane_id.startswith("gptme_"):
         pane_id = f"gptme_{pane_id}"
-    # Parse keys into separate arguments to avoid shell injection
-    # shlex.split properly handles quoted strings and escapes
-    try:
-        key_args = shlex.split(keys)
-    except ValueError:
-        # Fall back to single argument if shlex can't parse (unmatched quotes, etc.)
-        key_args = [keys]
+    # Shared with the policy accessor so quoting is decoded identically.
+    key_args = _parse_send_keys(keys)
     try:
         result = subprocess.run(
             ["tmux", "send-keys", "-t", pane_id, *key_args],

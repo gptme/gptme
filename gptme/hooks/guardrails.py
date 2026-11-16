@@ -260,20 +260,30 @@ def _read_secret_path_reason(
     return None
 
 
-def _patch_many_secret_path_reason(tool_use: "ToolUse") -> str | None:
+def _patch_many_secret_path_reason(
+    tool_use: "ToolUse", preview: str | None = None
+) -> str | None:
     """Return the block reason if a ``patch_many`` call writes a secret path.
 
     Uses the tool's public targets accessor, so the paths checked are exactly
     the ones the call would write, whichever of the three input shapes it uses.
     """
+    from ..tools.base import ToolUse
     from ..tools.patch_many import get_patch_many_targets
 
-    for path, _ in get_patch_many_targets(tool_use) or []:
-        if _is_secret_path(str(path)):
-            return (
-                f"Secret path access blocked: patch_many writes {str(path)!r}. "
-                "Use a dedicated secrets manager or explicit user approval."
-            )
+    # execute_with_confirmation previews the canonical editable payload. MCP
+    # previews serialized kwargs instead; in that case inspect the actual call.
+    if preview is not None and preview.lstrip().startswith("=== PATH: "):
+        tool_use = ToolUse("patch_many", [], preview)
+    for resolve_symlinks in (False, True):
+        for path, _ in (
+            get_patch_many_targets(tool_use, resolve_symlinks=resolve_symlinks) or []
+        ):
+            if _is_secret_path(str(path)):
+                return (
+                    f"Secret path access blocked: patch_many writes {str(path)!r}. "
+                    "Use a dedicated secrets manager or explicit user approval."
+                )
     return None
 
 
@@ -314,13 +324,14 @@ def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
     (``send-keys``), so it would otherwise bypass every rule that polices the
     ``shell`` tool. The operations come from the tool's public accessor.
     """
-    from ..tools.tmux import get_tmux_operations
+    from ..tools.tmux import get_tmux_key_text, get_tmux_operations
 
     for verb, arguments in get_tmux_operations(tool_use) or []:
         if verb == "new-session":
             text = arguments
         elif verb == "send-keys":
-            _pane, _, text = arguments.partition(" ")
+            parts = arguments.split(maxsplit=1)
+            text = get_tmux_key_text(parts[1]) if len(parts) > 1 else ""
         else:
             continue
         reason = _shell_text_block_reason(text.strip(), f"tmux {verb}")
@@ -387,6 +398,12 @@ def guardrail_hook(
         # Dropping this branch would silently reopen that MCP gap.
         block_reason = _read_secret_path_reason(tool_use, preview)
 
+    elif tool_use.tool == "patch_many":
+        block_reason = _patch_many_secret_path_reason(tool_use, preview)
+
+    elif tool_use.tool == "tmux":
+        block_reason = _tmux_block_reason(tool_use)
+
     if block_reason is None:
         return None  # Allow — fall through to next hook
 
@@ -419,8 +436,7 @@ def guardrail_pre_hook(
     (atomic) ``patch_many`` call, and ``tmux`` ``new-session``/``send-keys``
     text gets the same rules as the ``shell`` tool.
 
-    Only secret-path access is handled here; everything else about these
-    tools stays unguarded, exactly as before.
+    These are literal-input policies, not a sandbox for arbitrary programs.
     """
     mode = _get_mode()
     if mode == "off":  # pragma: no cover - register() skips registration
@@ -492,8 +508,9 @@ def register() -> None:
         enabled=True,
     )
     # read never reaches TOOL_CONFIRM, so its secret-path policy lives on the
-    # central pre-execution seam instead (as does patch_many's, which needs the
-    # tool's structured input rather than a serialized confirmation preview).
+    # central pre-execution seam instead. patch_many and tmux are checked at
+    # both seams: MCP dispatches only TOOL_CONFIRM, and patch_many edits must
+    # be checked again using the canonical confirmation payload.
     register_hook(
         name="guardrails",
         hook_type=HookType.TOOL_EXECUTE_PRE,
