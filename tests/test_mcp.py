@@ -1103,3 +1103,49 @@ def test_http_auth_diagnostic_ignores_broken_ca_configuration(
     monkeypatch.setenv("SSL_CERT_FILE", str(ca_file))
     # A diagnostic failure must not replace the original connection error.
     assert _diagnose_http_auth_failure("https://example.com/mcp") is None
+
+
+def _client_returning(content):
+    """MCPClient whose session.call_tool returns a CallToolResult with `content`."""
+    from unittest.mock import MagicMock
+
+    import mcp.types as types
+
+    from gptme.mcp.client import MCPClient
+
+    client = MCPClient()
+
+    async def fake_call_tool(*args, **kwargs):
+        return types.CallToolResult(content=content)
+
+    client.session = MagicMock()
+    client.session.call_tool = fake_call_tool
+    return client
+
+
+def test_mcp_call_tool_returns_every_content_block():
+    """Blocks after the first TextContent used to be dropped silently."""
+    import mcp.types as types
+
+    client = _client_returning(
+        [
+            types.TextContent(type="text", text="first"),
+            types.TextContent(type="text", text="second"),
+            types.ImageContent(type="image", data="aGk=", mimeType="image/png"),
+        ]
+    )
+    try:
+        assert client.call_tool("search", {}) == "first\nsecond\n[Image: image/png]"
+    finally:
+        client.close()
+
+
+def test_mcp_call_tool_single_text_block_is_unchanged():
+    import mcp.types as types
+
+    text = "line 1\nline 2\n"
+    client = _client_returning([types.TextContent(type="text", text=text)])
+    try:
+        assert client.call_tool("echo", {}) == text
+    finally:
+        client.close()
