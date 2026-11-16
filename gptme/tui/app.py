@@ -2333,6 +2333,7 @@ def _build_work_sections(
     cursor: int = 0,
     unread: set[tuple[str, float, str]] | None = None,
     width: int | None = None,
+    watches: list | None = None,
 ) -> tuple[str, str]:
     """Build the children and monitors sections of the work summary.
 
@@ -2340,7 +2341,8 @@ def _build_work_sections(
     transcript has the details), a monitor wraps (nothing else shows it).
     With ``width`` (terminal cells), each child line is laid out to fit it;
     see :func:`_format_child_row`. Either section is an empty string when
-    there is nothing to show.
+    there is nothing to show. ``children`` and ``watches`` are read from disk
+    when omitted; a caller on the UI loop passes both, read off-loop.
     """
     lines: list[str] = []
     now = time.time()
@@ -2371,12 +2373,13 @@ def _build_work_sections(
             )
 
     # --- watches ---
-    try:
-        from ..tools.watch import watch_snapshots
+    if watches is None:
+        try:
+            from ..tools.watch import watch_snapshots
 
-        watches = watch_snapshots(logdir, branch=branch) if logdir else []
-    except Exception:
-        watches = []
+            watches = watch_snapshots(logdir, branch=branch) if logdir else []
+        except Exception:
+            watches = []
 
     child_lines, lines = lines, []
     if watches:
@@ -2559,9 +2562,37 @@ class WorkOverviewScreen(ModalScreen):
         self._logdir = logdir
         self._branch = branch
         self._children: list[SubagentSnapshot] = []
+        self._watches: list = []
         self._cursor = 0
+        self._reading = False
 
-    def _snapshot_summary(self) -> tuple[str, str]:
+    def _read_inputs(self) -> "tuple[list[SubagentSnapshot], list]":
+        """Read child and monitor snapshots from disk (blocking).
+
+        Restored children can reload their whole history, so the periodic
+        refresh runs this in a thread (see ``_refresh_off_loop``); only the
+        explicit, one-shot refreshes call it on the UI loop.
+        """
+        if not self._logdir:
+            return [], []
+        try:
+            from ..tools.subagent import subagent_snapshots
+
+            children = subagent_snapshots(self._logdir, parent_branch=self._branch)
+        except Exception:
+            children = []
+        try:
+            from ..tools.watch import watch_snapshots
+
+            watches = watch_snapshots(self._logdir, branch=self._branch)
+        except Exception:
+            watches = []
+        return children, watches
+
+    def _snapshot_summary(
+        self, inputs: "tuple[list[SubagentSnapshot], list] | None" = None
+    ) -> tuple[str, str]:
+        """Render the summary from ``inputs`` (read now when omitted)."""
         # Planner runs reuse their logdir, so run_id alone can repeat; the
         # start time disambiguates which of those rows is selected.
         selected_key = (
@@ -2572,28 +2603,24 @@ class WorkOverviewScreen(ModalScreen):
             if self._children
             else None
         )
-        try:
-            from ..tools.subagent import subagent_snapshots
-
-            self._children = (
-                subagent_snapshots(self._logdir, parent_branch=self._branch)
-                if self._logdir
-                else []
-            )
-        except Exception:
-            self._children = []
+        self._children, self._watches = inputs or self._read_inputs()
 
         keys = [(c.run_id, c.started_at) for c in self._children]
         if selected_key in keys:
             self._cursor = keys.index(selected_key)
         else:
             self._cursor = min(self._cursor, max(0, len(self._children) - 1))
+        return self._render_summary()
+
+    def _render_summary(self) -> tuple[str, str]:
+        """Build the sections from the last-read snapshots (no disk access)."""
         children, monitors = _build_work_sections(
             self._logdir,
             self._branch,
             children=self._children,
             cursor=self._cursor,
             width=self._child_row_width(),
+            watches=self._watches,
             unread={
                 (c.run_id, c.started_at, c.status)
                 for c in self._children
@@ -2606,7 +2633,9 @@ class WorkOverviewScreen(ModalScreen):
         return children, monitors
 
     def compose(self) -> ComposeResult:
-        children, monitors = self._snapshot_summary()
+        # No disk read here: ``on_mount`` starts the first off-loop read, and
+        # opening the overview must not wait on large restored histories.
+        children, monitors = "Loading…", ""
         with Vertical(id="work-overview-container"):
             yield Static(
                 Text(
@@ -2635,19 +2664,50 @@ class WorkOverviewScreen(ModalScreen):
         return width or None
 
     def on_mount(self) -> None:
-        self.set_interval(1.0, self._refresh_summary)
+        self.set_interval(1.0, self._refresh_off_loop)
         # Rows are fitted to the laid-out width, unknown until the first refresh.
-        self.call_after_refresh(self._refresh_summary)
+        self.call_after_refresh(self._refresh_off_loop)
 
     def on_resize(self) -> None:
-        self.call_after_refresh(self._refresh_summary)
+        # Only the row width changed: re-fit the rows already read.
+        self.call_after_refresh(self._show_summary)
 
     def on_screen_resume(self) -> None:
-        self._refresh_summary()
+        self.call_after_refresh(self._refresh_off_loop)
+
+    async def _refresh_off_loop(self) -> None:
+        """Re-read the snapshots in a thread, then redraw on the UI loop.
+
+        One read at a time: a read slower than the 1s interval must not stack
+        up threads, and the next tick simply picks up the newest state.
+        """
+        if self._reading:
+            return
+        self._reading = True
+        try:
+            inputs = await asyncio.to_thread(self._read_inputs)
+        finally:
+            self._reading = False
+        if not self.is_attached:  # closed while the read was in flight
+            return
+        self._show_summary(inputs)
 
     def _refresh_summary(self, *, scroll: bool = False) -> None:
+        """Re-read and redraw now, on the calling thread (one-shot refreshes)."""
+        self._show_summary(self._read_inputs(), scroll=scroll)
+
+    def _show_summary(
+        self,
+        inputs: "tuple[list[SubagentSnapshot], list] | None" = None,
+        *,
+        scroll: bool = False,
+    ) -> None:
+        """Draw the summary from ``inputs``, or from the last read when omitted."""
         cursor_before = self._cursor
-        children, monitors = self._snapshot_summary()
+        if inputs is None:
+            children, monitors = self._render_summary()
+        else:
+            children, monitors = self._snapshot_summary(inputs)
         for view_id, text in (
             ("#work-overview-content", children),
             ("#work-overview-monitors", monitors),
@@ -2692,7 +2752,7 @@ class WorkOverviewScreen(ModalScreen):
             )
             return
         self._cursor += 1
-        self._refresh_summary(scroll=True)
+        self._show_summary(scroll=True)
 
     def action_cursor_up(self) -> None:
         scroll = self.query_one("#work-overview-scroll", VerticalScroll)
@@ -2700,7 +2760,7 @@ class WorkOverviewScreen(ModalScreen):
             scroll.scroll_up(animate=False)
             return
         self._cursor = max(0, self._cursor - 1)
-        self._refresh_summary(scroll=True)
+        self._show_summary(scroll=True)
 
 
 class GptmeApp(App):
