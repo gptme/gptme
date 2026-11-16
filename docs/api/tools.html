@@ -7,6 +7,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta property="og:title" content="Tools" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://gptme.org/docs/api/tools.html" />
+<meta property="og:site_name" content="gptme" />
+<meta property="og:description" content="Supporting classes and functions for creating and using tools, including ToolSpec. See Tools for the built-in tools, and Custom Tools for writing your own." />
+<meta property="og:image" content="https://gptme.org/media/logo.png" />
+<meta property="og:image:alt" content="gptme logo" />
+<meta name="description" content="Supporting classes and functions for creating and using tools, including ToolSpec. See Tools for the built-in tools, and Custom Tools for writing your own." />
 
     <title>Tools &#8212; gptme</title>
   
@@ -649,6 +657,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.from_function"><code class="docutils literal notranslate"><span class="pre">ToolSpec.from_function()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.get_doc"><code class="docutils literal notranslate"><span class="pre">ToolSpec.get_doc()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_available"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_available</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_function_only"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_function_only</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_runnable"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_runnable</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.register_commands"><code class="docutils literal notranslate"><span class="pre">ToolSpec.register_commands()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.register_hooks"><code class="docutils literal notranslate"><span class="pre">ToolSpec.register_hooks()</span></code></a></li>
@@ -801,6 +810,15 @@ coercion inside the function body.</p>
 </dd></dl>
 
 <dl class="py property">
+<dt class="sig sig-object py" id="gptme.tools.ToolSpec.is_function_only">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_function_only</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></em><a class="headerlink" href="#gptme.tools.ToolSpec.is_function_only" title="Link to this definition">#</a></dt>
+<dd><p>Whether the tool is only usable through Python functions.</p>
+<p>Such tools (e.g. <code class="docutils literal notranslate"><span class="pre">subagent</span></code>, <code class="docutils literal notranslate"><span class="pre">browser</span></code>) have no <code class="docutils literal notranslate"><span class="pre">execute</span></code> handler
+of their own: their <code class="docutils literal notranslate"><span class="pre">functions</span></code> are registered in the IPython REPL, so
+the model can only call them through the <code class="docutils literal notranslate"><span class="pre">ipython</span></code> tool.</p>
+</dd></dl>
+
+<dl class="py property">
 <dt class="sig sig-object py" id="gptme.tools.ToolSpec.is_runnable">
 <em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_runnable</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></em><a class="headerlink" href="#gptme.tools.ToolSpec.is_runnable" title="Link to this definition">#</a></dt>
 <dd><p>Check if the tool can be executed.</p>
@@ -938,6 +956,7 @@ contexts that never set one (only the first <code class="docutils literal notran
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.from_function"><code class="docutils literal notranslate"><span class="pre">ToolSpec.from_function()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.get_doc"><code class="docutils literal notranslate"><span class="pre">ToolSpec.get_doc()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_available"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_available</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_function_only"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_function_only</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_runnable"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_runnable</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.register_commands"><code class="docutils literal notranslate"><span class="pre">ToolSpec.register_commands()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.register_hooks"><code class="docutils literal notranslate"><span class="pre">ToolSpec.register_hooks()</span></code></a></li>
