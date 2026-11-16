@@ -67,12 +67,25 @@ async def test_periodic_refresh_reads_snapshots_off_the_ui_thread(
         "subagent_snapshots",
         _recording_fake(subagent_pkg.subagent_snapshots, calls),
     )
+    # The app's own work indicator also calls subagent_snapshots every second, so
+    # count the overview's reads directly to prove *its* interval fired.
+    overview_reads: list[bool] = []
+    real_read = WorkOverviewScreen._read_inputs
+
+    def recording_read(self, *args, **kwargs):
+        overview_reads.append(threading.current_thread() is threading.main_thread())
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(WorkOverviewScreen, "_read_inputs", recording_read)
     try:
         app = GptmeApp(manager, workspace=tmp_path)
         async with app.run_test() as pilot:
             app.push_screen(WorkOverviewScreen(manager.logdir, manager.current_branch))
+            await pilot.pause(0.3)  # initial read settles
+            settled = len(overview_reads)
             await pilot.pause(1.4)  # past the 1s interval
-            assert len(calls) >= 2, "interval refresh never ran"
+            assert len(overview_reads) > settled, "interval refresh never ran"
+            assert not any(overview_reads), "overview read ran on the UI thread"
             assert not any(calls), "subagent_snapshots ran on the UI thread"
             from textual.widgets import Static
 
