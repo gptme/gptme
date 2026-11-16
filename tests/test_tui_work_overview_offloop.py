@@ -6,6 +6,7 @@ from the overview's 1s refresh stalled keystrokes and redraws on the UI loop.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from typing import TYPE_CHECKING
 
@@ -118,6 +119,61 @@ async def test_cursor_moves_reuse_the_last_snapshot(tmp_path, monkeypatch):
             marked = [ln for ln in rendered.splitlines() if "cursor-b" in ln]
             assert marked and marked[0].lstrip().startswith(">")
     finally:
+        with _subagents_lock:
+            _subagents[:] = [sa for sa in _subagents if sa.agent_id not in ids]
+
+
+@pytest.mark.asyncio
+async def test_slow_periodic_read_keeps_keys_responsive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keys and overlapping refreshes finish before the pending read is released."""
+    from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+    manager = _manager(tmp_path)
+    ids = ["slow-a", "slow-b"]
+    with _subagents_lock:
+        _subagents.extend(_child(tmp_path, manager, i) for i in ids)
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    calls = 0
+    screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+    real_read = screen._read_inputs
+
+    def slow_read() -> tuple[list, list]:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            entered.set()
+            # Safety timeout only: assertions below run while this gate is shut.
+            assert release.wait(15), "test never released the pending snapshot read"
+            finished.set()
+        return real_read()
+
+    monkeypatch.setattr(screen, "_read_inputs", slow_read)
+    try:
+        app = GptmeApp(manager, workspace=tmp_path)
+        async with app.run_test() as pilot:
+            try:
+                app.push_screen(screen)
+                await pilot.pause(0.3)
+                assert len(screen._children) == 2
+                assert await asyncio.to_thread(entered.wait, 5), "timer never read"
+                assert screen._reading
+                screen._start_refresh()
+                await asyncio.wait_for(screen._refresh_off_loop(), timeout=2)
+                assert calls == 2, "overlapping refresh started another read"
+                await asyncio.wait_for(pilot.press("j"), timeout=2)
+                assert screen._cursor == 1
+                await asyncio.wait_for(pilot.press("escape"), timeout=2)
+                assert app.screen is not screen
+                assert not release.is_set()
+                assert not finished.is_set(), "keys waited for the read to finish"
+            finally:
+                release.set()
+    finally:
+        release.set()
         with _subagents_lock:
             _subagents[:] = [sa for sa in _subagents if sa.agent_id not in ids]
 

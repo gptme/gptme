@@ -2664,16 +2664,22 @@ class WorkOverviewScreen(ModalScreen):
         return width or None
 
     def on_mount(self) -> None:
-        self.set_interval(1.0, self._refresh_off_loop)
+        self.set_interval(1.0, self._start_refresh)
         # Rows are fitted to the laid-out width, unknown until the first refresh.
-        self.call_after_refresh(self._refresh_off_loop)
+        self.call_after_refresh(self._start_refresh)
 
     def on_resize(self) -> None:
         # Only the row width changed: re-fit the rows already read.
         self.call_after_refresh(self._show_summary)
 
     def on_screen_resume(self) -> None:
-        self.call_after_refresh(self._refresh_off_loop)
+        self.call_after_refresh(self._start_refresh)
+
+    def _start_refresh(self) -> None:
+        # Awaiting even an off-thread read inside a timer/refresh callback blocks
+        # Textual's message pump. A worker leaves it free to handle keys.
+        if not self._reading:
+            self.run_worker(self._refresh_off_loop())
 
     async def _refresh_off_loop(self) -> None:
         """Re-read the snapshots in a thread, then redraw on the UI loop.
