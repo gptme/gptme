@@ -742,7 +742,7 @@ class LogManager:
     def replace_message(self, old: Message, new: Message) -> bool:
         """Replace a message previously added by :meth:`append` and rewrite the log.
 
-        ``old`` is matched by identity (the object found in :attr:`log`, e.g.
+        ``old`` is matched by identity (the object found in ``self.log``, e.g.
         ``manager.log[-1]`` right after the append), and replaced in every log
         that :meth:`append` wrote it to: the current branch or view, the branch
         behind a view, and the lossless recall archive. Meant for metadata that
