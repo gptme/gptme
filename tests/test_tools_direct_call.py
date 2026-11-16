@@ -251,6 +251,96 @@ def test_examples_render_direct_call():
     assert ToolUse("webby", [], 'fetch(url="...")').to_output("markdown") in examples
 
 
+def test_duplicate_keywords_do_not_execute():
+    tool = make_direct_call_tool(_fn_tool())
+    out = _run(tool, 'fetch("u", max_pages=1, max_pages=2)')
+    assert calls == []
+    assert "Repeated keyword argument: max_pages" in out
+
+
+@pytest.mark.parametrize("many", [False, True])
+def test_message_results_keep_captured_diagnostics(many):
+    import sys
+
+    message = Message("system", "done")
+
+    def report():
+        print("warning")
+        print("diagnostic", file=sys.stderr)
+        return [message] if many else message
+
+    tool = make_direct_call_tool(ToolSpec(name="reporter", desc="", functions=[report]))
+    assert tool.execute is not None
+    result = tool.execute("report()", [], None)
+    assert not isinstance(result, Message)
+    msgs = list(result)
+    assert msgs[-1] is message
+    assert "warning" in msgs[0].content
+    assert "diagnostic" in msgs[0].content
+
+
+@pytest.mark.parametrize("name", ["screenshot", "screenshot_url"])
+def test_image_path_results_attach_pixels(tmp_path, name):
+    from PIL import Image
+
+    image_path = tmp_path / "capture.png"
+    Image.new("RGB", (2, 2)).save(image_path)
+
+    def capture():
+        return image_path
+
+    capture.__name__ = name
+    tool = make_direct_call_tool(ToolSpec(name="capture", desc="", functions=[capture]))
+    assert tool.execute is not None
+    result = tool.execute(f"{name}()", [], None)
+    assert not isinstance(result, Message)
+    msgs = list(result)
+    assert any(image_path in m.files for m in msgs)
+
+
+def test_invalid_image_result_reports_error(tmp_path):
+    image_path = tmp_path / "broken.png"
+    image_path.write_text("not an image")
+
+    def capture():
+        return image_path
+
+    tool = make_direct_call_tool(ToolSpec(name="capture", desc="", functions=[capture]))
+    assert "Error: UnidentifiedImageError" in _run(tool, "capture()")
+
+
+def test_image_results_respect_vision_boundary(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "gptme.tools.vision._vision_allowed_roots", lambda: [tmp_path, tmp_path]
+    )
+
+    def capture():
+        return tmp_path.parent / "outside.png"
+
+    tool = make_direct_call_tool(ToolSpec(name="capture", desc="", functions=[capture]))
+    assert tool.execute is not None
+    result = tool.execute("capture()", [], None)
+    assert not isinstance(result, Message)
+    msgs = list(result)
+    assert all(not m.files for m in msgs)
+    assert "outside allowed directories" in msgs[0].content
+
+
+@pytest.mark.parametrize("fmt", ["markdown", "tool"])
+@pytest.mark.parametrize("name", ["browser", "chats"])
+def test_format_specific_guidance_uses_direct_calls(name, fmt, monkeypatch):
+    monkeypatch.setattr("gptme.tools.python.registered_functions", {})
+    init_tools(allowlist=[name])
+    tool = get_tool(name)
+    assert tool is not None
+    instructions = tool.get_instructions(fmt)
+    assert "Use ipython" not in instructions
+    assert "exactly one call" in instructions
+    native = tool.instructions_format["tool"]
+    assert "exactly one call" in native
+    assert len(native) <= 1024
+
+
 # --- integration with init_tools / load_tool --------------------------------
 
 

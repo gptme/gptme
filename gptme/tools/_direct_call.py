@@ -25,6 +25,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..constants import DECLINED_CONTENT
@@ -76,6 +77,8 @@ def parse_direct_call(
     for kw in call.keywords:
         if kw.arg is None:
             raise DirectCallError("**kwargs is not supported in direct calls")
+        if kw.arg in kwargs:
+            raise DirectCallError(f"Repeated keyword argument: {kw.arg}")
         kwargs[kw.arg] = _literal(kw.value)
     return tf, args, kwargs
 
@@ -109,8 +112,8 @@ def _usage(tool: ToolSpec) -> str:
 
 
 def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Message]:
-    # Same output capture and formatting as the ipython tool, so a function
-    # behaves the same whichever way it is called.
+    # Reuse ipython's output capture and caps, preserving diagnostics even
+    # when the function returns structured messages rather than plain text.
     from .python import _cap_output, capture_and_display  # fmt: skip
 
     error: Exception | None = None
@@ -122,25 +125,44 @@ def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Mess
             logger.debug("Direct call to %s failed", tf.fn.__name__, exc_info=True)
             error = e
 
+    messages: list[Message] = []
     if error is None:
+        if isinstance(result, Path) and result.suffix.lower() in {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+        }:
+            # Reuse vision's path boundary and image normalization/scaling.
+            from .vision import view_image
+
+            try:
+                result = view_image(result)
+            except Exception as e:
+                logger.debug("Direct call image result failed", exc_info=True)
+                error = e
+                result = None
         if isinstance(result, Message):
-            return [result]
-        if (
+            messages = [result]
+        elif (
             isinstance(result, list)
             and result
             and all(isinstance(m, Message) for m in result)
         ):
-            return list(result)
+            messages = list(result)
 
     output = ""
     if stdout := stdout_capture.get_captured():
         output += md_codeblock("stdout", _cap_output(stdout).rstrip()) + "\n\n"
-    if error is None and result is not None:
+    if error is None and result is not None and not messages:
         output += f"Result:\n{md_codeblock('', _cap_output(str(result)))}\n\n"
     if stderr := stderr_capture.get_captured():
         output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
     if error is not None:
         output += f"Error: {type(error).__name__}: {error}\n"
+    if messages:
+        return ([Message("system", output.strip())] if output else []) + messages
     if not output:
         output = f"Called {tf.fn.__name__}() (no output)"
     return [Message("system", output.strip())]
@@ -202,6 +224,16 @@ def make_direct_call_tool(tool: ToolSpec) -> ToolSpec:
             )
         ],
         instructions=f"{tool.instructions}\n\n{note}".strip(),
+        # Old overrides may recommend ipython and native builders use the
+        # compact tool override verbatim, without the base instructions.
+        instructions_format={
+            **{
+                fmt: tool.get_functions_description()
+                for fmt in tool.instructions_format
+                if fmt != "tool"
+            },
+            "tool": note + " Functions: " + ", ".join(functions),
+        },
         examples=examples,
     )
 
