@@ -364,6 +364,75 @@ class TestCompletePendingToolCalls:
             if "status" in call.kwargs["update"]
         ]
 
+    def test_permission_timeout_cancels_request_before_late_approval(self):
+        """A late approval must not revive a call denied by the sync timeout."""
+        agent = _make_agent_with_conn()
+        started = threading.Event()
+        cancelled = threading.Event()
+        loop = asyncio.new_event_loop()
+        reply = loop.create_future()
+
+        async def request_permission(**kwargs):
+            started.set()
+            try:
+                # The transport can still receive an answer after our waiter exits.
+                return await asyncio.shield(reply)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        agent._conn.request_permission = request_permission
+        schedule = asyncio.run_coroutine_threadsafe
+        permission_future = None
+
+        def schedule_with_timeout(coro, target_loop):
+            nonlocal permission_future
+            future = schedule(coro, target_loop)
+            if permission_future is None:
+                permission_future = future
+                result = future.result
+
+                def timeout_while_pending(timeout=None):
+                    assert started.wait(timeout=5)
+                    # Exercise a real Future timeout without waiting 60 seconds.
+                    return result(timeout=0)
+
+                future.result = timeout_while_pending  # type: ignore[method-assign]
+            return future
+
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+        try:
+            with patch(
+                "gptme.acp.agent.asyncio.run_coroutine_threadsafe",
+                side_effect=schedule_with_timeout,
+            ):
+                confirm = agent._create_confirm_with_tools("session_1", loop)
+                assert confirm("Run command: ls") is False
+
+            (call,) = agent._tool_calls["session_1"].values()
+            assert call.status == ToolCallStatus.FAILED
+
+            async def approve_late_and_complete():
+                reply.set_result(_mock_permission_response("allow-once"))
+                # Let callbacks for the late transport response run before sweeping.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                await agent._complete_pending_tool_calls("session_1")
+
+            schedule(approve_late_and_complete(), loop).result(timeout=5)
+            assert call.status == ToolCallStatus.FAILED
+            assert cancelled.is_set()
+            statuses = [
+                item.kwargs["update"]["status"]
+                for item in agent._conn.session_update.await_args_list
+            ]
+            assert statuses == ["pending", "failed"]
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=5)
+            loop.close()
+
     def test_no_tool_calls_for_session(self):
         agent = GptmeAgent()
         conn = MagicMock()
