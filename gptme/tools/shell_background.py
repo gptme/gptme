@@ -1438,10 +1438,15 @@ def format_job_output(
             if paths:
                 blocks.append(label + ":\n" + "\n".join(paths))
             if dropped:
-                # The files above are complete; the preview tail is not.
+                # Only promise recovery when the spool retained the full output.
+                recovery = (
+                    "read them from the files above."
+                    if label == "Full output" and paths
+                    else "omitted text may also be missing from the files."
+                )
                 blocks.append(
                     f"Preview omits the earliest {dropped} chars "
-                    "(evicted from memory); read them from the files above."
+                    f"(evicted from memory); {recovery}"
                 )
         elif log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")

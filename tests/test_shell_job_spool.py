@@ -90,6 +90,8 @@ def test_preview_reports_ram_evicted_prefix(direct_job) -> None:
     assert (
         f"Preview omits the earliest {dropped} chars (evicted from memory)" in preview
     )
+    assert "read them from the files above" in preview
+    assert "omitted text may also be missing" not in preview
 
 
 def test_reader_closes_files_while_job_remains_reachable(direct_job) -> None:
@@ -524,6 +526,14 @@ def test_failed_writer_waits_for_reader_before_publishing_receipt(
         assert job.receipt_path is None
         # The pipe reader keeps draining after disk persistence fails.
         job._commit_spool_bytes(True, b"after failure\n")
+        monkeypatch.setattr(bg, "_MAX_BUFFER_SIZE", 64)
+        job._ingest_text(True, "after failure\n" * 20)
+        assert job._stdout_buffer_start > 0
+        preview = format_job_output(job, *job.get_output(), complete=True)
+        assert "Partial output (capture omitted data)" in preview
+        assert "Preview omits the earliest" in preview
+        assert "read them from the files above" not in preview
+        assert "omitted text may also be missing from the files" in preview
         process.returncode = 7
         job._finalize_spools()
         assert job.receipt_path is not None
