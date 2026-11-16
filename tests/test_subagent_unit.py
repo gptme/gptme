@@ -7883,6 +7883,36 @@ class TestProfileToolResolution:
         # Signal tools are always retained so the subagent can end/ask cleanly.
         assert {"complete", "clarify"} <= names
 
+    def test_builtin_profiles_can_call_their_function_only_tools(self):
+        """researcher/explorer list function-only tools without ipython (#4964).
+
+        Those tools (chats, browser, screenshot) are only reachable through
+        ipython, which the read-only profiles must not get. Each must instead be
+        directly callable in the subagent, without ipython being granted.
+        """
+        from gptme.profiles import get_profile
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        _ensure_subagent_signal_tools_loaded()
+        for profile_name in ("researcher", "explorer"):
+            profile = get_profile(profile_name)
+            assert profile is not None and profile.tools is not None
+            tools = _resolve_profile_tools(profile.tools, profile_name)
+            names = {t.name for t in tools}
+            assert "ipython" not in names
+            assert "chats" in names
+            for tool in tools:
+                assert not tool.is_function_only, (
+                    f"{profile_name}: {tool.name} has no way to be called"
+                )
+                if tool.functions:
+                    assert tool.is_runnable
+                    assert tool.name in tool.block_types
+
     def test_profile_restricts_to_allowlist(self):
         from gptme.tools.subagent.execution import (
             _ensure_subagent_signal_tools_loaded,
