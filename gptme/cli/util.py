@@ -1711,6 +1711,8 @@ def models():
 
             _init_plugins()
     except Exception as exc:
+        # Restore logging first so the failure is visible with --verbose.
+        logging.disable(previous_logging_disable)
         logging.getLogger(__name__).debug(
             "Plugin discovery failed for models command: %s", exc
         )

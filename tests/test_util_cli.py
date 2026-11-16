@@ -2346,3 +2346,21 @@ def test_models_startup_noise_goes_to_stderr(
     assert "plugin init message" in result.stderr
     assert observed_logging_disable == [logging.CRITICAL]
     assert logging.root.manager.disable == logging.NOTSET
+
+
+def test_models_plugin_startup_failure_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failing plugin startup is reported at debug level, not swallowed by logging.disable."""
+    import logging
+
+    def boom() -> None:
+        raise RuntimeError("plugin startup exploded")
+
+    monkeypatch.setattr("gptme.init._init_plugins", boom)
+    with caplog.at_level(logging.DEBUG, logger="gptme.cli.util"):
+        result = CliRunner().invoke(main, ["models", "list", "--simple"])
+
+    assert result.exit_code == 0, result.output
+    assert "plugin startup exploded" in caplog.text
+    assert logging.root.manager.disable == logging.NOTSET
