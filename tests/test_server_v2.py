@@ -244,6 +244,51 @@ def test_start_tool_execution_reports_raising_tool_as_failed(
     assert not session.pending_tools
 
 
+def test_confirmed_tool_runs_in_conversation_workspace(v2_conv, tmp_path, monkeypatch):
+    """Manually confirmed tools resolve relative paths in chat_config.workspace."""
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools import ToolUse
+    from gptme.tools.base import current_workspace
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    workspace = tmp_path / "conv-workspace"
+    workspace.mkdir()
+    tool_id = "tool-ws"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hi", call_id="call-ws"),
+    )
+
+    seen: list[Path] = []
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        seen.append(current_workspace())
+        return iter(())
+
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda workspace, tools, chat_config: None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._start_step_thread",
+        lambda *args, **kwargs: None,
+    )
+
+    thread = start_tool_execution(
+        conversation_id=v2_conv["conversation_id"],
+        session=session,
+        tool_id=tool_id,
+        edited_tooluse=None,
+        model="openai/mock-model",
+        chat_config=ChatConfig(workspace=workspace),
+    )
+    thread.join(timeout=5)
+    assert seen == [workspace.resolve()]
+
+
 @pytest.mark.parametrize("call_id", [None, "call-denied"])
 @pytest.mark.parametrize("denied", [True, False])
 def test_start_tool_execution_reports_policy_denial(

@@ -1676,6 +1676,11 @@ def start_tool_execution(
         # silently unenforced in server deployments.
         set_session_allow_hosts(chat_config.allow_hosts)
 
+        # Relative file paths must resolve in this conversation's workspace, not
+        # the process cwd another conversation may have changed. Only ``step``
+        # sets this, and this worker runs in its own context.
+        set_workspace_cwd(str(chat_config.workspace))
+
         try:
             # Prepare execution environment (config, tools, hooks, .env)
             prepare_execution_environment(

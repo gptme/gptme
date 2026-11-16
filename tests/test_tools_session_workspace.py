@@ -86,3 +86,38 @@ def test_traversal_guard_uses_session_workspace(workspaces):
     with pytest.raises(ValueError, match="Path traversal"):
         _in_session(a, escape)
     assert not (b / "x").exists()
+
+
+def test_save_preview_and_baseline_use_session_workspace(workspaces):
+    a, _, elsewhere = workspaces
+    (a / "f.txt").write_text("workspace content\n")
+    (elsewhere / "f.txt").write_text("cwd content\n")
+    from gptme.tools.save import _SaveBaseline, preview_append, preview_save
+
+    def run():
+        baseline = _SaveBaseline.capture(Path("f.txt"))
+        return (
+            baseline.resolved,
+            preview_save("new\n", Path("f.txt")),
+            preview_append("more\n", Path("f.txt")),
+        )
+
+    resolved, save_prev, append_prev = _in_session(a, run)
+    assert resolved == (a / "f.txt").resolve()
+    assert "workspace content" in save_prev and "cwd content" not in save_prev
+    assert "workspace content" in append_prev and "cwd content" not in append_prev
+
+
+def test_view_image_relative_path_uses_session_workspace(workspaces):
+    a, _, elsewhere = workspaces
+    from PIL import Image
+
+    from gptme.tools.vision import view_image
+
+    Image.new("RGB", (4, 4), "red").save(a / "pic.png")
+
+    msg = _in_session(a, lambda: view_image(Path("pic.png")))
+    assert "Image not found" not in msg.content
+    assert "outside allowed" not in msg.content
+    assert msg.files and msg.files[0] == (a / "pic.png").resolve()
+    assert not (elsewhere / "pic.png").exists()

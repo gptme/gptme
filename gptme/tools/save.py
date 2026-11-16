@@ -101,7 +101,7 @@ class _SaveBaseline:
 
     @classmethod
     def capture(cls, path: Path) -> "_SaveBaseline":
-        resolved = path.expanduser().resolve()
+        resolved = resolve_in_workspace(path)
         try:
             stat = resolved.stat()
         except FileNotFoundError:
@@ -140,6 +140,7 @@ class _SaveBaseline:
 def preview_save(content: str, path: Path | None) -> str | None:
     """Prepare preview content for save operation."""
     assert path
+    path = resolve_in_workspace(path)
     if path.exists():
         current = _read_text_safe(path)
         if current is None:
@@ -153,6 +154,7 @@ def preview_save(content: str, path: Path | None) -> str | None:
 def preview_append(content: str, path: Path | None) -> str | None:
     """Prepare preview content for append operation."""
     assert path
+    path = resolve_in_workspace(path)
     if path.exists():
         current = _read_text_safe(path)
         if current is None:
