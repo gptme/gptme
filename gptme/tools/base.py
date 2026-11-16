@@ -739,6 +739,16 @@ class ToolSpec:
         """Check if the tool can be executed."""
         return bool(self.execute)
 
+    @property
+    def is_function_only(self) -> bool:
+        """Whether the tool is only usable through Python functions.
+
+        Such tools (e.g. ``subagent``, ``browser``) have no ``execute`` handler
+        of their own: their ``functions`` are registered in the IPython REPL, so
+        the model can only call them through the ``ipython`` tool.
+        """
+        return bool(self.functions) and not self.execute
+
     def get_instructions(self, tool_format: ToolFormat):
         instructions = []
         loaded = _loaded_tool_names()
