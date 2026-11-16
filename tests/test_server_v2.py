@@ -168,6 +168,82 @@ def test_start_tool_execution_streams_only_real_tool_output(
     assert "post hook chatter" in system_messages
 
 
+@pytest.mark.parametrize("call_id", [None, "call-failed"])
+@pytest.mark.parametrize("progress", [False, True])
+def test_start_tool_execution_reports_raising_tool_as_failed(
+    v2_conv, client: FlaskClient, monkeypatch, call_id, progress
+):
+    """Even a tool that yielded progress before raising completes as failed."""
+    from gptme.message import Message
+    from gptme.server.api_v2_common import ToolCompleteEvent
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    error = "Error executing tool 'test_tool': boom"
+
+    def partial_result():
+        yield Message("system", "starting")
+        raise RuntimeError("boom")
+
+    def execute(code, args, kwargs):
+        if progress:
+            return partial_result()
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+    tool_exec = ToolExecution(
+        tool_id="tool-failed", tooluse=ToolUse("test_tool", [], None, call_id=call_id)
+    )
+    session.pending_tools[tool_exec.tool_id] = tool_exec
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        tool_exec.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    expected_output = [error]
+    if progress and call_id is None:
+        expected_output.insert(0, "starting")
+    assert [e for e in session.events if e["type"] == "tool_output"] == [
+        {"type": "tool_output", "tool_id": tool_exec.tool_id, "output": output}
+        for output in expected_output
+    ]
+    complete = [
+        cast(ToolCompleteEvent, e)
+        for e in session.events
+        if e["type"] == "tool_complete"
+    ]
+    assert len(complete) == 1
+    assert complete[0]["success"] is False
+    assert complete[0]["status"] == "failed"
+    assert tool_exec.status.value == "failed"
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    messages = response.get_json()["log"]
+    results = [m for m in messages if m["content"] == error]
+    assert len(results) == 1
+    assert results[0].get("call_id") == call_id
+    assert continuation.call_count == 1
+    assert not session.pending_tools
+
+
 @pytest.mark.parametrize("call_id", [None, "call-denied"])
 @pytest.mark.parametrize("denied", [True, False])
 def test_start_tool_execution_reports_policy_denial(

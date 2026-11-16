@@ -1786,10 +1786,13 @@ def start_tool_execution(
                             assert execution is not None  # claimed before execution
                             # Only real results reach this callback; hook chatter
                             # must not determine the execution outcome.
-                            if (tool_output.metadata or {}).get(
+                            tool_status = (tool_output.metadata or {}).get(
                                 "tool_status"
-                            ) == "denied":
+                            )
+                            if tool_status == "denied":
                                 execution.status = ToolStatus.DENIED
+                            elif tool_status == "failed":
+                                execution.status = ToolStatus.FAILED
                             if (
                                 tool_output.role == "system"
                                 and not tool_output.hide
@@ -1811,7 +1814,10 @@ def start_tool_execution(
                                 on_result_message=stream_tool_output,
                             )
                         )
-                        if tool_exec.status != ToolStatus.DENIED:
+                        if tool_exec.status not in (
+                            ToolStatus.DENIED,
+                            ToolStatus.FAILED,
+                        ):
                             tool_exec.status = ToolStatus.COMPLETED
                         logger.info(
                             f"Tool execution complete, outputs: {len(tool_outputs)}"
