@@ -267,16 +267,17 @@ def get_tmux_key_text(keys: str) -> str:
     keys are decoded; arbitrary control keys and existing pane state are outside
     this stateless policy's scope.
     """
+    # tmux matches key names case-insensitively (``space``, ``ENTER``, ``c-m``).
     special = {
-        "Enter": "\n",
-        "Return": "\n",
-        "C-m": "\n",
-        "C-j": "\n",
-        "Space": " ",
-        "Tab": "\t",
-        "C-i": "\t",
+        "enter": "\n",
+        "return": "\n",
+        "c-m": "\n",
+        "c-j": "\n",
+        "space": " ",
+        "tab": "\t",
+        "c-i": "\t",
     }
-    return "".join(special.get(key, key) for key in _parse_send_keys(keys))
+    return "".join(special.get(key.lower(), key) for key in _parse_send_keys(keys))
 
 
 def send_keys(pane_id: str, keys: str) -> Message:

@@ -371,6 +371,10 @@ def test_get_tmux_operations():
         ("'printenv' Enter", "printenv\n"),
         ("'print' 'env' C-m", "printenv\n"),
         ("'echo' Space 'hello' Tab Enter", "echo hello\t\n"),
+        # tmux key names are case-insensitive
+        ("'printenv' space Enter", "printenv \n"),
+        ("'printenv' ENTER", "printenv\n"),
+        ("'echo' SPACE 'hi' c-M", "echo hi\n"),
         ("'unclosed", "'unclosed"),
     ],
 )
