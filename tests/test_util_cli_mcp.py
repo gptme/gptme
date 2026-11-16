@@ -335,6 +335,21 @@ class TestMCPInfo:
             assert result.exit_code == 0, result.output
             assert expected in result.output, result.output
 
+    def test_local_malformed_url_does_not_crash(self, mock_config, mock_mcp_client):
+        """A malformed URL must not crash `mcp info` when choosing the type label."""
+        from gptme.config import MCPServerConfig
+
+        server = MCPServerConfig(name="s", url="https://[2001:db8::1/mcp")
+        mock_config.mcp.servers = [server]
+        tools_mock = Mock()
+        tools_mock.tools = []
+        mock_mcp_client.connect.return_value = (tools_mock, Mock())
+
+        result = CliRunner().invoke(main, ["mcp", "info", "s"])
+
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "Type: HTTP\n" in result.output, result.output
+
     def test_local_http_server(self, mock_config, mock_mcp_client):
         """Test info for locally configured HTTP server."""
         server = Mock()

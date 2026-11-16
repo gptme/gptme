@@ -178,7 +178,11 @@ def mcp_info(server_name: str):
         # Show local configuration
         click.echo(f"📋 MCP Server: {server.name}")
         if server.is_http:
-            server_type = "HTTP (SSE)" if server.is_sse else "HTTP"
+            try:
+                is_sse = server.is_sse
+            except ValueError:  # malformed URL; the URL display below handles it
+                is_sse = False
+            server_type = "HTTP (SSE)" if is_sse else "HTTP"
         else:
             server_type = "stdio"
         click.echo(f"   Type: {server_type}")
