@@ -675,7 +675,12 @@ def _passthrough_gh(
         )
 
 
-_REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+# gh documents ``[HOST/]OWNER/REPO``. The native handlers only talk to
+# github.com, so that host prefix (bare or as a URL) is stripped; any other
+# host is rejected rather than silently resolved against github.com.
+_REPO_RE = re.compile(
+    r"^(?:(?:https?://)?github\.com/)?([\w.-]+/[\w.-]+?)/?$", re.IGNORECASE
+)
 
 
 def _parse_run_repo(flags: list[str]) -> tuple[str | None, str | None]:
@@ -700,12 +705,13 @@ def _parse_run_repo(flags: list[str]) -> tuple[str | None, str | None]:
             value = flag[2:].removeprefix("=")
         else:
             continue
-        if value.startswith("-") or not _REPO_RE.fullmatch(value):
+        match = None if value.startswith("-") else _REPO_RE.fullmatch(value)
+        if not match:
             return None, (
                 f"Error: Invalid or missing repository '{value}' for --repo/-R. "
-                "Expected OWNER/REPO."
+                "Expected OWNER/REPO or github.com/OWNER/REPO."
             )
-        repo = value
+        repo = match.group(1)
     return repo, None
 
 
