@@ -1260,3 +1260,52 @@ def test_staging_cleanup_preserves_primary_error(
     assert target.stat().st_ino == original_inode
     assert not stages[0].exists()
     assert list(tmp_path.glob(".patch-many-*")) == leftovers
+
+
+class TestGetPatchManyTargets:
+    """Public structured input for policy hooks."""
+
+    PATCH = "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+
+    def test_other_tools_return_none(self):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        assert get_patch_many_targets(ToolUse("shell", [], "ls")) is None
+
+    def test_kwargs_form(self, tmp_path):
+        import json
+
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+        patches = [{"path": str(p), "patch": self.PATCH} for p in (a, b)]
+        use = ToolUse("patch_many", None, None, {"patches": json.dumps(patches)})
+        assert get_patch_many_targets(use) == [(a, self.PATCH), (b, self.PATCH)]
+
+    def test_header_form(self, tmp_path):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+        content = f"=== PATH: {a} ===\n{self.PATCH}\n\n=== PATH: {b} ===\n{self.PATCH}"
+        use = ToolUse("patch_many", [], content)
+        assert get_patch_many_targets(use) == [(a, self.PATCH), (b, self.PATCH)]
+
+    def test_simple_form(self, tmp_path):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a = tmp_path / "a.txt"
+        use = ToolUse("patch_many", [str(a)], self.PATCH)
+        assert get_patch_many_targets(use) == [(a, self.PATCH)]
+
+    def test_unusable_call_returns_empty(self):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        # Malformed (no paths) and traversal-escaping calls write nothing.
+        assert get_patch_many_targets(ToolUse("patch_many", [], self.PATCH)) == []
+        escape = ToolUse("patch_many", ["../../../../etc/x"], self.PATCH)
+        assert get_patch_many_targets(escape) == []

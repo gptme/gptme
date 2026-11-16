@@ -276,6 +276,22 @@ resolved from the current directory, just as the save tool resolves them, and
 existing symlinks are followed before checking containment. It does not prevent
 concurrent symlink changes or writes through other tools.
 
+A hook that needs a tool's *structured* input should use the tool's public
+accessor rather than re-parsing or importing underscore-private helpers.
+``gptme.tools.patch_many.get_patch_many_targets(tool_use)`` returns the resolved
+``(path, patch)`` pairs a ``patch_many`` call would write, whichever input shape
+it uses (``None`` for other tools, ``[]`` for a call the tool will reject):
+
+.. code-block:: python
+
+   from gptme.tools.patch_many import get_patch_many_targets
+
+   def deny_ssh_patches(data):
+       for path, _patch in get_patch_many_targets(data.tool_use) or []:
+           if ".ssh" in path.parts:
+               data.deny("patch_many may not write under .ssh")
+       yield from ()
+
 A denied call does not execute, its ``TOOL_EXECUTE_POST`` hooks do not run, and
 the reasons are returned to the model as the call's result
 (``Tool execution denied: …``). Because the seam is central, it covers tools
@@ -292,6 +308,7 @@ Which seam to use:
 The built-in ``guardrails`` hook uses both: credential/destructive-command rules
 at ``TOOL_CONFIRM`` (priority 200), and the secret-path rule for ``read`` at
 ``TOOL_EXECUTE_PRE`` (priority 200), since ``read`` never reaches confirmation.
+The same seam checks ``patch_many`` targets through the accessor above.
 Both registrations share one hook name, so ``HOOK_ALLOWLIST`` and
 ``disable_hook("guardrails")`` apply to both.
 

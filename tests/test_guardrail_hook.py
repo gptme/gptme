@@ -669,3 +669,50 @@ class TestPreExecutionSeam:
 
         assert ran == [], f"a denied {tool_name} call must not execute"
         assert any("covered by the central seam" in m.content for m in msgs)
+
+
+class TestPatchManySecretTargets:
+    """``patch_many`` writes are policed through the public targets accessor."""
+
+    PATCH = "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+
+    def _call(self, benign, secret) -> ToolUse:
+        import json
+
+        patches = [
+            {"path": str(benign), "patch": self.PATCH},
+            {"path": str(secret), "patch": self.PATCH},
+        ]
+        return ToolUse(
+            tool="patch_many",
+            args=None,
+            content=None,
+            kwargs={"patches": json.dumps(patches)},
+        )
+
+    @pytest.mark.parametrize("mode", ["enforce", "shadow"])
+    def test_secret_target_denied_only_in_enforce(self, tmp_path, monkeypatch, mode):
+        from gptme.hooks.guardrails import register
+
+        benign = tmp_path / "notes.txt"
+        secret = tmp_path / ".env"
+        benign.write_text("old\n")
+        secret.write_text("old\n")
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        register()
+        try:
+            msgs = list(self._call(benign, secret).execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+
+        if mode == "enforce":
+            contents = "\n".join(m.content for m in msgs)
+            assert "Secret path access blocked" in contents
+            # Atomic denial: the benign file is untouched too.
+            assert benign.read_text() == "old\n"
+            assert secret.read_text() == "old\n"
+        else:
+            assert secret.read_text() == "new\n"
+            assert benign.read_text() == "new\n"

@@ -260,6 +260,23 @@ def _read_secret_path_reason(
     return None
 
 
+def _patch_many_secret_path_reason(tool_use: "ToolUse") -> str | None:
+    """Return the block reason if a ``patch_many`` call writes a secret path.
+
+    Uses the tool's public targets accessor, so the paths checked are exactly
+    the ones the call would write, whichever of the three input shapes it uses.
+    """
+    from ..tools.patch_many import get_patch_many_targets
+
+    for path, _ in get_patch_many_targets(tool_use) or []:
+        if _is_secret_path(str(path)):
+            return (
+                f"Secret path access blocked: patch_many writes {str(path)!r}. "
+                "Use a dedicated secrets manager or explicit user approval."
+            )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Mode helpers
 # ---------------------------------------------------------------------------
@@ -354,7 +371,7 @@ def guardrail_hook(
 def guardrail_pre_hook(
     data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
-    """TOOL_EXECUTE_PRE hook: deny secret-path ``read`` calls.
+    """TOOL_EXECUTE_PRE hook: deny secret-path ``read`` and ``patch_many`` calls.
 
     ``read`` is read-only and never calls ``execute_with_confirmation()``, so
     the confirmation chain cannot see it. Blocking here keeps that no-prompt
@@ -362,18 +379,24 @@ def guardrail_pre_hook(
     modes it does not block at all. A denial is reported to the model by
     ``ToolUse.execute`` as the call's result.
 
-    Only secret-path access is handled here; everything else about ``read``
-    stays unguarded, exactly as before.
+    ``patch_many`` is checked here too, through its public structured-input
+    accessor: one secret-path target denies the whole (atomic) call.
+
+    Only secret-path access is handled here; everything else about these
+    tools stays unguarded, exactly as before.
     """
     mode = _get_mode()
     if mode == "off":  # pragma: no cover - register() skips registration
         return
 
     tool_use = data.tool_use
-    if tool_use is None or tool_use.tool != "read":
+    if tool_use is None or tool_use.tool not in ("read", "patch_many"):
         return
 
-    block_reason = _read_secret_path_reason(tool_use)
+    if tool_use.tool == "read":
+        block_reason = _read_secret_path_reason(tool_use)
+    else:
+        block_reason = _patch_many_secret_path_reason(tool_use)
     if block_reason is None:
         return
 
@@ -430,7 +453,8 @@ def register() -> None:
         enabled=True,
     )
     # read never reaches TOOL_CONFIRM, so its secret-path policy lives on the
-    # central pre-execution seam instead.
+    # central pre-execution seam instead (as does patch_many's, which needs the
+    # tool's structured input rather than a serialized confirmation preview).
     register_hook(
         name="guardrails",
         hook_type=HookType.TOOL_EXECUTE_PRE,
