@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from xml.sax.saxutils import escape as xml_escape
 
 from ..hooks import HookType, StopPropagation
-from ..hooks._policy_block import POLICY_BLOCK_MARKER
+from ..hooks._policy_block import POLICY_BLOCK_MARKER, TOOL_DENIAL_PREFIX
 from ..hooks.confirm import ConfirmAction, get_confirmation
 from ..message import Message, MessageMetadata
 from ..sandbox import SandboxConfig, build_env, wrap_shell_cmd
@@ -134,10 +134,14 @@ def current_episode(messages: "list[Message]") -> "list[Message]":
 
 def count_policy_blocks(messages: "list[Message]") -> int:
     """Count policy blocks (``[policy-block]`` system messages) in the current episode."""
+    # A TOOL_EXECUTE_PRE denial reaches the model wrapped in TOOL_DENIAL_PREFIX.
     return sum(
         1
         for m in current_episode(messages)
-        if m.role == "system" and (m.content or "").startswith(POLICY_BLOCK_MARKER)
+        if m.role == "system"
+        and (m.content or "")
+        .removeprefix(TOOL_DENIAL_PREFIX)
+        .startswith(POLICY_BLOCK_MARKER)
     )
 
 

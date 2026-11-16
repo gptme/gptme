@@ -475,7 +475,7 @@ Behavior:
 Register above every built-in ``TOOL_CONFIRM`` hook that can return a non-None
 result (see :ref:`confirmation-hooks-and-deny-decisions`). The example uses
 priority ``250``, which out-ranks ``guardrails`` (200),
-``anomaly_watchdog.confirm`` (150), ``watch.sleep_poll_guard`` (150),
+``watch.sleep_poll_guard`` (150),
 ``server_confirm`` / ``tui_confirm`` (100), ``shell.allowlist`` /
 ``watch.allowlist`` (10), and ``cli_confirm`` / ``auto_confirm`` (0). Verify
 those priorities against the built-ins in your gptme version rather than

@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 POLICY_BLOCK_MARKER = "[policy-block]"
 
+# Prefix ``ToolUse.execute`` puts on a TOOL_EXECUTE_PRE denial before it reaches
+# the model. A policy block denied at that seam therefore starts with this, not
+# with the marker, and the block-budget counter has to look through it.
+TOOL_DENIAL_PREFIX = "Tool execution denied: "
+
 _FINALITY = (
     "This block is intentional and final, not a transient error. Do not retry it "
     "or reach the same outcome another way (other commands, encoding, scripts, "

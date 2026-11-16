@@ -10,7 +10,7 @@ Covers:
 - write_storm: concurrent window pruning is thread-safe
 - novel_host: browser call to new hostname triggers warning (incl. subtools)
 - novel_host: browser call to trusted hostname is silent
-- block mode: TOOL_CONFIRM hook actually skips the tool
+- block mode: TOOL_EXECUTE_PRE denies the tool, for every tool
 - disabled mode: no anomalies fired
 """
 
@@ -19,22 +19,19 @@ from __future__ import annotations
 import contextvars
 import json
 import threading
-import time
 
 import pytest
 
 from .. import anomaly_watchdog
-from .._policy_block import POLICY_BLOCK_MARKER, policy_block_message
+from .._policy_block import POLICY_BLOCK_MARKER
 from ..anomaly_watchdog import (
     _check_novel_host,
     _check_scope_escape,
     _check_write_storm,
     _enabled,
-    anomaly_watchdog_confirm,
     check_tool_post,
     check_tool_pre,
 )
-from ..confirm import ConfirmAction
 from ..types import ToolExecutePostData
 
 # ---------------------------------------------------------------------------
@@ -88,7 +85,6 @@ def _msgs(findings) -> list[str]:
 
 def _reset_storm_state() -> None:
     anomaly_watchdog._write_times_by_session.clear()
-    anomaly_watchdog._rejected_calls.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -335,15 +331,12 @@ class TestWriteStorm:
         findings = anomaly_watchdog._detect_findings(outside, tmp_path)
         assert any("write_storm" in m for m in _msgs(findings))
 
-    def test_blocked_writes_are_not_recorded_by_the_post_hook(
-        self, tmp_path, monkeypatch
-    ):
-        """A call the watchdog blocks must not advance the window.
+    def test_blocked_writes_never_enter_the_window(self, tmp_path, monkeypatch):
+        """A call denied at TOOL_EXECUTE_PRE must not advance the window.
 
-        TOOL_EXECUTE_POST fires on the skip path too (the tool generator
-        returns normally after confirmation declines), so the reject marker the
-        confirm hook leaves is what stops a blocked burst from refreshing its
-        own window and locking out later legitimate writes.
+        The tool never executes, so the post hook never fires for it; a blocked
+        burst therefore cannot refresh its own window and lock out later
+        legitimate writes.
         """
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "3")
@@ -351,17 +344,17 @@ class TestWriteStorm:
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
 
         outside = _fake_tool_use("save", args=["/etc/shadow"])
-        post = ToolExecutePostData(tool_use=outside, workspace=tmp_path)
         for _ in range(10):
-            blocked = anomaly_watchdog_confirm(outside, workspace=tmp_path)
-            assert blocked is not None
-            assert blocked.action == ConfirmAction.SKIP
-            list(check_tool_post(post))
+            data = _pre_data(outside, tmp_path)
+            list(check_tool_pre(data))
+            assert data.denied
         assert anomaly_watchdog._write_times_by_session == {}
 
         # A clean write through the same chain does count.
         inside = _fake_tool_use("save", args=[str(tmp_path / "ok.txt")])
-        assert anomaly_watchdog_confirm(inside, workspace=tmp_path) is None
+        data = _pre_data(inside, tmp_path)
+        list(check_tool_pre(data))
+        assert not data.denied
         list(check_tool_post(ToolExecutePostData(tool_use=inside, workspace=tmp_path)))
         assert (
             sum(len(v) for v in anomaly_watchdog._write_times_by_session.values()) == 1
@@ -409,38 +402,6 @@ class TestWriteStorm:
 
         for _ in range(10):
             assert _check_write_storm() is None
-        assert anomaly_watchdog._write_times_by_session == {}
-
-    def test_post_hook_skips_a_blocked_call_from_its_result(
-        self, tmp_path, monkeypatch
-    ):
-        """A blocked call must not be recorded, even off the identity marker.
-
-        The marker is keyed on the ``ToolUse`` object, which the hook pipeline
-        may copy or reconstruct. The result text is this module's own, so it
-        survives that; without it a refused write would still advance the
-        window and could lock out later legitimate writes.
-        """
-
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
-        monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
-        monkeypatch.setenv("GPTME_ANOMALY_WRITE_WINDOW", "60")
-
-        list(
-            check_tool_post(
-                ToolExecutePostData(
-                    tool_use=_fake_tool_use("save", args=["x.txt"]),
-                    workspace=tmp_path,
-                    result_msgs=(
-                        policy_block_message(
-                            "anomaly_watchdog",
-                            f"{anomaly_watchdog._BLOCK_PREFIX}\n"
-                            "scope_escape: /etc/secret",
-                        ),
-                    ),
-                )
-            )
-        )
         assert anomaly_watchdog._write_times_by_session == {}
 
     def test_post_hook_records_only_write_tools(self, tmp_path, monkeypatch):
@@ -567,8 +528,11 @@ class TestWriteStorm:
 
         findings = anomaly_watchdog._detect_findings(tool_use, tmp_path)
         assert any("write_storm" in m and "reported only" in m for m in _msgs(findings))
-        # Reported, but the confirm hook must not skip the write.
-        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+        # Reported, but the watchdog must not deny the write.
+        data = _pre_data(tool_use, tmp_path)
+        msgs = list(check_tool_pre(data))
+        assert not data.denied
+        assert len(msgs) == 1
 
     def test_exact_identity_still_enforces(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
@@ -582,11 +546,12 @@ class TestWriteStorm:
         for _ in range(2):
             anomaly_watchdog.record_write()
 
-        blocked = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
-        assert blocked is not None
-        assert blocked.action == ConfirmAction.SKIP
+        data = _pre_data(tool_use, tmp_path)
+        list(check_tool_pre(data))
+        assert data.denied
 
     def test_server_conversation_id_wins_over_the_thread(self, monkeypatch):
+        _no_log(monkeypatch)
         monkeypatch.setattr(
             anomaly_watchdog, "current_conversation_id", _stub_id("conv-1")
         )
@@ -595,68 +560,6 @@ class TestWriteStorm:
 
         monkeypatch.setattr(anomaly_watchdog, "current_conversation_id", _stub_id(None))
         assert _session_key() == "session-sess-1"
-
-    def test_reject_ledger_mutations_hold_their_own_lock(self):
-        """The reject ledger must be mutated under a lock, like the window.
-
-        TOOL_CONFIRM and TOOL_EXECUTE_POST fire on different threads when a
-        server runs concurrent tool calls, and ``_mark_rejected`` is a
-        check-then-act sequence (prune, cap-``clear()``, insert) over a plain
-        dict. ``_write_times_by_session`` is already serialized; this checks the
-        reject ledger is too. Holding the lock must block a marker mutation
-        until it is released, and a blocked marker must still be consumable.
-        """
-        tool_use = _fake_tool_use("save", args=["/tmp/x"])
-        marked = threading.Event()
-        consumed = threading.Event()
-
-        def mark() -> None:
-            anomaly_watchdog._mark_rejected(tool_use)
-            marked.set()
-
-        def consume() -> None:
-            anomaly_watchdog._consume_rejected(tool_use)
-            consumed.set()
-
-        anomaly_watchdog._REJECTED_LOCK.acquire()
-        try:
-            marker_thread = threading.Thread(target=mark)
-            marker_thread.start()
-            assert not marked.wait(timeout=0.5), "marker written without the lock"
-            consumer_thread = threading.Thread(target=consume)
-            consumer_thread.start()
-            assert not consumed.wait(timeout=0.5), "ledger read without the lock"
-        finally:
-            anomaly_watchdog._REJECTED_LOCK.release()
-
-        assert marked.wait(timeout=5), "marker write did not resume"
-        marker_thread.join(timeout=5)
-        assert consumed.wait(timeout=5), "ledger read did not resume"
-        consumer_thread.join(timeout=5)
-
-    def test_reject_ledger_overflow_evicts_oldest_only(self):
-        """Hitting the 512-entry cap must not drop other live markers.
-
-        ``_mark_rejected`` used to ``clear()`` the whole ledger at the cap,
-        which silently un-blocked every call still awaiting its post hook —
-        they would then be counted as executed writes by ``check_tool_post``.
-        """
-        # Fill the ledger with fresh synthetic keys (so the TTL prune does not
-        # remove them before the overflow path runs), then add one more live
-        # marker to trigger the cap.
-        fresh = time.monotonic()
-        for i in range(512):
-            anomaly_watchdog._rejected_calls[i] = fresh + i * 1e-6
-        live = _fake_tool_use("save", args=["/tmp/live"])
-        anomaly_watchdog._mark_rejected(live)
-
-        assert len(anomaly_watchdog._rejected_calls) <= 512
-        assert anomaly_watchdog._consume_rejected(live), (
-            "live marker was dropped by the overflow path"
-        )
-        # Only the oldest entry was evicted; the rest survive.
-        assert 0 not in anomaly_watchdog._rejected_calls
-        assert 510 in anomaly_watchdog._rejected_calls
 
 
 # ---------------------------------------------------------------------------
@@ -767,97 +670,144 @@ class TestCheckToolPre:
         assert len(msgs) == 1
         assert "scope_escape" in msgs[0].content
 
-    def test_block_mode_pre_yields_no_stoppropagation(self, monkeypatch, tmp_path):
-        """In block mode the TOOL_EXECUTE_PRE hook must not pretend to block —
-        actual blocking happens in the TOOL_CONFIRM hook."""
+    def test_block_mode_pre_denies_and_yields_no_report(self, monkeypatch, tmp_path):
+        """A blockable finding is denied, not also reported as a warning."""
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         tool_use = _fake_tool_use("save", args=["/etc/passwd"])
-        msgs = list(check_tool_pre(_pre_data(tool_use, tmp_path)))
+        data = _pre_data(tool_use, tmp_path)
+        msgs = list(check_tool_pre(data))
         assert msgs == []
+        assert data.denied
 
 
 # ---------------------------------------------------------------------------
-# anomaly_watchdog_confirm (block mode enforcement)
+# helpers shared with the seam tests
 # ---------------------------------------------------------------------------
 
 
 def _pre_data(tool_use, workspace):
-    class _FakeData:
-        def __init__(self):
-            self.tool_use = tool_use
-            self.workspace = workspace
-            self.log = None
+    from ..types import ToolExecutePreData
 
-    return _FakeData()
+    return ToolExecutePreData(tool_use=tool_use, workspace=workspace)
 
 
-class TestConfirmHook:
-    def test_block_mode_skips_flagged_tool(self, monkeypatch, tmp_path):
+# ---------------------------------------------------------------------------
+# Block mode at the pre-execution seam
+# ---------------------------------------------------------------------------
+
+
+class TestBlockAtPreExecutionSeam:
+    """Block mode denies at TOOL_EXECUTE_PRE, which every tool passes through.
+
+    ``browser`` (and ``gh``/``convert``) never call
+    ``execute_with_confirmation()``, so a TOOL_CONFIRM-only watchdog could not
+    block them.
+    """
+
+    @staticmethod
+    def _fire(tool_use, workspace):
+        from .. import HookType, clear_hooks, trigger_hook
+        from ..types import ToolExecutePreData
+
+        clear_hooks()
+        anomaly_watchdog.register()
+        data = ToolExecutePreData(tool_use=tool_use, workspace=workspace)
+        msgs = list(trigger_hook(HookType.TOOL_EXECUTE_PRE, data))
+        return data, msgs
+
+    def test_novel_host_on_a_tool_without_confirmation_is_denied(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
+        tool_use = _fake_tool_use("browser", args=["https://evil.example.net/x"])
+
+        data, _ = self._fire(tool_use, tmp_path)
+
+        assert data.denied
+        assert "novel_host" in data.denials[0]
+
+    def test_write_outside_workspace_is_denied(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         tool_use = _fake_tool_use("save", args=["/etc/passwd"])
-        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
-        assert result is not None
-        assert result.action.value == "skip"
-        assert "anomaly_watchdog" in (result.message or "")
 
-    def test_block_mode_allows_clean_tool(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
-        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        tool_use = _fake_tool_use("save", args=["inside.txt"])
-        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+        data, _ = self._fire(tool_use, tmp_path)
 
-    def test_block_mode_message_is_a_policy_block(self, monkeypatch, tmp_path):
-        """The blocked call's denial must route through the shared helper.
+        assert data.denied
+        assert "scope_escape" in data.denials[0]
 
-        A bare skip reason leaves the agent treating the block as a transient
-        error worth retrying; the marker makes it countable by the block
-        budget and the FINALITY sentence says the block is intentional.
-        """
+    def test_denial_is_a_policy_block(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         tool_use = _fake_tool_use("save", args=["/etc/passwd"])
 
-        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+        data, _ = self._fire(tool_use, tmp_path)
 
-        assert result is not None
-        reason = result.message or ""
+        reason = data.denials[0]
         assert reason.startswith(POLICY_BLOCK_MARKER)
         assert anomaly_watchdog._BLOCK_PREFIX in reason
         assert "intentional and final" in reason
 
-    def test_block_mode_message_counts_toward_the_block_budget(
+    def test_denial_counts_toward_the_block_budget_as_the_model_sees_it(
         self, monkeypatch, tmp_path
     ):
-        """The watchdog is a policy-block site, so the budget must see it.
-
-        Without the marker a retry loop against this guard would never trip
-        the budget and the harness would keep nudging the agent onward.
-        """
+        """The seam wraps the reason as ``Tool execution denied: ...``."""
         from ...message import Message
         from ...tools.complete import count_policy_blocks
 
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
-        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+        data, _ = self._fire(_fake_tool_use("save", args=["/etc/passwd"]), tmp_path)
 
-        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
-        assert result is not None
-        assert result.message is not None
+        denial = Message("system", "Tool execution denied: " + "; ".join(data.denials))
+        assert count_policy_blocks([Message("user", "go"), denial]) == 1
 
-        messages = [Message("user", "do the task"), Message("system", result.message)]
-        assert count_policy_blocks(messages) == 1
+    def test_clean_call_is_not_denied(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
 
-    def test_warn_mode_confirm_falls_through(self, monkeypatch, tmp_path):
+        data, msgs = self._fire(_fake_tool_use("save", args=["ok.txt"]), tmp_path)
+
+        assert not data.denied
+        assert msgs == []
+
+    def test_warn_mode_reports_but_does_not_deny(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
-        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
-        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
 
-    def test_off_mode_confirm_falls_through(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "off")
-        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
-        assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+        data, msgs = self._fire(_fake_tool_use("save", args=["/etc/passwd"]), tmp_path)
+
+        assert not data.denied
+        assert len(msgs) == 1
+
+    def test_no_confirm_hook_is_registered(self, monkeypatch, tmp_path):
+        """One enforcement point: a second TOOL_CONFIRM pass would double-report."""
+        from .. import HookType, clear_hooks, get_hooks
+
+        clear_hooks()
+        anomaly_watchdog.register()
+        assert not [
+            h
+            for h in get_hooks(HookType.TOOL_CONFIRM)
+            if h.name.startswith("anomaly_watchdog")
+        ]
+
+    def test_disabled_hook_does_not_deny(self, monkeypatch, tmp_path):
+        from .. import HookType, clear_hooks, disable_hook, trigger_hook
+        from ..types import ToolExecutePreData
+
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        clear_hooks()
+        anomaly_watchdog.register()
+        disable_hook("anomaly_watchdog.tool_pre")
+        data = ToolExecutePreData(
+            tool_use=_fake_tool_use("save", args=["/etc/passwd"]), workspace=tmp_path
+        )
+        list(trigger_hook(HookType.TOOL_EXECUTE_PRE, data))
+        assert not data.denied
 
 
 # ---------------------------------------------------------------------------

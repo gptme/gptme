@@ -6,7 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.hooks._policy_block import policy_block_message
+from gptme.hooks._policy_block import (
+    POLICY_BLOCK_MARKER,
+    TOOL_DENIAL_PREFIX,
+    policy_block_message,
+)
 from gptme.message import Message
 from gptme.tools.complete import (
     SessionCompleteException,
@@ -55,6 +59,17 @@ def _chat(interactive: bool):
 class TestEpisodeCounter:
     def test_counts_blocks_after_prompt(self):
         assert count_policy_blocks([PROMPT, *_blocks(3)]) == 3
+
+    def test_counts_a_seam_denial_through_its_wrapper(self):
+        """TOOL_EXECUTE_PRE denials reach the model as ``Tool execution denied: ...``."""
+        denial = Message(
+            "system", f"{TOOL_DENIAL_PREFIX}{POLICY_BLOCK_MARKER} Blocked by a policy"
+        )
+        assert count_policy_blocks([PROMPT, denial, _block()]) == 2
+
+    def test_wrapped_text_without_the_marker_is_not_a_block(self):
+        plain = Message("system", f"{TOOL_DENIAL_PREFIX}some other reason")
+        assert count_policy_blocks([PROMPT, plain]) == 0
 
     def test_real_user_message_resets(self):
         msgs = [PROMPT, *_blocks(3), Message("user", "try something else"), _block()]
