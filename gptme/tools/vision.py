@@ -12,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from ..message import Message
-from .base import ToolFunction, ToolSpec
+from .base import ToolFunction, ToolSpec, current_workspace
 
 # Track temp files for cleanup on exit
 _temp_files: list[Path] = []
@@ -39,7 +39,7 @@ def _vision_allowed_roots() -> list[Path]:
     from .screenshot import OUTPUT_DIR
 
     return [
-        Path.cwd().resolve(),
+        current_workspace(),
         OUTPUT_DIR.resolve(),
         Path(tempfile.gettempdir()).resolve(),
     ]

@@ -19,8 +19,10 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    current_workspace,
     file_newline,
     get_path,
+    resolve_in_workspace,
 )
 
 # Prompt from Morph Fast Apply v2 documentation
@@ -119,9 +121,9 @@ def execute_morph(
     # Resolve path and check for path traversal
     # (matches the same pattern used by save/patch/append tools)
     path_display = file_path
-    file_path = file_path.expanduser().resolve()
+    file_path = resolve_in_workspace(file_path)
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             file_path.relative_to(cwd)
         except ValueError as err:
@@ -260,7 +262,7 @@ def execute_morph_impl(
 
     except FileNotFoundError:
         raise ValueError(
-            f"Morph failed: No such file or directory `{path}` (pwd: `{Path.cwd()}`)"
+            f"Morph failed: No such file or directory `{path}` (pwd: `{current_workspace()}`)"
         ) from None
     except PermissionError:
         raise ValueError(

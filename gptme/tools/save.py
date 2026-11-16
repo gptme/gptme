@@ -17,8 +17,10 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    current_workspace,
     file_newline,
     get_path,
+    resolve_in_workspace,
 )
 from .patch import Patch
 
@@ -184,12 +186,12 @@ def execute_save_impl(
         baseline.validate(path_display)
 
     # Print full path to give agent feedback about where exactly the file is saved
-    path = path.expanduser().resolve()
+    path = resolve_in_workspace(path)
 
     # Path traversal protection: validate relative paths stay within cwd
     # Absolute paths are intentional and allowed, relative paths should not escape cwd
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             path.relative_to(cwd)
         except ValueError as err:
@@ -315,12 +317,12 @@ def execute_append_impl(
 
     assert path
     path_display = path
-    path = path.expanduser().resolve()
+    path = resolve_in_workspace(path)
 
     # Path traversal protection: validate relative paths stay within cwd
     # (matches the same check in execute_save_impl)
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             path.relative_to(cwd)
         except ValueError as err:

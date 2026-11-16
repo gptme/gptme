@@ -22,6 +22,8 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    current_workspace,
+    resolve_in_workspace,
 )
 from .pruner import plan_tool_output_prune
 
@@ -303,14 +305,14 @@ def _read_one(
         if read_root is not None and not expanded_path.is_absolute():
             path = (read_root / expanded_path).resolve()
         else:
-            path = expanded_path.resolve()
+            path = resolve_in_workspace(expanded_path)
     except (RuntimeError, OSError) as exc:
         # e.g. a symlink loop: report it for this path only, so later paths in
         # a batch are still read.
         yield Message("system", f"Cannot resolve path {path_display}: {exc}")
         return
     containment_root = read_root or (
-        Path.cwd().resolve() if not path_display.is_absolute() else None
+        current_workspace() if not path_display.is_absolute() else None
     )
     if containment_root is not None:
         try:

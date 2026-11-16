@@ -1100,9 +1100,10 @@ def step(
     # Set the workspace directory for the shell via thread-safe ContextVar.
     # This ensures each session's shell starts in the correct directory even
     # when multiple sessions are being served concurrently.
-    # We also keep os.chdir() for the first message as a fallback for tools
-    # that still use Path.cwd() (save, read, patch, etc.) — a full migration
-    # to workspace-aware helpers is tracked separately.
+    # save/read/patch/patch_many/morph/vision resolve relative paths through
+    # current_workspace(), so they follow this ContextVar. We still keep
+    # os.chdir() for the first message as a fallback for tools that use
+    # Path.cwd() (see gptme/gptme#4951).
     set_workspace_cwd(str(workspace))
     user_messages = [msg for msg in manager.log.messages if msg.role == "user"]
     if len(user_messages) <= 1:
