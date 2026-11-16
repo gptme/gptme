@@ -1516,14 +1516,11 @@ class StepPersister:
             and msg.timestamp == early.timestamp
         ):
             self._early = None
-            if any(m is early for m in self.manager.log):
-                # step() only changes metadata (tool timings) after the early
-                # copy; Message equality ignores metadata, so compare it directly.
-                if msg != early or msg.metadata != early.metadata:
-                    self.manager.replace_message(early, msg)
+            # Patch surviving copies even if a tool compacted the early reply
+            # out of the active view. Re-appending would duplicate the call in
+            # the backing branch and lossless archive.
+            if self.manager.replace_message(early, msg):
                 return
-            # The early copy left the active log mid-step (e.g. a tool switched
-            # to a compacted view); record the reply where it is now visible.
         self.manager.append(msg)
 
 

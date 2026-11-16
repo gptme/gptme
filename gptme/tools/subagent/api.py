@@ -104,17 +104,28 @@ def _without_in_flight_step(msgs: list["Message"]) -> list["Message"]:
     from ...tools import ToolUse  # fmt: skip
 
     for i in range(len(msgs) - 1, -1, -1):
+        # A newer user turn is never part of the launching step. Buffered
+        # step() consumers and direct callers may not have logged that step.
+        if msgs[i].role == "user":
+            break
         if msgs[i].role != "assistant":
             continue
-        if any(
-            tooluse.is_runnable or tooluse.call_id
-            for tooluse in ToolUse.iter_from_content(
+        results = msgs[i + 1 :]
+        result_ids = {msg.call_id for msg in results if msg.call_id}
+        result_indices = {(msg.metadata or {}).get("tool_call") for msg in results}
+        for index, tooluse in enumerate(
+            ToolUse.iter_from_content(
                 msgs[i].content,
                 # step() records the parser the reply was executed with.
                 (msgs[i].metadata or {}).get("tool_format"),
             )
         ):
-            return msgs[:i]
+            if tooluse.call_id:
+                completed = tooluse.call_id in result_ids
+            else:
+                completed = index in result_indices
+            if (tooluse.is_runnable or tooluse.call_id) and not completed:
+                return msgs[:i]
         break
     return msgs
 

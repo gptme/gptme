@@ -9132,6 +9132,62 @@ class TestForwardedHistoryExcludesInFlightStep:
         kw = self._run(monkeypatch, self._parent(), context_turns=1)
         assert [m.content for m in kw["parent_messages"]] == ["delegate this"]
 
+    @pytest.mark.parametrize("new_prompt", [False, True])
+    @pytest.mark.parametrize("mode", ["fork", "turns"])
+    def test_completed_tool_history_is_preserved(self, monkeypatch, new_prompt, mode):
+        from gptme.message import Message
+
+        msgs = self._parent()
+        msgs.append(Message("system", "child completed", call_id="call_abc"))
+        if new_prompt:
+            msgs.append(Message("user", "new prompt: delegate this"))
+        kw = (
+            self._run(monkeypatch, msgs, context_mode="fork")
+            if mode == "fork"
+            else self._run(monkeypatch, msgs, context_turns=1)
+        )
+        expected = msgs if mode == "fork" else msgs[-1:] if new_prompt else msgs[3:]
+        assert kw["fork_messages" if mode == "fork" else "parent_messages"] == expected
+
+    def test_new_user_turn_is_not_discarded(self, monkeypatch):
+        from gptme.message import Message
+
+        msgs = [*self._parent(), Message("user", "continue after interruption")]
+        kw = self._run(monkeypatch, msgs, context_mode="fork")
+        assert kw["fork_messages"] == msgs
+
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml"])
+    def test_non_native_results_preserve_completed_step(self, monkeypatch, tool_format):
+        from gptme.message import Message
+        from gptme.tools import init_tools
+
+        init_tools(allowlist=["shell"])
+        content = (
+            "```shell\npwd\n```"
+            if tool_format == "markdown"
+            else "<tool-use><shell>pwd</shell></tool-use>"
+        )
+        msgs = [
+            Message("user", "inspect"),
+            Message("assistant", content, metadata={"tool_format": tool_format}),
+            Message("system", "/workspace", metadata={"tool_call": 0}),
+        ]
+        kw = self._run(monkeypatch, msgs, context_mode="fork")
+        assert kw["fork_messages"] == msgs
+        # Without the paired result the very same call is still in flight.
+        assert subagent_api._without_in_flight_step(msgs[:-1]) == msgs[:1]
+
+    def test_partial_results_still_drop_launching_step(self, monkeypatch):
+        from gptme.message import Message
+
+        msgs = self._parent()
+        msgs[-1] = msgs[-1].replace(
+            content='@shell(call_first): {"command": "pwd"}\n' + msgs[-1].content
+        )
+        msgs.append(Message("system", "/workspace", call_id="call_first"))
+        kw = self._run(monkeypatch, msgs, context_mode="fork")
+        assert kw["fork_messages"] == msgs[:4]
+
     def test_completed_history_is_forwarded_unchanged(self, monkeypatch):
         msgs = self._parent()[:3]
         kw = self._run(monkeypatch, msgs, context_mode="fork")

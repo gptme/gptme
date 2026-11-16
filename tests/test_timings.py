@@ -391,6 +391,41 @@ def test_step_persister_without_tools_appends_once(monkeypatch, tmp_path):
     assert [m["role"] for m in _read_jsonl(manager.logfile)] == ["user", "assistant"]
 
 
+@pytest.mark.parametrize("branch", ["main", "experiment"])
+def test_step_persister_compaction_does_not_duplicate_history(
+    monkeypatch, tmp_path, branch
+):
+    """A view may summarize away the running reply, but the full history
+    must retain exactly one copy with the final timings."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    from gptme.logmanager import LogManager
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager.load("test-persister-compaction", create=True, lock=False)
+    manager.append(Message("user", "compact now", quiet=True))
+    if branch != "main":
+        manager.branch(branch)
+    persister = chat_module.StepPersister(manager)
+    early = Message("assistant", "```ipython\ncompact()\n```", quiet=True)
+    persister.before_tools(early)
+    manager.preserve_lossless_log()
+    manager.create_view("compacted", [Message("system", "summary", quiet=True)])
+    manager.switch_view("compacted")
+    timed = early.replace(metadata={"timings": {"tool_ms": 5.0}})
+    persister.append(timed)
+    persister.append(Message("system", "compacted", quiet=True))
+
+    assert [m.content for m in manager.log] == ["summary", "compacted"]
+    for history in (manager.full_log, manager._branches[branch]):
+        replies = [m for m in history if m.role == "assistant"]
+        assert len(replies) == 1
+        assert (replies[0].metadata or {})["timings"]["tool_ms"] == 5.0
+    manager.switch_to_master()
+    assert sum(m.role == "assistant" for m in manager.log) == 1
+    reloaded = LogManager.load("test-persister-compaction", branch=branch, lock=False)
+    assert sum(m.role == "assistant" for m in reloaded.full_log) == 1
+
+
 def test_replace_message_updates_view_and_branch(monkeypatch, tmp_path):
     """replace_message() reaches every copy append() wrote, including the
     branch history behind a compacted view."""

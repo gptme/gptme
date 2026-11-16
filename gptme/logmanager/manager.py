@@ -750,7 +750,9 @@ class LogManager:
         so, like the server's tool-timing patch, it rewrites the transcript but
         does not record a full-snapshot edit event.
 
-        Returns False, changing nothing, if ``old`` is not in the current log.
+        A compacted view may have dropped ``old`` while the backing branch or
+        lossless archive still retains it. Patch those surviving copies without
+        adding it back to the view. Returns False if no current history has it.
         """
 
         def swapped(log: Log) -> Log | None:
@@ -761,23 +763,26 @@ class LogManager:
                     return log.replace(messages=messages)
             return None
 
-        if not any(msg is old for msg in self.log.messages):
-            return False
         new = self._store_message_files(new)
-        current = swapped(self.log)
-        assert current is not None
-        self.log = current
+        changed = False
+        if current := swapped(self.log):
+            self.log = current
+            changed = True
         if self.current_view and self.current_view in self._views:
             if branch := swapped(self._branches[self.current_branch]):
                 self._branches[self.current_branch] = branch
+                changed = True
         if self._lossless_log is not None and self.current_branch == "main":
             if lossless := swapped(self._lossless_log):
                 self._lossless_log = lossless
+                changed = True
         elif self.current_branch in self._branch_lossless_logs:
             if lossless := swapped(self._branch_lossless_logs[self.current_branch]):
                 self._branch_lossless_logs[self.current_branch] = lossless
-        self.write()
-        return True
+                changed = True
+        if changed:
+            self.write()
+        return changed
 
     def _store_message_files(
         self, msg: Message, *, preserve_existing: bool = False
