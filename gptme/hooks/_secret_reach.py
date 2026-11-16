@@ -66,7 +66,11 @@ class _Grep:
 
 
 def _parse_grep(
-    args: list[str], *, ripgrep: bool = False, node: object | None = None
+    args: list[str],
+    *,
+    ripgrep: bool = False,
+    node: object | None = None,
+    workspace: Path | None = None,
 ) -> _Grep:
     result = _Grep(ripgrep=ripgrep)
     operands: list[tuple[str, str]] = []
@@ -190,7 +194,10 @@ def _parse_grep(
             result.exclude_dirs.append(value)
         elif flag == "exclude_from":
             try:
-                fd = os.open(value, os.O_RDONLY | os.O_NONBLOCK)
+                path = (
+                    os.path.join(workspace, value) if workspace is not None else value
+                )
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
                 with os.fdopen(fd, "rb") as stream:
                     data = stream.read(65537)
             except OSError:
@@ -755,7 +762,7 @@ def find_secret_reach(
             continue
         name = Path(words[0]).name
         grep = (
-            _parse_grep(words[1:], ripgrep=name == "rg", node=node)
+            _parse_grep(words[1:], ripgrep=name == "rg", node=node, workspace=workspace)
             if name in {"grep", "egrep", "fgrep", "rg"}
             else None
         )

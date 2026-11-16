@@ -362,6 +362,40 @@ class TestGuardrailHookEnforceMode:
             is None
         )
 
+    @pytest.mark.parametrize("option", ["--exclude-from=rules", "--exclude-from rules"])
+    @pytest.mark.parametrize("excluded", [False, True])
+    def test_shell_grep_exclusions_use_workspace(
+        self, monkeypatch, tmp_path, option, excluded
+    ):
+        import subprocess
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("needle\n")
+        (home / "rules").write_text("*\n" if excluded else "")
+        server = tmp_path / "server"
+        server.mkdir()
+        (server / "rules").write_text("" if excluded else "*\n")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(server)
+        cmd = f"grep -r {option} needle ."
+        actual = subprocess.run(
+            cmd, shell=True, cwd=home, text=True, capture_output=True, check=False
+        )
+        assert actual.returncode == (1 if excluded else 0)
+        assert bool(actual.stdout) is not excluded
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=home
+        )
+
+        if excluded:
+            assert result is None
+        else:
+            assert isinstance(result, ConfirmationResult)
+            assert result.action == ConfirmAction.SKIP
+
     def test_shell_workspace_overrides_process_cwd(self, monkeypatch, tmp_path):
         home = tmp_path / "home"
         home.mkdir()
