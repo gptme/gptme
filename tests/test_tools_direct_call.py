@@ -180,6 +180,19 @@ def test_direct_call_without_code_explains_usage():
     assert 'fetch(url="...")' in out
 
 
+def test_direct_call_uses_callable_name_not_metadata_alias():
+    """The prompt lists fn.__name__ (as ipython registers it); dispatch on that."""
+    tool = make_direct_call_tool(
+        ToolSpec(
+            name="aliased",
+            desc="",
+            functions=[ToolFunction(name="metadata_alias", fn=fetch)],
+        )
+    )
+    assert "content of u (1)" in _run(tool, 'fetch("u")')
+    assert "Unknown function 'metadata_alias'" in _run(tool, 'metadata_alias("u")')
+
+
 def test_make_direct_call_tool_requires_function_only_tool():
     with pytest.raises(ValueError, match="not function-only"):
         make_direct_call_tool(make_direct_call_tool(_fn_tool()))

@@ -95,7 +95,7 @@ def _example_call(tool: ToolSpec) -> str:
     tf = (tool.functions or [])[0]
     required = [p for p in tf.parameters if p.required]
     args = ", ".join(f'{p.name}="..."' for p in required)
-    return f"{tf.name}({args})"
+    return f"{tf.fn.__name__}({args})"
 
 
 def _usage(tool: ToolSpec) -> str:
@@ -119,7 +119,7 @@ def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Mess
         try:
             result = tf.fn(*args, **kwargs)
         except Exception as e:
-            logger.debug("Direct call to %s failed", tf.name, exc_info=True)
+            logger.debug("Direct call to %s failed", tf.fn.__name__, exc_info=True)
             error = e
 
     if error is None:
@@ -142,7 +142,7 @@ def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Mess
     if error is not None:
         output += f"Error: {type(error).__name__}: {error}\n"
     if not output:
-        output = f"Called {tf.name}() (no output)"
+        output = f"Called {tf.fn.__name__}() (no output)"
     return [Message("system", output.strip())]
 
 
@@ -150,7 +150,9 @@ def make_direct_call_tool(tool: ToolSpec) -> ToolSpec:
     """Return a copy of a function-only *tool* that can be called without ipython."""
     if not tool.is_function_only:
         raise ValueError(f"Tool '{tool.name}' is not function-only")
-    functions = {tf.name: tf for tf in tool.functions or []}
+    # Key by the callable's own name: that is what the prompt's function listing
+    # shows and what ipython registers (not an optional ToolFunction.name alias).
+    functions = {tf.fn.__name__: tf for tf in tool.functions or []}
 
     def execute(
         code: str | None,
