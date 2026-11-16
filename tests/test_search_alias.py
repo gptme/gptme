@@ -13,6 +13,16 @@ from click.testing import CliRunner
 
 from gptme.cli.main import main
 
+
+@pytest.fixture(autouse=True)
+def _no_same_env_gptme_util(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep the mocked PATH lookup the only gptme-util source in this module.
+
+    Otherwise the real gptme-util beside the test interpreter wins.
+    """
+    monkeypatch.setattr("gptme.cli.main._env_bin_dir", lambda: tmp_path)
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 

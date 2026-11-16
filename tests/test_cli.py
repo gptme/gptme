@@ -2028,6 +2028,41 @@ def test_click_exception_inside_chat_exits_2(
     assert "Fatal error occurred" not in result.output
 
 
+@pytest.mark.parametrize("sibling_exists", [True, False])
+def test_util_mirror_prefers_same_env_gptme_util(
+    runner, monkeypatch, tmp_path, sibling_exists
+):
+    """`gptme chats ...` runs the gptme-util beside this interpreter.
+
+    Regression: a PATH lookup picked ``~/.local/bin/gptme-util`` from an older
+    install ahead of the venv's own, so ``gptme chats peers`` reported
+    "No such command" from the venv's gptme.
+    """
+    bindir = tmp_path / "venv-bin"
+    bindir.mkdir()
+    sibling = bindir / "gptme-util"
+    if sibling_exists:
+        sibling.write_text("#!/bin/sh\n")
+        sibling.chmod(0o755)
+    on_path = str(tmp_path / "other" / "gptme-util")
+    monkeypatch.setattr("gptme.cli.main._env_bin_dir", lambda: bindir)
+    monkeypatch.setattr(
+        "gptme.cli.main.shutil.which",
+        lambda x: on_path if x == "gptme-util" else None,
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "gptme.cli.main.subprocess.call",
+        lambda args, **kwargs: _record_subprocess_call(args, calls),
+    )
+
+    result = runner.invoke(cli.main, ["chats", "peers"])
+
+    assert result.exit_code == 0, result.output
+    expected = str(sibling) if sibling_exists else on_path
+    assert calls == [[expected, "chats", "peers"]]
+
+
 @pytest.mark.slow
 class TestPluginDiscovery:
     """Tests for gptme-<cmd> PATH-based plugin dispatch."""

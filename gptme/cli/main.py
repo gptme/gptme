@@ -574,6 +574,23 @@ def _resolve_resume_profile(persisted_name: str | None) -> Profile | None:
     return profile
 
 
+def _env_bin_dir() -> Path:
+    """Directory holding this interpreter's console scripts."""
+    return Path(sys.executable).parent
+
+
+def _same_env_executable(name: str) -> str | None:
+    """Resolve a gptme console script from this interpreter's environment first.
+
+    A PATH lookup can find a different install (e.g. ``~/.local/bin`` ahead of a
+    venv), so ``gptme chats ...`` would run another version's ``gptme-util``.
+    """
+    sibling = _env_bin_dir() / name
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        return str(sibling)
+    return shutil.which(name)
+
+
 @click.command(
     help=docstring,
     context_settings={
@@ -836,7 +853,7 @@ def main(
         from .util import UTIL_SUBCOMMANDS  # cheap: just a sorted list constant
 
         if prompts[0] in UTIL_SUBCOMMANDS and not dispatch_suppressed:
-            if util_exec := shutil.which("gptme-util"):
+            if util_exec := _same_env_executable("gptme-util"):
                 env = {**os.environ, "GPTME_PARENT_PROG": "gptme"}
                 sys.exit(subprocess.call([util_exec, *prompts], env=env))
             else:
