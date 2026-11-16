@@ -9066,3 +9066,73 @@ class TestTimeoutCompletionContinuationHint:
             _completion_message(sa.agent_id, "cancelled", "done"),
         ):
             assert "subagent_continue" not in msg.content
+
+
+class TestForwardedHistoryExcludesInFlightStep:
+    """#4956/#4960: chat loops persist a reply before its tools run, so the
+    parent log ends with the call launching the subagent and no result for it.
+    Forwarded history must drop that step (native-tool providers reject an
+    unanswered tool_use)."""
+
+    def _run(self, monkeypatch, msgs, **kwargs):
+        from gptme.logmanager import Log, LogManager
+
+        mock_log = MagicMock(spec=LogManager)
+        mock_log.log = Log(msgs)
+        monkeypatch.setattr(
+            LogManager, "get_current_log", staticmethod(lambda: mock_log)
+        )
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw)
+
+        monkeypatch.setattr(
+            subagent_execution, "_create_subagent_thread", mock_create_thread
+        )
+        agent_id = f"test-inflight-{len(msgs)}-{sorted(kwargs)}"
+        subagent(agent_id, "do something", **kwargs)
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+        with _subagents_lock:
+            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+        if sa and sa.thread:
+            sa.thread.join(timeout=2.0)
+        assert len(captured) == 1
+        return captured[0]
+
+    def _parent(self):
+        from gptme.message import Message
+
+        return [
+            Message("system", "[agent identity]"),
+            Message("user", "turn 1 user"),
+            Message("assistant", "turn 1 assistant"),
+            Message("user", "delegate this"),
+            Message(
+                "assistant",
+                '@subagent(call_abc): {"agent_id": "x", "prompt": "do something"}',
+                metadata={"tool_format": "tool"},
+            ),
+        ]
+
+    def test_fork_drops_launching_call(self, monkeypatch):
+        kw = self._run(monkeypatch, self._parent(), context_mode="fork")
+        contents = [m.content for m in kw["fork_messages"]]
+        assert contents == [
+            "[agent identity]",
+            "turn 1 user",
+            "turn 1 assistant",
+            "delegate this",
+        ]
+
+    def test_context_turns_drops_launching_call(self, monkeypatch):
+        kw = self._run(monkeypatch, self._parent(), context_turns=1)
+        assert [m.content for m in kw["parent_messages"]] == ["delegate this"]
+
+    def test_completed_history_is_forwarded_unchanged(self, monkeypatch):
+        msgs = self._parent()[:3]
+        kw = self._run(monkeypatch, msgs, context_mode="fork")
+        assert len(kw["fork_messages"]) == len(msgs)
