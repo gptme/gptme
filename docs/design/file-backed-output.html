@@ -740,8 +740,8 @@ original process bytes. No generic guarantee applies across these rows.</p>
 <td><p>No archival guarantee. Re-fetch requires credentials/network and may return changed state; successful passthrough stderr is not yielded.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/mcp_adapter.py:create_mcp_execute_function</span></code>, resource/prompt helpers</p></td>
-<td><p>Loaded tool conversion returns first TextContent, not all content items; resources join text, other content has placeholders</p></td>
-<td><p>No generic spill/cap. Transport limits are external. First text can enter debug logging. Advisory MCP roots are not sandboxing.</p></td>
+<td><p>Loaded tool conversion joins every content item with newlines (text verbatim, other content as placeholders), as resources do. The joined result is bounded at <code class="docutils literal notranslate"><span class="pre">GPTME_MCP_MAX_OUTPUT_CHARS</span></code> (default 100k characters) to head and tail</p></td>
+<td><p>Full joined text spills to <code class="docutils literal notranslate"><span class="pre">tool-outputs/</span></code> only when a conversation logdir exists; the bound applies either way. Transport limits are external. First text can enter debug logging. Advisory MCP roots are not sandboxing.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/browser.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_playwright.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_lynx.py</span></code></p></td>
 <td><p>HTML/Markdown/ARIA and subprocess results materialize; console logs accumulate; PDF download materializes, default first 10 pages is not a byte bound</p></td>
