@@ -738,9 +738,12 @@ def _enable_hint_for_disabled_tool(tool_name: str) -> str:
         # Allowlisting the tool alone never makes it executable (#4953):
         # its functions are only reachable through ipython.
         if has_tool(FUNCTION_CALL_TOOL):
+            assert tool.functions  # is_function_only guarantees a nonempty list
+            # IPython registers the callable's __name__, not the tool/metadata name.
+            function_name = tool.functions[0].fn.__name__
             return (
                 f" Its functions are called from Python code through the "
-                f"'{FUNCTION_CALL_TOOL}' tool, e.g. {tool_name}(...)."
+                f"'{FUNCTION_CALL_TOOL}' tool, e.g. {function_name}(...)."
             )
         return " " + _function_only_hint(tool_name, subject="It")
     if tool.disabled_by_default and not _is_session_allowlisted(tool):
