@@ -121,3 +121,19 @@ def test_view_image_relative_path_uses_session_workspace(workspaces):
     assert "outside allowed" not in msg.content
     assert msg.files and msg.files[0] == (a / "pic.png").resolve()
     assert not (elsewhere / "pic.png").exists()
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
+@pytest.mark.parametrize("operation", ["save", "append"])
+def test_save_append_refuse_workspace_fifo(workspaces, operation):
+    """A FIFO that exists only in the session workspace is refused, not opened."""
+    a, _, elsewhere = workspaces
+    os.mkfifo(a / "pipe")
+    from gptme.tools.save import execute_append, execute_save
+
+    execute = execute_save if operation == "save" else execute_append
+    messages = _in_session(a, lambda: list(execute("hello\n", ["pipe"], None)))
+    assert len(messages) == 1
+    assert "not a regular file" in messages[0].content
+    assert not (elsewhere / "pipe").exists()

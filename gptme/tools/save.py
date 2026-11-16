@@ -82,12 +82,17 @@ def _read_text_safe(path: Path) -> str | None:
 
 
 def _is_non_regular(path: Path) -> bool:
-    """True if path exists but is not a regular file (FIFO, device, directory)."""
+    """True if path exists but is not a regular file (FIFO, device, directory).
+
+    Checked in the session workspace, the same place the preview and write use.
+    """
+    path = resolve_in_workspace(path)
     return path.exists() and not path.is_file()
 
 
 def _get_preview_lang(path: Path) -> str | None:
     """Use diff highlighting only when the existing file can be previewed as text."""
+    path = resolve_in_workspace(path)
     if not path.exists():
         return None
     return "diff" if _read_text_safe(path) is not None else None
