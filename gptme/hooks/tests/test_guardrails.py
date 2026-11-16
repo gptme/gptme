@@ -48,6 +48,30 @@ class TestIsSecretPath:
     def test_ssh_private_key(self):
         assert _is_secret_path("~/.ssh/id_rsa")
 
+    @pytest.fixture
+    def fake_home(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("x")
+        (home / "work").mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(home)
+        return home
+
+    def test_dotdot_into_secret_dir(self, fake_home):
+        assert _is_secret_path("~/work/../.ssh/config")
+        assert _is_secret_path(f"{fake_home}/work/../.ssh/config")
+
+    def test_relative_path_anchored_at_cwd(self, fake_home):
+        assert _is_secret_path(".ssh/config")
+
+    def test_dotdot_into_absolute_secret_prefix(self):
+        assert _is_secret_path("/etc/../etc/shadow")
+
+    def test_sibling_of_secret_dir_still_allowed(self, fake_home):
+        (fake_home / ".ssh-backup").mkdir()
+        assert not _is_secret_path(str(fake_home / ".ssh-backup" / "x"))
+
     def test_ssh_dir(self):
         assert _is_secret_path("~/.ssh/")
 

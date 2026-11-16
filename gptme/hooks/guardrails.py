@@ -149,10 +149,31 @@ def _path_has_prefix(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
 
 
+def _path_spellings(expanded: str) -> list[str]:
+    """Literal spelling plus its ``..``-collapsed, cwd-anchored form.
+
+    The prefix rules below match text, so ``~/work/../.ssh/config`` and a
+    relative ``.ssh/config`` slip past a literal comparison. Symlink targets
+    are deliberately not resolved (see ``test_file_symlinks_in_globs``).
+    Glob and substitution tokens are not paths yet, so they keep only the
+    literal form.
+    """
+    if not expanded or any(c in expanded for c in "*?[$`"):
+        return [expanded]
+    try:
+        anchored = os.path.abspath(expanded)
+    except (OSError, ValueError):
+        return [expanded]
+    return [expanded] if anchored == expanded else [expanded, anchored]
+
+
 def _is_secret_path(path: str) -> bool:
     """Return True if ``path`` looks like it leads to a secret/credential file."""
     expanded = _normalize_path_token(path)
+    return any(_is_secret_spelling(s) for s in _path_spellings(expanded))
 
+
+def _is_secret_spelling(expanded: str) -> bool:
     for secret_dir in _SECRET_HOME_DIRS:
         if _path_has_prefix(expanded, _normalize_path_token(secret_dir)):
             return True
