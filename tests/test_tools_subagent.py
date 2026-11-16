@@ -3320,11 +3320,12 @@ def test_subagent_list_structure(mock_create_thread: MagicMock):
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-list-1"]
 
 
-def test_subagent_list_prompt_truncation():
+def test_subagent_list_prompt_truncation(monkeypatch):
     """Test that long prompts are truncated in the preview."""
     import threading
     from pathlib import Path
 
+    from gptme.logmanager import LogManager
     from gptme.tools.subagent import (
         Subagent,
         _subagents,
@@ -3332,6 +3333,7 @@ def test_subagent_list_prompt_truncation():
         subagent_list,
     )
 
+    monkeypatch.setattr(LogManager, "get_current_log", staticmethod(lambda: None))
     long_prompt = "x" * 200
     sa = Subagent(
         agent_id="test-truncate",
