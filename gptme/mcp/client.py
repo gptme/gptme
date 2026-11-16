@@ -10,6 +10,9 @@ from contextlib import AsyncExitStack
 from typing import Any
 from urllib.parse import urlparse
 
+# Exists at runtime (env-only NO_PROXY matching, like httpx); missing from typeshed.
+from urllib.request import proxy_bypass_environment  # type: ignore[attr-defined]
+
 import httpx
 import mcp.types as types  # Import all types
 from mcp import ClientSession
@@ -99,20 +102,21 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
     just the TLS handshake with the same trust configuration httpx uses
     (certifi / ``SSL_CERT_FILE``) to recover the verification reason. Skip
     this direct probe whenever an HTTPS/all-proxy environment variable is
-    configured (even with NO_PROXY): it may inspect a different TLS peer.
-    Returns ``None`` for invalid/non-HTTPS URLs and non-verification failures.
+    configured, since it may inspect a different TLS peer, unless the host is
+    excluded by NO_PROXY (then httpx connects to it directly, so the probe sees
+    the same peer). Returns ``None`` for invalid/non-HTTPS URLs and non-verification failures.
     """
-    if any(
-        os.environ.get(key)
-        for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
-    ):
-        return None
     try:
         parsed = urlparse(url)
         if parsed.scheme.lower() != "https" or not parsed.hostname:
             return None
         port = parsed.port or 443
     except ValueError:
+        return None
+    if any(
+        os.environ.get(key)
+        for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
+    ) and not proxy_bypass_environment(parsed.hostname):
         return None
     try:
         context = httpx.create_ssl_context()

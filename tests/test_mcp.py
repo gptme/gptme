@@ -532,11 +532,50 @@ def test_diagnose_https_tls_failure_skips_environment_proxy(
 
     for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
         monkeypatch.delenv(key, raising=False)
+    for key in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv(proxy_var, "http://proxy.invalid:8080")
     connect = Mock(side_effect=AssertionError("must not probe the origin directly"))
     monkeypatch.setattr("gptme.mcp.client.socket.create_connection", connect)
     assert _diagnose_https_tls_failure("https://example.com/mcp") is None
     connect.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("no_proxy", "probed"),
+    [
+        ("api.example.com", True),  # exact host: bypasses the proxy, same TLS peer
+        (".example.com", True),  # domain suffix
+        ("*", True),
+        ("other.test", False),  # unrelated host: still goes through the proxy
+    ],
+)
+def test_diagnose_https_tls_failure_honors_no_proxy(
+    monkeypatch: pytest.MonkeyPatch, no_proxy: str, probed: bool
+) -> None:
+    import ssl
+    from unittest.mock import Mock
+
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:8080")
+    monkeypatch.setenv("NO_PROXY", no_proxy)
+    error = ssl.SSLCertVerificationError(1, "self-signed certificate")
+    error.verify_message = "self-signed certificate"
+    connect = Mock(side_effect=error)
+    monkeypatch.setattr("gptme.mcp.client.socket.create_connection", connect)
+
+    message = _diagnose_https_tls_failure("https://api.example.com/mcp")
+
+    if probed:
+        connect.assert_called_once()
+        assert message is not None
+        assert "self-signed certificate" in message
+    else:
+        connect.assert_not_called()
+        assert message is None
 
 
 @pytest.mark.parametrize("reason", ["certificate has expired", "Hostname mismatch"])
