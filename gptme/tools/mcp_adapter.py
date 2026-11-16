@@ -99,29 +99,12 @@ def _extract_content_text(
 ) -> str:
     """Extract text from a content item (TextContent, ImageContent, etc.).
 
-    Per MCP spec, content items can be TextContent, ImageContent, AudioContent,
-    ResourceLink, or EmbeddedResource. This function handles all types gracefully.
+    Thin wrapper over :func:`gptme.mcp.client.content_item_text`, imported lazily
+    because the ``mcp`` package is optional.
     """
-    import mcp.types as mcp_types
+    from ..mcp.client import content_item_text
 
-    if isinstance(item, str):
-        return item
-    if isinstance(item, mcp_types.TextContent):
-        return item.text
-    if isinstance(item, mcp_types.ImageContent):
-        return f"[Image: {item.mimeType}]"
-    if isinstance(item, mcp_types.AudioContent):
-        return f"[Audio: {item.mimeType}]"
-    if isinstance(item, mcp_types.ResourceLink):
-        return f"[Resource Link: {item.uri}]"
-    if isinstance(item, mcp_types.EmbeddedResource):
-        resource = item.resource
-        uri = str(resource.uri)
-        # TextResourceContents has text, BlobResourceContents has blob
-        if isinstance(resource, mcp_types.TextResourceContents):
-            return f"[Resource: {uri}]\n{resource.text}"
-        return f"[Resource: {uri}]"
-    return str(item)
+    return content_item_text(item)
 
 
 def _mcp_max_output_chars() -> int:

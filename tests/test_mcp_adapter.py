@@ -1631,3 +1631,43 @@ def test_mcp_execute_bounds_an_oversized_tool_result(
     text = messages[0].content
     assert text.startswith("A") and text.endswith("Z") and len(text) < 300
     assert "characters omitted" in text
+
+
+def test_mcp_execute_bounds_the_combined_multi_block_result(
+    mock_config, mock_mcp_client, monkeypatch
+):
+    """The size bound must see every content block, not only the first."""
+    from unittest.mock import MagicMock
+
+    import mcp.types as types
+
+    from gptme.mcp.client import MCPClient
+    from gptme.tools.mcp_adapter import MCP_MAX_OUTPUT_CHARS_ENV
+
+    async def fake_call_tool(*args, **kwargs):
+        return types.CallToolResult(
+            content=[
+                types.TextContent(type="text", text="A" + "x" * 50),
+                types.TextContent(type="text", text="y" * 5000 + "Z"),
+            ]
+        )
+
+    real = MCPClient()
+    real.session = MagicMock()
+    real.session.call_tool = fake_call_tool
+    mock_mcp_client.call_tool.side_effect = real.call_tool
+
+    monkeypatch.setenv(MCP_MAX_OUTPUT_CHARS_ENV, "100")
+    try:
+        with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+            tools = create_mcp_tools(mock_config)
+        tool = next(t for t in tools if t.name == "test-server.test_tool")
+        assert tool.execute is not None
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+            result = tool.execute(None, None, {"param1": "value"})
+            messages = list(result) if hasattr(result, "__iter__") else [result]
+    finally:
+        real.close()
+    text = messages[0].content
+    assert text.startswith("A") and text.endswith("Z") and len(text) < 300
+    assert "characters omitted" in text

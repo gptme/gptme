@@ -229,6 +229,39 @@ def _diagnose_http_auth_failure(
     return message
 
 
+def content_item_text(
+    item: types.TextContent
+    | types.ImageContent
+    | types.AudioContent
+    | types.ResourceLink
+    | types.EmbeddedResource
+    | str,
+) -> str:
+    """Extract text from a content item (TextContent, ImageContent, etc.).
+
+    Per MCP spec, content items can be TextContent, ImageContent, AudioContent,
+    ResourceLink, or EmbeddedResource. This function handles all types gracefully.
+    """
+    if isinstance(item, str):
+        return item
+    if isinstance(item, types.TextContent):
+        return item.text
+    if isinstance(item, types.ImageContent):
+        return f"[Image: {item.mimeType}]"
+    if isinstance(item, types.AudioContent):
+        return f"[Audio: {item.mimeType}]"
+    if isinstance(item, types.ResourceLink):
+        return f"[Resource Link: {item.uri}]"
+    if isinstance(item, types.EmbeddedResource):
+        resource = item.resource
+        uri = str(resource.uri)
+        # TextResourceContents has text, BlobResourceContents has blob
+        if isinstance(resource, types.TextResourceContents):
+            return f"[Resource: {uri}]\n{resource.text}"
+        return f"[Resource: {uri}]"
+    return str(item)
+
+
 class MCPClient:
     """A client for interacting with MCP servers"""
 
@@ -595,9 +628,10 @@ class MCPClient:
                 logger.debug(f"result {content_text}")
 
             if result.content:
-                for content in result.content:
-                    if isinstance(content, types.TextContent):
-                        return content.text
+                # Keep every block: multi-block results (search/list tools) used
+                # to lose all but the first TextContent; non-text blocks become
+                # placeholders. A single text block is returned unchanged.
+                return "\n".join(content_item_text(c) for c in result.content)
             return str(result)
 
         # Wrap the synchronous _run_async call with the circuit breaker so that
