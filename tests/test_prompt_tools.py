@@ -175,6 +175,32 @@ def test_prompt_tools_reasoning_model_respects_explicit_no_examples():
     assert "### Examples" not in prompt
 
 
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_prompt_tools_omits_function_only_tools_without_ipython(
+    tool_format: ToolFormat,
+):
+    """Without ipython, subagent's functions can't be called: don't describe them (#4953)."""
+    clear_tools()
+    tools = init_tools(allowlist=["shell", "subagent"])
+    assert "subagent" in {tool.name for tool in tools}
+
+    prompt = next(prompt_tools(tools, tool_format, examples=True)).content
+    assert "Executes shell commands" in prompt
+    assert "subagent" not in prompt
+
+
+def test_prompt_tools_describes_function_only_tools_with_ipython(monkeypatch):
+    # ipython registers loaded tools' functions in a module-global that
+    # clear_tools() does not reset; keep subagent's out of later tests.
+    monkeypatch.setattr("gptme.tools.python.registered_functions", {})
+    clear_tools()
+    tools = init_tools(allowlist=["shell", "subagent", "ipython"])
+
+    prompt = next(prompt_tools(tools, "markdown", examples=True)).content
+    clear_tools()
+    assert "## subagent" in prompt
+
+
 # --- Tests for XML-sectioned system prompt sections ---
 
 

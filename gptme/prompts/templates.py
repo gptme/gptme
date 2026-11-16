@@ -8,7 +8,7 @@ from ..config import get_config, get_project_config
 from ..dirs import get_project_git_dir
 from ..llm.models import get_model
 from ..message import Message
-from ..tools import ToolFormat, ToolSpec
+from ..tools import FUNCTION_CALL_TOOL, ToolFormat, ToolSpec
 from ..util import clock
 from . import _xml_section
 from .skills import prompt_skills_summary
@@ -442,6 +442,19 @@ def prompt_tools(
                 model,
             )
             examples = False
+
+    # Don't describe tools the model has no way to call: function-only tools
+    # (e.g. subagent) are invoked through ipython, so without it their docs and
+    # examples only mislead the model (#4953).
+    if not any(tool.name == FUNCTION_CALL_TOOL for tool in tools):
+        skipped = [tool.name for tool in tools if tool.is_function_only]
+        if skipped:
+            logger.debug(
+                "Omitting function-only tools from prompt (no %s): %s",
+                FUNCTION_CALL_TOOL,
+                ", ".join(skipped),
+            )
+            tools = [tool for tool in tools if not tool.is_function_only]
 
     if tool_format == "xml":
         prompt = "<tools>"

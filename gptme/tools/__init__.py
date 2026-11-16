@@ -154,6 +154,39 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
 _tools_init_lock = threading.Lock()
 _warned_mcp_allowlists: set[tuple[str, ...]] = set()
 _warned_mcp_allowlists_lock = threading.Lock()
+# Guarded by _tools_init_lock (only touched from init_tools).
+_warned_function_only_tools: set[str] = set()
+
+# Tool through which function-only tools (``ToolSpec.is_function_only``) are called.
+FUNCTION_CALL_TOOL = "ipython"
+
+
+def _function_only_hint(tool_name: str, subject: str | None = None) -> str:
+    subject = subject or f"Tool '{tool_name}'"
+    return (
+        f"{subject} is called as Python functions through the "
+        f"'{FUNCTION_CALL_TOOL}' tool, which is not loaded. Add "
+        f"'{FUNCTION_CALL_TOOL}' to the tool allowlist "
+        f"(e.g. --tools ...,{tool_name},{FUNCTION_CALL_TOOL}) to use it."
+    )
+
+
+def _warn_function_only_without_ipython(loaded_tools: list[ToolSpec]) -> None:
+    """Warn when a loaded tool can't be invoked because ``ipython`` is missing.
+
+    Function-only tools (e.g. ``subagent``) expose their capability as Python
+    functions in the IPython REPL. Without ``ipython`` the model sees no way
+    to call them. We warn instead of silently granting ``ipython``: an explicit
+    allowlist must never gain an unlisted capability (see _add_required_tools),
+    and ``ipython`` is arbitrary code execution.
+    """
+    if any(t.name == FUNCTION_CALL_TOOL for t in loaded_tools):
+        return
+    for tool in loaded_tools:
+        if not tool.is_function_only or tool.name in _warned_function_only_tools:
+            continue
+        _warned_function_only_tools.add(tool.name)
+        logger.warning("%s", _function_only_hint(tool.name))
 
 
 def _unregister_tool_hooks(tool: ToolSpec) -> None:
@@ -488,6 +521,8 @@ def init_tools(
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
+        _warn_function_only_without_ipython(loaded_tools)
+
         available_tools = get_available_tools(include_mcp=include_mcp)
         for tool_name in tool_names:
             if is_hint_pattern(tool_name):
@@ -696,9 +731,28 @@ def _enable_hint_for_disabled_tool(tool_name: str) -> str:
     pairing valid even when discovery would be slow or fail.
     """
     cached = _get_available_tools_cache() or []
-    if any(t.name == tool_name and t.disabled_by_default for t in cached):
+    tool = next((t for t in cached if t.name == tool_name), None)
+    if tool is None:
+        return ""
+    if tool.is_function_only:
+        # Allowlisting the tool alone never makes it executable (#4953):
+        # its functions are only reachable through ipython.
+        if has_tool(FUNCTION_CALL_TOOL):
+            return (
+                f" Its functions are called from Python code through the "
+                f"'{FUNCTION_CALL_TOOL}' tool, e.g. {tool_name}(...)."
+            )
+        return " " + _function_only_hint(tool_name, subject="It")
+    if tool.disabled_by_default and not _is_session_allowlisted(tool):
         return f" Add --tools +{tool_name} to enable it."
     return ""
+
+
+def _is_session_allowlisted(tool: ToolSpec) -> bool:
+    allowlist = get_session_allowlist()
+    return allowlist is not None and tool_matches_allowlist(
+        tool.name, allowlist, tool.hints
+    )
 
 
 @trace_function(name="tools.execute_msg", attributes={"component": "tools"})

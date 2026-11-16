@@ -1,3 +1,4 @@
+import logging
 import sys
 import tempfile
 import types
@@ -165,6 +166,69 @@ def test_unavailable_tool_error_pairs_when_cache_empty():
     assert results[0].call_id == "call-x"
     assert "not available for execution" in results[0].content
     assert "--tools +" not in results[0].content
+
+
+@pytest.fixture
+def _clear_tools_after(monkeypatch):
+    # ipython registers loaded tools' functions in a module-global that
+    # clear_tools() does not reset; keep subagent's out of later tests.
+    monkeypatch.setattr("gptme.tools.python.registered_functions", {})
+    yield
+    clear_tools()
+
+
+@pytest.mark.usefixtures("_clear_tools_after")
+def test_function_only_tool_without_ipython_warns_and_hints_ipython(
+    monkeypatch, caplog
+):
+    """`-t shell,subagent` cannot run subagent: it is called through ipython (#4953).
+
+    Startup must say so, and the execution error must point at ipython instead
+    of suggesting `+subagent`, which is already allowlisted.
+    """
+    clear_tools()
+    set_tool_format("tool")
+    monkeypatch.setattr("gptme.tools._warned_function_only_tools", set())
+
+    with caplog.at_level(logging.WARNING, logger="gptme.tools"):
+        tools = init_tools(allowlist=["shell", "subagent"])
+
+    # Allowlisting stays authoritative: ipython is not silently granted.
+    assert {tool.name for tool in tools} == {"shell", "subagent"}
+    assert "'subagent' is called as Python functions" in caplog.text
+    assert "'ipython'" in caplog.text
+
+    results = list(
+        execute_msg(Message("assistant", '@subagent(call-sub): {"agent_id": "beta"}'))
+    )
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-sub"
+    assert "not available for execution" in results[0].content
+    assert "'ipython'" in results[0].content
+    assert "--tools +subagent" not in results[0].content
+
+
+@pytest.mark.usefixtures("_clear_tools_after")
+def test_function_only_tool_with_ipython_does_not_warn(monkeypatch, caplog):
+    clear_tools()
+    monkeypatch.setattr("gptme.tools._warned_function_only_tools", set())
+
+    with caplog.at_level(logging.WARNING, logger="gptme.tools"):
+        init_tools(allowlist=["shell", "subagent", "ipython"])
+
+    assert "called as Python functions" not in caplog.text
+
+    # Calling the function-only tool directly points at ipython, without
+    # claiming ipython is missing.
+    set_tool_format("tool")
+    results = list(
+        execute_msg(Message("assistant", '@subagent(call-sub): {"agent_id": "b"}'))
+    )
+    assert len(results) == 1
+    assert "through the 'ipython' tool" in results[0].content
+    assert "not loaded" not in results[0].content
+    assert "--tools +subagent" not in results[0].content
 
 
 def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
