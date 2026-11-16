@@ -169,10 +169,12 @@ def test_start_tool_execution_streams_only_real_tool_output(
 
 
 @pytest.mark.parametrize("call_id", [None, "call-failed"])
+@pytest.mark.parametrize("progress", [False, True])
 def test_start_tool_execution_reports_raising_tool_as_failed(
-    v2_conv, client: FlaskClient, monkeypatch, call_id
+    v2_conv, client: FlaskClient, monkeypatch, call_id, progress
 ):
-    """A tool that raises completes as failed, not as a successful call."""
+    """Even a tool that yielded progress before raising completes as failed."""
+    from gptme.message import Message
     from gptme.server.api_v2_common import ToolCompleteEvent
     from gptme.server.session_models import SessionManager, ToolExecution
     from gptme.server.session_step import start_tool_execution
@@ -183,7 +185,13 @@ def test_start_tool_execution_reports_raising_tool_as_failed(
     assert session is not None
     error = "Error executing tool 'test_tool': boom"
 
+    def partial_result():
+        yield Message("system", "starting")
+        raise RuntimeError("boom")
+
     def execute(code, args, kwargs):
+        if progress:
+            return partial_result()
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
@@ -211,8 +219,12 @@ def test_start_tool_execution_reports_raising_tool_as_failed(
     )
     thread.join(timeout=5)
     assert not thread.is_alive()
+    expected_output = [error]
+    if progress and call_id is None:
+        expected_output.insert(0, "starting")
     assert [e for e in session.events if e["type"] == "tool_output"] == [
-        {"type": "tool_output", "tool_id": tool_exec.tool_id, "output": error}
+        {"type": "tool_output", "tool_id": tool_exec.tool_id, "output": output}
+        for output in expected_output
     ]
     complete = [
         cast(ToolCompleteEvent, e)

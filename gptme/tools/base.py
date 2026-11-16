@@ -972,6 +972,7 @@ class ToolUse:
                 # Pre-hooks and result callbacks can fail before the tool starts.
                 start_time = time.time()
                 result_msgs: list[Message] = []
+                execution_completed = False
                 try:
                     from ..hooks.types import ToolExecutePreData  # fmt: skip
 
@@ -1103,6 +1104,8 @@ class ToolUse:
                     finally:
                         _current_tool_use.reset(token)
 
+                    execution_completed = True
+
                     # Calculate duration
                     duration = time.time() - start_time
 
@@ -1152,14 +1155,14 @@ class ToolUse:
                     # Only attribute the error to this call_id if no real result
                     # was already emitted — a post-hook exception after yielding a
                     # result would create a duplicate function_call_output entry.
-                    # The same condition marks the call itself as failed, a
-                    # structured signal (like "denied") callers read instead of
-                    # matching error text.
-                    failed = not result_msgs
+                    # Output is not proof of completion: a streaming tool may
+                    # yield progress before raising. Only errors after execution
+                    # finished (e.g. a post-hook) leave its status unchanged.
+                    failed = not execution_completed
                     error_msg = Message(
                         "system",
                         f"Error executing tool '{self.tool}': {e}",
-                        call_id=self.call_id if failed else None,
+                        call_id=self.call_id if not result_msgs else None,
                         metadata=(
                             {"tool": self.tool, "tool_status": "failed"}
                             if failed

@@ -968,6 +968,43 @@ class TestToolUseFormatting:
         ]
         assert streamed == [actual_output]
 
+    @pytest.mark.parametrize("call_id", [None, "call-post-hook"])
+    @pytest.mark.parametrize("result_kind", ["empty", "single", "generator"])
+    def test_post_hook_error_does_not_mark_successful_tool_failed(
+        self, monkeypatch, call_id, result_kind
+    ):
+        actual_output = Message("system", "actual output")
+
+        def generate():
+            yield actual_output
+
+        def execute(code, args, kwargs):
+            if result_kind == "generator":
+                return generate()
+            return actual_output if result_kind == "single" else None
+
+        def hook(hook_type, data):
+            if hook_type == HookType.TOOL_EXECUTE_POST:
+                raise RuntimeError("post hook broke")
+            return []
+
+        monkeypatch.setattr(
+            "gptme.tools.get_tool",
+            lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+        )
+        monkeypatch.setattr("gptme.hooks.trigger_hook", hook)
+        streamed: list[Message] = []
+        yielded = list(
+            ToolUse("test_tool", [], None, call_id=call_id).execute(
+                on_result_message=streamed.append
+            )
+        )
+
+        assert "post hook broke" in yielded[-1].content
+        assert yielded[-1].metadata == {"tool": "test_tool"}
+        assert yielded[-1].call_id == (call_id if result_kind == "empty" else None)
+        assert streamed == ([] if result_kind == "empty" else [actual_output])
+
     def test_execute_adds_tool_provenance_to_identified_result(self, monkeypatch):
         actual_output = Message(
             "system",
