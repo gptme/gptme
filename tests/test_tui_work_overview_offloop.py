@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+pytest.importorskip("textual")
+
 from gptme.logmanager import LogManager
 from gptme.tools.subagent.types import Subagent
 from gptme.tui.app import GptmeApp, WorkOverviewScreen
