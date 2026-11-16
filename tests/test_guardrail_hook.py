@@ -716,3 +716,56 @@ class TestPatchManySecretTargets:
         else:
             assert secret.read_text() == "new\n"
             assert benign.read_text() == "new\n"
+
+
+class TestTmuxShellText:
+    """``tmux`` new-session/send-keys text gets the shell tool's rules."""
+
+    @staticmethod
+    def _run(monkeypatch, mode: str, content: str) -> str:
+        from gptme.hooks.guardrails import register
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        register()
+        # Record instead of spawning tmux: only the seam decision is under test.
+        ran: list[str] = []
+
+        def fake_execute(code, args, kwargs):
+            ran.append(code or "")
+            yield Message("system", "ran")
+
+        spec = ToolSpec(name="tmux", desc="test", execute=fake_execute)
+        monkeypatch.setattr(
+            "gptme.tools.get_tool", lambda name: spec if name == "tmux" else None
+        )
+        try:
+            msgs = list(ToolUse(tool="tmux", args=[], content=content).execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+        return "ran" if ran else "\n".join(m.content for m in msgs)
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "new-session cat ~/.ssh/id_rsa",
+            "send-keys gptme_1 'cat ~/.ssh/id_rsa' Enter",
+            "new-session rm -rf /",
+        ],
+    )
+    def test_enforce_denies(self, monkeypatch, content):
+        out = self._run(monkeypatch, "enforce", content)
+        assert out != "ran"
+        assert "blocked" in out.lower()
+
+    @pytest.mark.parametrize(
+        "content",
+        ["new-session python3 -m http.server", "send-keys gptme_1 'ls -la' Enter"],
+    )
+    def test_enforce_allows_ordinary(self, monkeypatch, content):
+        assert self._run(monkeypatch, "enforce", content) == "ran"
+
+    def test_shadow_does_not_block(self, monkeypatch):
+        assert (
+            self._run(monkeypatch, "shadow", "new-session cat ~/.ssh/id_rsa") == "ran"
+        )

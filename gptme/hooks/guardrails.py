@@ -277,6 +277,58 @@ def _patch_many_secret_path_reason(tool_use: "ToolUse") -> str | None:
     return None
 
 
+def _shell_text_block_reason(cmd: str, subject: str) -> str | None:
+    """Return the block reason for shell text, or None if it is allowed.
+
+    The one rule set for anything that ends up in a shell: ``shell`` commands,
+    and the text ``tmux`` hands to one (``new-session`` commands, ``send-keys``).
+    ``subject`` names the source in the message.
+    """
+    from ..tools.shell_validation import is_denylisted  # local import for speed
+
+    denied, reason, matched = is_denylisted(cmd)
+    if denied:
+        block_reason = f"Destructive shell command blocked: {reason}"
+        if matched:
+            block_reason += f" (matched: {matched!r})"
+        return block_reason
+
+    from ._credential_output import credential_output_reason
+
+    credential_reason = credential_output_reason(cmd)
+    if credential_reason:
+        return credential_reason
+    secret = _find_secret_path_in_cmd(cmd)
+    if secret:
+        return (
+            f"Secret path access blocked: {subject} references {secret!r}. "
+            "Use a dedicated secrets manager or explicit user approval."
+        )
+    return None
+
+
+def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
+    """Return the block reason if a ``tmux`` call runs a disallowed shell text.
+
+    ``tmux`` starts shells (``new-session``) and types into them
+    (``send-keys``), so it would otherwise bypass every rule that polices the
+    ``shell`` tool. The operations come from the tool's public accessor.
+    """
+    from ..tools.tmux import get_tmux_operations
+
+    for verb, arguments in get_tmux_operations(tool_use) or []:
+        if verb == "new-session":
+            text = arguments
+        elif verb == "send-keys":
+            _pane, _, text = arguments.partition(" ")
+        else:
+            continue
+        reason = _shell_text_block_reason(text.strip(), f"tmux {verb}")
+        if reason:
+            return reason
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Mode helpers
 # ---------------------------------------------------------------------------
@@ -324,26 +376,9 @@ def guardrail_hook(
     block_reason: str | None = None
 
     if tool_use.tool == "shell":
-        from ..tools.shell_validation import is_denylisted  # local import for speed
-
         cmd = (preview or tool_use.preview_content or "").strip()
         if cmd:
-            denied, reason, matched = is_denylisted(cmd)
-            if denied:
-                block_reason = f"Destructive shell command blocked: {reason}"
-                if matched:
-                    block_reason += f" (matched: {matched!r})"
-            else:
-                from ._credential_output import credential_output_reason
-
-                block_reason = credential_output_reason(cmd)
-            if not block_reason:
-                secret = _find_secret_path_in_cmd(cmd)
-                if secret:
-                    block_reason = (
-                        f"Secret path access blocked: shell command references {secret!r}. "
-                        "Use a dedicated secrets manager or explicit user approval."
-                    )
+            block_reason = _shell_text_block_reason(cmd, "shell command")
 
     elif tool_use.tool == "read":
         # Not dead code: reads dispatched by ToolUse.execute() are policed at
@@ -371,7 +406,7 @@ def guardrail_hook(
 def guardrail_pre_hook(
     data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
-    """TOOL_EXECUTE_PRE hook: deny secret-path ``read`` and ``patch_many`` calls.
+    """TOOL_EXECUTE_PRE hook: deny secret-path ``read``/``patch_many`` and disallowed ``tmux`` shell text.
 
     ``read`` is read-only and never calls ``execute_with_confirmation()``, so
     the confirmation chain cannot see it. Blocking here keeps that no-prompt
@@ -379,8 +414,10 @@ def guardrail_pre_hook(
     modes it does not block at all. A denial is reported to the model by
     ``ToolUse.execute`` as the call's result.
 
-    ``patch_many`` is checked here too, through its public structured-input
-    accessor: one secret-path target denies the whole (atomic) call.
+    ``patch_many`` and ``tmux`` are checked here too, through their public
+    structured-input accessors: one secret-path target denies the whole
+    (atomic) ``patch_many`` call, and ``tmux`` ``new-session``/``send-keys``
+    text gets the same rules as the ``shell`` tool.
 
     Only secret-path access is handled here; everything else about these
     tools stays unguarded, exactly as before.
@@ -390,13 +427,15 @@ def guardrail_pre_hook(
         return
 
     tool_use = data.tool_use
-    if tool_use is None or tool_use.tool not in ("read", "patch_many"):
+    if tool_use is None or tool_use.tool not in ("read", "patch_many", "tmux"):
         return
 
     if tool_use.tool == "read":
         block_reason = _read_secret_path_reason(tool_use)
-    else:
+    elif tool_use.tool == "patch_many":
         block_reason = _patch_many_secret_path_reason(tool_use)
+    else:
+        block_reason = _tmux_block_reason(tool_use)
     if block_reason is None:
         return
 

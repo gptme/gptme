@@ -280,7 +280,9 @@ A hook that needs a tool's *structured* input should use the tool's public
 accessor rather than re-parsing or importing underscore-private helpers.
 ``gptme.tools.patch_many.get_patch_many_targets(tool_use)`` returns the resolved
 ``(path, patch)`` pairs a ``patch_many`` call would write, whichever input shape
-it uses (``None`` for other tools, ``[]`` for a call the tool will reject):
+it uses (``None`` for other tools, ``[]`` for a call the tool will reject).
+``gptme.tools.tmux.get_tmux_operations(tool_use)`` does the same for ``tmux``,
+returning ``(verb, arguments)`` pairs such as ``("new-session", "<shell command>")``:
 
 .. code-block:: python
 
@@ -308,7 +310,8 @@ Which seam to use:
 The built-in ``guardrails`` hook uses both: credential/destructive-command rules
 at ``TOOL_CONFIRM`` (priority 200), and the secret-path rule for ``read`` at
 ``TOOL_EXECUTE_PRE`` (priority 200), since ``read`` never reaches confirmation.
-The same seam checks ``patch_many`` targets through the accessor above.
+The same seam checks ``patch_many`` targets and the shell text that ``tmux``
+``new-session`` and ``send-keys`` hand to a shell through the accessors above.
 Both registrations share one hook name, so ``HOOK_ALLOWLIST`` and
 ``disable_hook("guardrails")`` apply to both.
 

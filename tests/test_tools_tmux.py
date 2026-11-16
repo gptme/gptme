@@ -319,3 +319,21 @@ class TestCapturePaneInternal:
 
         output = _capture_pane(session_id)
         assert "capture test" in output
+
+
+def test_get_tmux_operations():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.tmux import get_tmux_operations
+
+    use = ToolUse(
+        "tmux", [], "new-session sleep 5\nsend-keys gptme_1 'ls' Enter\nlist-sessions"
+    )
+    assert get_tmux_operations(use) == [
+        ("new-session", "sleep 5"),
+        ("send-keys", "gptme_1 'ls' Enter"),
+        ("list-sessions", ""),
+    ]
+    assert get_tmux_operations(ToolUse("shell", [], "ls")) is None
+    # kwargs (function-call) form
+    kw = ToolUse("tmux", None, None, {"command": "kill-session gptme_2"})
+    assert get_tmux_operations(kw) == [("kill-session", "gptme_2")]
