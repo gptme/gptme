@@ -2294,3 +2294,55 @@ def test_models_list_includes_gptme_plugins_provider(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "fakeplug/model-a" in result.output
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["models", "list", "--json", "--provider", "anthropic"],
+        ["models", "info", "anthropic/claude-sonnet-4-6", "--json"],
+        ["models", "recommended", "--format", "json"],
+        ["models", "list", "--simple", "--provider", "anthropic"],
+    ],
+)
+def test_models_startup_noise_goes_to_stderr(
+    monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    """Plugin imports and init callbacks must not prefix machine-readable stdout."""
+    import logging
+
+    from gptme.plugins import registry
+    from gptme.plugins.plugin import GptmePlugin
+
+    observed_logging_disable = []
+
+    def noisy_init(_config):
+        print("plugin init message")
+        observed_logging_disable.append(logging.root.manager.disable)
+
+    def noisy_discover(_enabled, errors=None):
+        print("plugin import message")
+        return [GptmePlugin(name="noisy", init=noisy_init)]
+
+    monkeypatch.setattr(
+        "gptme.init.get_config",
+        lambda: SimpleNamespace(get_plugin_config=lambda: (None, None)),
+    )
+    monkeypatch.setattr(registry, "discover_entrypoint_plugins", noisy_discover)
+    monkeypatch.setattr(registry, "_discover_legacy_provider_plugins", lambda: [])
+    registry.clear_registry()
+    try:
+        result = CliRunner().invoke(main, args)
+    finally:
+        registry.clear_registry()
+
+    assert result.exit_code == 0, result.output
+    if "--simple" in args:
+        assert result.stdout.strip()
+        assert all(line.startswith("anthropic/") for line in result.stdout.splitlines())
+    else:
+        assert json.loads(result.stdout)
+    assert "plugin import message" in result.stderr
+    assert "plugin init message" in result.stderr
+    assert observed_logging_disable == [logging.CRITICAL]
+    assert logging.root.manager.disable == logging.NOTSET
