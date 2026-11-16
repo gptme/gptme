@@ -310,7 +310,9 @@ def send_keys(pane_id: str, keys: str) -> Message:
     key_args = _parse_send_keys(keys)
     try:
         result = subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, *key_args],
+            # "--" keeps key text like "-N" typed, not parsed as tmux options,
+            # matching what the policy accessor sees.
+            ["tmux", "send-keys", "-t", pane_id, "--", *key_args],
             check=False,
             capture_output=True,
             text=True,

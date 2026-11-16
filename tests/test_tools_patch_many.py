@@ -1284,6 +1284,23 @@ class TestGetPatchManyTargets:
         use = ToolUse("patch_many", None, None, {"patches": json.dumps(patches)})
         assert get_patch_many_targets(use) == [(a, self.PATCH), (b, self.PATCH)]
 
+    def test_embedded_header_after_hunk_is_a_target(self, tmp_path):
+        """Execution re-parses the serialized payload, so the accessor must too."""
+        import json
+
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a, outside = tmp_path / "a.txt", tmp_path / ".env"
+        smuggled = f"{self.PATCH}\n=== PATH: {outside} ===\n{self.PATCH}"
+        use = ToolUse(
+            "patch_many",
+            None,
+            None,
+            {"patches": json.dumps([{"path": str(a), "patch": smuggled}])},
+        )
+        assert [p for p, _ in get_patch_many_targets(use) or []] == [a, outside]
+
     def test_header_form(self, tmp_path):
         from gptme.tools.base import ToolUse
         from gptme.tools.patch_many import get_patch_many_targets

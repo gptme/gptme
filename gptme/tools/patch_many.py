@@ -572,7 +572,16 @@ def get_patch_many_targets(
         )
     except _CallInputError:
         return []
-    return [(path, _stringify_patch(patch_src)) for path, patch_src in entries]
+    # Execution serializes the entries and re-parses that payload, so a patch
+    # string embedding a ``=== PATH: ===`` header after a complete hunk becomes
+    # an extra target. Report the round-tripped targets: what will be written.
+    try:
+        return _parse_confirmation_payload(
+            _serialize_confirmation_payload(entries),
+            resolve_symlinks=resolve_symlinks,
+        )
+    except ValueError:
+        return []
 
 
 def execute_patch_many(

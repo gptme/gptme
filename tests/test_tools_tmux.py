@@ -44,6 +44,32 @@ class TestExecuteParsing:
 
 
 @pytest.mark.skipif(False, reason="")  # override pytestmark — no tmux needed
+@pytest.mark.skipif(False, reason="")  # no real tmux needed
+def test_send_keys_ends_tmux_option_parsing(monkeypatch):
+    """Key text like ``-N`` must be typed, not consumed as a tmux option."""
+    from gptme.tools import tmux
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+    tmux.send_keys("gptme_1", "-N 1 printenv Enter")
+    assert calls[0] == [
+        "tmux",
+        "send-keys",
+        "-t",
+        "gptme_1",
+        "--",
+        "-N",
+        "1",
+        "printenv",
+        "Enter",
+    ]
+
+
 class TestNewSessionRetries:
     """Tests for retry behavior when a new tmux session is not ready yet."""
 
