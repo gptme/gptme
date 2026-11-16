@@ -67,6 +67,13 @@ class TestEpisodeCounter:
         )
         assert count_policy_blocks([PROMPT, denial, _block()]) == 2
 
+    def test_policy_block_after_an_ordinary_denial_is_counted(self):
+        joined = Message(
+            "system",
+            f"{TOOL_DENIAL_PREFIX}workspace restriction; {_block().content}",
+        )
+        assert count_policy_blocks([PROMPT, joined]) == 1
+
     def test_wrapped_text_without_the_marker_is_not_a_block(self):
         plain = Message("system", f"{TOOL_DENIAL_PREFIX}some other reason")
         assert count_policy_blocks([PROMPT, plain]) == 0

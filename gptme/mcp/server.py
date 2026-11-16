@@ -200,6 +200,24 @@ class GptmeMCPServer:
 
                 tool_use = ToolUse(tool=name, args=None, content=None, kwargs=kwargs)
                 with using_current_tool_use(tool_use):
+                    # This path calls tool.execute() directly, bypassing
+                    # ToolUse.execute(), so dispatch the TOOL_EXECUTE_PRE
+                    # policy seam here (anomaly_watchdog block mode lives there).
+                    from pathlib import Path
+
+                    from ..hooks import HookType, trigger_hook
+                    from ..hooks._policy_block import TOOL_DENIAL_PREFIX
+                    from ..hooks.types import ToolExecutePreData
+
+                    pre_data = ToolExecutePreData(
+                        workspace=Path(self._workspace) if self._workspace else None,
+                        tool_use=tool_use,
+                    )
+                    for _ in trigger_hook(HookType.TOOL_EXECUTE_PRE, pre_data):
+                        pass  # warn-mode reports have no MCP channel
+                    if pre_data.denied:
+                        return TOOL_DENIAL_PREFIX + "; ".join(pre_data.denials)
+
                     preview = "\n".join(kwargs.values()) or None
                     confirmation = get_confirmation(
                         tool_use=tool_use, preview=preview, default_confirm=True
