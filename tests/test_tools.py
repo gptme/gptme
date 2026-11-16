@@ -231,6 +231,34 @@ def test_function_only_tool_with_ipython_does_not_warn(monkeypatch, caplog):
     assert "--tools +subagent" not in results[0].content
 
 
+@pytest.mark.usefixtures("_clear_tools_after")
+@pytest.mark.parametrize("structured", [False, True])
+def test_function_only_hint_names_registered_callable(structured: bool) -> None:
+    """The recovery example must use the name registered in IPython."""
+    from gptme.tools.base import ToolFunction, ToolSpec
+
+    def ping() -> str:
+        return "pong"
+
+    # Explicit metadata may also differ from the callable's Python name.
+    function = ToolFunction(name="metadata_alias", fn=ping) if structured else ping
+    tool = ToolSpec(name="helpers", desc="Helpers", functions=[function])
+    clear_tools()
+    available = get_available_tools()
+    available.append(tool)
+    init_tools(allowlist=["helpers", "ipython"])
+    set_tool_format("tool")
+
+    results = list(execute_msg(Message("assistant", "@helpers(call-x): {}")))
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-x"
+    hint = results[0].content
+    assert "through the 'ipython' tool, e.g. ping(...)" in hint
+    assert "helpers(...)" not in hint
+    assert "metadata_alias(...)" not in hint
+
+
 def test_read_only_tool_preset_cannot_be_combined_with_other_tools():
     clear_tools()
 
