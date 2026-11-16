@@ -5,6 +5,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import queue
 import re
 from datetime import datetime, timezone
 
@@ -152,6 +153,35 @@ def drop_excluded_linkcheck_docs(app, doctree, docname):
         del hyperlinks[uri]
 
 
+def sitemap_include_unwritten_docs(app, exception):
+    """List every document in the sitemap, not only the pages written this run.
+
+    sphinx-sitemap queues a page from ``html-page-context``, i.e. only when it is
+    written. An incremental rebuild (``make site`` re-runs ``make docs``) rewrites
+    just the indices, so the published sitemap ended up with py-modindex alone.
+    Runs before sphinx-sitemap's own ``build-finished`` handler (priority 500).
+    """
+    links = getattr(app, "sitemap_links", None)
+    if exception or links is None or app.builder.name != "html":
+        return
+    from sphinx_sitemap import is_excluded
+
+    entries = {}
+    while True:
+        try:
+            link, last_updated = links.get_nowait()
+        except queue.Empty:
+            break
+        entries[link] = last_updated
+    suffix = app.config.html_file_suffix or ".html"
+    for docname in app.env.found_docs:
+        link = docname + suffix
+        if link not in entries and not is_excluded(link, app.config.sitemap_excludes):
+            entries[link] = None
+    for item in sorted(entries.items()):
+        links.put(item)
+
+
 def setup(app):
     app.add_directive("chat", ChatDirective)
     app.connect("env-check-consistency", check_audience)
@@ -159,6 +189,7 @@ def setup(app):
     app.connect("sphinx-click-process-epilog", escape_click_line_blocks)
     app.connect("sphinx-click-process-options", literalize_quoted_urls)
     app.connect("doctree-resolved", drop_excluded_linkcheck_docs)
+    app.connect("build-finished", sitemap_include_unwritten_docs, priority=400)
 
 
 # -- General configuration ---------------------------------------------------

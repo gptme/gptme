@@ -180,6 +180,7 @@ site-assemble: site-next docs
 	cp -a media/. site/dist/media/
 	echo "gptme.org" > site/dist/CNAME
 	touch site/dist/.nojekyll
+	printf 'User-agent: *\nAllow: /\n\nSitemap: https://gptme.org/docs/sitemap.xml\n' > site/dist/robots.txt
 
 site-check:  ## Verify the assembled gptme.org tree before deploy
 	test -f site/dist/index.html
@@ -195,6 +196,9 @@ site-check:  ## Verify the assembled gptme.org tree before deploy
 	test -f site/dist/downloads/index.html
 	test -f site/dist/badge.svg
 	test -f site/dist/.nojekyll
+	grep -Fxq "Sitemap: https://gptme.org/docs/sitemap.xml" site/dist/robots.txt
+	# An incremental Sphinx rebuild once shrank the sitemap to one page (docs/conf.py).
+	test $$(grep -o "<loc>" site/dist/docs/sitemap.xml | wc -l) -ge 50
 	! grep -q 'name="generator" content="pandoc"' site/dist/index.html
 	node site/next/scripts/check-assets.mjs site/dist
 
