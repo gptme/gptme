@@ -727,10 +727,19 @@ def _selected(grep: _Grep, path: str, root: str) -> bool:
 
 
 def find_secret_reach(
-    command: str, is_secret: Callable[[str], bool], normalize: Callable[[str], str]
+    command: str,
+    is_secret: Callable[[str], bool],
+    normalize: Callable[[str], str],
+    *,
+    workspace: Path | None = None,
 ) -> str | None:
     """Find a literal reader's glob or shallow recursive-grep secret operand."""
     from ..tools.shell import _parse_bash
+
+    def anchor(path: str) -> str:
+        # Shell sessions can have a cwd distinct from the server process. Anchor
+        # before filesystem discovery, without changing cwd or resolving symlinks.
+        return os.path.join(workspace, path) if workspace is not None else path
 
     budget = _Budget()
     pending = [_parse_bash(command.encode())]
@@ -792,10 +801,10 @@ def find_secret_reach(
                 (
                     path
                     for pattern in patterns[operand]
-                    for path in _expand(pattern, budget)
+                    for path in _expand(anchor(pattern), budget)
                 )
                 if operand in patterns
-                else [normalize(operand)]
+                else [anchor(normalize(operand))]
             )
             for path in expanded:
                 if (

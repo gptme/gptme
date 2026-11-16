@@ -263,6 +263,51 @@ class TestGuardrailHookEnforceMode:
     @pytest.mark.parametrize(
         "cmd",
         [
+            "cat .ssh/config",
+            "cat work/../.ssh/config",
+            "python script.py --file=.ssh/config",
+            "cat .s*/config",
+            "grep -r needle .",
+        ],
+    )
+    def test_shell_paths_use_workspace(self, monkeypatch, tmp_path, cmd):
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("needle\n")
+        (home / "work").mkdir()
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(server)
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=home
+        )
+
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_shell_workspace_overrides_process_cwd(self, monkeypatch, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir()
+        workspace = tmp_path / "project"
+        workspace.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(home)
+        cmd = "cat .ssh/config"
+
+        assert (
+            guardrail_hook(
+                _make_tool_use("shell", cmd), preview=cmd, workspace=workspace
+            )
+            is None
+        )
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
             "echo start && git reflog expire --all",
             "ls && cat ~/.ssh/id_rsa",
         ],

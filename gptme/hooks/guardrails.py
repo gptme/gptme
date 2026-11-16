@@ -149,8 +149,8 @@ def _path_has_prefix(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
 
 
-def _path_spellings(expanded: str) -> list[str]:
-    """Literal spelling plus its ``..``-collapsed, cwd-anchored form.
+def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
+    """Literal spelling plus its ``..``-collapsed, tool-cwd-anchored form.
 
     The prefix rules below match text, so ``~/work/../.ssh/config`` and a
     relative ``.ssh/config`` slip past a literal comparison. Symlink targets
@@ -161,16 +161,18 @@ def _path_spellings(expanded: str) -> list[str]:
     if not expanded or any(c in expanded for c in "*?[$`"):
         return [expanded]
     try:
-        anchored = os.path.abspath(expanded)
+        anchored = os.path.abspath(
+            os.path.join(workspace, expanded) if workspace is not None else expanded
+        )
     except (OSError, ValueError):
         return [expanded]
     return [expanded] if anchored == expanded else [expanded, anchored]
 
 
-def _is_secret_path(path: str) -> bool:
+def _is_secret_path(path: str, workspace: Path | None = None) -> bool:
     """Return True if ``path`` looks like it leads to a secret/credential file."""
     expanded = _normalize_path_token(path)
-    return any(_is_secret_spelling(s) for s in _path_spellings(expanded))
+    return any(_is_secret_spelling(s) for s in _path_spellings(expanded, workspace))
 
 
 def _is_secret_spelling(expanded: str) -> bool:
@@ -195,7 +197,7 @@ def _is_secret_spelling(expanded: str) -> bool:
     return basename == ".env" or basename.startswith(".env.local")
 
 
-def _find_secret_path_in_cmd(cmd: str) -> str | None:
+def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
     """Return the first token in ``cmd`` that looks like a secret path, or None."""
     import shlex
 
@@ -218,7 +220,7 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
         if token.startswith("-"):
             if "=" in token:
                 value = token.split("=", 1)[1].strip("'\"")
-                if value and _is_secret_path(value):
+                if value and _is_secret_path(value, workspace):
                     return value
             continue
         # Skip command names (heuristic: no path separators and no home marker)
@@ -230,12 +232,14 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
             and not token.startswith(".")
         ):
             continue
-        if _is_secret_path(token):
+        if _is_secret_path(token, workspace):
             return token
 
     from ._secret_reach import find_secret_reach
 
-    return find_secret_reach(cmd, _is_secret_path, _normalize_path_token)
+    return find_secret_reach(
+        cmd, _is_secret_path, _normalize_path_token, workspace=workspace
+    )
 
 
 def _read_paths_from_tool_use(tool_use: "ToolUse") -> list[str]:
@@ -314,7 +318,9 @@ def _patch_many_secret_path_reason(
     return None
 
 
-def _shell_text_block_reason(cmd: str, subject: str) -> str | None:
+def _shell_text_block_reason(
+    cmd: str, subject: str, workspace: Path | None = None
+) -> str | None:
     """Return the block reason for shell text, or None if it is allowed.
 
     The one rule set for anything that ends up in a shell: ``shell`` commands,
@@ -335,7 +341,7 @@ def _shell_text_block_reason(cmd: str, subject: str) -> str | None:
     credential_reason = credential_output_reason(cmd)
     if credential_reason:
         return credential_reason
-    secret = _find_secret_path_in_cmd(cmd)
+    secret = _find_secret_path_in_cmd(cmd, workspace)
     if secret:
         return (
             f"Secret path access blocked: {subject} references {secret!r}. "
@@ -416,7 +422,7 @@ def guardrail_hook(
     if tool_use.tool == "shell":
         cmd = (preview or tool_use.preview_content or "").strip()
         if cmd:
-            block_reason = _shell_text_block_reason(cmd, "shell command")
+            block_reason = _shell_text_block_reason(cmd, "shell command", workspace)
 
     elif tool_use.tool == "read":
         # Not dead code: reads dispatched by ToolUse.execute() are policed at
