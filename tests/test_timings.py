@@ -267,3 +267,150 @@ def test_attach_tool_timings_concurrent_threads_do_not_lose_updates(
         f"expected both threads' timings preserved, got {timings}"
     )
     assert timings.get("tool_ms") == 150.0
+
+
+# ---------------------------------------------------------------------------
+# StepPersister: the reply is on disk while its tools run (#4956)
+# ---------------------------------------------------------------------------
+
+
+def _read_jsonl(path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+
+def test_step_persister_writes_reply_before_tools_and_patches_timings(
+    monkeypatch, tmp_path
+):
+    """A live reader of conversation.jsonl must see the in-flight tool call,
+    and the completed reply must replace (not duplicate) that early copy."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    from gptme.logmanager import LogManager
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+
+    manager = LogManager.load("test-step-persister", create=True, lock=False)
+    manager.append(Message("user", "run something", quiet=True))
+    logfile = manager.logfile
+
+    mock_meta: MessageMetadata = {"model": "mock/model"}
+    mock_response = Message("assistant", "```shell\nsleep 300\n```", metadata=mock_meta)
+    seen_during_tool: list[dict] = []
+
+    def fake_execute_msg(msg, log, workspace=None, tool_timings=None):
+        # What a TUI child view reading the transcript sees mid-tool.
+        seen_during_tool.extend(_read_jsonl(logfile))
+        assert tool_timings is not None
+        tool_timings["shell"] = 1234.0
+        yield Message("system", "Ran command: sleep 300", quiet=True)
+
+    persister = chat_module.StepPersister(manager)
+    with (
+        patch.object(chat_module, "reply", return_value=mock_response),
+        patch.object(chat_module, "execute_msg", fake_execute_msg),
+    ):
+        for msg in chat_module.step(
+            manager.log,
+            stream=False,
+            on_before_tool_execution=persister.before_tools,
+            logdir=manager.logdir,
+        ):
+            persister.append(msg)
+
+    assert [m["role"] for m in seen_during_tool] == ["user", "assistant"]
+    assert "sleep 300" in seen_during_tool[-1]["content"]
+
+    on_disk = _read_jsonl(logfile)
+    assert [m["role"] for m in on_disk] == ["user", "assistant", "system"]
+    timings = on_disk[1]["metadata"]["timings"]
+    assert timings["tool_ms"] == 1234.0
+    assert timings["tool_ms_by_name"] == {"shell": 1234.0}
+    assert [m.role for m in manager.log] == ["user", "assistant", "system"]
+    assert (manager.log[1].metadata or {})["timings"]["tool_ms"] == 1234.0
+
+
+def test_step_persister_keeps_reply_when_tools_are_interrupted(monkeypatch, tmp_path):
+    """An exception escaping mid-tool must not lose the already-persisted reply."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    from gptme.logmanager import LogManager
+    from gptme.tools import init_tools
+
+    init_tools(allowlist=["shell"])
+    chat_module = importlib.import_module("gptme.chat")
+
+    manager = LogManager.load("test-step-persister-int", create=True, lock=False)
+    manager.append(Message("user", "run something", quiet=True))
+    mock_response = Message("assistant", "```shell\nsleep 300\n```")
+
+    def crashing_execute_msg(msg, log, workspace=None, tool_timings=None):
+        raise KeyboardInterrupt
+        yield  # pragma: no cover
+
+    persister = chat_module.StepPersister(manager)
+    with (
+        patch.object(chat_module, "reply", return_value=mock_response),
+        patch.object(chat_module, "execute_msg", crashing_execute_msg),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        for msg in chat_module.step(
+            manager.log,
+            stream=False,
+            on_before_tool_execution=persister.before_tools,
+            logdir=manager.logdir,
+        ):
+            persister.append(msg)
+
+    on_disk = _read_jsonl(manager.logfile)
+    assert [m["role"] for m in on_disk] == ["user", "assistant"]
+    assert "sleep 300" in on_disk[1]["content"]
+
+
+def test_step_persister_without_tools_appends_once(monkeypatch, tmp_path):
+    """A reply with no tool calls is persisted exactly once."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    from gptme.logmanager import LogManager
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager.load("test-step-persister-plain", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    persister = chat_module.StepPersister(manager)
+    with patch.object(chat_module, "reply", return_value=Message("assistant", "hello")):
+        for msg in chat_module.step(
+            manager.log,
+            stream=False,
+            on_before_tool_execution=persister.before_tools,
+            logdir=manager.logdir,
+        ):
+            persister.append(msg)
+
+    assert [m["role"] for m in _read_jsonl(manager.logfile)] == ["user", "assistant"]
+
+
+def test_replace_message_updates_view_and_branch(monkeypatch, tmp_path):
+    """replace_message() reaches every copy append() wrote, including the
+    branch history behind a compacted view."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    from gptme.logmanager import LogManager
+
+    manager = LogManager.load("test-replace-message", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    manager.create_view("compacted", [Message("system", "summary", quiet=True)])
+    manager.switch_view("compacted")
+    manager.append(Message("assistant", "reply", quiet=True))
+    early = manager.log[-1]
+
+    timed = early.replace(metadata={"timings": {"tool_ms": 5.0}})
+    assert manager.replace_message(early, timed)
+    assert manager.log[-1] is timed
+    branch_msgs = manager._branches[manager.current_branch].messages
+    assert branch_msgs[-1] is timed
+    assert not manager.replace_message(early, timed)
+
+    reloaded = LogManager.load("test-replace-message", lock=False)
+    assert (reloaded.log[-1].metadata or {})["timings"]["tool_ms"] == 5.0

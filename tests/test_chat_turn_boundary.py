@@ -83,3 +83,55 @@ def test_turn_post_failure_preserves_session_complete(
     with pytest.raises(SessionCompleteException) as raised:
         chat._process_message_conversation(manager, False, "markdown", None)
     assert raised.value is completion
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_reply_persisted_before_tools_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupt: bool
+) -> None:
+    """#4956: the CLI loop (which thread-mode subagents run) must write the
+    reply before its tools run, so a live reader sees the in-flight tool call
+    and an interrupt mid-tool keeps the step record."""
+    from gptme.constants import INTERRUPT_CONTENT
+
+    manager = LogManager([Message("user", "work")], logdir=tmp_path, lock=False)
+    reply = Message("assistant", "```shell\nsleep 300\n```", quiet=True)
+    seen_during_tool: list[list[str]] = []
+
+    def step(*args: object, **kwargs: object):
+        on_before = kwargs["on_before_tool_execution"]
+        assert callable(on_before)
+        on_before(reply)
+        seen_during_tool.append(
+            [m.role for m in LogManager.load(tmp_path, lock=False).log]
+        )
+        if interrupt:
+            raise KeyboardInterrupt
+        yield reply.replace(metadata={"timings": {"tool_ms": 7.0}})
+        yield Message("system", "Ran command", quiet=True)
+
+    monkeypatch.setattr(chat, "trigger_hook", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_args: False)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+
+    chat._process_message_conversation(manager, False, "markdown", None)
+
+    assert seen_during_tool == [["user", "assistant"]]
+    reloaded = LogManager.load(tmp_path, lock=False).log
+    if interrupt:
+        assert [m.content for m in reloaded] == [
+            "work",
+            reply.content,
+            INTERRUPT_CONTENT,
+        ]
+    else:
+        # The completed reply replaced the early copy; it was not appended twice.
+        assert [m.content for m in reloaded][:3] == [
+            "work",
+            reply.content,
+            "Ran command",
+        ]
+        assert [m.role for m in reloaded].count("assistant") == 1
+        assert (reloaded[1].metadata or {})["timings"]["tool_ms"] == 7.0

@@ -877,6 +877,7 @@ def _process_message_conversation(
     # the interrupted task still owed a model response, so the turn that
     # completes the checkpoint can resume it instead of stopping.
     checkpoint_followup = False
+    persister = StepPersister(manager)
 
     while True:
         try:
@@ -915,6 +916,10 @@ def _process_message_conversation(
                     workspace=manager.workspace,
                     model=model,
                     output_schema=output_schema,
+                    # Persist the reply before tools run: thread-mode subagent
+                    # transcripts are read live, and an interrupt mid-tool must
+                    # not lose the step record.
+                    on_before_tool_execution=persister.before_tools,
                     logdir=manager.logdir,
                 )
             )
@@ -949,7 +954,7 @@ def _process_message_conversation(
 
         command_consumed = False
         for response_msg in response_msgs:
-            manager.append(response_msg)
+            persister.append(response_msg)
             # run any user-commands, if msg is from user
             if response_msg.role == "user" and execute_cmd(response_msg, manager):
                 command_consumed = True
@@ -1481,6 +1486,47 @@ def _reply_with_overflow_recovery(
         )
 
 
+class StepPersister:
+    """Append :func:`step` output to a log, persisting each reply before its tools run.
+
+    ``step()`` yields an assistant message only after all of its tools finish,
+    so it can carry tool timings. Without this, a long-running tool leaves the
+    reply invisible to anyone reading the log live (e.g. the TUI inspecting a
+    running thread-mode subagent), and an interrupt or crash mid-tool loses the
+    step record entirely.
+
+    Pass :meth:`before_tools` as ``step(on_before_tool_execution=...)`` and
+    :meth:`append` every message ``step()`` yields: the completed reply then
+    replaces the early copy (adding its tool timings) instead of appearing twice.
+    """
+
+    def __init__(self, manager: LogManager) -> None:
+        self.manager = manager
+        self._early: Message | None = None
+
+    def before_tools(self, msg: Message) -> None:
+        self.manager.append(msg)
+        self._early = self.manager.log[-1]
+
+    def append(self, msg: Message) -> None:
+        early = self._early
+        if (
+            early is not None
+            and msg.role == "assistant"
+            and msg.timestamp == early.timestamp
+        ):
+            self._early = None
+            if any(m is early for m in self.manager.log):
+                # step() only changes metadata (tool timings) after the early
+                # copy; Message equality ignores metadata, so compare it directly.
+                if msg != early or msg.metadata != early.metadata:
+                    self.manager.replace_message(early, msg)
+                return
+            # The early copy left the active log mid-step (e.g. a tool switched
+            # to a compacted view); record the reply where it is now visible.
+        self.manager.append(msg)
+
+
 @trace_function(name="chat.step", attributes={"component": "chat"})
 def step(
     log: Log | list[Message],
@@ -1566,14 +1612,18 @@ def step(
         # log response and run tools
         if msg_response:
             tool_timings: dict[str, float] = {}
+            # Text streaming already rendered the assistant response token by
+            # token, so suppress the later LogManager print in that mode. JSON
+            # output is non-streaming and needs this structured assistant event.
+            msg_response = msg_response.replace(quiet=not is_output_json())
             # Buffer tool outputs so we can attach per-step timing to the
-            # assistant message *before* it is yielded (and written to the log).
-            # Trade-off: the assistant message (and any tool output) isn't
-            # exposed or persisted until all tools in this step complete, so a
-            # crash or interrupt mid-tool-execution can lose the step record.
-            # Accepted for the CLI path since most tools finish quickly; the
-            # server path instead persists immediately and patches timings in
-            # after the fact via _attach_tool_timings().
+            # assistant message *before* it is yielded. The yielded message is
+            # therefore only available once all tools in this step complete.
+            # Callers whose log is observed live, or must survive an interrupt
+            # mid-tool, persist the reply from on_before_tool_execution and
+            # replace it with the timed copy afterwards (see StepPersister);
+            # the server path persists immediately and patches timings in via
+            # _attach_tool_timings().
             # Notify caller before tool execution so UIs can update state
             # (e.g. clear stream preview, show "running tool" indicator)
             # before a potentially long-running tool blocks the thread.
@@ -1614,10 +1664,7 @@ def step(
                 msg_response = msg_response.replace(
                     metadata=cast(MessageMetadata, existing_meta)
                 )
-            # Text streaming already rendered the assistant response token by
-            # token, so suppress the later LogManager print in that mode. JSON
-            # output is non-streaming and needs this structured assistant event.
-            yield msg_response.replace(quiet=not is_output_json())
+            yield msg_response
             yield from tool_outputs
 
     finally:

@@ -60,7 +60,7 @@ from textual.widgets import (
 from textual.widgets.text_area import Edit, EditResult, Selection
 from textual.worker import Worker, WorkerState
 
-from ..chat import maybe_start_auto_naming, step
+from ..chat import StepPersister, maybe_start_auto_naming, step
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..config import ChatConfig, get_config
 from ..constants import (
@@ -4821,6 +4821,13 @@ class GptmeApp(App):
     def _generation_body(self) -> None:
         """Runs the step loop until no more runnable tools."""
         manager = self.manager
+        persister = StepPersister(manager)
+
+        def before_tools(msg: Message) -> None:
+            # Persist the reply while its tools run, then update the view.
+            persister.before_tools(msg)
+            self.call_from_thread(self._on_before_tool_execution, msg)
+
         max_steps: int | None = None
         if max_steps_str := os.environ.get("GPTME_MAX_STEPS"):
             with contextlib.suppress(ValueError):
@@ -4874,16 +4881,14 @@ class GptmeApp(App):
                             logdir=manager.logdir,
                             on_token=self._on_token,
                             on_thinking=self._on_thinking,
-                            on_before_tool_execution=lambda m: self.call_from_thread(
-                                self._on_before_tool_execution, m
-                            ),
+                            on_before_tool_execution=before_tools,
                         ):
                             # each yield may follow a tool execution that reset
                             # the tty (e.g. ipython init) — reassert raw mode
                             # immediately, not just at end of step, so later
                             # confirmations in the same step get a sane terminal
                             self._restore_terminal()
-                            manager.append(msg)
+                            persister.append(msg)
                             if msg.role == "assistant":
                                 response = msg
                             if msg.content == DECLINED_CONTENT:
