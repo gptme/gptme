@@ -260,6 +260,16 @@ def _parse_send_keys(keys: str) -> list[str]:
         return [keys]
 
 
+def _escape_tmux_semicolon(arg: str) -> str:
+    """Make a trailing ``;`` literal: tmux treats an argv element ending in an
+    unescaped ``;`` (including a bare ``;``) as a command separator, so
+    ``send-keys x ';' run-shell ...`` would run a second tmux command outside
+    the inspected key text."""
+    if arg.endswith(";"):
+        return arg[:-1] + "\\;"
+    return arg
+
+
 def get_tmux_key_text(keys: str) -> str:
     """Return typed text for literal-input policy checks, not terminal emulation.
 
@@ -308,7 +318,7 @@ def send_keys(pane_id: str, keys: str) -> Message:
     elif not pane_id.startswith("gptme_"):
         pane_id = f"gptme_{pane_id}"
     # Shared with the policy accessor so quoting is decoded identically.
-    key_args = _parse_send_keys(keys)
+    key_args = [_escape_tmux_semicolon(a) for a in _parse_send_keys(keys)]
     try:
         result = subprocess.run(
             # "--" keeps key text like "-N" typed, not parsed as tmux options,
