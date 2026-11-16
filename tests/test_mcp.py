@@ -547,13 +547,16 @@ def test_diagnose_https_tls_failure_skips_environment_proxy(
         # Exact host: bypasses the proxy, same TLS peer.
         ("api.example.com", "https://api.example.com/mcp", True),
         (".example.com", "https://api.example.com/mcp", True),  # domain suffix
+        # httpx: a leading-dot entry matches subdomains only, not the apex.
+        (".example.com", "https://example.com/mcp", False),
         ("*", "https://api.example.com/mcp", True),
         # Unrelated host: still goes through the proxy.
         ("other.test", "https://api.example.com/mcp", False),
         ("api.example.com:8443", "https://api.example.com:8443/mcp", True),
         ("api.example.com:8443", "https://api.example.com:9443/mcp", False),
-        ("api.example.com:443", "https://api.example.com/mcp", True),
-        ("api.example.com:443", "https://api.example.com:443/mcp", True),
+        # httpx drops the default port from the URL, so a ":443" entry never matches.
+        ("api.example.com:443", "https://api.example.com/mcp", False),
+        ("api.example.com:443", "https://api.example.com:443/mcp", False),
         (".example.com:8443", "https://api.example.com:8443/mcp", True),
     ],
 )

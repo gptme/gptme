@@ -10,9 +10,6 @@ from contextlib import AsyncExitStack
 from typing import Any
 from urllib.parse import urlparse
 
-# Exists at runtime (env-only NO_PROXY matching, like httpx); missing from typeshed.
-from urllib.request import proxy_bypass_environment  # type: ignore[attr-defined]
-
 import httpx
 import mcp.types as types  # Import all types
 from mcp import ClientSession
@@ -93,6 +90,20 @@ _TLS_VERIFICATION_MESSAGE = (
 )
 
 
+def _httpx_connects_directly(url: str) -> bool:
+    """Whether httpx would connect to ``url`` without a proxy, per its own env rules.
+
+    httpx's NO_PROXY matching differs from urllib's (``.example.com`` does not
+    match the apex domain, default ports are normalized), so ask httpx itself.
+    Conservatively returns ``False`` if its (private) routing hook is missing.
+    """
+    try:
+        with httpx.Client(trust_env=True) as client:
+            return client._transport_for_url(httpx.URL(url)) is client._transport
+    except Exception:
+        return False
+
+
 def _diagnose_https_tls_failure(url: str) -> str | None:
     """Return a TLS-specific message if ``url`` fails certificate verification.
 
@@ -116,7 +127,7 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
     if any(
         os.environ.get(key)
         for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
-    ) and not proxy_bypass_environment(f"{parsed.hostname}:{port}"):
+    ) and not _httpx_connects_directly(url):
         return None
     try:
         context = httpx.create_ssl_context()
