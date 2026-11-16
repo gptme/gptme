@@ -2388,8 +2388,19 @@ def subagent_list() -> list[dict]:
     - Interactive sessions: "what's running right now?"
     - Orchestrators deciding whether to spawn more agents
     - Debugging runaway subagent fans
+
+    Inside a conversation, only that conversation's subagents are listed (as
+    in ``subagent_snapshots``): the registry is rehydrated from every logdir on
+    the machine, so an unscoped list would show other conversations' runs.
+    Without a current conversation the whole registry is listed.
     """
     import time
+
+    from ...logmanager import LogManager  # fmt: skip
+
+    current_log = LogManager.get_current_log()
+    current_logdir = getattr(current_log, "logdir", None) if current_log else None
+    owner = Path(current_logdir).resolve() if current_logdir is not None else None
 
     _maybe_rehydrate_registry()
     now = time.time()
@@ -2405,6 +2416,8 @@ def subagent_list() -> list[dict]:
 
     result: list[dict[str, Any]] = []
     for sa in agents:
+        if owner is not None and sa.parent_logdir != owner:
+            continue
         status = sa.status().status
 
         # Estimate elapsed time from start time

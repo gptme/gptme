@@ -565,6 +565,39 @@ class TestRegistryRehydration:
         ids = [entry["agent_id"] for entry in subagent_list()]
         assert "listed-agent" in ids
 
+    def test_list_is_scoped_to_current_conversation(self, tmp_path: Path, monkeypatch):
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools.subagent.api import subagent_list
+
+        logs_dir = tmp_path / "logs"
+        mine, theirs = tmp_path / "conv-mine", tmp_path / "conv-theirs"
+        for agent_id, parent in (("own", mine), ("foreign", theirs)):
+            subagent_dir = logs_dir / f"subagent-{agent_id}"
+            _completed_log(subagent_dir, agent_id)
+            persist_subagent_meta(
+                Subagent(
+                    agent_id=agent_id,
+                    prompt="do thing",
+                    thread=None,
+                    logdir=subagent_dir,
+                    model=None,
+                    parent_logdir=parent,
+                )
+            )
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        ids = {entry["agent_id"] for entry in subagent_list()}
+        assert {"own", "foreign"} <= ids  # no conversation: whole registry
+
+        monkeypatch.setattr(
+            LogManager,
+            "get_current_log",
+            staticmethod(lambda: SimpleNamespace(logdir=mine)),
+        )
+        assert [entry["agent_id"] for entry in subagent_list()] == ["own"]
+
     def test_list_keeps_newest_when_id_is_reused(self, tmp_path: Path, monkeypatch):
         from gptme.tools.subagent.api import subagent_list
 
