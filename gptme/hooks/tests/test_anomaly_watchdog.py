@@ -764,6 +764,55 @@ class TestBlockAtPreExecutionSeam:
         denial = Message("system", "Tool execution denied: " + "; ".join(data.denials))
         assert count_policy_blocks([Message("user", "go"), denial]) == 1
 
+    def test_executor_skips_execution_and_post_hook_and_budget_counts_it(
+        self, monkeypatch, tmp_path
+    ):
+        """End to end through ``ToolUse.execute()``: a denied call never runs.
+
+        The seam tests above would still pass if the executor ignored
+        ``data.denied``. Here a spy tool records whether it ran, a wrapper
+        records the hook types that fired, and the real denial message is what
+        ``count_policy_blocks()`` sees.
+        """
+        from ... import hooks as hooks_pkg
+        from ...message import Message
+        from ...tools.base import ToolSpec, ToolUse
+        from ...tools.complete import count_policy_blocks
+        from .. import HookType, clear_hooks
+
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_HOSTS", raising=False)
+
+        ran: list[str] = []
+
+        def execute(code, args, kwargs):
+            ran.append("tool")
+            yield Message("system", "fetched")
+
+        spec = ToolSpec(name="browser", desc="spy browser", execute=execute)
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: spec)
+
+        clear_hooks()
+        anomaly_watchdog.register()
+        fired: list[HookType] = []
+        real_trigger = hooks_pkg.trigger_hook
+
+        def spying_trigger(hook_type, data, **kwargs):
+            fired.append(hook_type)
+            return real_trigger(hook_type, data, **kwargs)
+
+        monkeypatch.setattr("gptme.hooks.trigger_hook", spying_trigger)
+
+        tool_use = ToolUse("browser", ["https://evil.example.net/x"], None)
+        out = list(tool_use.execute(workspace=tmp_path))
+
+        assert ran == []
+        assert HookType.TOOL_EXECUTE_PRE in fired
+        assert HookType.TOOL_EXECUTE_POST not in fired
+        assert [m.metadata.get("tool_status") for m in out if m.metadata] == ["denied"]
+        assert "novel_host" in out[-1].content
+        assert count_policy_blocks([Message("user", "go"), out[-1]]) == 1
+
     def test_clean_call_is_not_denied(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
