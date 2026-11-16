@@ -613,9 +613,11 @@ def _bash_glob_pattern(pattern: str) -> str:
     return pattern
 
 
-def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
-    """Expand pathname components with a shared directory-entry budget."""
-    paths = [os.sep if os.path.isabs(pattern) else "."]
+def _expand(
+    pattern: str, budget: _Budget, *, workspace: Path | None = None
+) -> Iterator[str]:
+    """Expand pattern components, keeping the starting directory literal."""
+    paths = [os.sep if os.path.isabs(pattern) else str(workspace or ".")]
     for component in Path(pattern).parts:
         if component == os.sep:
             continue
@@ -801,7 +803,7 @@ def find_secret_reach(
                 (
                     path
                     for pattern in patterns[operand]
-                    for path in _expand(anchor(pattern), budget)
+                    for path in _expand(pattern, budget, workspace=workspace)
                 )
                 if operand in patterns
                 else [anchor(normalize(operand))]

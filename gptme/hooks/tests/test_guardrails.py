@@ -288,6 +288,46 @@ class TestGuardrailHookEnforceMode:
         assert isinstance(result, ConfirmationResult)
         assert result.action == ConfirmAction.SKIP
 
+    @pytest.mark.parametrize("dirname", ["project[1]", "project*", "project?"])
+    @pytest.mark.parametrize("cmd", ["grep -r TOKEN .", "cat .e*"])
+    def test_shell_workspace_glob_characters_are_literal(
+        self, monkeypatch, tmp_path, dirname, cmd
+    ):
+        workspace = tmp_path / dirname
+        workspace.mkdir()
+        (workspace / ".env").write_text("TOKEN=secret\n")
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.chdir(server)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=workspace
+        )
+
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    @pytest.mark.parametrize("dirname", ["project[1]", "project*", "project?"])
+    def test_shell_workspace_glob_does_not_search_sibling(
+        self, monkeypatch, tmp_path, dirname
+    ):
+        workspace = tmp_path / dirname
+        workspace.mkdir()
+        sibling = tmp_path / "project1"
+        sibling.mkdir()
+        (sibling / ".env").write_text("TOKEN=secret\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        cmd = "grep -r TOKEN ."
+
+        assert (
+            guardrail_hook(
+                _make_tool_use("shell", cmd), preview=cmd, workspace=workspace
+            )
+            is None
+        )
+
     def test_shell_workspace_overrides_process_cwd(self, monkeypatch, tmp_path):
         home = tmp_path / "home"
         home.mkdir()
