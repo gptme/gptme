@@ -71,6 +71,19 @@ describe('ExternalSessionsView', () => {
     });
   });
 
+  it('asks for a server connection instead of reporting no sessions while disconnected', () => {
+    const { use$ } = jest.requireMock('@legendapp/state/react') as { use$: jest.Mock };
+    use$.mockReturnValueOnce(false);
+    mockUseQuery.mockImplementation(() => ({ data: undefined, isLoading: false, error: null }));
+
+    renderInRouter();
+
+    expect(
+      screen.getByText('Connect to a gptme server to view external sessions.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No external sessions found')).not.toBeInTheDocument();
+  });
+
   it('labels the search field and detail close button', async () => {
     const user = userEvent.setup();
     renderInRouter();

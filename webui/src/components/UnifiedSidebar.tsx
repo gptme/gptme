@@ -476,7 +476,9 @@ export const UnifiedSidebar: FC<Props> = ({
                 {!tasksLoading && !tasksError && tasks.length === 0 && (
                   <div className="py-8 text-center">
                     <GitBranch className="mx-auto mb-2 h-8 w-8 text-muted-foreground opacity-50" />
-                    <p className="text-sm text-muted-foreground">No tasks yet</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isConnected ? 'No tasks yet' : 'Connect to a gptme server to view tasks.'}
+                    </p>
                   </div>
                 )}
 

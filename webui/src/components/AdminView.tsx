@@ -194,18 +194,20 @@ export const AdminView: FC = () => {
         <div className="mt-3 flex gap-4">
           <div className="rounded-md border bg-card px-3 py-1.5">
             <p className="text-xs text-muted-foreground">Total sessions</p>
-            <p className="text-lg font-semibold tabular-nums">{sessions.length}</p>
+            <p className="text-lg font-semibold tabular-nums">
+              {isConnected ? sessions.length : '—'}
+            </p>
           </div>
           <div className="rounded-md border bg-card px-3 py-1.5">
             <p className="text-xs text-muted-foreground">Generating</p>
             <p className="text-lg font-semibold tabular-nums text-primary">
-              {activeSessions.length}
+              {isConnected ? activeSessions.length : '—'}
             </p>
           </div>
           <div className="rounded-md border bg-card px-3 py-1.5">
             <p className="text-xs text-muted-foreground">Idle</p>
             <p className="text-lg font-semibold tabular-nums text-muted-foreground">
-              {sessions.length - activeSessions.length}
+              {isConnected ? sessions.length - activeSessions.length : '—'}
             </p>
           </div>
         </div>
@@ -234,8 +236,14 @@ export const AdminView: FC = () => {
         ) : sessions.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
             <Shield className="h-10 w-10" />
-            <p className="text-sm font-medium">No active sessions</p>
-            <p className="text-xs">Sessions appear here when users open conversations.</p>
+            {isConnected ? (
+              <>
+                <p className="text-sm font-medium">No active sessions</p>
+                <p className="text-xs">Sessions appear here when users open conversations.</p>
+              </>
+            ) : (
+              <p className="text-sm font-medium">Connect to a gptme server to view sessions.</p>
+            )}
           </div>
         ) : (
           <table className="w-full text-sm">

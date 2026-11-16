@@ -69,6 +69,19 @@ describe('UnifiedSidebar task creation', () => {
     mockIsDemoMode.mockReturnValue(false);
   });
 
+  it('asks for a server connection instead of reporting no tasks while disconnected', () => {
+    const { isConnected$ } = jest.requireMock('@/contexts/ApiContext').useApi();
+    isConnected$.set(false);
+    try {
+      renderTaskSidebar();
+
+      expect(screen.getByText('Connect to a gptme server to view tasks.')).toBeInTheDocument();
+      expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+    } finally {
+      isConnected$.set(true);
+    }
+  });
+
   it('offers task creation with a live server', () => {
     renderTaskSidebar();
 

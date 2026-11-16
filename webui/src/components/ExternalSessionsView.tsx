@@ -237,7 +237,9 @@ export const ExternalSessionsView: FC = () => {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-sm text-muted-foreground">
               <Bot className="h-8 w-8" />
-              {search ? (
+              {!isConnected ? (
+                <p>Connect to a gptme server to view external sessions.</p>
+              ) : search ? (
                 <p>No sessions match &ldquo;{search}&rdquo;</p>
               ) : (
                 <>
