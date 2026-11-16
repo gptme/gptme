@@ -82,6 +82,16 @@ def test_preview_names_both_stream_files(direct_job) -> None:
     assert direct_job._stderr_buffer_start > 0
 
 
+def test_preview_reports_ram_evicted_prefix(direct_job) -> None:
+    """The spool is complete, but the preview tail must not look complete."""
+    preview = format_job_output(direct_job, *direct_job.get_output(), complete=True)
+    dropped = direct_job._stdout_buffer_start + direct_job._stderr_buffer_start
+    assert dropped > 0
+    assert (
+        f"Preview omits the earliest {dropped} chars (evicted from memory)" in preview
+    )
+
+
 def test_reader_closes_files_while_job_remains_reachable(direct_job) -> None:
     for stream in (direct_job._stdout_spool, direct_job._stderr_spool):
         assert stream is not None

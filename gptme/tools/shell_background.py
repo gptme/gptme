@@ -1437,6 +1437,12 @@ def format_job_output(
                 paths.append(f"stderr: `{job.stderr_log_path}`")
             if paths:
                 blocks.append(label + ":\n" + "\n".join(paths))
+            if dropped:
+                # The files above are complete; the preview tail is not.
+                blocks.append(
+                    f"Preview omits the earliest {dropped} chars "
+                    "(evicted from memory); read them from the files above."
+                )
         elif log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")
         elif log_path is not None:

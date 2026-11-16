@@ -216,7 +216,7 @@ def job_probe(root: Path) -> dict:
         "direct_evicted_chars": direct._stdout_buffer_start,
         "live_path_at_reader_start": str(live_path_at_reader_start),
         "direct_log_has_begin": "BEGIN-MARKER" in direct_log,
-        "direct_preview_reports_loss": "not retained" in preview,
+        "direct_preview_reports_loss": "Preview omits the earliest" in preview,
         "promoted_final_has_begin_and_end": all(
             marker.encode() in original_final
             for marker in ("BEGIN-MARKER", "END-MARKER")
@@ -248,7 +248,7 @@ def main() -> None:
     )
     assert jobs["live_path_at_reader_start"] != "None"
     assert jobs["direct_log_has_begin"]
-    assert not jobs["direct_preview_reports_loss"]
+    assert jobs["direct_preview_reports_loss"]
     assert jobs["promoted_final_has_begin_and_end"]
     assert jobs["final_survives_later_snapshot"]
     print(json.dumps({"revision": revision, "workflows": rows, "jobs": jobs}, indent=2))
