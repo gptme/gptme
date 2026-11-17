@@ -1,6 +1,7 @@
 """TUI retry boundaries discard previews, not committed conversation state."""
 
 import asyncio
+import importlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -281,7 +282,11 @@ async def test_cancel_after_persisting_reply_pairs_native_calls(
         '@shell(call_1): {"command": "pwd"}\n@shell(call_2): {"command": "pwd"}',
         metadata={"tool_format": "tool"},
     )
-    monkeypatch.setattr("gptme.chat.reply", lambda *a, **kw: reply)
+    # gptme.chat is lazily exported as the chat() function, so a dotted-string
+    # target can resolve to the function instead of the module.
+    monkeypatch.setattr(
+        importlib.import_module("gptme.chat"), "reply", lambda *a, **kw: reply
+    )
     monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
     monkeypatch.setattr(app, "_restore_terminal", lambda: None)
     monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
