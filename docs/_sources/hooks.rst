@@ -215,7 +215,6 @@ execution is auto-confirmed (autonomous mode).
    pre-empted before it ever runs. The built-ins register at:
 
    - ``guardrails`` — priority **200**
-   - ``anomaly_watchdog.confirm`` — priority **150**
    - ``watch.sleep_poll_guard`` — priority **150** (watch tool)
    - ``server_confirm`` — priority **100**
    - ``tui_confirm`` — priority **100** (TUI)
@@ -324,6 +323,12 @@ bypasses the pre-execution seam. For ``patch_many`` reconfirmation, the policy
 inspects the edited multi-file preview rather than the original call's targets.
 Both registrations share one hook name, so ``HOOK_ALLOWLIST`` and
 ``disable_hook("guardrails")`` apply to both.
+
+The ``anomaly_watchdog`` plugin enforces ``GPTME_ANOMALY_WATCHDOG=block`` at
+``TOOL_EXECUTE_PRE`` only (``anomaly_watchdog.tool_pre``, priority 150), so its
+scope-escape, write-storm and novel-host blocks reach every tool, including
+``browser`` and ``gh``. Its denials carry the ``[policy-block]`` marker, and the
+block budget counts them through the ``Tool execution denied:`` wrapper.
 
 Built-in Credential-Output Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

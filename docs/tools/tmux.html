@@ -149,6 +149,10 @@
   
 
   
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
 </div>
 
     </header>
@@ -615,7 +619,9 @@
 <button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
     <i class="fa-solid fa-magnifying-glass fa-lg"></i>
 </button>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm pst-navbar-icon" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -631,6 +637,14 @@
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#guardrail-path-context">Guardrail path context</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -873,6 +887,14 @@ the tool rejects before running anything.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.tmux.</span></span><span class="sig-name descname"><span class="pre">get_tmux_pane_cwd</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pane_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Read the target’s directory without reading its contents or running keys.</p>
+<p>Match <code class="docutils literal notranslate"><span class="pre">send_keys</span></code> shorthand and restrict native IDs to our namespace.
+A disappearing pane or unavailable server has no observable directory.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.tmux.</span></span><span class="sig-name descname"><span class="pre">inspect_pane</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pane_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">logdir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../api/core.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
 <dd><p>Inspect the content of a tmux pane.</p>
 <dl class="field-list simple">
@@ -908,6 +930,18 @@ the tool rejects before running anything.</p>
 </dl>
 </dd></dl>
 
+<section id="guardrail-path-context">
+<h2>Guardrail path context<a class="headerlink" href="#guardrail-path-context" title="Link to this heading">#</a></h2>
+<p>With guardrails enabled, literal shell text in <code class="docutils literal notranslate"><span class="pre">new-session</span></code> is checked
+relative to the process directory used to start the shell. For <code class="docutils literal notranslate"><span class="pre">send-keys</span></code>,
+the guard queries the target pane’s current directory, including session
+shorthand and native pane IDs, before checking relative operands and search
+exclusion files. An unavailable pane leaves only the existing process-relative
+checks; it does not provide verified pane context.</p>
+<p>These checks are heuristics, not a sandbox. The directory query is a snapshot;
+a preceding <code class="docutils literal notranslate"><span class="pre">cd</span></code>, concurrent pane input, shell startup files, or dynamically
+generated commands can change the eventual interpretation of the typed text.</p>
+</section>
 </section>
 
 
@@ -945,6 +979,23 @@ the tool rejects before running anything.</p>
             </div>
             
             
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item"><div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#guardrail-path-context">Guardrail path context</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>

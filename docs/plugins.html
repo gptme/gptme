@@ -1142,7 +1142,7 @@ returns <code class="docutils literal notranslate"><span class="pre">Confirmatio
 <p>Register above every built-in <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook that can return a non-None
 result (see <a class="reference internal" href="hooks.html#confirmation-hooks-and-deny-decisions"><span class="std std-ref">Confirmation Hooks and Deny Decisions</span></a>). The example uses
 priority <code class="docutils literal notranslate"><span class="pre">250</span></code>, which out-ranks <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> (200),
-<code class="docutils literal notranslate"><span class="pre">anomaly_watchdog.confirm</span></code> (150), <code class="docutils literal notranslate"><span class="pre">watch.sleep_poll_guard</span></code> (150),
+<code class="docutils literal notranslate"><span class="pre">watch.sleep_poll_guard</span></code> (150),
 <code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> / <code class="docutils literal notranslate"><span class="pre">tui_confirm</span></code> (100), <code class="docutils literal notranslate"><span class="pre">shell.allowlist</span></code> /
 <code class="docutils literal notranslate"><span class="pre">watch.allowlist</span></code> (10), and <code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code> / <code class="docutils literal notranslate"><span class="pre">auto_confirm</span></code> (0). Verify
 those priorities against the built-ins in your gptme version rather than

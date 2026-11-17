@@ -901,7 +901,6 @@ execution is auto-confirmed (autonomous mode).</p>
 pre-empted before it ever runs. The built-ins register at:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">guardrails</span></code> — priority <strong>200</strong></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">anomaly_watchdog.confirm</span></code> — priority <strong>150</strong></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">watch.sleep_poll_guard</span></code> — priority <strong>150</strong> (watch tool)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> — priority <strong>100</strong></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">tui_confirm</span></code> — priority <strong>100</strong> (TUI)</p></li>
@@ -1001,6 +1000,11 @@ bypasses the pre-execution seam. For <code class="docutils literal notranslate">
 inspects the edited multi-file preview rather than the original call’s targets.
 Both registrations share one hook name, so <code class="docutils literal notranslate"><span class="pre">HOOK_ALLOWLIST</span></code> and
 <code class="docutils literal notranslate"><span class="pre">disable_hook(&quot;guardrails&quot;)</span></code> apply to both.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">anomaly_watchdog</span></code> plugin enforces <code class="docutils literal notranslate"><span class="pre">GPTME_ANOMALY_WATCHDOG=block</span></code> at
+<code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> only (<code class="docutils literal notranslate"><span class="pre">anomaly_watchdog.tool_pre</span></code>, priority 150), so its
+scope-escape, write-storm and novel-host blocks reach every tool, including
+<code class="docutils literal notranslate"><span class="pre">browser</span></code> and <code class="docutils literal notranslate"><span class="pre">gh</span></code>. Its denials carry the <code class="docutils literal notranslate"><span class="pre">[policy-block]</span></code> marker, and the
+block budget counts them through the <code class="docutils literal notranslate"><span class="pre">Tool</span> <span class="pre">execution</span> <span class="pre">denied:</span></code> wrapper.</p>
 </section>
 <section id="built-in-credential-output-policy">
 <h3>Built-in Credential-Output Policy<a class="headerlink" href="#built-in-credential-output-policy" title="Link to this heading">#</a></h3>
