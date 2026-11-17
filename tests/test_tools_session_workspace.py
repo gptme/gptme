@@ -201,8 +201,9 @@ def test_display_path_relative_to_session_workspace(workspaces):
 
 @pytest.mark.parametrize("check_modified", [False, True])
 @pytest.mark.parametrize("source_state", ["unchanged", "modified", "missing"])
+@pytest.mark.parametrize("relative", [False, True])
 def test_attachment_reads_original_path_not_display_path(
-    workspaces, check_modified, source_state
+    workspaces, check_modified, source_state, relative
 ):
     a, _, elsewhere = workspaces
     source = a / "note.txt"
@@ -212,7 +213,8 @@ def test_attachment_reads_original_path_not_display_path(
     from gptme.message import Message
     from gptme.util.context import embed_attached_file_content, md_codeblock
 
-    msg = Message("user", "Read the attachment", files=[source])
+    attachment = source.relative_to(a) if relative else source
+    msg = Message("user", "Read the attachment", files=[attachment])
     expected = "session attachment content"
     if source_state == "modified":
         later = msg.timestamp.timestamp() + 60

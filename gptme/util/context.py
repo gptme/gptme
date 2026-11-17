@@ -359,7 +359,14 @@ def embed_attached_file_content(
     manager = LogManager.get_current_log()
     logdir = manager.logdir if manager else None
 
+    read_paths = {}
     for orig_f, f in files_with_originals:
+        read_path = orig_f.expanduser()
+        if not read_path.is_absolute():
+            read_path = (
+                workspace if workspace is not None else current_workspace()
+            ) / read_path
+        read_paths[f] = read_path
         # Try to read from content-addressed storage first (if available)
         stored_content = None
         if logdir and msg.file_hashes:
@@ -376,13 +383,13 @@ def embed_attached_file_content(
         else:
             # Fall back to reading from original path
             try:
-                stat = orig_f.stat()
+                stat = read_path.stat()
             except FileNotFoundError:
                 stat = None
             if not check_modified or (
                 stat and stat.st_mtime <= datetime.timestamp(msg.timestamp)
             ):
-                content = textfile_as_codeblock(orig_f, display_path=f)
+                content = textfile_as_codeblock(read_path, display_path=f)
                 if not content:
                     # Non-text file, skip
                     continue
@@ -399,7 +406,7 @@ def embed_attached_file_content(
     return replace(
         msg,
         content=msg.content + ("\n\n" + file_content if file_content else ""),
-        files=[orig_f for orig_f, f in files_with_originals if f not in files_text],
+        files=[read_paths[f] for _, f in files_with_originals if f not in files_text],
     )
 
 
