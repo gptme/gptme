@@ -2492,6 +2492,7 @@ class TestPromptToolCallOutcomes:
         appended = [c.args[0].content for c in log.append.call_args_list]
         assert any("ran first" in text for text in appended)
 
+
 class TestPromptToolPermission:
     """In "default" mode a confirming tool asks the client before it runs."""
 
@@ -2617,6 +2618,39 @@ class TestPromptToolPermission:
         assert agent._conn.request_permission.call_count == 1
         assert self._statuses(agent) == ["in_progress", "completed"]
 
+    def test_repeated_direct_confirmation_names_its_own_call(self, monkeypatch):
+        """Repeated command text must request permission for distinct parsed calls."""
+        answers = iter(["allow-once", "reject-once"])
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```guarded\nls\n```\n\n```guarded\nls\n```", "Done."],
+            lambda **kwargs: _mock_permission_response(next(answers)),
+        )
+
+        self._prompt(agent)
+
+        assert ran == ["ls"]
+        updates = [
+            call.kwargs["update"]
+            for call in agent._conn.session_update.call_args_list
+            if isinstance(call.kwargs["update"], dict)
+        ]
+        reported = [
+            u["toolCallId"] for u in updates if u.get("sessionUpdate") == "tool_call"
+        ]
+        assert len(reported) == 2
+        requested = [
+            call.kwargs["tool_call"]["toolCallId"]
+            for call in agent._conn.request_permission.call_args_list
+        ]
+        assert requested == reported
+        final = {
+            u["toolCallId"]: u["status"]
+            for u in updates
+            if u.get("sessionUpdate") == "tool_call_update"
+        }
+        assert final == {reported[0]: "completed", reported[1]: "failed"}
+
     def test_repeated_helper_confirmation_names_its_own_call(self, monkeypatch):
         """Two equal helper calls in one message: each permission names its own call.
 
@@ -2709,6 +2743,37 @@ class TestPromptToolPermission:
             "toolCallId"
         ]
         assert request["tool_call"] == {"toolCallId": reported_id}
+        assert self._statuses(agent) == ["in_progress", "failed"]
+
+    def test_timed_out_permission_is_cancelled_without_caching_policy(
+        self, monkeypatch
+    ):
+        """Cancelling run_coroutine_threadsafe's future cancels its asyncio task."""
+        cancelled = asyncio.Event()
+
+        async def permission(**kwargs):
+            try:
+                await asyncio.sleep(60)
+                return _mock_permission_response("allow-always")
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```guarded\nls\n```", "Okay."],
+            permission,
+        )
+        monkeypatch.setattr("gptme.acp.agent._PERMISSION_TIMEOUT_S", 0.05)
+
+        async def serve():
+            await agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+            await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+        _run(serve())
+
+        assert ran == []
+        assert agent._permission_policies == {}
         assert self._statuses(agent) == ["in_progress", "failed"]
 
     def test_auto_mode_does_not_ask(self, monkeypatch):
