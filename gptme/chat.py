@@ -375,6 +375,9 @@ def chat(
         if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+        # Repair before resume injections: a user-role injection would hide
+        # the trailing unanswered assistant call from recovery.
+        _close_interrupted_tool_calls(manager)
 
         # ``initial_msgs`` is ignored when the log already has history, so
         # resume-only injections (e.g. a re-applied agent profile) must be
@@ -413,8 +416,6 @@ def chat(
 
         # Convert prompt_msgs to a queue for unified handling
         prompt_queue = list(prompt_msgs)
-
-        _close_interrupted_tool_calls(manager)
 
         # main loop
         _run_chat_loop(
