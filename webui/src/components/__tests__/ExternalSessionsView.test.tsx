@@ -40,6 +40,8 @@ jest.mock('@/contexts/ApiContext', () => ({
 
 describe('ExternalSessionsView', () => {
   beforeEach(() => {
+    const { use$ } = jest.requireMock('@legendapp/state/react') as { use$: jest.Mock };
+    use$.mockReturnValue(true);
     mockUseQuery.mockReset();
     mockUseQuery.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
       if (queryKey[0] === 'external-sessions') {
@@ -95,6 +97,41 @@ describe('ExternalSessionsView', () => {
     expect(screen.queryByRole('button', { name: /Imported session/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close session details' })).not.toBeInTheDocument();
     expect(screen.queryByText(/session · last 30 days/)).not.toBeInTheDocument();
+  });
+
+  it('preserves an unsent steer draft across disconnect and reconnect without exposing it offline', async () => {
+    const { use$ } = jest.requireMock('@legendapp/state/react') as { use$: jest.Mock };
+    const catalogQuery = mockUseQuery.getMockImplementation()!;
+    mockUseQuery.mockImplementation((options: { queryKey: unknown[] }) =>
+      options.queryKey[0] === 'external-sessions'
+        ? catalogQuery(options)
+        : {
+            data: { transcript: { messages: [], capabilities: ['steer_inject'] } },
+            isLoading: false,
+            error: null,
+          }
+    );
+    const user = userEvent.setup();
+    const view = () => (
+      <MemoryRouter initialEntries={['/external-sessions?selected=session-1']}>
+        <ExternalSessionsView />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view());
+    await user.type(screen.getByRole('textbox', { name: 'Steer message' }), 'Keep this draft');
+
+    use$.mockReturnValue(false);
+    rerender(view());
+    expect(
+      screen.getByText('Connect to a gptme server to view external sessions.')
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Steer message' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send steer message' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close session details' })).not.toBeInTheDocument();
+
+    use$.mockReturnValue(true);
+    rerender(view());
+    expect(screen.getByRole('textbox', { name: 'Steer message' })).toHaveValue('Keep this draft');
   });
 
   it('shows the connect prompt instead of a cached error while disconnected', () => {

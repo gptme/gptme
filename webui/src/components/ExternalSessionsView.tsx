@@ -285,9 +285,9 @@ export const ExternalSessionsView: FC = () => {
         )}
       </div>
 
-      {/* Detail panel */}
-      {isConnected && selectedId && (
-        <div className="flex-1 overflow-hidden">
+      {/* Keep detail state (including unsent steer drafts) across temporary disconnects. */}
+      {selectedId && (
+        <div className="flex-1 overflow-hidden" hidden={!isConnected}>
           <SessionDetail
             key={selectedId}
             sessionId={selectedId}
