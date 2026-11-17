@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -39,6 +40,16 @@ def pane_tree(tmp_path, monkeypatch):
         check=True,
     )
     try:
+        # new-session returns before its child necessarily reaches chdir().
+        # Wait for the observable cwd, not an arbitrary startup delay, before
+        # comparing two independent hook queries against the synthetic tree.
+        from gptme.tools.tmux import get_tmux_pane_cwd
+
+        deadline = time.monotonic() + 5
+        while get_tmux_pane_cwd("1") != pane:
+            if time.monotonic() >= deadline:
+                pytest.fail("isolated tmux pane did not reach its requested directory")
+            time.sleep(0.01)
         yield process, pane
     finally:
         isolated_run(["tmux", "kill-server"], capture_output=True)
@@ -79,15 +90,22 @@ def test_exclusion_file_is_read_from_pane_directory(pane_tree, excluded_in_pane)
     assert blocked(use) != excluded_in_pane
 
 
-def test_new_session_uses_process_directory_not_hook_workspace(pane_tree):
+@pytest.mark.parametrize("secret_in_process", [True, False])
+def test_new_session_uses_process_directory_not_hook_workspace(
+    pane_tree, secret_in_process
+):
     process, pane = pane_tree
-    (process / "config").mkdir()
-    (process / "config" / "client.pem").write_text("synthetic\n")
-    (pane / "config").mkdir()
-    (pane / "config" / "notes.txt").write_text("ordinary\n")
+    secret_dir = process if secret_in_process else pane
+    safe_dir = pane if secret_in_process else process
+    (secret_dir / "config").mkdir()
+    (secret_dir / "config" / "client.pem").write_text("synthetic\n")
+    (safe_dir / "config").mkdir()
+    (safe_dir / "config" / "notes.txt").write_text("ordinary\n")
     use = ToolUse("tmux", [], "new-session cat config/*")
-    assert guardrail_hook(use, workspace=Path(pane)) is not None
-    assert blocked(use)
+    assert (guardrail_hook(use, workspace=pane) is not None) == secret_in_process
+    data = ToolExecutePreData(tool_use=use, workspace=pane)
+    list(guardrail_pre_hook(data))
+    assert data.denied == secret_in_process
 
 
 @pytest.mark.parametrize("output", ["unrelated\t/tmp\n", "gptme_1\t\n", "bad-format\n"])
