@@ -2344,23 +2344,28 @@ class TestPromptToolCallOutcomes:
             c.kwargs["update"] for c in agent._conn.session_update.call_args_list
         ]
         updates = [u for u in updates if isinstance(u, dict)]
+        id_by_tool = {
+            u["title"].removeprefix("Executing "): u["toolCallId"]
+            for u in updates
+            if u.get("sessionUpdate") == "tool_call"
+        }
+        assert set(id_by_tool) == {"okay", "boom"}
         by_id = {
             u["toolCallId"]: u
             for u in updates
             if u.get("sessionUpdate") == "tool_call_update"
         }
-        texts = [
-            u["content"][0]["content"]["text"]
-            for u in by_id.values()
-            if u.get("content")
-        ]
-        assert any("ran first" in t for t in texts)
-        assert any("tool exploded" in t for t in texts)
-        assert all(
-            u["content"][0]["type"] == "content"
-            for u in by_id.values()
-            if u.get("content")
-        )
+
+        def output_of(tool: str) -> str:
+            content = by_id[id_by_tool[tool]]["content"]
+            assert [c["type"] for c in content] == ["content"]
+            return content[0]["content"]["text"]
+
+        # Each call carries its own output and none of the other call's.
+        assert "ran first" in output_of("okay")
+        assert "tool exploded" not in output_of("okay")
+        assert "tool exploded" in output_of("boom")
+        assert "ran first" not in output_of("boom")
 
         agent_text = "".join(
             str(u.get("content"))
