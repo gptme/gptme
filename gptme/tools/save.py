@@ -17,8 +17,10 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    current_workspace,
     file_newline,
     get_path,
+    resolve_in_workspace,
 )
 from .patch import Patch
 
@@ -80,12 +82,17 @@ def _read_text_safe(path: Path) -> str | None:
 
 
 def _is_non_regular(path: Path) -> bool:
-    """True if path exists but is not a regular file (FIFO, device, directory)."""
+    """True if path exists but is not a regular file (FIFO, device, directory).
+
+    Checked in the session workspace, the same place the preview and write use.
+    """
+    path = resolve_in_workspace(path)
     return path.exists() and not path.is_file()
 
 
 def _get_preview_lang(path: Path) -> str | None:
     """Use diff highlighting only when the existing file can be previewed as text."""
+    path = resolve_in_workspace(path)
     if not path.exists():
         return None
     return "diff" if _read_text_safe(path) is not None else None
@@ -99,7 +106,7 @@ class _SaveBaseline:
 
     @classmethod
     def capture(cls, path: Path) -> "_SaveBaseline":
-        resolved = path.expanduser().resolve()
+        resolved = resolve_in_workspace(path)
         try:
             stat = resolved.stat()
         except FileNotFoundError:
@@ -138,6 +145,7 @@ class _SaveBaseline:
 def preview_save(content: str, path: Path | None) -> str | None:
     """Prepare preview content for save operation."""
     assert path
+    path = resolve_in_workspace(path)
     if path.exists():
         current = _read_text_safe(path)
         if current is None:
@@ -151,6 +159,7 @@ def preview_save(content: str, path: Path | None) -> str | None:
 def preview_append(content: str, path: Path | None) -> str | None:
     """Prepare preview content for append operation."""
     assert path
+    path = resolve_in_workspace(path)
     if path.exists():
         current = _read_text_safe(path)
         if current is None:
@@ -184,12 +193,12 @@ def execute_save_impl(
         baseline.validate(path_display)
 
     # Print full path to give agent feedback about where exactly the file is saved
-    path = path.expanduser().resolve()
+    path = resolve_in_workspace(path)
 
     # Path traversal protection: validate relative paths stay within cwd
     # Absolute paths are intentional and allowed, relative paths should not escape cwd
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             path.relative_to(cwd)
         except ValueError as err:
@@ -315,12 +324,12 @@ def execute_append_impl(
 
     assert path
     path_display = path
-    path = path.expanduser().resolve()
+    path = resolve_in_workspace(path)
 
     # Path traversal protection: validate relative paths stay within cwd
     # (matches the same check in execute_save_impl)
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             path.relative_to(cwd)
         except ValueError as err:

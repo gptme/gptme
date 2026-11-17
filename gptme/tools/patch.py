@@ -22,8 +22,10 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    current_workspace,
     file_newline,
     get_path,
+    resolve_in_workspace,
 )
 
 instructions = """
@@ -324,12 +326,12 @@ def execute_patch_impl(
 
     # Print full path to give agent feedback about exactly which file is being patched
     path_display = path
-    path = path.expanduser().resolve()
+    path = resolve_in_workspace(path)
 
     # Path traversal protection: validate relative paths stay within cwd
     # Absolute paths are intentional and allowed, relative paths should not escape cwd
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             path.relative_to(cwd)
         except ValueError as err:
@@ -381,7 +383,7 @@ def execute_patch_impl(
 
     except FileNotFoundError:
         raise ValueError(
-            f"Patch failed: No such file or directory `{path}` (pwd: `{Path.cwd()}`)"
+            f"Patch failed: No such file or directory `{path}` (pwd: `{current_workspace()}`)"
         ) from None
     except UnicodeEncodeError as e:
         raise ValueError(

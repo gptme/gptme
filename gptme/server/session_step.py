@@ -1100,9 +1100,10 @@ def step(
     # Set the workspace directory for the shell via thread-safe ContextVar.
     # This ensures each session's shell starts in the correct directory even
     # when multiple sessions are being served concurrently.
-    # We also keep os.chdir() for the first message as a fallback for tools
-    # that still use Path.cwd() (save, read, patch, etc.) — a full migration
-    # to workspace-aware helpers is tracked separately.
+    # save/read/patch/patch_many/morph/vision resolve relative paths through
+    # current_workspace(), so they follow this ContextVar. We still keep
+    # os.chdir() for the first message as a fallback for tools that use
+    # Path.cwd() (see gptme/gptme#4951).
     set_workspace_cwd(str(workspace))
     user_messages = [msg for msg in manager.log.messages if msg.role == "user"]
     if len(user_messages) <= 1:
@@ -1674,6 +1675,11 @@ def start_tool_execution(
         # must be set here -- the saved allowlist in chat_config is otherwise
         # silently unenforced in server deployments.
         set_session_allow_hosts(chat_config.allow_hosts)
+
+        # Relative file paths must resolve in this conversation's workspace, not
+        # the process cwd another conversation may have changed. Only ``step``
+        # sets this, and this worker runs in its own context.
+        set_workspace_cwd(str(chat_config.workspace))
 
         try:
             # Prepare execution environment (config, tools, hooks, .env)

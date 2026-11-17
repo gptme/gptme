@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec
+from .base import Parameter, ToolSpec, current_workspace, resolve_in_workspace
 from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 
 if TYPE_CHECKING:
@@ -66,10 +66,10 @@ on an earlier one landing.
 def _resolve_path(raw_path: str) -> Path:
     """Resolve a path and reject relative traversal outside the current directory."""
     path_display = Path(raw_path).expanduser()
-    path = path_display.resolve()
+    path = resolve_in_workspace(path_display)
 
     if not path_display.is_absolute():
-        cwd = Path.cwd().resolve()
+        cwd = current_workspace()
         try:
             path.relative_to(cwd)
         except ValueError as err:

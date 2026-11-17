@@ -12,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from ..message import Message
-from .base import ToolFunction, ToolSpec
+from .base import ToolFunction, ToolSpec, current_workspace, resolve_in_workspace
 
 # Track temp files for cleanup on exit
 _temp_files: list[Path] = []
@@ -39,7 +39,7 @@ def _vision_allowed_roots() -> list[Path]:
     from .screenshot import OUTPUT_DIR
 
     return [
-        Path.cwd().resolve(),
+        current_workspace(),
         OUTPUT_DIR.resolve(),
         Path(tempfile.gettempdir()).resolve(),
     ]
@@ -48,7 +48,7 @@ def _vision_allowed_roots() -> list[Path]:
 def _vision_path_denied(path: Path) -> str | None:
     """Return an error message if *path* is outside the vision path boundary."""
     try:
-        resolved = path.expanduser().resolve()
+        resolved = resolve_in_workspace(path)
     except OSError as exc:
         return f"Image path could not be resolved: `{path}` ({exc})"
     for root in _vision_allowed_roots():
@@ -76,7 +76,11 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
     if isinstance(image_path, str):
         image_path = Path(image_path)
     if isinstance(image_path, Path):
+        # Anchor relative paths once, so the boundary check and every later
+        # open/stat use the session workspace rather than the process cwd.
         image_path = image_path.expanduser()
+        if not image_path.is_absolute():
+            image_path = current_workspace() / image_path
 
     # Confine before exists() so out-of-bound paths do not leak file presence.
     if denied := _vision_path_denied(image_path):
