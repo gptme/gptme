@@ -158,16 +158,6 @@ _warned_mcp_allowlists_lock = threading.Lock()
 FUNCTION_CALL_TOOL = "ipython"
 
 
-def _function_only_hint(tool_name: str, subject: str | None = None) -> str:
-    subject = subject or f"Tool '{tool_name}'"
-    return (
-        f"{subject} is called as Python functions through the "
-        f"'{FUNCTION_CALL_TOOL}' tool, which is not loaded. Add "
-        f"'{FUNCTION_CALL_TOOL}' to the tool allowlist "
-        f"(e.g. --tools ...,{tool_name},{FUNCTION_CALL_TOOL}) to use it."
-    )
-
-
 def with_direct_function_calls(tools: list[ToolSpec]) -> list[ToolSpec]:
     """Make function-only tools callable when ``ipython`` is not among *tools*.
 
@@ -747,7 +737,10 @@ def _enable_hint_for_disabled_tool(tool_name: str) -> str:
         # installed bypassing that path. An unloaded one only needs to be
         # allowlisted, so never steer toward granting ipython (#4964).
         if has_tool(tool_name):
-            return " " + _function_only_hint(tool_name, subject="It")
+            return (
+                " It is loaded without a direct call path; unload and reload "
+                f"'{tool_name}' to call its functions directly."
+            )
     if tool.disabled_by_default and not _is_session_allowlisted(tool):
         return f" Add --tools +{tool_name} to enable it."
     return ""
