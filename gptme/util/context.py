@@ -394,13 +394,12 @@ def embed_attached_file_content(
                     )
                 else:
                     files_text[f] = md_codeblock(f, "<file was modified after message>")
-    # Get list of display paths for the return value
-    display_files = [f for _, f in files_with_originals]
+    # Provider handlers still need readable paths for unembedded attachments.
     file_content = "\n\n".join(files_text.values())
     return replace(
         msg,
         content=msg.content + ("\n\n" + file_content if file_content else ""),
-        files=[f for f in display_files if f not in files_text],
+        files=[orig_f for orig_f, f in files_with_originals if f not in files_text],
     )
 
 

@@ -230,9 +230,26 @@ def test_attachment_reads_original_path_not_display_path(
 
     if source_state == "missing" and not check_modified:
         assert result.content == msg.content
-        assert result.files == [Path("note.txt")]
+        assert result.files == [source]
     else:
         assert result.content == msg.content + "\n\n" + md_codeblock(
             "note.txt", expected
         )
         assert result.files == []
+
+
+def test_binary_attachment_keeps_original_path(workspaces):
+    a, _, elsewhere = workspaces
+    from PIL import Image
+
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content
+
+    source = a / "pic.png"
+    Image.new("RGB", (2, 2), "red").save(source)
+    Image.new("RGB", (2, 2), "blue").save(elsewhere / "pic.png")
+    msg = Message("user", "Inspect the attachment", files=[source])
+
+    result = _in_session(a, lambda: embed_attached_file_content(msg, a.resolve()))
+    assert result.content == msg.content
+    assert result.files == [source]
