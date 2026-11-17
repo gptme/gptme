@@ -949,7 +949,8 @@ def _process_message_conversation(
         except KeyboardInterrupt:
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted during response generation.")
-            manager.append(Message("system", INTERRUPT_CONTENT))
+            if not _close_interrupted_tool_calls(manager):
+                manager.append(Message("system", INTERRUPT_CONTENT))
             interrupted = True
             _idle_autowake_blocked.set(True)
             break
@@ -1085,11 +1086,12 @@ def _turn_reply_completed(log: Log) -> bool:
 
 
 def _close_interrupted_tool_calls(manager: LogManager, *, quiet: bool = False) -> bool:
-    """Answer tool calls left unfinished by a process death, then mark the turn interrupted.
+    """Answer unfinished tool calls, then mark the turn interrupted.
 
     Replies are persisted before their tools run (:class:`StepPersister`), so a
-    hard kill mid-tool leaves a trailing assistant message whose structured
-    calls have no result. Native-tool providers reject that history
+    hard kill mid-tool, or cancellation before the executor starts, can leave
+    a trailing assistant message whose structured calls have no result.
+    Native-tool providers reject that history
     (``tool_use`` without ``tool_result``). Pair each unanswered call with an
     error result and add the interrupt marker, so resume returns to the prompt
     exactly as after Ctrl-C. Returns True if the log was changed.

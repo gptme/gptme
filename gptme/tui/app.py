@@ -4909,9 +4909,15 @@ class GptmeApp(App):
                     # tools (e.g. ipython) may have reset the tty out of raw mode
                     self._restore_terminal()
                 if interrupted:  # recorded outside the window Ctrl+C can reach
-                    msg = Message("system", INTERRUPT_CONTENT)
-                    manager.append(msg)
-                    self.call_from_thread(self._on_step_message, msg)
+                    # Ctrl+C can hit after early persistence but before the
+                    # executor's own interrupt handler starts (e.g. waiting
+                    # for the before-tools UI callback). Pair those calls
+                    # before another user prompt hides the trailing reply.
+                    first_repair = len(manager.log)
+                    if not _close_interrupted_tool_calls(manager, quiet=True):
+                        manager.append(Message("system", INTERRUPT_CONTENT))
+                    for msg in manager.log.messages[first_repair:]:
+                        self.call_from_thread(self._on_step_message, msg)
 
                 if interrupted or declined:
                     # Back at the prompt waiting for the user, not done.

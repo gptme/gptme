@@ -260,6 +260,64 @@ async def test_real_recovery_exhaustion_or_backoff_cancel_never_completes(
         assert terminal.error_type == (None if cancel_backoff else "Timeout")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answered", [False, True])
+async def test_cancel_after_persisting_reply_pairs_native_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answered: bool
+) -> None:
+    """Cancellation in the before-tools UI callback bypasses execute_msg's handler."""
+    from gptme.constants import INTERRUPT_CONTENT
+    from gptme.tools import init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+    manager = LogManager(
+        [Message("user", "work")], logdir=tmp_path / "conversation", lock=False
+    )
+    app = GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+    reply = Message(
+        "assistant",
+        '@shell(call_1): {"command": "pwd"}\n@shell(call_2): {"command": "pwd"}',
+        metadata={"tool_format": "tool"},
+    )
+    monkeypatch.setattr("gptme.chat.reply", lambda *a, **kw: reply)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr(app, "_restore_terminal", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+    displayed: list[Message] = []
+
+    call_from_thread = app.call_from_thread
+
+    def cancel_before_execution(callback: Any, *args: Any, **kwargs: Any) -> Any:
+        if callback == app._on_before_tool_execution:
+            assert manager.log[-1].content == reply.content
+            if answered:
+                # Results already committed before an interrupt must not be duplicated.
+                for call_id in ("call_1", "call_2"):
+                    manager.append(Message("system", "completed", call_id=call_id))
+            # Inject into the worker, not the UI event handler: this is the
+            # same boundary action_interrupt can reach while waiting for UI.
+            raise KeyboardInterrupt
+        return call_from_thread(callback, *args, **kwargs)
+
+    monkeypatch.setattr(app, "call_from_thread", cancel_before_execution)
+    monkeypatch.setattr(app, "_on_step_message", displayed.append)
+    async with app.run_test():
+        await asyncio.to_thread(app._generation_body)
+        assert not app._in_step
+        assert app._terminal_outcome == "idle"
+        assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
+        assert sum(m.content == INTERRUPT_CONTENT for m in manager.log) == 1
+        assert displayed[-1].content == INTERRUPT_CONTENT
+        if not answered:
+            assert [m.call_id for m in displayed if m.call_id] == ["call_1", "call_2"]
+        manager.append(Message("user", "continue"))
+        reloaded = LogManager.load(manager.logdir, lock=False)
+        assert [m.call_id for m in reloaded.log if m.call_id] == ["call_1", "call_2"]
+        assert reloaded.log[-1].content == "continue"
+
+
 @pytest.mark.parametrize("answered", [False, True])
 def test_tui_resume_pairs_crashed_tool_call_before_accepting_prompt(
     tmp_path: Path, answered: bool, capsys: pytest.CaptureFixture[str]

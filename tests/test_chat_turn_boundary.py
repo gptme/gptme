@@ -7,6 +7,7 @@ from typing import Literal
 
 import pytest
 
+from gptme.chat import StepPersister
 from gptme.constants import DECLINED_CONTENT
 from gptme.hooks import HookType
 from gptme.logmanager import LogManager
@@ -273,3 +274,45 @@ def test_native_tool_interrupt_pairs_calls_in_same_cli_session(
     manager.append(Message("user", "continue"))
     reloaded = LogManager.load(tmp_path, lock=False)
     assert [m.call_id for m in reloaded.log if m.call_id] == ["call_1", "call_2"]
+
+
+@pytest.mark.parametrize("answered", [False, True])
+def test_cli_cancel_before_executor_pairs_native_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answered: bool
+) -> None:
+    """A signal after early persistence must be repaired before the next prompt."""
+    from gptme.tools import init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+    manager = LogManager([Message("user", "work")], logdir=tmp_path, lock=False)
+    reply = Message(
+        "assistant",
+        '@shell(call_1): {"command": "pwd"}\n@shell(call_2): {"command": "pwd"}',
+        metadata={"tool_format": "tool"},
+    )
+    before_tools = chat.StepPersister.before_tools
+
+    def cancel_after_persisting(self: StepPersister, msg: Message) -> None:
+        before_tools(self, msg)
+        if answered:
+            for call_id in ("call_1", "call_2"):
+                manager.append(Message("system", "completed", call_id=call_id))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(chat.StepPersister, "before_tools", cancel_after_persisting)
+    monkeypatch.setattr(chat, "reply", lambda *a, **kw: reply)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+
+    assert chat._process_message_conversation(
+        manager, False, "tool", "openai/gpt-4o-mini"
+    )
+    assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
+    assert sum(m.content == chat.INTERRUPT_CONTENT for m in manager.log) == 1
+    manager.append(Message("user", "continue"))
+    reloaded = LogManager.load(tmp_path, lock=False)
+    assert [m.call_id for m in reloaded.log if m.call_id] == ["call_1", "call_2"]
+    assert reloaded.log[-1].content == "continue"
