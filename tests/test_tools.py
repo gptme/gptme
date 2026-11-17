@@ -225,6 +225,48 @@ def test_function_only_tool_with_ipython_hints_ipython():
 
 
 @pytest.mark.usefixtures("_clear_tools_after")
+@pytest.mark.parametrize("installation", ["unload_ipython", "set_tools", "dynamic"])
+def test_unwrapped_function_only_hint_does_not_grant_ipython(installation: str) -> None:
+    """Loaded-but-unwrapped tools must recommend a reload, not arbitrary code."""
+    from gptme.tools import load_dynamic_tool_specs, set_tools, unload_tool
+
+    clear_tools()
+    if installation == "unload_ipython":
+        init_tools(allowlist=["subagent", "ipython"])
+        unload_tool("ipython")
+    else:
+        init_tools(allowlist=["subagent"])
+        raw = next(t for t in get_available_tools() if t.name == "subagent")
+        assert raw.is_function_only
+        if installation == "set_tools":
+            set_tools([raw])
+        else:
+            unload_tool("subagent")
+            load_dynamic_tool_specs([raw])
+
+    tool = get_tool("subagent")
+    assert tool is not None and tool.is_function_only
+    assert not has_tool("ipython")
+    set_tool_format("tool")
+    results = list(execute_msg(Message("assistant", "@subagent(call-sub): {}")))
+
+    assert len(results) == 1
+    assert results[0].call_id == "call-sub"
+    hint = results[0].content
+    assert "not available for execution" in hint
+    assert "reload" in hint.lower()
+    assert "direct call path" in hint
+    assert "ipython" not in hint
+
+    # Follow the recovery advice without introducing any new capability.
+    unload_tool("subagent")
+    reloaded = load_tool("subagent")
+    assert reloaded.execute is not None
+    assert not reloaded.is_function_only
+    assert {t.name for t in get_tools()} == {"subagent"}
+
+
+@pytest.mark.usefixtures("_clear_tools_after")
 @pytest.mark.parametrize("structured", [False, True])
 def test_function_only_hint_names_registered_callable(structured: bool) -> None:
     """The recovery example must use the name registered in IPython."""
