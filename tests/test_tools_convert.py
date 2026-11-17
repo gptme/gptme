@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import zipfile
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
@@ -35,7 +36,7 @@ from gptme.tools.convert import (
     ToolAvailability,
     VideoThumbnailConverter,
     _arg,
-    _im_src,
+    _im_first_frame,
     _para_to_md,
     convert_file,
     find_converter,
@@ -124,27 +125,62 @@ def avail_imagemagick_only():
 
 
 # ---------------------------------------------------------------------------
-# Utility helpers (_arg, _im_src, _para_to_md)
+# Utility helpers (_arg, _im_first_frame, _para_to_md)
 # ---------------------------------------------------------------------------
 
 
-def test_im_src_escapes_brackets(tmp_path):
-    """Brackets in a filename must be escaped so ImageMagick does not treat them
-    as frame selectors — a file named ``foo[0].pdf`` must not match ``foo.pdf``."""
+def test_im_first_frame_stages_bracketed_paths(tmp_path):
+    """A bracketed path is exposed under a plain name: ImageMagick 7 does not
+    honour backslash-escaped brackets, so escaping cannot keep ``foo[0].pdf``
+    from being read as ``foo.pdf`` plus a frame selector."""
     p = tmp_path / "foo[0].pdf"
-    result = _im_src(p)
-    # The path component must contain escaped brackets; no bare [ or ] before the
-    # appended [0] selector.
-    assert "\\[" in result
-    assert "\\]" in result
-    # The escape must not touch the trailing frame selector that the caller appends.
-    assert not result.endswith("[0]"), "caller appends [0]; _im_src must not"
+    p.write_bytes(b"%PDF-1.4")
+    with _im_first_frame(p) as source:
+        assert source.endswith("[0]")
+        staged = Path(source.removesuffix("[0]"))
+        assert "[" not in str(staged) and "]" not in str(staged)
+        assert staged.suffix == ".pdf"
+        assert staged.read_bytes() == b"%PDF-1.4"
+    assert not staged.exists(), "the staged alias is temporary"
+    assert p.exists(), "cleanup must not touch the original"
 
 
-def test_im_src_plain_path_unchanged(tmp_path):
-    """A path with no brackets is returned as-is (modulo dash prefix guard)."""
+@pytest.mark.parametrize("raise_in_context", [False, True])
+def test_im_first_frame_copy_fallback(tmp_path: Path, raise_in_context: bool) -> None:
+    """Without symlink privileges, copy the source and clean up on either exit."""
+    p = tmp_path / "foo[0].pdf"
+    content = b"%PDF-1.4"
+    p.write_bytes(content)
+
+    with (
+        patch.object(
+            Path, "symlink_to", side_effect=OSError("no symlink privilege")
+        ) as symlink,
+        ExitStack() as stack,
+    ):
+        if raise_in_context:
+            stack.enter_context(pytest.raises(RuntimeError, match="conversion failed"))
+        with _im_first_frame(p) as source:
+            symlink.assert_called_once_with(p.absolute())
+            assert source.endswith("[0]")
+            staged = Path(source.removesuffix("[0]"))
+            assert "[" not in str(staged) and "]" not in str(staged)
+            assert staged.suffix == ".pdf"
+            assert not staged.is_symlink()
+            assert staged.read_bytes() == content
+            if raise_in_context:
+                raise RuntimeError("conversion failed")
+
+    assert not staged.exists(), "the copied source is temporary"
+    assert not staged.parent.exists(), "cleanup must remove the staging directory"
+    assert p.read_bytes() == content, "cleanup must preserve the original bytes"
+
+
+def test_im_first_frame_plain_path_unchanged(tmp_path):
+    """A path with no brackets is passed through (modulo dash prefix guard)."""
     p = tmp_path / "plain.pdf"
-    assert _im_src(p) == _arg(p)
+    with _im_first_frame(p) as source:
+        assert source == f"{_arg(p)}[0]"
 
 
 class _MockRun:
@@ -1774,7 +1810,7 @@ def test_imagemagick_pdf_output_argv(tmp_path, avail_imagemagick_only):
     assert result.success
     assert result.output_path == dest
     command = run.call_args.args[0]
-    assert command[:-1] == ["convert", "-density", "150", f"{_im_src(src)}[0]"]
+    assert command[:-1] == ["convert", "-density", "150", f"{_arg(src)}[0]"]
     assert Path(command[-1]).name == dest.name
 
 
