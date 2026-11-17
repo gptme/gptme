@@ -94,7 +94,7 @@ def _find_subagent(
     if owner is _CALLER:
         owner = _caller_owner()
     if owner is None:
-        return _find_global_subagent(agent_id, newest=newest)
+        return _find_global_subagent(agent_id, newest=newest, control=control)
     assert isinstance(owner, Path)
     owner = owner.resolve()
 
@@ -112,16 +112,39 @@ def _find_subagent(
         _register_scanned_subagent(loaded)
     # The caller has no run under this ID: keep the process-wide lookup, so a
     # call whose current log is not the run's parent still resolves as before.
-    return _find_global_subagent(agent_id, newest=newest)
+    return _find_global_subagent(agent_id, newest=newest, control=control)
 
 
-def _find_global_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
-    """Process-wide lookup by agent_id alone, for callers outside a conversation."""
+def _find_global_subagent(
+    agent_id: str, *, newest: bool = True, control: bool = False
+) -> Subagent | None:
+    """Process-wide lookup by agent_id alone, for callers outside a conversation.
+
+    An owner-scoped call may have demoted a newer run of another conversation to
+    ``_shadowed_subagents``; the newest run still wins here, taking the ID back.
+    """
     with _subagents_lock:
         seq = list(reversed(_subagents)) if newest else list(_subagents)
         sa = next((s for s in seq if s.agent_id == agent_id), None)
-        if sa is not None:
-            return sa
+        if newest:
+            newer = max(
+                (
+                    s
+                    for s in _shadowed_subagents
+                    if s.agent_id == agent_id
+                    and (sa is None or s.started_at > sa.started_at)
+                ),
+                key=lambda s: s.started_at,
+                default=None,
+            )
+        else:
+            newer = None
+    if newer is not None:
+        return _take_over_agent_id(
+            newer, newer.parent_logdir or newer.logdir, control=control
+        )
+    if sa is not None:
+        return sa
     loaded = load_subagent_by_id(agent_id)
     if loaded is None:
         return None
@@ -2679,10 +2702,10 @@ def subagent_wait_any(
     if not agent_ids:
         raise ValueError("agent_ids must not be empty")
 
-    # BatchJob addresses the agent_id holder, so each ID must resolve to (and,
-    # if needed, take over for) this conversation's run.
+    # Waiting is a read: BatchJob's workers inherit this conversation's context,
+    # so each ID resolves to this conversation's run (or its shadowed copy).
     for aid in agent_ids:
-        _find_subagent(aid, newest=True, control=True)
+        _find_subagent(aid, newest=True)
     from .batch import BatchJob
 
     job = BatchJob(agent_ids=list(agent_ids))

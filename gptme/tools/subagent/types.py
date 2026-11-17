@@ -194,7 +194,26 @@ def set_subagent_result_if_absent(
     otherwise cache the OLD outcome for the resumed attempt. The identity check
     shares continuation's lock order (registry, then results). An unregistered
     attempt is not superseded and publishes normally.
+
+    A shadowed attempt (another conversation took the agent_id over after this
+    run exited but before its monitor got here) does not own the shared slot:
+    its outcome is kept on the run itself and persisted to its own logdir.
     """
+    with _subagents_lock:
+        if attempt is not None and attempt.shadowed:
+            if attempt.shadowed_outcome is not None:
+                return False
+            object.__setattr__(attempt, "shadowed_outcome", result)
+            shadowed = True
+        else:
+            shadowed = False
+    if shadowed:
+        from .persistence import persist_subagent_outcome
+
+        assert attempt is not None
+        with _outcome_persist_lock:
+            persist_subagent_outcome(attempt, result)
+        return True
     with _subagents_lock:
         if attempt is not None:
             current = next(

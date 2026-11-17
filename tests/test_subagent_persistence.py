@@ -1227,6 +1227,70 @@ class TestOwnerScopedIdLookup:
             child_a, ReturnType("success", "A result", duration_s=3.0)
         )
 
+    def test_global_lookup_keeps_newest_run(self, tmp_path: Path, monkeypatch):
+        """A take-over by A must not make the process-wide lookup return A's older run."""
+        from gptme.tools.subagent.api import subagent_list, subagent_status
+
+        parent_a, _, _, child_b, as_conversation = self._setup(tmp_path, monkeypatch)
+        subagent_list()  # registry scan: B (newer) holds the ID
+        as_conversation(parent_a)
+        assert subagent_status("worker")["result"] == "A result"
+
+        as_conversation(None)
+        assert subagent_status("worker")["result"] == "B was cancelled"
+        self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
+
+    def test_wait_any_workers_resolve_callers_run(self, tmp_path: Path, monkeypatch):
+        """BatchJob worker threads inherit the caller's conversation context."""
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager, _current_log_var
+        from gptme.tools.subagent.api import subagent_list, subagent_wait_any
+
+        parent_a, _, _, _, _ = self._setup(tmp_path, monkeypatch)
+        # Use the real ContextVar, so threads see only what the context carries.
+        monkeypatch.setattr(LogManager, "get_current_log", _current_log_var.get)
+        subagent_list()  # registry scan: B (newer) holds the ID
+
+        token = _current_log_var.set(SimpleNamespace(logdir=parent_a))  # type: ignore[arg-type]
+        try:
+            first_id, result = subagent_wait_any(["worker"], timeout=5)
+        finally:
+            _current_log_var.reset(token)
+        assert first_id == "worker"
+        assert result["result"] == "A result"
+
+    def test_demoted_run_publishes_its_own_outcome(self, tmp_path: Path, monkeypatch):
+        """A run demoted before its monitor publishes keeps and persists its outcome."""
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.persistence import load_subagent_outcome
+        from gptme.tools.subagent.types import (
+            _shadowed_subagents,
+            set_subagent_result_if_absent,
+        )
+
+        parent_a, parent_b, child_a, child_b, as_conversation = self._setup(
+            tmp_path, monkeypatch
+        )
+        (child_a / OUTCOME_FILENAME).unlink()  # A's monitor has not published yet
+        as_conversation(parent_a)
+        subagent_status("worker")
+        as_conversation(parent_b)
+        subagent_status("worker")  # B takes the ID over; A is demoted
+        run_a = next(s for s in _shadowed_subagents if s.logdir == child_a)
+
+        late = ReturnType("timeout", "A timed out")
+        assert set_subagent_result_if_absent("worker", late, attempt=run_a)
+        assert run_a.status() == late
+        assert load_subagent_outcome(run_a) == late
+        self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
+        assert not set_subagent_result_if_absent(
+            "worker", ReturnType("success", "dup"), attempt=run_a
+        )
+
+        as_conversation(parent_a)
+        assert subagent_status("worker")["result"] == "A timed out"
+
 
 def _interrupted_log(logdir: Path) -> None:
     """A child that published work and was waiting externally when killed."""
