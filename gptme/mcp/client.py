@@ -90,6 +90,20 @@ _TLS_VERIFICATION_MESSAGE = (
 )
 
 
+def _httpx_connects_directly(url: str) -> bool:
+    """Whether httpx would connect to ``url`` without a proxy, per its own env rules.
+
+    httpx's NO_PROXY matching differs from urllib's (``.example.com`` does not
+    match the apex domain, default ports are normalized), so ask httpx itself.
+    Conservatively returns ``False`` if its (private) routing hook is missing.
+    """
+    try:
+        with httpx.Client(trust_env=True) as client:
+            return client._transport_for_url(httpx.URL(url)) is client._transport
+    except Exception:
+        return False
+
+
 def _diagnose_https_tls_failure(url: str) -> str | None:
     """Return a TLS-specific message if ``url`` fails certificate verification.
 
@@ -99,20 +113,21 @@ def _diagnose_https_tls_failure(url: str) -> str | None:
     just the TLS handshake with the same trust configuration httpx uses
     (certifi / ``SSL_CERT_FILE``) to recover the verification reason. Skip
     this direct probe whenever an HTTPS/all-proxy environment variable is
-    configured (even with NO_PROXY): it may inspect a different TLS peer.
-    Returns ``None`` for invalid/non-HTTPS URLs and non-verification failures.
+    configured, since it may inspect a different TLS peer, unless the host is
+    excluded by NO_PROXY (then httpx connects to it directly, so the probe sees
+    the same peer). Returns ``None`` for invalid/non-HTTPS URLs and non-verification failures.
     """
-    if any(
-        os.environ.get(key)
-        for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
-    ):
-        return None
     try:
         parsed = urlparse(url)
         if parsed.scheme.lower() != "https" or not parsed.hostname:
             return None
         port = parsed.port or 443
     except ValueError:
+        return None
+    if any(
+        os.environ.get(key)
+        for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
+    ) and not _httpx_connects_directly(url):
         return None
     try:
         context = httpx.create_ssl_context()

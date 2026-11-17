@@ -532,11 +532,60 @@ def test_diagnose_https_tls_failure_skips_environment_proxy(
 
     for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
         monkeypatch.delenv(key, raising=False)
+    for key in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv(proxy_var, "http://proxy.invalid:8080")
     connect = Mock(side_effect=AssertionError("must not probe the origin directly"))
     monkeypatch.setattr("gptme.mcp.client.socket.create_connection", connect)
     assert _diagnose_https_tls_failure("https://example.com/mcp") is None
     connect.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("no_proxy", "url", "probed"),
+    [
+        # Exact host: bypasses the proxy, same TLS peer.
+        ("api.example.com", "https://api.example.com/mcp", True),
+        (".example.com", "https://api.example.com/mcp", True),  # domain suffix
+        # httpx: a leading-dot entry matches subdomains only, not the apex.
+        (".example.com", "https://example.com/mcp", False),
+        ("*", "https://api.example.com/mcp", True),
+        # Unrelated host: still goes through the proxy.
+        ("other.test", "https://api.example.com/mcp", False),
+        ("api.example.com:8443", "https://api.example.com:8443/mcp", True),
+        ("api.example.com:8443", "https://api.example.com:9443/mcp", False),
+        # httpx drops the default port from the URL, so a ":443" entry never matches.
+        ("api.example.com:443", "https://api.example.com/mcp", False),
+        ("api.example.com:443", "https://api.example.com:443/mcp", False),
+        (".example.com:8443", "https://api.example.com:8443/mcp", True),
+    ],
+)
+def test_diagnose_https_tls_failure_honors_no_proxy(
+    monkeypatch: pytest.MonkeyPatch, no_proxy: str, url: str, probed: bool
+) -> None:
+    import ssl
+    from unittest.mock import Mock
+
+    from gptme.mcp.client import _diagnose_https_tls_failure
+
+    for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:8080")
+    monkeypatch.setenv("NO_PROXY", no_proxy)
+    error = ssl.SSLCertVerificationError(1, "self-signed certificate")
+    error.verify_message = "self-signed certificate"
+    connect = Mock(side_effect=error)
+    monkeypatch.setattr("gptme.mcp.client.socket.create_connection", connect)
+
+    message = _diagnose_https_tls_failure(url)
+
+    if probed:
+        connect.assert_called_once()
+        assert message is not None
+        assert "self-signed certificate" in message
+    else:
+        connect.assert_not_called()
+        assert message is None
 
 
 @pytest.mark.parametrize("reason", ["certificate has expired", "Hostname mismatch"])
