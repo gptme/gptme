@@ -179,7 +179,13 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
     import shlex
 
     try:
-        tokens = shlex.split(cmd)
+        # punctuation_chars splits shell operators glued to a word, so
+        # `cd ~/.config/gptme;` yields the path rather than `~/.config/gptme;`.
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        # Match shlex.split's comments=False; a word-internal # is literal in shell.
+        lexer.commenters = ""
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
         # Unmatched quotes etc. — fallback to whitespace split
         tokens = cmd.split()

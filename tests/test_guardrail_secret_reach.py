@@ -1033,3 +1033,33 @@ def test_ripgrep_value_options_preserve_pattern(secret_tree: Path, option: str) 
     (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
     assert _find_secret_path_in_cmd(f"rg {option} TOKEN config/*") is not None
     assert _find_secret_path_in_cmd(f"rg {option} ABSENT config/*") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd ~/.config/gptme; cat config.local.toml",
+        "cat ~/.config/gptme/config.local.toml;echo done",
+        "cat ~/.ssh/id_rsa|base64",
+        "(cat ~/.aws/credentials)",
+        "true&&cat ~/.netrc",
+    ],
+)
+def test_secret_path_glued_to_shell_operator_is_detected(command: str) -> None:
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo foo#bar; cat ~/.ssh/id_rsa",
+        "echo foo#bar && cat ~/.ssh/id_rsa",
+        "echo foo#bar\ncat ~/.aws/credentials",
+    ],
+)
+def test_secret_path_after_literal_hash_is_detected(
+    monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    assert _find_secret_path_in_cmd(command) is not None
+    monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+    assert guardrail_hook(ToolUse(tool="shell", args=[], content=command)) is not None
