@@ -2330,3 +2330,52 @@ class TestPromptToolCallOutcomes:
             "in_progress",
             "failed",
         ]
+
+    def test_tool_output_is_tool_call_content_not_agent_text(self, monkeypatch):
+        """A call's output rides its tool_call_update, not a separate agent message."""
+        agent = self._setup(
+            monkeypatch,
+            ["```okay\nfirst\n```\n\n```boom\nsecond\n```", "All done."],
+        )
+
+        _run(agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"))
+
+        updates = [
+            c.kwargs["update"] for c in agent._conn.session_update.call_args_list
+        ]
+        updates = [u for u in updates if isinstance(u, dict)]
+        by_id = {
+            u["toolCallId"]: u
+            for u in updates
+            if u.get("sessionUpdate") == "tool_call_update"
+        }
+        texts = [
+            u["content"][0]["content"]["text"]
+            for u in by_id.values()
+            if u.get("content")
+        ]
+        assert any("ran first" in t for t in texts)
+        assert any("tool exploded" in t for t in texts)
+        assert all(
+            u["content"][0]["type"] == "content"
+            for u in by_id.values()
+            if u.get("content")
+        )
+
+        agent_text = "".join(
+            str(u.get("content"))
+            for u in updates
+            if u.get("sessionUpdate") == "agent_message_chunk"
+        )
+        assert "ran first" not in agent_text
+        assert "tool exploded" not in agent_text
+
+    def test_tool_output_is_still_logged(self, monkeypatch):
+        """Moving output into tool-call content must not drop it from the log."""
+        agent = self._setup(monkeypatch, ["```okay\nfirst\n```", "Done."])
+
+        _run(agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"))
+
+        log = agent._registry.get("s1").log
+        appended = [c.args[0].content for c in log.append.call_args_list]
+        assert any("ran first" in text for text in appended)
