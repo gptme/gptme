@@ -8,7 +8,7 @@ Tmux
     :noindex:
 
 Guardrail path context
----------------------
+----------------------
 
 With guardrails enabled, literal shell text in ``new-session`` is checked
 relative to the process directory used to start the shell. For ``send-keys``,
