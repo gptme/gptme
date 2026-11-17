@@ -232,3 +232,42 @@ def test_finished_children_are_read_once_across_refreshes(tmp_path, monkeypatch)
     finally:
         with _subagents_lock:
             _subagents[:] = [sa for sa in _subagents if sa.agent_id not in ids]
+
+
+@pytest.mark.asyncio
+async def test_resize_before_first_read_keeps_loading_placeholder(
+    tmp_path, monkeypatch
+):
+    """A resize ahead of the first off-loop read must not show "No children"."""
+    from textual.widgets import Static
+
+    manager = _manager(tmp_path)
+    release = threading.Event()
+    real_read = WorkOverviewScreen._read_inputs
+
+    def slow_read(self, *args, **kwargs):
+        release.wait(5)
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(WorkOverviewScreen, "_read_inputs", slow_read)
+    app = GptmeApp(manager, workspace=tmp_path)
+    try:
+        async with app.run_test() as pilot:
+            app.push_screen(WorkOverviewScreen(manager.logdir, manager.current_branch))
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, WorkOverviewScreen)
+            app.screen.on_resize()
+            await pilot.pause(0.2)
+            rendered = str(
+                app.screen.query_one("#work-overview-content", Static).render()
+            )
+            assert "Loading" in rendered
+            assert "No children" not in rendered
+            release.set()
+            await pilot.pause(0.3)
+            rendered = str(
+                app.screen.query_one("#work-overview-content", Static).render()
+            )
+            assert "No children" in rendered
+    finally:
+        release.set()
