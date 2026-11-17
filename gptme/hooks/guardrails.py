@@ -374,17 +374,28 @@ def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
     (``send-keys``), so it would otherwise bypass every rule that polices the
     ``shell`` tool. The operations come from the tool's public accessor.
     """
-    from ..tools.tmux import get_tmux_key_text, get_tmux_operations
+    from ..tools.tmux import (
+        get_tmux_key_text,
+        get_tmux_operations,
+        get_tmux_pane_cwd,
+    )
 
     for verb, arguments in get_tmux_operations(tool_use) or []:
+        directory: Path | None
         if verb == "new-session":
+            # new_session starts bash from the tmux client's process cwd,
+            # not the hook's conversation workspace.
             text = arguments
+            directory = Path.cwd()
         elif verb == "send-keys":
             parts = arguments.split(maxsplit=1)
             text = get_tmux_key_text(parts[1]) if len(parts) > 1 else ""
+            directory = get_tmux_pane_cwd(parts[0]) if parts else None
         else:
             continue
-        reason = _shell_text_block_reason(text.strip(), f"tmux {verb}")
+        # This is a snapshot, not shell emulation: a preceding cd or dynamic
+        # shell code can still change how later input resolves paths.
+        reason = _shell_text_block_reason(text.strip(), f"tmux {verb}", directory)
         if reason:
             return reason
     return None

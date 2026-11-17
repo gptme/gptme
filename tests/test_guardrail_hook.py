@@ -727,7 +727,8 @@ class TestTmuxShellText:
 
         monkeypatch.setenv("GPTME_GUARDRAILS", mode)
         register()
-        # Record instead of spawning tmux: only the seam decision is under test.
+        # Record instead of spawning/querying tmux: only the seam decision is under test.
+        monkeypatch.setattr("gptme.tools.tmux.get_tmux_pane_cwd", lambda _: None)
         ran: list[str] = []
 
         def fake_execute(code, args, kwargs):
