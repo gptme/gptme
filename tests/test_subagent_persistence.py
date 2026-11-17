@@ -1058,25 +1058,20 @@ class TestOwnerScopedIdLookup:
         ]
         assert sorted(e["status"] for e in subagent_list()) == ["cancelled", "success"]
 
-    def test_other_conversations_child_is_not_addressable(
+    def test_caller_without_own_run_keeps_process_wide_lookup(
         self, tmp_path: Path, monkeypatch
     ):
-        from gptme.tools.subagent.api import subagent_cancel, subagent_status
+        """Only a conversation that owns a run under the ID is scoped to it."""
+        from gptme.tools.subagent.api import subagent_status
 
         _, _, _, child_b, as_conversation = self._setup(tmp_path, monkeypatch)
         parent_c = (tmp_path / "logs" / "conv-c").resolve()
         parent_c.mkdir()
 
-        as_conversation(parent_c)
-        with pytest.raises(ValueError, match="not found"):
-            subagent_status("worker")
-        with pytest.raises(ValueError, match="not found"):
-            subagent_cancel("worker")
-
-        # Outside any conversation the process-wide lookup is unchanged.
-        as_conversation(None)
-        assert subagent_status("worker")["result"] == "B was cancelled"
-        self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
+        for caller in (parent_c, None):
+            as_conversation(caller)
+            assert subagent_status("worker")["result"] == "B was cancelled"
+            self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
 
     def test_cancel_targets_callers_running_run(self, tmp_path: Path, monkeypatch):
         """Before the fix, A's cancel resolved to B's finished run and A kept running."""
@@ -1212,6 +1207,7 @@ class TestOwnerScopedIdLookup:
         self._assert_one_holder(newer_a, ReturnType("failure", "newer A"))
 
     def test_tui_can_continue_shadowed_child(self, tmp_path: Path, monkeypatch):
+        pytest.importorskip("textual")
         from gptme.tools.subagent.api import subagent_snapshots
         from gptme.tui.child_view import send_child_message
 

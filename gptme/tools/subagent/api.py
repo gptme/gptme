@@ -76,19 +76,20 @@ def _find_subagent(
     wins over a stale disk copy of the same agent_id.
 
     Agent IDs are only unique within one conversation (gptme/gptme#4981), so
-    the lookup is owner-scoped: ``owner`` defaults to the calling conversation
-    and only that conversation's runs (its children, the conversation itself,
-    or legacy runs without a recorded parent) resolve. When another
-    conversation's run holds the ID in the registry and the result cache, the
-    caller's run is made the holder (see ``_take_over_agent_id``) so every
-    agent_id-keyed path that follows (result cache, cancel, steer, continue,
-    reply, release) acts on the caller's run.
+    the lookup is owner-scoped: ``owner`` defaults to the calling conversation,
+    and if that conversation has its own run under ``agent_id`` (a child, or
+    the conversation itself) it wins over any other conversation's run. When
+    another conversation's run holds the ID in the registry and the result
+    cache, the caller's run is made the holder (see ``_take_over_agent_id``) so
+    every agent_id-keyed path that follows (result cache, cancel, steer,
+    continue, reply, release) acts on the caller's run. A caller with no run
+    under the ID falls back to the process-wide lookup.
 
     If the other conversation's run is still running, its cache slot cannot be
     taken. A read returns the caller's shadowed run, which reports only its own
     outcome; ``control=True`` raises instead of steering the wrong run.
 
-    ``owner=None`` (no conversation context) keeps the process-wide lookup.
+    ``owner=None`` (no conversation context) uses the process-wide lookup.
     """
     if owner is _CALLER:
         owner = _caller_owner()
@@ -106,10 +107,12 @@ def _find_subagent(
             return _take_over_agent_id(candidate, owner, control=control)
         # Nothing in memory for this conversation: load its own run from disk.
         loaded = load_subagent_by_id(agent_id, owner=owner)
-        if loaded is None:
-            return None
+        if loaded is None or not _owned(loaded, owner):
+            break
         _register_scanned_subagent(loaded)
-    return None
+    # The caller has no run under this ID: keep the process-wide lookup, so a
+    # call whose current log is not the run's parent still resolves as before.
+    return _find_global_subagent(agent_id, newest=newest)
 
 
 def _find_global_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
