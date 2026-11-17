@@ -2,6 +2,7 @@
 
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -944,6 +945,291 @@ class TestCrossConversationRehydration:
             assert [s for s in _subagents if s.agent_id == "worker"] == [live]
         with _subagent_results_lock:
             assert _subagent_results["worker"] is live_result
+
+
+class TestOwnerScopedIdLookup:
+    """ID-based APIs resolve within the calling conversation (gptme/gptme#4981).
+
+    Two conversations each persisted a finished child ``worker``. After a
+    restart, every ID-based read and control call made from one conversation
+    must act on that conversation's run, with the agent_id-keyed result cache
+    following the run that holds the ID.
+    """
+
+    def setup_method(self):
+        _reset_subagent_registry()
+
+    def teardown_method(self):
+        _reset_subagent_registry()
+
+    def _setup(
+        self, tmp_path: Path, monkeypatch
+    ) -> tuple[Path, Path, Path, Path, Callable[[Path | None], None]]:
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+
+        logs_dir = tmp_path / "logs"
+        parent_a = (logs_dir / "conv-a").resolve()
+        parent_b = (logs_dir / "conv-b").resolve()
+        parent_a.mkdir(parents=True)
+        parent_b.mkdir(parents=True)
+        child_a = _persist_child(
+            logs_dir,
+            "subagent-worker-aaaa",
+            parent=parent_a,
+            started_at=10.0,
+            outcome=ReturnType("success", "A result", duration_s=3.0),
+            content="from A",
+        )
+        child_b = _persist_child(
+            logs_dir,
+            "subagent-worker-bbbb",
+            parent=parent_b,
+            started_at=20.0,
+            outcome=ReturnType("cancelled", "B was cancelled"),
+            content="from B",
+        )
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+        current: list[object] = [None]
+        monkeypatch.setattr(LogManager, "get_current_log", lambda: current[0])
+
+        def as_conversation(parent: Path | None) -> None:
+            current[0] = None if parent is None else SimpleNamespace(logdir=parent)
+
+        return parent_a, parent_b, child_a, child_b, as_conversation
+
+    @staticmethod
+    def _assert_one_holder(logdir: Path, result: ReturnType) -> None:
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        with _subagents_lock:
+            holders = [s.logdir for s in _subagents if s.agent_id == "worker"]
+        with _subagent_results_lock:
+            cached = _subagent_results.get("worker")
+        assert holders == [logdir]
+        assert cached == result
+
+    @pytest.mark.parametrize("list_first", [True, False])
+    def test_status_resolves_callers_run(
+        self, tmp_path: Path, monkeypatch, list_first: bool
+    ):
+        from gptme.tools.subagent.api import (
+            subagent_list,
+            subagent_read_log,
+            subagent_snapshots,
+            subagent_status,
+            subagent_wait,
+        )
+
+        parent_a, parent_b, child_a, child_b, as_conversation = self._setup(
+            tmp_path, monkeypatch
+        )
+        if list_first:
+            subagent_list()  # registry scan: B (newer) holds the ID
+
+        as_conversation(parent_a)
+        assert subagent_status("worker")["result"] == "A result"
+        self._assert_one_holder(
+            child_a, ReturnType("success", "A result", duration_s=3.0)
+        )
+        assert subagent_wait("worker", timeout=0)["result"] == "A result"
+        assert "from A" in subagent_read_log("worker")
+
+        as_conversation(parent_b)
+        assert subagent_status("worker")["result"] == "B was cancelled"
+        assert "from B" in subagent_read_log("worker")
+        self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
+
+        as_conversation(parent_a)
+        assert subagent_status("worker")["status"] == "success"
+
+        # Owner-scoped listings stay correct across the hand-overs.
+        assert [(s.run_id, s.status) for s in subagent_snapshots(parent_a)] == [
+            (str(child_a), "success")
+        ]
+        assert [(s.run_id, s.status) for s in subagent_snapshots(parent_b)] == [
+            (str(child_b), "cancelled")
+        ]
+        assert sorted(e["status"] for e in subagent_list()) == ["cancelled", "success"]
+
+    def test_other_conversations_child_is_not_addressable(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import subagent_cancel, subagent_status
+
+        _, _, _, child_b, as_conversation = self._setup(tmp_path, monkeypatch)
+        parent_c = (tmp_path / "logs" / "conv-c").resolve()
+        parent_c.mkdir()
+
+        as_conversation(parent_c)
+        with pytest.raises(ValueError, match="not found"):
+            subagent_status("worker")
+        with pytest.raises(ValueError, match="not found"):
+            subagent_cancel("worker")
+
+        # Outside any conversation the process-wide lookup is unchanged.
+        as_conversation(None)
+        assert subagent_status("worker")["result"] == "B was cancelled"
+        self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
+
+    def test_cancel_targets_callers_running_run(self, tmp_path: Path, monkeypatch):
+        """Before the fix, A's cancel resolved to B's finished run and A kept running."""
+        from gptme.tools.subagent.api import subagent_cancel, subagent_status
+        from gptme.tools.subagent.execution import acquire_writer_lease
+        from gptme.tools.subagent.persistence import (
+            load_subagent_meta,
+            load_subagent_outcome,
+        )
+
+        parent_a, parent_b, child_a, child_b, as_conversation = self._setup(
+            tmp_path, monkeypatch
+        )
+
+        (child_a / OUTCOME_FILENAME).unlink()
+        writer = load_subagent_meta(child_a)
+        assert writer is not None
+        writer = replace(writer, execution_mode="subprocess")
+        persist_subagent_meta(writer)
+        lease = acquire_writer_lease(child_a)
+        if lease is None:
+            pytest.skip("writer leases require flock")
+        try:
+            as_conversation(parent_a)
+            assert subagent_status("worker")["status"] == "running"
+            assert "cancelled" in subagent_cancel("worker")
+            assert subagent_status("worker")["result"] == "Cancelled by orchestrator"
+            cancelled = load_subagent_outcome(writer)
+            assert cancelled is not None and cancelled.status == "cancelled"
+        finally:
+            lease.close()
+
+        as_conversation(parent_b)
+        assert subagent_status("worker")["result"] == "B was cancelled"
+        b_meta = load_subagent_meta(child_b)
+        assert b_meta is not None
+        assert load_subagent_outcome(b_meta) == ReturnType(
+            "cancelled", "B was cancelled"
+        )
+
+    def test_running_holder_of_other_conversation_blocks_control(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import (
+            subagent_cancel,
+            subagent_list,
+            subagent_status,
+            subagent_wait,
+        )
+        from gptme.tools.subagent.execution import acquire_writer_lease
+        from gptme.tools.subagent.persistence import load_subagent_meta
+
+        parent_a, parent_b, _, child_b, as_conversation = self._setup(
+            tmp_path, monkeypatch
+        )
+        writer = load_subagent_meta(child_b)
+        assert writer is not None
+        persist_subagent_meta(replace(writer, execution_mode="subprocess"))
+        lease = acquire_writer_lease(child_b)
+        if lease is None:
+            pytest.skip("writer leases require flock")
+        try:
+            subagent_list()  # B (running) holds the ID
+            as_conversation(parent_a)
+            # Reads report A's own outcome, never B's cache entry.
+            assert subagent_status("worker")["result"] == "A result"
+            assert subagent_wait("worker", timeout=0)["result"] == "A result"
+            with pytest.raises(ValueError, match="another conversation"):
+                subagent_cancel("worker")
+            self._assert_one_holder(child_b, ReturnType("cancelled", "B was cancelled"))
+            as_conversation(parent_b)
+            assert subagent_status("worker")["result"] == "B was cancelled"
+        finally:
+            lease.close()
+
+    def test_live_spawn_of_other_conversation_does_not_leak_its_result(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """B's live run took the ID; A's finished entry must not read B's slot."""
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        as_conversation(parent_a)
+        assert subagent_status("worker")["result"] == "A result"
+        live_b = Subagent(
+            agent_id="worker",
+            prompt="live B",
+            thread=None,
+            logdir=tmp_path / "live-b",
+            model=None,
+            started_at=40.0,
+            parent_logdir=parent_b,
+        )
+        with _subagents_lock:
+            _subagents.append(live_b)
+            with _subagent_results_lock:
+                # B's cancel lands in the slot while its thread still unwinds.
+                _subagent_results["worker"] = ReturnType("cancelled", "live B")
+        monkeypatch.setattr(
+            Subagent, "is_running", lambda self: self.logdir == live_b.logdir
+        )
+
+        assert subagent_status("worker")["result"] == "A result"
+        with _subagents_lock:
+            assert [s.logdir for s in _subagents if s.agent_id == "worker"] == [
+                live_b.logdir
+            ]
+        as_conversation(parent_b)
+        assert subagent_status("worker")["result"] == "live B"
+
+    def test_same_conversation_reuse_resolves_newest(self, tmp_path: Path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_list, subagent_status
+
+        parent_a, _, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        newer_a = _persist_child(
+            tmp_path / "logs",
+            "subagent-worker-cccc",
+            parent=parent_a,
+            started_at=30.0,
+            outcome=ReturnType("failure", "newer A"),
+        )
+        as_conversation(parent_a)
+        assert subagent_status("worker")["result"] == "newer A"
+        _reset_subagent_registry()
+        subagent_list()
+        assert subagent_status("worker")["result"] == "newer A"
+        self._assert_one_holder(newer_a, ReturnType("failure", "newer A"))
+
+    def test_tui_can_continue_shadowed_child(self, tmp_path: Path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_snapshots
+        from gptme.tui.child_view import send_child_message
+
+        parent_a, _, child_a, _, _ = self._setup(tmp_path, monkeypatch)
+        [snap] = subagent_snapshots(parent_a)  # A is shadowed by B after the scan
+        calls: list[tuple] = []
+        monkeypatch.setattr(
+            "gptme.tools.subagent.subagent_continue",
+            lambda agent_id, text, *, expected_run: calls.append(
+                (agent_id, text, expected_run)
+            ),
+        )
+
+        send_child_message(snap, parent_a, "main", "go on", continue_finished=True)
+        assert calls == [("worker", "go on", (child_a, 10.0))]
+        self._assert_one_holder(
+            child_a, ReturnType("success", "A result", duration_s=3.0)
+        )
 
 
 def _interrupted_log(logdir: Path) -> None:

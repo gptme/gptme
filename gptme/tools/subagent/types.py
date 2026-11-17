@@ -124,11 +124,13 @@ class SubtaskDef(TypedDict):
 _subagents: list["Subagent"] = []
 _subagents_lock = threading.Lock()
 
-# Persisted runs found by registry rehydration whose ``agent_id`` is already
-# held in ``_subagents`` by another conversation's run (agent IDs are only
-# unique within one conversation). They are kept out of ``_subagents`` so no
-# agent_id-addressed lookup, result cache entry or control call can resolve to
-# them; owner-scoped listings still show them. Guarded by ``_subagents_lock``.
+# Runs whose ``agent_id`` is held in ``_subagents`` by another conversation's
+# run (agent IDs are only unique within one conversation): found that way by
+# registry rehydration, or demoted when the other conversation took the ID over.
+# They are kept out of ``_subagents`` and the result cache, so agent_id-keyed
+# paths never resolve to them; owner-scoped listings still show them, and an
+# ID-based call from their own conversation swaps them back in
+# (``api._find_subagent``). Guarded by ``_subagents_lock``.
 _shadowed_subagents: list["Subagent"] = []
 
 # Cache for subprocess results (keyed by agent_id)

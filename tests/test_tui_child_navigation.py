@@ -248,7 +248,7 @@ def test_expected_run_guard_rejects_replacement_at_queue_boundary(
     )
     registry = [old]
     monkeypatch.setattr(api, "_subagents", registry)
-    monkeypatch.setattr(api, "_find_subagent", lambda _: old)
+    monkeypatch.setattr(api, "_find_subagent", lambda *_a, **_k: old)
     queued = Mock()
     monkeypatch.setattr("gptme.prompt_queue.queue_prompt", queued)
 

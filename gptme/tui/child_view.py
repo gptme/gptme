@@ -77,7 +77,12 @@ def send_child_message(
         for c in owned
     ):
         raise ValueError("Selected child does not belong to this parent and branch.")
+    from ..tools.subagent.api import _find_subagent
     from ..tools.subagent.types import _subagents, _subagents_lock
+
+    # Agent IDs are only unique per conversation: make this parent's run the
+    # agent_id holder if a finished run of another conversation shadowed it.
+    _find_subagent(child.agent_id, owner=owner, control=True)
 
     with _subagents_lock:
         latest = next(

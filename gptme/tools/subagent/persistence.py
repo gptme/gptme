@@ -302,12 +302,18 @@ def load_subagent_meta(logdir: Path) -> Subagent | None:
         return None
 
 
-def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent | None:
+def load_subagent_by_id(
+    agent_id: str, logs_dir: Path | None = None, *, owner: Path | None = None
+) -> Subagent | None:
     """Load one persisted subagent by id from the logs directory.
 
     Planner logdirs are ``subagent-{id}``. Executor/thread/subprocess/ACP logdirs
     are ``subagent-{id}-{4 random chars}``. When several matches exist, return
     the newest by ``started_at``.
+
+    Agent IDs are only unique within a conversation. With ``owner`` set, only
+    that conversation's runs (or legacy runs with no recorded parent) match, so
+    one conversation never loads another's same-named child.
     """
     from ...dirs import get_logs_dir
 
@@ -342,6 +348,10 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
             )
         ):
             candidates.append(sa)
+    if owner is not None:
+        owner = owner.resolve()
+        owned = [sa for sa in candidates if sa.parent_logdir == owner]
+        candidates = owned or [sa for sa in candidates if sa.parent_logdir is None]
     if not candidates:
         return None
     return max(candidates, key=lambda sa: sa.started_at)

@@ -46,12 +46,74 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
-def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
+_CALLER = object()
+
+
+def _caller_owner() -> Path | None:
+    """Return the logdir of the conversation calling an ID-based API, if any.
+
+    ``LogManager.get_current_log()`` reads a ContextVar set by the chat loop, so
+    this is the parent conversation when a tool call runs ``subagent_status()``
+    and friends. Callers outside a conversation (scripts, tests) get ``None``.
+    """
+    from ...logmanager import LogManager  # fmt: skip
+
+    log = LogManager.get_current_log()
+    logdir = getattr(log, "logdir", None) if log is not None else None
+    return Path(logdir).resolve() if logdir is not None else None
+
+
+def _find_subagent(
+    agent_id: str,
+    *,
+    newest: bool = True,
+    owner: Path | None | object = _CALLER,
+    control: bool = False,
+) -> Subagent | None:
     """Return a live or persisted subagent, registering disk hits into memory.
 
     Prefers the newest in-memory entry so a live spawn after list-rehydration
     wins over a stale disk copy of the same agent_id.
+
+    Agent IDs are only unique within one conversation (gptme/gptme#4981), so
+    the lookup is owner-scoped: ``owner`` defaults to the calling conversation
+    and only that conversation's runs (its children, the conversation itself,
+    or legacy runs without a recorded parent) resolve. When another
+    conversation's run holds the ID in the registry and the result cache, the
+    caller's run is made the holder (see ``_take_over_agent_id``) so every
+    agent_id-keyed path that follows (result cache, cancel, steer, continue,
+    reply, release) acts on the caller's run.
+
+    If the other conversation's run is still running, its cache slot cannot be
+    taken. A read returns the caller's shadowed run, which reports only its own
+    outcome; ``control=True`` raises instead of steering the wrong run.
+
+    ``owner=None`` (no conversation context) keeps the process-wide lookup.
     """
+    if owner is _CALLER:
+        owner = _caller_owner()
+    if owner is None:
+        return _find_global_subagent(agent_id, newest=newest)
+    assert isinstance(owner, Path)
+    owner = owner.resolve()
+
+    for _ in range(2):
+        with _subagents_lock:
+            holder, candidate = _owned_candidate(agent_id, owner, newest=newest)
+            if holder is not None and _addressable(holder, owner):
+                return holder
+        if candidate is not None:
+            return _take_over_agent_id(candidate, owner, control=control)
+        # Nothing in memory for this conversation: load its own run from disk.
+        loaded = load_subagent_by_id(agent_id, owner=owner)
+        if loaded is None:
+            return None
+        _register_scanned_subagent(loaded)
+    return None
+
+
+def _find_global_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
+    """Process-wide lookup by agent_id alone, for callers outside a conversation."""
     with _subagents_lock:
         seq = list(reversed(_subagents)) if newest else list(_subagents)
         sa = next((s for s in seq if s.agent_id == agent_id), None)
@@ -61,6 +123,127 @@ def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
     if loaded is None:
         return None
     return _register_rehydrated_subagent(loaded, newest=newest)
+
+
+def _owned(sa: Subagent, owner: Path) -> bool:
+    """Whether ``sa`` belongs to conversation ``owner`` (its child, or itself)."""
+    return sa.parent_logdir == owner or sa.logdir == owner
+
+
+def _addressable(sa: Subagent, owner: Path) -> bool:
+    """Owned runs, plus legacy runs that never recorded a parent conversation."""
+    return sa.parent_logdir is None or _owned(sa, owner)
+
+
+def _owned_candidate(
+    agent_id: str, owner: Path, *, newest: bool = True
+) -> tuple[Subagent | None, Subagent | None]:
+    """Return ``(registry holder, owner's own run)`` for ``agent_id``.
+
+    Caller must hold ``_subagents_lock``. The holder is the entry agent_id-keyed
+    lookups resolve to; the owner's run is its newest registry entry, else its
+    shadowed run.
+    """
+    seq = list(reversed(_subagents)) if newest else list(_subagents)
+    same_id = [s for s in seq if s.agent_id == agent_id]
+    holder = same_id[0] if same_id else None
+    candidate = next((s for s in same_id if _owned(s, owner)), None)
+    if candidate is None:
+        candidate = next(
+            (
+                s
+                for s in reversed(_shadowed_subagents)
+                if s.agent_id == agent_id and _owned(s, owner)
+            ),
+            None,
+        )
+    return holder, candidate
+
+
+def _take_over_agent_id(
+    candidate: Subagent, owner: Path, *, control: bool
+) -> Subagent | None:
+    """Make ``candidate`` the agent_id holder, demoting other conversations' runs.
+
+    The registry and ``_subagent_results`` address one run per agent_id. A
+    finished run of another conversation that holds the ID moves to
+    ``_shadowed_subagents`` together with its cached result, and the caller's
+    run takes the registry slot together with its own outcome. Ownership flips
+    back the same way when the other conversation addresses its run again.
+    """
+    from .persistence import load_subagent_outcome
+
+    agent_id = candidate.agent_id
+    while True:
+        # Disk I/O outside the registry lock, as in _register_rehydrated_subagent.
+        own_outcome = (
+            candidate._cached_result()
+            if candidate.shadowed
+            else load_subagent_outcome(candidate)
+        )
+        with _subagents_lock:
+            holder, current = _owned_candidate(agent_id, owner)
+            if holder is not None and _addressable(holder, owner):
+                return holder  # Already addressable (a concurrent call won).
+            if current is None:
+                return None
+            if current is candidate:
+                return _take_over_locked(
+                    candidate, holder, own_outcome, owner, control=control
+                )
+        # The registry changed while we read disk; retry with the current run.
+        candidate = current
+
+
+def _take_over_locked(
+    candidate: Subagent,
+    holder: Subagent | None,
+    own_outcome: ReturnType | None,
+    owner: Path,
+    *,
+    control: bool,
+) -> Subagent | None:
+    """Body of _take_over_agent_id; caller holds ``_subagents_lock``."""
+    agent_id = candidate.agent_id
+    others = [s for s in _subagents if s.agent_id == agent_id and not _owned(s, owner)]
+    if any(s.is_running() for s in others):
+        if control:
+            raise ValueError(
+                f"Subagent ID {agent_id!r} is in use by a running subagent of "
+                "another conversation; this conversation's run cannot be "
+                "controlled by ID until that run finishes."
+            )
+        if not candidate.shadowed and not candidate.is_running():
+            # Not the holder, so it must not read the holder's cache slot.
+            _subagents.remove(candidate)
+            object.__setattr__(candidate, "shadowed", True)
+            object.__setattr__(candidate, "shadowed_outcome", own_outcome)
+            _shadowed_subagents.append(candidate)
+        # Reads stay safe for a shadowed run: it reports only its own outcome.
+        # (Two conversations running the same ID at once still share one slot.)
+        return candidate
+    with _subagent_results_lock:
+        holder_result = _subagent_results.pop(agent_id, None)
+        for s in others:
+            _subagents.remove(s)
+            object.__setattr__(s, "shadowed", True)
+            object.__setattr__(
+                s, "shadowed_outcome", holder_result if s is holder else None
+            )
+            _shadowed_subagents.append(s)
+        if candidate.shadowed:
+            _shadowed_subagents.remove(candidate)
+            object.__setattr__(candidate, "shadowed", False)
+            object.__setattr__(candidate, "shadowed_outcome", None)
+        else:
+            _subagents.remove(candidate)
+        _subagents.append(candidate)
+        if own_outcome is not None:
+            _subagent_results[agent_id] = own_outcome
+    logger.info(
+        "Subagent ID %r now addresses the run of conversation %s", agent_id, owner
+    )
+    return candidate
 
 
 def _register_rehydrated_subagent(loaded: Subagent, *, newest: bool = True) -> Subagent:
@@ -89,8 +272,8 @@ def _register_scanned_subagent(loaded: Subagent) -> None:
     is newest-first) becomes the addressable registry entry and seeds the
     agent_id-keyed result cache, as before. A run whose ID is already held by
     another conversation's run goes to ``_shadowed_subagents`` with its own
-    persisted outcome, so owner-scoped listings still show it while ID-based
-    lookups, the result cache and control calls keep resolving to the holder.
+    persisted outcome, so owner-scoped listings still show it. An ID-based call
+    from its own conversation makes it the holder (``_find_subagent``).
     """
     from .persistence import load_subagent_outcome
 
@@ -1354,7 +1537,7 @@ def subagent_cancel(agent_id: str) -> str:
     Returns:
         A human-readable status message
     """
-    sa = _find_subagent(agent_id)
+    sa = _find_subagent(agent_id, control=True)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -1462,7 +1645,7 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
         ValueError: If the subagent is not found, still running, or was not
             launched with ``retain_worktree=True``.
     """
-    sa = _find_subagent(agent_id)
+    sa = _find_subagent(agent_id, control=True)
     if sa is None:
         raise ValueError(f"Subagent {agent_id!r} not found.")
     if not sa.retain_worktree:
@@ -1623,7 +1806,7 @@ def subagent_steer(
     """
     from ...prompt_queue import queue_prompt  # fmt: skip
 
-    sa = _find_subagent(agent_id)
+    sa = _find_subagent(agent_id, control=True)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -1768,7 +1951,7 @@ def subagent_continue(
             outcome is ``cancelled``. Defaults to False so cancellation is final
             unless the caller explicitly opts in.
     """
-    sa = _find_subagent(agent_id)
+    sa = _find_subagent(agent_id, control=True)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -2052,7 +2235,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
         agent_id: The subagent that raised the clarification request.
         reply: Your answer to the subagent's question.
     """
-    sa = _find_subagent(agent_id)
+    sa = _find_subagent(agent_id, control=True)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -2419,8 +2602,12 @@ def subagent_wait(
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
 
+    # A shadowed run (another conversation's running run holds the ID) must not
+    # read the agent_id-keyed cache; sa.status() reports its own outcome.
     cached_status = (
-        _wait_for_cached_subagent_result(agent_id) if sa.is_running() else None
+        _wait_for_cached_subagent_result(agent_id)
+        if sa.is_running() and not sa.shadowed
+        else None
     )
     status = cached_status if cached_status is not None else sa.status()
     result_dict = asdict(status)
@@ -2489,8 +2676,10 @@ def subagent_wait_any(
     if not agent_ids:
         raise ValueError("agent_ids must not be empty")
 
+    # BatchJob addresses the agent_id holder, so each ID must resolve to (and,
+    # if needed, take over for) this conversation's run.
     for aid in agent_ids:
-        _find_subagent(aid, newest=True)
+        _find_subagent(aid, newest=True, control=True)
     from .batch import BatchJob
 
     job = BatchJob(agent_ids=list(agent_ids))
