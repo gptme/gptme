@@ -691,8 +691,18 @@
 <span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
 <span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://example.com/mcp"</span>
 <span class="n">headers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Authorization</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"Bearer your-token"</span><span class="w"> </span><span class="p">}</span>
+
+<span class="c1"># Legacy SSE MCP server example (URL ends in /sse, so SSE is auto-detected)</span>
+<span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"sse-server"</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://example.com/sse"</span>
 </pre></div>
 </div>
+<p>HTTP servers use the streamable-HTTP transport by default. A URL whose path ends
+in <code class="docutils literal notranslate"><span class="pre">/sse</span></code> (the conventional FastMCP SSE endpoint) is connected over the legacy
+SSE transport instead. For an SSE endpoint at any other path, set
+<code class="docutils literal notranslate"><span class="pre">transport</span> <span class="pre">=</span> <span class="pre">&quot;sse&quot;</span></code> explicitly; <code class="docutils literal notranslate"><span class="pre">transport</span></code> is ignored for stdio servers.</p>
 <p>The same <code class="docutils literal notranslate"><span class="pre">[mcp]</span></code> settings are supported in <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a>
 (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> in your workspace) and per-conversation configuration.
 For example, a project’s <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> can enable its own server:</p>
@@ -750,6 +760,7 @@ so approve only project servers you trust.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">args</span></code>: List of command-line arguments (for stdio servers)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">url</span></code>: HTTP endpoint URL (for HTTP servers)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">headers</span></code>: HTTP headers dictionary (for HTTP servers)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">transport</span></code>: <code class="docutils literal notranslate"><span class="pre">&quot;sse&quot;</span></code> to force the legacy SSE transport for an HTTP server (auto-detected for URLs ending in <code class="docutils literal notranslate"><span class="pre">/sse</span></code>); otherwise streamable HTTP is used</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">env</span></code>: Environment variables for the server</p></li>
 </ul>
 </li>

@@ -2041,6 +2041,10 @@ unless the caller explicitly opts in.</p></li>
 - Interactive sessions: “what’s running right now?”
 - Orchestrators deciding whether to spawn more agents
 - Debugging runaway subagent fans</p>
+<p>Inside a conversation, only that conversation’s subagents are listed (as
+in <code class="docutils literal notranslate"><span class="pre">subagent_snapshots</span></code>): the registry is rehydrated from every logdir on
+the machine, so an unscoped list would show other conversations’ runs.
+Without a current conversation the whole registry is listed.</p>
 </dd></dl>
 
 <dl class="py function">
