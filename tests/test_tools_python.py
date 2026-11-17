@@ -507,6 +507,48 @@ def test_teeio_truncation_marker():
     )
 
 
+def test_teeio_spills_overflow_to_tool_outputs(tmp_path):
+    """Bytes past the capture cap stream to disk; the marker names the file."""
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO, _cap_output
+
+    chunk = "line of output\n" * 64  # ~1 KiB per write
+    n_writes = _DEFAULT_MAX_OUTPUT_BYTES // len(chunk) + 50
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee = TeeIO(io.StringIO(), "stdout")
+        for _ in range(n_writes):
+            tee.write(chunk)
+        captured = tee.get_captured()
+
+    files = [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+    assert len(files) == 1
+    assert files[0].read_text() == chunk * n_writes  # nothing lost
+    assert f"full output saved to {files[0]}" in captured
+    assert "head only" in captured
+    assert len(captured.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert _cap_output(captured) == captured
+    assert tee._spill is None  # closed by get_captured
+
+
+def test_teeio_without_logdir_has_no_spill_pointer():
+    import io
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        tee = TeeIO(io.StringIO(), "stdout")
+        tee.write("a" * (_DEFAULT_MAX_OUTPUT_BYTES + 10))
+        tee.write("b" * 10)
+        captured = tee.get_captured()
+    assert "head only" in captured
+    assert "saved" not in captured
+
+
 def test_teeio_single_oversized_write_keeps_head():
     """One write crossing the cap must keep the part that fits, not drop it all."""
     import io

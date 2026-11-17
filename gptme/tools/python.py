@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     )
 
     from ..message import ArtifactDescriptor, MessageMetadata
+    from ..util.output_storage import PrivateOutputFile
     from .python_kernel import KernelExecResult
 
 
@@ -504,13 +505,62 @@ def _get_ipython():
     return _ipython
 
 
+def _open_spill_file(label: str) -> "PrivateOutputFile | None":
+    """Open a private ``tool-outputs/python/`` file for streaming overflow."""
+    from datetime import datetime, timezone
+
+    from ..logmanager import LogManager
+    from ..util.output_storage import open_private_output_file
+
+    manager = LogManager.get_current_log()
+    if manager is None or not manager.logdir:
+        return None
+    stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return open_private_output_file(manager.logdir, "python", f"{stamp}-{label}.txt")
+
+
 class TeeIO(io.StringIO):
-    def __init__(self, original_stream):
+    def __init__(self, original_stream, label: str = "output"):
         super().__init__()
         self.original_stream = original_stream
+        self._label = label
         self._byte_count = 0
         self._buffered_bytes = 0
         self._truncated = False
+        # Once the capture cap is hit, the overflow streams to disk (when a
+        # conversation dir is active) so the dropped bytes stay recoverable
+        # while memory stays bounded.
+        self._spill: PrivateOutputFile | None = None
+        self._spill_path: Path | None = None
+        self._spill_failed = False
+
+    def _spill_append(self, s: str) -> None:
+        if self._spill_failed:
+            return
+        try:
+            if self._spill is None:
+                self._spill = _open_spill_file(self._label)
+                if self._spill is None:
+                    self._spill_failed = True
+                    return
+                # Everything buffered so far is the head of the full output
+                self._spill.append(self.getvalue().encode("utf-8", errors="replace"))
+            self._spill.append(s.encode("utf-8", errors="replace"))
+            self._spill_path = self._spill.path
+        except Exception as e:  # spilling is best-effort; capture must continue
+            logger.warning("Could not spill python %s overflow: %s", self._label, e)
+            self._spill_failed = True
+            self._spill_path = None
+            self.finish()
+
+    def finish(self) -> None:
+        """Close the spill file, if any. Safe to call repeatedly."""
+        spill, self._spill = self._spill, None
+        if spill is not None:
+            try:
+                spill.close()
+            except OSError as e:
+                logger.warning("Could not close python spill file: %s", e)
 
     def write(self, s):
 
@@ -525,6 +575,7 @@ class TeeIO(io.StringIO):
         room = limit - self._buffered_bytes
         if len(encoded) > room:
             self._truncated = True
+            self._spill_append(s)
             if room <= 0:
                 return n_chars
             kept = _decode_slice(encoded[:room])
@@ -540,25 +591,40 @@ class TeeIO(io.StringIO):
         value = self.getvalue()
         if not self._truncated:
             return value
+        self.finish()
+        dropped = self._byte_count - self._buffered_bytes
+        saved = f"; full output saved to {self._spill_path}" if self._spill_path else ""
+        marker = (
+            f"\n\n[... {dropped:,} bytes omitted "
+            f"({self._byte_count:,} total — capture limit reached, head only{saved}) ...]"
+        )
         # The buffer never exceeds cap - marker reserve, so head + marker stays
         # within the cap and downstream _cap_output() will not truncate again.
-        dropped = self._byte_count - self._buffered_bytes
-        return (
-            value + f"\n\n[... {dropped:,} bytes omitted "
-            f"({self._byte_count:,} total — capture limit reached, head only) ...]"
+        # A saved-path marker can outgrow the reserve: trim the head to fit.
+        excess = (
+            len(value.encode("utf-8", errors="surrogatepass"))
+            + len(marker.encode("utf-8"))
+            - _DEFAULT_MAX_OUTPUT_BYTES
         )
+        if excess > 0:
+            value = _decode_slice(
+                value.encode("utf-8", errors="surrogatepass")[:-excess]
+            )
+        return value + marker
 
 
 @contextmanager
 def capture_and_display():
-    stdout_capture = TeeIO(sys.stdout)
-    stderr_capture = TeeIO(sys.stderr)
+    stdout_capture = TeeIO(sys.stdout, "stdout")
+    stderr_capture = TeeIO(sys.stderr, "stderr")
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = stdout_capture, stderr_capture
     try:
         yield stdout_capture, stderr_capture
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
+        stdout_capture.finish()
+        stderr_capture.finish()
 
 
 def _kernel_image_attachments(
