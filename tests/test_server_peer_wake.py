@@ -10,6 +10,7 @@ separate interpreter writes the queue record).
 import subprocess
 import sys
 import unittest.mock
+from datetime import timedelta
 from pathlib import Path
 from typing import cast
 
@@ -520,6 +521,36 @@ def test_acp_peer_wake_defers_without_consuming(
         SessionManager.remove_session(session.id)
 
 
+def test_acp_owner_defers_even_with_newer_plain_observer(
+    logs_dir: Path, armed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ACP ownership is per conversation, not per most-recent session.
+
+    A newer ordinary observer (e.g. a web UI tab) must not let the wake path
+    answer in-process while an ACP session owns the input cursor.
+    """
+    manager, started = armed
+    cid = "peer-acp-mixed-sessions"
+    queue = _conversation(logs_dir, cid) / "prompt-queue.jsonl"
+    queue.write_text("pending peer input", encoding="utf-8")
+    drain = unittest.mock.MagicMock()
+    monkeypatch.setattr("gptme.prompt_queue.drain_peer_prompts", drain)
+    acp = SessionManager.create_session(cid)
+    acp.use_acp = True
+    observer = SessionManager.create_session(cid)
+    observer.last_activity = acp.last_activity + timedelta(seconds=5)
+    try:
+        assert SessionManager.request_peer_wake(cid) is False
+        drain.assert_not_called()
+        started.assert_not_called()
+        manager.append.assert_not_called()
+        assert observer.step_seq == 0
+        assert queue.read_text() == "pending peer input"
+    finally:
+        SessionManager.remove_session(observer.id)
+        SessionManager.remove_session(acp.id)
+
+
 def test_removal_between_peer_reservation_and_dispatch_keeps_real_lock(
     logs_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -626,6 +657,54 @@ def test_real_skip_route_dispatch_does_not_reenter_step_lock(
     assert generated.wait(5)
     assert "skip-me" not in session.pending_tools
     SessionManager.remove_session(sid)
+
+
+def test_skip_route_keeps_peer_writer_across_removal_before_dispatch(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Skip must pin a peer-promoted writer before it unlocks.
+
+    If the session is removed between the skip reservation and the
+    continuation dispatch, the writer lock must survive until dispatch
+    returns, then close.
+    """
+    import uuid
+
+    from gptme.server.session_models import ToolExecution
+    from gptme.tools import ToolUse
+
+    cid = f"test-skip-writer-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{cid}", json={"prompt": "Test skip writer"}
+    )
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    session = SessionManager.get_session(sid)
+    assert session is not None
+    writer = unittest.mock.MagicMock()
+    session.writer_manager = writer
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo hi")
+    )
+    held_during_dispatch: list[bool] = []
+
+    def remove_then_dispatch(*args: object, **kwargs: object) -> bool:
+        SessionManager.remove_session(sid)
+        held_during_dispatch.append(session.writer_manager is writer)
+        return True
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2_sessions._start_step_thread", remove_then_dispatch
+    )
+    result = client.post(
+        f"/api/v2/conversations/{cid}/tool/confirm",
+        json={"session_id": sid, "tool_id": "skip-me", "action": "skip"},
+    )
+    assert result.status_code == 200
+    assert held_during_dispatch == [True]
+    assert session.writer_manager is None
+    assert session._writer_workers == 0
+    writer.__exit__.assert_called_once()
 
 
 def test_failed_peer_dispatch_is_visible_without_requeue_or_duplicate(

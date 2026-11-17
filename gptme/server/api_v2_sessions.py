@@ -810,6 +810,7 @@ def api_conversation_tool_confirm(conversation_id: str):
 
     elif action == "skip":
         continuation_dispatched = False
+        writer_pinned = False
         # Reserve the continuation before consuming any tool or hook state. A
         # concurrent /step may already own the reservation; then the pending tool
         # stays untouched so the client can retry.
@@ -864,6 +865,13 @@ def api_conversation_tool_confirm(conversation_id: str):
                 session.generating = False
                 session.generating_since = None
                 raise
+            # A peer wake may have promoted this session to the conversation
+            # writer. Pin it before unlocking, as request_peer_wake does, so a
+            # session removal in the dispatch gap cannot close the writer lock
+            # before the continuation worker pins ownership.
+            if session.writer_manager is not None:
+                session._writer_workers += 1
+                writer_pinned = True
 
         # Worker pinning takes step_lock; never dispatch while holding it.
         try:
@@ -885,6 +893,8 @@ def api_conversation_tool_confirm(conversation_id: str):
                     if session.step_seq == skip_step_seq:
                         session.generating = False
                         session.generating_since = None
+            if writer_pinned:
+                session.release_writer_worker()
 
     elif action == "auto":
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
