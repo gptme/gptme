@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 import mcp.types as types  # Import all types
 from mcp import ClientSession
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.session import RequestContext
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -22,6 +23,15 @@ from mcp.client.streamable_http import (
 
 from gptme.circuit_breaker import CircuitBreaker
 from gptme.config import Config, get_config
+
+from .oauth import (
+    OAUTH_ENV_VAR,
+    MCPOAuthError,
+    OAuthHandler,
+    build_oauth_provider,
+    close_oauth_provider,
+    has_authorization_header,
+)
 
 # Type alias for elicitation callback
 ElicitationCallback = Callable[
@@ -153,9 +163,17 @@ def _www_authenticate_field(header: str, field_name: str) -> str | None:
 
 _HTTP_AUTH_FAILURE_MESSAGE = (
     "MCP HTTP authentication failed ({status}): the server rejected the request "
-    "before MCP initialization. gptme currently sends only static "
-    "[mcp.servers.headers] values (for example Authorization = "
-    '"Bearer <token>"); it does not run the MCP OAuth authorization-code flow.'
+    "before MCP initialization. {detail}"
+)
+_HTTP_AUTH_NO_OAUTH_DETAIL = (
+    "gptme sent only the configured [mcp.servers.headers] values (for example "
+    'Authorization = "Bearer <token>") and did not run the MCP OAuth '
+    "authorization-code flow."
+)
+_HTTP_AUTH_OAUTH_FAILED_DETAIL = (
+    "gptme ran the MCP OAuth authorization-code flow for this server and the "
+    "request was still rejected; the cached token may be expired, revoked, or "
+    "issued for a different resource."
 )
 _HTTP_OAUTH_METADATA_NOTE = (
     " The server advertised OAuth protected-resource metadata in WWW-Authenticate."
@@ -163,7 +181,7 @@ _HTTP_OAUTH_METADATA_NOTE = (
 
 
 def _diagnose_http_auth_failure(
-    url: str, headers: dict[str, str] | None = None
+    url: str, headers: dict[str, str] | None = None, oauth_attempted: bool = False
 ) -> str | None:
     """Return an auth-specific message if ``url`` answers 401/403.
 
@@ -223,7 +241,14 @@ def _diagnose_http_auth_failure(
         return None
     if status not in (401, 403):
         return None
-    message = _HTTP_AUTH_FAILURE_MESSAGE.format(status=status)
+    message = _HTTP_AUTH_FAILURE_MESSAGE.format(
+        status=status,
+        detail=(
+            _HTTP_AUTH_OAUTH_FAILED_DETAIL
+            if oauth_attempted
+            else _HTTP_AUTH_NO_OAUTH_DETAIL
+        ),
+    )
     if www_auth and _www_authenticate_field(www_auth, "resource_metadata"):
         message += _HTTP_OAUTH_METADATA_NOTE
     return message
@@ -290,6 +315,9 @@ class MCPClient:
         # Per-client circuit breaker, keyed by server name after connect().
         # The breaker protects call_tool() calls from hammering a broken server.
         self._circuit_breaker: CircuitBreaker | None = None
+        # OAuth handler for the connected server, if the flow was enabled. It
+        # owns a loopback listener, so close() has to release it.
+        self._oauth_provider: OAuthHandler | None = None
 
     def _cancel_running_tasks(self) -> None:
         """Cancel tasks on the private loop. Must run on that loop's thread."""
@@ -448,7 +476,11 @@ class MCPClient:
             raise
 
     async def _setup_http_connection(
-        self, url: str, headers: dict, use_sse: bool = False
+        self,
+        url: str,
+        headers: dict,
+        use_sse: bool = False,
+        auth: httpx.Auth | None = None,
     ) -> tuple[types.ListToolsResult, ClientSession]:
         """Set up HTTP connection and maintain it"""
         self.stack = AsyncExitStack()
@@ -457,12 +489,12 @@ class MCPClient:
         try:
             if use_sse:
                 transport = await self.stack.enter_async_context(
-                    sse_client(url, headers=headers)
+                    sse_client(url, headers=headers, auth=auth)
                 )
                 read, write = transport
             else:
                 transport = await self.stack.enter_async_context(
-                    streamablehttp_client(url, headers=headers)
+                    streamablehttp_client(url, headers=headers, auth=auth)
                 )
                 read, write, _ = transport
 
@@ -506,12 +538,20 @@ class MCPClient:
                 raise RuntimeError("MCP client is closed") from None
             if user_interrupted or self._interrupt_ops.is_set():
                 raise
-            # Recover the causes we can still identify: TLS, then HTTP 401/403.
+            # Recover the causes we can still identify: an OAuth handler that
+            # gave up (no browser, denied consent), then TLS, then HTTP 401/403.
+            oauth_error = (
+                self._oauth_provider.last_error
+                if self._oauth_provider is not None
+                else None
+            )
+            if oauth_error is not None:
+                raise RuntimeError(str(oauth_error)) from None
             tls_message = await asyncio.to_thread(_diagnose_https_tls_failure, url)
             if tls_message:
                 raise RuntimeError(tls_message) from None
             auth_message = await asyncio.to_thread(
-                _diagnose_http_auth_failure, url, headers
+                _diagnose_http_auth_failure, url, headers, auth is not None
             )
             if auth_message:
                 raise RuntimeError(auth_message) from None
@@ -540,12 +580,37 @@ class MCPClient:
             raise ValueError(f"No MCP server config found for '{server_name}'")
 
         if server.is_http:
-            # HTTP MCP server (streamable-HTTP or legacy SSE)
-            tools, session = self._run_async(
-                self._setup_http_connection(
-                    server.url, server.headers, use_sse=server.is_sse
+            # HTTP MCP server (streamable-HTTP or legacy SSE). A configured
+            # Authorization header wins: the user already has a token, so no
+            # browser round-trip should start on a 401.
+            auth = None
+            if not has_authorization_header(server.headers):
+                try:
+                    handler = build_oauth_provider(server_name, server.url)
+                except OSError as e:
+                    raise RuntimeError(
+                        f"{server_name}: cannot start the MCP OAuth flow: {e}"
+                    ) from None
+                if handler is None:
+                    logger.debug(
+                        f"MCP OAuth disabled by {OAUTH_ENV_VAR}; static headers only"
+                    )
+                else:
+                    auth = handler.provider
+                    self._oauth_provider = handler
+            try:
+                tools, session = self._run_async(
+                    self._setup_http_connection(
+                        server.url, server.headers, use_sse=server.is_sse, auth=auth
+                    )
                 )
-            )
+            except (
+                MCPOAuthError,
+                OAuthFlowError,
+                OAuthRegistrationError,
+                OAuthTokenError,
+            ) as e:
+                raise RuntimeError(f"{server_name}: MCP OAuth failed: {e}") from None
         else:
             # Stdio MCP server
             env = {**os.environ, **(server.env or {})}
@@ -595,6 +660,8 @@ class MCPClient:
                 self.stack = None
                 self.session = None
                 self.tools = None
+                close_oauth_provider(self._oauth_provider)
+                self._oauth_provider = None
                 if not self.loop.is_closed():
                     self.loop.close()
         finally:

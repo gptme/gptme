@@ -98,6 +98,28 @@ Configuration Options
   - ``headers``: HTTP headers dictionary (for HTTP servers)
   - ``env``: Environment variables for the server
 
+OAuth for HTTP servers
+~~~~~~~~~~~~~~~~~~~~~~
+
+Some HTTP servers gate access with OAuth instead of a static token. When such a
+server answers ``401`` with a ``resource_metadata`` challenge, gptme runs the MCP
+authorization-code flow (PKCE) against the authorization server it advertises,
+including dynamic client registration and token refresh:
+
+- the authorization URL is printed and opened in a browser when one is available,
+- the redirect is captured on a loopback port (``127.0.0.1``), as RFC 8252
+  requires for native clients,
+- the issued token and client registration are cached per server under
+  ``mcp-oauth/`` in the config directory, in a ``0600`` file.
+
+An ``Authorization`` value in ``[mcp.servers.headers]`` always wins over the
+flow, so existing static-token setups keep working unchanged. Set
+``GPTME_MCP_OAUTH=0`` to disable the flow entirely.
+
+A session that cannot open a browser (server mode, CI) fails with an actionable
+error instead of waiting for a redirect: authorize once interactively to fill the
+cache, or keep using static headers.
+
 Large tool results
 ~~~~~~~~~~~~~~~~~~
 
