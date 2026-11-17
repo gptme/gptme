@@ -214,6 +214,10 @@ def _take_over_agent_id(
             if current is None:
                 return None
             if current is candidate:
+                if candidate.shadowed and candidate.shadowed_outcome is not None:
+                    # A late monitor may have stored its outcome since the read
+                    # above; it does so under this lock, so re-read it here.
+                    own_outcome = candidate.shadowed_outcome
                 return _take_over_locked(
                     candidate, holder, own_outcome, owner, control=control
                 )

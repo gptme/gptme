@@ -1291,6 +1291,63 @@ class TestOwnerScopedIdLookup:
         as_conversation(parent_a)
         assert subagent_status("worker")["result"] == "A timed out"
 
+    def test_late_demoted_write_cannot_overwrite_continuation(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A demoted run's late outcome write never replaces a newer attempt's."""
+        import dataclasses
+
+        import gptme.tools.subagent.types as types_mod
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.persistence import load_subagent_outcome
+
+        parent_a, parent_b, child_a, child_b, as_conversation = self._setup(
+            tmp_path, monkeypatch
+        )
+        (child_a / OUTCOME_FILENAME).unlink()  # A's monitor has not published yet
+        as_conversation(parent_a)
+        subagent_status("worker")
+        as_conversation(parent_b)
+        subagent_status("worker")  # B takes the ID over; A is demoted
+        run_a = next(s for s in types_mod._shadowed_subagents if s.logdir == child_a)
+        continued: list = []
+        newer = ReturnType("success", "continuation result")
+        real_lock = types_mod._outcome_persist_lock
+
+        class InterleavingLock:
+            """Runs A's reclaim and continuation when the monitor seeks the lock."""
+
+            fired = False
+
+            def __enter__(self):
+                if not InterleavingLock.fired:
+                    InterleavingLock.fired = True
+                    as_conversation(parent_a)
+                    subagent_status("worker")  # A reclaims its run
+                    nxt = dataclasses.replace(run_a, started_at=99.0)
+                    with types_mod._subagents_lock:
+                        types_mod._subagents[:] = [
+                            s for s in types_mod._subagents if s.agent_id != "worker"
+                        ]
+                        types_mod._subagents.append(nxt)
+                        with types_mod._subagent_results_lock:
+                            types_mod._subagent_results.pop("worker", None)
+                    continued.append(nxt)
+                    assert types_mod.set_subagent_result_if_absent(
+                        "worker", newer, attempt=nxt
+                    )
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                return real_lock.__exit__(*exc)
+
+        monkeypatch.setattr(types_mod, "_outcome_persist_lock", InterleavingLock())
+        late = ReturnType("timeout", "A timed out")
+        assert not types_mod.set_subagent_result_if_absent(
+            "worker", late, attempt=run_a
+        )
+        assert load_subagent_outcome(continued[0]) == newer
+
 
 def _interrupted_log(logdir: Path) -> None:
     """A child that published work and was waiting externally when killed."""
