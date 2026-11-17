@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import zipfile
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
@@ -142,6 +143,37 @@ def test_im_first_frame_stages_bracketed_paths(tmp_path):
         assert staged.read_bytes() == b"%PDF-1.4"
     assert not staged.exists(), "the staged alias is temporary"
     assert p.exists(), "cleanup must not touch the original"
+
+
+@pytest.mark.parametrize("raise_in_context", [False, True])
+def test_im_first_frame_copy_fallback(tmp_path: Path, raise_in_context: bool) -> None:
+    """Without symlink privileges, copy the source and clean up on either exit."""
+    p = tmp_path / "foo[0].pdf"
+    content = b"%PDF-1.4"
+    p.write_bytes(content)
+
+    with (
+        patch.object(
+            Path, "symlink_to", side_effect=OSError("no symlink privilege")
+        ) as symlink,
+        ExitStack() as stack,
+    ):
+        if raise_in_context:
+            stack.enter_context(pytest.raises(RuntimeError, match="conversion failed"))
+        with _im_first_frame(p) as source:
+            symlink.assert_called_once_with(p.absolute())
+            assert source.endswith("[0]")
+            staged = Path(source.removesuffix("[0]"))
+            assert "[" not in str(staged) and "]" not in str(staged)
+            assert staged.suffix == ".pdf"
+            assert not staged.is_symlink()
+            assert staged.read_bytes() == content
+            if raise_in_context:
+                raise RuntimeError("conversion failed")
+
+    assert not staged.exists(), "the copied source is temporary"
+    assert not staged.parent.exists(), "cleanup must remove the staging directory"
+    assert p.read_bytes() == content, "cleanup must preserve the original bytes"
 
 
 def test_im_first_frame_plain_path_unchanged(tmp_path):
