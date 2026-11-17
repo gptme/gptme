@@ -60,7 +60,12 @@ from textual.widgets import (
 from textual.widgets.text_area import Edit, EditResult, Selection
 from textual.worker import Worker, WorkerState
 
-from ..chat import StepPersister, maybe_start_auto_naming, step
+from ..chat import (
+    StepPersister,
+    _close_interrupted_tool_calls,
+    maybe_start_auto_naming,
+    step,
+)
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..config import ChatConfig, get_config
 from ..constants import (
@@ -3081,6 +3086,9 @@ class GptmeApp(App):
             if not isinstance(filter_, ANSIToTruecolor)
         ]
         self.manager = manager
+        # Repair a process death before accepting another prompt: a new user
+        # message would hide the trailing unanswered native call from recovery.
+        _close_interrupted_tool_calls(manager)
         # Inspection never replaces the parent manager, context or widgets.
         self._child_view: Widget | None = None
         self._child_drafts: dict[str, tuple[str, Selection, dict[str, str]]] = {}

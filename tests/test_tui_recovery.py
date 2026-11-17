@@ -258,3 +258,41 @@ async def test_real_recovery_exhaustion_or_backoff_cancel_never_completes(
         terminal = read_skill_events(manager.logdir)[-1]
         assert terminal.phase == ("abandoned" if cancel_backoff else "failed")
         assert terminal.error_type == (None if cancel_backoff else "Timeout")
+
+
+@pytest.mark.parametrize("answered", [False, True])
+def test_tui_resume_pairs_crashed_tool_call_before_accepting_prompt(
+    tmp_path: Path, answered: bool
+) -> None:
+    """Repair saved native calls before a new user prompt hides the trailing step."""
+    messages = [
+        Message("user", "work"),
+        Message(
+            "assistant",
+            '@shell(call_1): {"command": "sleep 99"}',
+            metadata={"tool_format": "tool"},
+        ),
+    ]
+    if answered:
+        messages.append(Message("system", "completed", call_id="call_1"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+
+    GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+
+    results = [m for m in manager.log if m.call_id == "call_1"]
+    assert len(results) == 1
+    assert results[0].role == "system"
+    if answered:
+        assert len(manager.log) == 3
+        assert results[0].content == "completed"
+    else:
+        from gptme.constants import INTERRUPT_CONTENT
+
+        assert "interrupted" in results[0].content
+        assert manager.log[-1].content == INTERRUPT_CONTENT
+        reloaded = LogManager.load(manager.logdir, lock=False)
+        assert reloaded.log[-2].call_id == "call_1"
+        assert reloaded.log[-1].content == INTERRUPT_CONTENT
+        # Reopening the same conversation must not synthesize duplicate results.
+        GptmeApp(reloaded, workspace=tmp_path, tool_format="tool")
+        assert len(reloaded.log) == 4
