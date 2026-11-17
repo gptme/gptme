@@ -2298,8 +2298,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-client-protocol", marker = "python_full_version >= '3.10' and python_full_version < '3.15' and extra == 'acp'", specifier = ">=0.11.0" },
-    { name = "agent-client-protocol", marker = "python_full_version >= '3.10' and python_full_version < '3.15' and extra == 'all'", specifier = ">=0.11.0" },
+    { name = "agent-client-protocol", marker = "python_full_version >= '3.10' and python_full_version < '3.15' and extra == 'acp'", specifier = ">=0.11.0,<1" },
+    { name = "agent-client-protocol", marker = "python_full_version >= '3.10' and python_full_version < '3.15' and extra == 'all'", specifier = ">=0.11.0,<1" },
     { name = "anthropic", specifier = ">=1.8,<=1.13.0" },
     { name = "click", specifier = ">=8.4,<9" },
     { name = "click-default-group", specifier = ">=1.2.4,<2" },
