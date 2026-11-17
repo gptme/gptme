@@ -1316,6 +1316,64 @@ class GptmeAgent:
                 ) and (now - last_attempt[0]) >= FLUSH_INTERVAL:
                     _flush_batch()
 
+            def _send_from_worker(coro: Coroutine[Any, Any, None]) -> None:
+                """Send an ACP update from the executor thread, bounded so a stalled client cannot hang the turn."""
+                future = asyncio.run_coroutine_threadsafe(coro, loop)
+                try:
+                    future.result(timeout=5.0)
+                except Exception:
+                    future.cancel()
+                    logger.debug("Failed to send tool call update", exc_info=True)
+
+            # Tool calls of the current step, keyed by their position among the
+            # calls of the assistant message (execute_msg's call_index).
+            step_tool_calls: dict[int, str] = {}
+
+            def on_before_tool_execution(response: Message) -> None:
+                """Report each runnable call of this step before it runs."""
+                step_tool_calls.clear()
+                if not self._conn:
+                    return
+                # Text generated before the calls must reach the client first.
+                _flush_batch()
+                # Same parse as execute_msg, so indices match its call_index.
+                for index, tool_use in enumerate(
+                    ToolUse.iter_from_content(response.content)
+                ):
+                    if not tool_use.is_runnable:
+                        continue
+                    tool_call = ToolCall(
+                        tool_call_id=ToolCall.generate_id(),
+                        title=f"Executing {tool_use.tool}",
+                        kind=gptme_tool_to_acp_kind(tool_use.tool),
+                        status=ToolCallStatus.IN_PROGRESS,
+                        raw_input={
+                            "tool": tool_use.tool,
+                            "preview": (tool_use.content or "")[:100],
+                        },
+                    )
+                    step_tool_calls[index] = tool_call.tool_call_id
+                    _send_from_worker(self._report_tool_call(session_id, tool_call))
+
+            def settle_step_tool_calls(step_msgs: list[Message]) -> None:
+                """Give each call of the step its own outcome, read from its outputs."""
+                failed = {
+                    item.metadata.get("tool_call")
+                    for item in step_msgs
+                    if item.metadata
+                    and item.metadata.get("tool_status") in ("failed", "denied")
+                }
+                for index, tool_call_id in step_tool_calls.items():
+                    status = (
+                        ToolCallStatus.FAILED
+                        if index in failed
+                        else ToolCallStatus.COMPLETED
+                    )
+                    _send_from_worker(
+                        self._update_tool_call(session_id, tool_call_id, status)
+                    )
+                step_tool_calls.clear()
+
             def run_chat_turn() -> tuple[list[Message], str]:
                 """Run every generation/tool step in one ACP prompt turn.
 
@@ -1372,10 +1430,12 @@ class GptmeAgent:
                                 workspace=log.workspace,
                                 model=effective_model,
                                 on_token=on_token,
+                                on_before_tool_execution=on_before_tool_execution,
                                 logdir=log.logdir,
                                 max_tokens=prompt_max_tokens,
                             )
                         )
+                    settle_step_tool_calls(step_msgs)
                     response_msgs.extend(step_msgs)
                     step_log.extend(step_msgs)
                     step_count += 1
@@ -1436,7 +1496,7 @@ class GptmeAgent:
                 )
                 batch_buffer.clear()  # Only clear after confirmed successful send
 
-            # Phase 2: Mark all in-progress tool calls as completed
+            # Settle any call whose outcome no step observed.
             await self._complete_pending_tool_calls(session_id)
 
             # Process response messages: add to log and forward non-assistant messages.
