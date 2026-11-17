@@ -25,6 +25,7 @@ from ..constants import (
 )
 from ..message import Message
 from ..tools import has_tool
+from ..tools.base import current_workspace
 from .gh import (
     get_github_issue_content,
     get_github_pr_content,
@@ -282,7 +283,7 @@ def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
     - Otherwise, show absolute path
     """
     try:
-        cwd = Path.cwd()
+        cwd = current_workspace()
     except OSError:
         # CWD was deleted mid-session; f.absolute() would need it too, so return as-is
         return f

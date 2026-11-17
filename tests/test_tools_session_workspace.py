@@ -137,3 +137,55 @@ def test_save_append_refuse_workspace_fifo(workspaces, operation):
     assert len(messages) == 1
     assert "not a regular file" in messages[0].content
     assert not (elsewhere / "pipe").exists()
+
+
+def test_precommit_detects_config_in_session_workspace(workspaces, monkeypatch):
+    a, b, _ = workspaces
+    (a / ".pre-commit-config.yaml").write_text("repos: []\n")
+    monkeypatch.delenv("GPTME_CHECK", raising=False)
+
+    from gptme.tools.precommit import use_checks
+
+    assert _in_session(a, use_checks) is True
+    assert _in_session(b, use_checks) is False
+
+
+def test_precommit_repo_root_is_session_repo(workspaces):
+    import subprocess
+
+    a, b, _ = workspaces
+    for ws in (a, b):
+        subprocess.run(["git", "init", "-q", str(ws)], check=True)
+
+    from gptme.tools.precommit import _get_repo_root
+
+    assert _in_session(a, _get_repo_root).resolve() == a.resolve()
+    assert _in_session(b, _get_repo_root).resolve() == b.resolve()
+
+
+def test_vent_records_session_workspace(workspaces, monkeypatch, tmp_path):
+    import json
+
+    a, _, _ = workspaces
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+    from gptme.tools.vent import _vent_this_turn, execute_vent
+
+    def vent():
+        _vent_this_turn.set(False)
+        return execute_vent("stuck", None, None)
+
+    _in_session(a, vent)
+    ledger = tmp_path / "data" / "gptme" / "friction-ledger.jsonl"
+    entry = json.loads(ledger.read_text().splitlines()[-1])
+    assert entry["workspace"] == str(a.resolve())
+
+
+def test_display_path_relative_to_session_workspace(workspaces):
+    a, _, _ = workspaces
+    f = a / "src" / "x.py"
+
+    from gptme.util.context import file_to_display_path
+
+    shown = _in_session(a, lambda: file_to_display_path(f, a.resolve()))
+    assert shown == Path("src/x.py")

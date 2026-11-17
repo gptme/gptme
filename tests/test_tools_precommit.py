@@ -254,6 +254,7 @@ class TestGetRepoRoot:
         assert _get_repo_root() == root
         mock_run.assert_called_once_with(
             [GIT_CMD, "rev-parse", "--show-toplevel"],
+            cwd=Path.cwd().resolve(),
             capture_output=True,
             check=False,
             timeout=10,
@@ -495,7 +496,7 @@ class TestRunPrecommitChecks:
             assert run_precommit_checks(all_files=all_files) == (True, None)
         mock_run.assert_called_once_with(
             [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
-            cwd=None,
+            cwd=tmp_path.resolve(),
             capture_output=True,
             text=True,
             check=True,

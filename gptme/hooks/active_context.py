@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Generator
-from pathlib import Path
 
 from ..context.selector.file_selector import select_relevant_files
 from ..message import Message
@@ -126,7 +125,9 @@ def context_hook(
     if not sections:
         return
 
-    cwd = Path.cwd()
+    from ..tools.base import current_workspace  # tools import hooks
+
+    cwd = current_workspace()
     content = f"""# Context
 Working directory: {cwd}
 
