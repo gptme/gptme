@@ -18,6 +18,7 @@ from gptme.tools.shell_background import (
     BackgroundJob,
     _write_job_log,
     complete_background_job,
+    execute_output_command,
     format_job_output,
     register_background_job,
     reset_background_jobs,
@@ -92,6 +93,25 @@ def test_preview_reports_ram_evicted_prefix(direct_job) -> None:
     )
     assert "read them from the files above" in preview
     assert "omitted text may also be missing" not in preview
+
+
+def test_incremental_preview_does_not_report_global_ram_eviction(
+    direct_job, monkeypatch
+) -> None:
+    """Incremental reads use spool cursors, not the evicted RAM prefix."""
+    monkeypatch.setattr(
+        "gptme.tools.shell_background.get_background_job", lambda _: direct_job
+    )
+    assert direct_job._stderr_buffer_start > 0
+    messages = list(execute_output_command(f"{direct_job.id} --new"))
+    preview = "\n".join(message.content for message in messages)
+    assert "ERROR-END" in preview
+    assert "truncated, showing last" in preview  # Display truncation stays visible.
+    assert "Preview omits the earliest" not in preview
+    assert (
+        "No new output."
+        in list(execute_output_command(f"{direct_job.id} --new"))[0].content
+    )
 
 
 def test_reader_closes_files_while_job_remains_reachable(direct_job) -> None:

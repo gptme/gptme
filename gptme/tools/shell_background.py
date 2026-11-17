@@ -1437,7 +1437,7 @@ def format_job_output(
                 paths.append(f"stderr: `{job.stderr_log_path}`")
             if paths:
                 blocks.append(label + ":\n" + "\n".join(paths))
-            if dropped:
+            if dropped and omit_evicted_prefix:
                 # Only promise recovery when the spool retained the full output.
                 recovery = (
                     "read them from the files above."
