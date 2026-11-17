@@ -118,7 +118,12 @@ class GptmeMCPServer:
         self._tool_names = [
             t for t in (tool_names or DEFAULT_TOOLS) if t not in _EXCLUDED_TOOLS
         ]
-        self._workspace = workspace
+        # Resolve now: serve_stdio() chdirs into the workspace, after which a
+        # relative path would be re-resolved against itself by the shell
+        # session and by TOOL_EXECUTE_PRE policy hooks.
+        self._workspace = (
+            os.path.abspath(os.path.expanduser(workspace)) if workspace else None
+        )
         self._server = Server("gptme", version=__version__)
         self._loaded_tools: list[ToolSpec] = []
         # Persistent shell session shared across all tool calls. Lazily created

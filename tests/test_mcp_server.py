@@ -747,6 +747,30 @@ class TestWorkspaceHandling:
             f"Expected os.chdir({tmp_path!s}) but got {chdir_calls}"
         )
 
+    def test_relative_workspace_is_resolved_before_chdir(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A relative workspace must not be re-resolved against itself after chdir."""
+        monkeypatch.chdir(tmp_path)
+        server = GptmeMCPServer(workspace="project")
+        expected = str(tmp_path / "project")
+        assert server._workspace == expected
+
+        chdir_calls: list[str] = []
+
+        def _drain_coro(coro):
+            coro.close()
+
+        from unittest.mock import patch
+
+        with (
+            patch("gptme.mcp.server.os.chdir", side_effect=chdir_calls.append),
+            patch.object(server, "_init_tools"),
+            patch("asyncio.run", side_effect=_drain_coro),
+        ):
+            server.serve_stdio()
+        assert chdir_calls == [expected]
+
     def test_serve_stdio_no_chdir_without_workspace(self) -> None:
         """serve_stdio must not call os.chdir when workspace is None."""
         from unittest.mock import patch
