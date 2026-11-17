@@ -2723,7 +2723,12 @@ class TestClarifyBlock:
     ):
         """If subagent() raises during re-spawn, the original state is restored."""
         from gptme.tools.subagent.api import subagent_reply
+        from gptme.tools.subagent.persistence import (
+            load_subagent_meta,
+            persist_subagent_meta,
+        )
 
+        (tmp_path / "log").mkdir()
         sa = Subagent(
             agent_id="atomic-agent",
             prompt="original task",
@@ -2734,6 +2739,7 @@ class TestClarifyBlock:
         original_result = ReturnType("clarification_needed", "What format?")
         with _subagents_lock:
             _subagents.append(sa)
+        persist_subagent_meta(sa)
         with _subagent_results_lock:
             _subagent_results["atomic-agent"] = original_result
 
@@ -2753,6 +2759,8 @@ class TestClarifyBlock:
         )
         with _subagent_results_lock:
             assert _subagent_results.get("atomic-agent") == original_result
+        # The restored attempt must stay rehydratable after a parent restart.
+        assert load_subagent_meta(tmp_path / "log") is not None
         # cleanup
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "atomic-agent"]

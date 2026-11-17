@@ -2093,6 +2093,9 @@ def subagent_reply(agent_id: str, reply: str) -> None:
     except Exception:
         with _subagents_lock:
             _subagents.append(sa)
+        # The meta file was removed above; without it a parent restart cannot
+        # rehydrate the restored attempt even though its log and outcome remain.
+        persist_subagent_meta(sa)
         if old_result is not None:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = old_result
