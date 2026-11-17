@@ -549,6 +549,9 @@ def test_teeio_spills_overflow_to_tool_outputs(tmp_path):
     assert tee._spill is None  # closed by get_captured
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires paths longer than Windows MAX_PATH"
+)
 def test_teeio_long_spill_path_counts_trimmed_head_bytes(tmp_path):
     """A saved-path marker longer than the reserve trims the head; the marker's
     omitted count must include those trimmed bytes (head + omitted == total)."""
