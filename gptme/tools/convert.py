@@ -28,13 +28,16 @@ import subprocess
 import tempfile
 import zipfile
 from abc import ABC, abstractmethod
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from ..message import Message
 from .base import Parameter, ToolSpec
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +53,28 @@ def _arg(path: Path) -> str:
     return f"./{text}" if text.startswith("-") else text
 
 
-def _im_src(path: Path) -> str:
-    """Render a path safe for ImageMagick ``src[N]`` frame-selector syntax.
+@contextmanager
+def _im_first_frame(path: Path) -> Iterator[str]:
+    """Yield an ImageMagick ``src[0]`` argument that reads ``path`` literally.
 
     ImageMagick interprets ``[`` and ``]`` in an input path as frame selectors,
-    so a file named ``foo[0].pdf`` would silently match a different file. Escape
-    any brackets in the path component before appending the ``[0]`` selector.
+    so a file named ``foo[0].pdf`` would silently match a different file.
+    Backslash-escaping the brackets works on ImageMagick 6 but not 7, which then
+    looks for a file literally named ``foo\\[0\\].pdf``. Instead, expose a
+    bracketed source under a plain name in a temporary directory.
     """
-    return _arg(path).replace("[", "\\[").replace("]", "\\]")
+    if "[" not in str(path) and "]" not in str(path):
+        yield f"{_arg(path)}[0]"
+        return
+    with tempfile.TemporaryDirectory(prefix="gptme-convert-src-") as directory:
+        suffix = path.suffix.replace("[", "").replace("]", "")
+        staged = Path(directory) / f"source{suffix}"
+        try:
+            staged.symlink_to(path.absolute())
+        except OSError:
+            # Symlinks can need privileges (e.g. on Windows); copy instead.
+            shutil.copyfile(path, staged)
+        yield f"{staged}[0]"
 
 
 def _para_to_md(para: object) -> str:
@@ -459,14 +476,9 @@ class PDFToImageConverter(Converter):
 
         if avail.imagemagick:
             density = str(dpi)
-            cmd = [
-                "convert",
-                "-density",
-                density,
-                f"{_im_src(src)}[0]",
-                _arg(dest),
-            ]
-            result = subprocess.run(cmd, capture_output=True, check=False)
+            with _im_first_frame(src) as source:
+                cmd = ["convert", "-density", density, source, _arg(dest)]
+                result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 warnings.append("PDF-to-image conversion saves only the first page")
                 return ConversionResult(
@@ -630,20 +642,25 @@ class ImageConverter(Converter):
             dest.unlink(missing_ok=True)
 
         if avail.imagemagick:
-            source = f"{_im_src(src)}[0]" if single_frame else _arg(src)
-            # Normalize pixels and reset EXIF orientation before writing, including
-            # formats that cannot retain orientation metadata (e.g. BMP).
-            cmd = [
-                "convert",
-                source,
-                "-auto-orient",
-                "-define",
-                "filename:literal=true",
-            ]
-            if lossy:
-                cmd += ["-quality", str(q)]
-            cmd += [_arg(dest)]
-            result = subprocess.run(cmd, capture_output=True, check=False)
+            with ExitStack() as inputs:
+                source = (
+                    inputs.enter_context(_im_first_frame(src))
+                    if single_frame
+                    else _arg(src)
+                )
+                # Normalize pixels and reset EXIF orientation before writing,
+                # including formats that cannot retain orientation (e.g. BMP).
+                cmd = [
+                    "convert",
+                    source,
+                    "-auto-orient",
+                    "-define",
+                    "filename:literal=true",
+                ]
+                if lossy:
+                    cmd += ["-quality", str(q)]
+                cmd += [_arg(dest)]
+                result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
                     success=True,
