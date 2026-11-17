@@ -82,6 +82,14 @@ def _acp_confirm_hook(
     return turn.agent._confirm_tool_use(turn, tool_use)
 
 
+def _call_code(tool_use: ToolUse) -> str:
+    """The code a reported call runs, whether in its body or a native ``code`` kwarg."""
+    code = tool_use.content
+    if code is None:
+        code = (tool_use.kwargs or {}).get("code") or ""
+    return code.strip()
+
+
 # Bound for closing one host-supplied MCP client during cancel/shutdown.
 # MCPClient.close() also interrupts in-flight calls; this is the ACP-side cap
 # so a stuck close cannot block session cancellation indefinitely.
@@ -520,11 +528,14 @@ class GptmeAgent:
             # same, so tie the confirmation to the call that is running it. Each
             # call is reported right before it runs, so the latest match is the
             # running one: an earlier call with the same code has already run.
+            # Compare the code the tool executes: execute_python strips it, and
+            # native tool calls carry it in kwargs with no content.
+            code = tool_use.content.strip()
             tool_call_id = next(
                 (
                     call_id
                     for parsed, call_id in reversed(turn.calls)
-                    if parsed.content == tool_use.content
+                    if _call_code(parsed) == code
                 ),
                 None,
             )

@@ -2706,11 +2706,23 @@ class TestPromptToolPermission:
         }
         assert final == {reported[0]: "completed", reported[1]: "failed"}
 
-    def test_helper_confirmation_reuses_the_running_call(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("reply", "tool_format"),
+        [
+            ("```pyish\nhelper('x')\n```", "markdown"),
+            ("```pyish\n\nhelper('x')  \n\n```", "markdown"),
+            ('@pyish(call_1): {"code": "  helper(\'x\')\\n"}', "tool"),
+        ],
+        ids=["markdown", "padded-markdown", "native-tool-call"],
+    )
+    def test_helper_confirmation_reuses_the_running_call(
+        self, monkeypatch, reply, tool_format
+    ):
         """A helper confirming under its owning tool must settle the original call.
 
         execute_python asks as e.g. ``vision`` for ``view_image(...)`` while the
         reported call is ``ipython``; a rejection must fail that call, not a new one.
+        It confirms the stripped code, and native calls report it as a kwarg.
         """
         from gptme.constants import DECLINED_CONTENT
         from gptme.hooks import ConfirmAction, get_confirmation
@@ -2719,11 +2731,12 @@ class TestPromptToolPermission:
 
         agent, ran = self._setup(
             monkeypatch,
-            ["```pyish\nhelper('x')\n```", "Okay."],
+            [reply, "Okay."],
             lambda **kwargs: _mock_permission_response("reject-once"),
         )
 
         def pyish(code, args, kwargs):
+            code = (code if code is not None else kwargs["code"]).strip()
             confirm = get_confirmation(tool_use=ToolUse("owner", [], code))
             if confirm.action != ConfirmAction.CONFIRM:
                 yield Message("system", DECLINED_CONTENT)
@@ -2734,6 +2747,7 @@ class TestPromptToolPermission:
         spec = ToolSpec(name="pyish", desc="", execute=pyish, block_types=["pyish"])
         monkeypatch.setattr("gptme.tools.get_tool", {"pyish": spec}.get)
         monkeypatch.setattr("gptme.tools.get_tool_for_langtag", {"pyish": spec}.get)
+        monkeypatch.setattr("gptme.tools.base.get_tool_format", lambda: tool_format)
 
         self._prompt(agent)
 
