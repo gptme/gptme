@@ -9,6 +9,7 @@ each other's, whatever the process cwd happens to be.
 import contextvars
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -142,9 +143,16 @@ def test_save_append_refuse_workspace_fifo(workspaces, operation):
 def test_precommit_detects_config_in_session_workspace(workspaces, monkeypatch):
     a, b, _ = workspaces
     (a / ".pre-commit-config.yaml").write_text("repos: []\n")
-    monkeypatch.delenv("GPTME_CHECK", raising=False)
-
     from gptme.tools.precommit import use_checks
+
+    # Pin auto-detection and runner availability, not the developer's config/PATH.
+    config = Mock()
+    config.get_env.return_value = ""
+    monkeypatch.setattr("gptme.tools.precommit.get_config", lambda: config)
+    monkeypatch.setattr(
+        "gptme.tools.precommit.shutil.which",
+        lambda name: str(a / name),
+    )
 
     assert _in_session(a, use_checks) is True
     assert _in_session(b, use_checks) is False
