@@ -356,6 +356,7 @@ class TestMCPInfo:
         server.name = "http-server"
         server.enabled = True
         server.is_http = True
+        server.is_sse = False  # real MCPServerConfig returns a plain bool
         server.url = "http://localhost:8080"
         server.headers = {"Authorization": "Bearer token"}
         mock_config.mcp.servers = [server]
@@ -368,7 +369,7 @@ class TestMCPInfo:
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "info", "http-server"])
         assert result.exit_code == 0
-        assert "Type: HTTP" in result.output
+        assert "Type: HTTP\n" in result.output, result.output
         assert "URL: http://localhost:8080" in result.output
         assert "Headers: 1 configured" in result.output
         server.env = {}
@@ -379,6 +380,7 @@ class TestMCPInfo:
         server.name = "http-server"
         server.enabled = False
         server.is_http = True
+        server.is_sse = False
         server.url = "https://user:secret@example.com/mcp?token=hunter2"
         server.headers = {}
         mock_config.mcp.servers = [server]
