@@ -18,6 +18,8 @@ def make_client(server: MCPServerConfig) -> Any:
     client._setup_stdio_connection = Mock()
     client._setup_http_connection = Mock()
     client._run_async = Mock(return_value=(SimpleNamespace(tools=[]), object()))
+    # Mirrors MCPClient.__init__: the helper skips it on purpose.
+    client._oauth_provider = None
     return client
 
 
@@ -96,9 +98,11 @@ def test_http_connect_forwards_url_and_headers_unchanged() -> None:
     with patch.dict(os.environ, {"FIXTURE": "ambient"}, clear=True):
         tools, session = client.connect("fixture")
     client._setup_http_connection.assert_called_once_with(
-        server.url, server.headers, use_sse=False
+        server.url, server.headers, use_sse=False, auth=None
     )
     client._setup_stdio_connection.assert_not_called()
+    # The static Authorization header wins, so no OAuth handler was built.
+    assert client._oauth_provider is None
     assert server.env == {"FIXTURE": "explicit"}
     assert tools.tools == []
     assert session is client._run_async.return_value[1]

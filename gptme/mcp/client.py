@@ -583,6 +583,8 @@ class MCPClient:
             # HTTP MCP server (streamable-HTTP or legacy SSE). A configured
             # Authorization header wins: the user already has a token, so no
             # browser round-trip should start on a 401.
+            close_oauth_provider(self._oauth_provider)
+            self._oauth_provider = None
             auth = None
             if not has_authorization_header(server.headers):
                 try:
