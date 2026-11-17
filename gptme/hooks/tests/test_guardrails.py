@@ -447,6 +447,45 @@ class TestGuardrailHookEnforceMode:
         assert result.message is not None
         assert "credentials" in result.message or "Blocked" in result.message
 
+    @pytest.mark.parametrize("dirname", ["work$", "work`", "$GUARD_TEST_DIR"])
+    @pytest.mark.parametrize("target", [".ssh", ".ssh-backup"])
+    @pytest.mark.parametrize("entrypoint", ["content", "args", "kwargs"])
+    def test_read_tool_literal_substitution_traversal(
+        self, monkeypatch, tmp_path, dirname, target, entrypoint
+    ):
+        from ...tools.read import execute_read
+        from ..guardrails import guardrail_pre_hook
+        from ..types import ToolExecutePreData
+
+        home = tmp_path / "home"
+        (home / target).mkdir(parents=True)
+        (home / target / "config").write_text("synthetic-content\n")
+        (home / dirname).mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GUARD_TEST_DIR", str(tmp_path / "elsewhere" / "work"))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
+        monkeypatch.chdir(home)
+        path = f"~/{dirname}/../{target}/config"
+        content = path if entrypoint == "content" else ""
+        args = [path] if entrypoint == "args" else None
+        kwargs = {"path": path} if entrypoint == "kwargs" else None
+
+        # The reader expands ~ but treats $ and backticks as literal characters.
+        messages = list(execute_read(content, args, kwargs))
+        assert any("synthetic-content" in message.content for message in messages)
+        tool_use = _make_tool_use("read", content, args=args, kwargs=kwargs)
+        result = guardrail_hook(tool_use)
+        pre_data = ToolExecutePreData(tool_use=tool_use)
+        list(guardrail_pre_hook(pre_data))
+        if target == ".ssh":
+            assert isinstance(result, ConfirmationResult)
+            assert result.action == ConfirmAction.SKIP
+            assert pre_data.denied
+        else:
+            assert result is None
+            assert not pre_data.denied
+
     def test_read_tool_pem_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tool_use = _make_tool_use("read", "/tmp/server.pem")

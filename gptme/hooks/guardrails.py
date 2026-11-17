@@ -285,7 +285,10 @@ def _read_secret_path_reason(
             if line.strip() and not line.strip().startswith("#")
         ]
     for path_arg in path_candidates:
-        if _is_secret_path(path_arg):
+        # read expands ~, not shell variables or substitutions. Check its
+        # literal spelling too: work$/../.ssh/config still reaches ~/.ssh.
+        literal = os.path.abspath(os.path.expanduser(path_arg))
+        if _is_secret_path(path_arg) or _is_secret_spelling(literal):
             return (
                 f"Secret path access blocked: read tool references {path_arg!r}. "
                 "Use a dedicated secrets manager or explicit user approval."
