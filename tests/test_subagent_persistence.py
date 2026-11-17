@@ -428,6 +428,7 @@ class TestRegistryRehydration:
     def setup_method(self):
         import gptme.tools.subagent.types as types_mod
         from gptme.tools.subagent.types import (
+            _shadowed_subagents,
             _subagent_results,
             _subagent_results_lock,
             _subagents,
@@ -437,12 +438,14 @@ class TestRegistryRehydration:
         types_mod._registry_rehydrated = False
         with _subagents_lock:
             _subagents.clear()
+            _shadowed_subagents.clear()
         with _subagent_results_lock:
             _subagent_results.clear()
 
     def teardown_method(self):
         import gptme.tools.subagent.types as types_mod
         from gptme.tools.subagent.types import (
+            _shadowed_subagents,
             _subagent_results,
             _subagent_results_lock,
             _subagents,
@@ -452,6 +455,7 @@ class TestRegistryRehydration:
         types_mod._registry_rehydrated = False
         with _subagents_lock:
             _subagents.clear()
+            _shadowed_subagents.clear()
         with _subagent_results_lock:
             _subagent_results.clear()
 
@@ -653,6 +657,222 @@ class TestRegistryRehydration:
         assert found is live
 
 
+def _persist_child(
+    logs_dir: Path,
+    dirname: str,
+    *,
+    parent: Path,
+    started_at: float,
+    outcome: ReturnType | None,
+    content: str = "done",
+    agent_id: str = "worker",
+) -> Path:
+    logdir = logs_dir / dirname
+    _completed_log(logdir, content)
+    sa = Subagent(
+        agent_id=agent_id,
+        prompt=f"prompt {dirname}",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        started_at=started_at,
+        parent_logdir=parent,
+    )
+    persist_subagent_meta(sa)
+    if outcome is not None:
+        assert persist_subagent_outcome(sa, outcome)
+    return logdir.resolve()
+
+
+class TestCrossConversationRehydration:
+    """Agent IDs are only unique per conversation (gptme/gptme#4981).
+
+    Registry rehydration must not drop one conversation's child because a
+    different conversation persisted a child under the same agent_id.
+    """
+
+    def setup_method(self):
+        _reset_subagent_registry()
+
+    def teardown_method(self):
+        _reset_subagent_registry()
+
+    def _two_conversations(
+        self, tmp_path: Path, monkeypatch, *, a_outcome: ReturnType | None
+    ) -> tuple[Path, Path, Path, Path]:
+        logs_dir = tmp_path / "logs"
+        parent_a = (logs_dir / "conv-a").resolve()
+        parent_b = (logs_dir / "conv-b").resolve()
+        parent_a.mkdir(parents=True)
+        parent_b.mkdir(parents=True)
+        child_a = _persist_child(
+            logs_dir,
+            "subagent-worker-aaaa",
+            parent=parent_a,
+            started_at=10.0,
+            outcome=a_outcome,
+            content="from A",
+        )
+        child_b = _persist_child(
+            logs_dir,
+            "subagent-worker-bbbb",
+            parent=parent_b,
+            started_at=20.0,
+            outcome=ReturnType("cancelled", "B was cancelled"),
+            content="from B",
+        )
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+        return parent_a, parent_b, child_a, child_b
+
+    def test_older_conversation_keeps_its_same_named_child(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import subagent_snapshots
+
+        parent_a, parent_b, child_a, child_b = self._two_conversations(
+            tmp_path,
+            monkeypatch,
+            a_outcome=ReturnType("success", "A result", duration_s=3.0),
+        )
+
+        snaps_a = subagent_snapshots(parent_a)
+        assert [s.run_id for s in snaps_a] == [str(child_a)]
+        assert snaps_a[0].status == "success"
+        assert snaps_a[0].elapsed_s == 3
+
+        snaps_b = subagent_snapshots(parent_b)
+        assert [s.run_id for s in snaps_b] == [str(child_b)]
+        assert snaps_b[0].status == "cancelled"
+
+    def test_shadowed_child_never_borrows_holders_result(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Without its own persisted outcome, A's child reads its own log.
+
+        The agent_id-keyed cache holds B's ``cancelled`` outcome; attaching it
+        to A's run would report a cancellation that never happened.
+        """
+        from gptme.tools.subagent.api import subagent_snapshots, subagent_status
+        from gptme.tools.subagent.types import (
+            _shadowed_subagents,
+            _subagents,
+            _subagents_lock,
+        )
+
+        parent_a, _, child_a, child_b = self._two_conversations(
+            tmp_path, monkeypatch, a_outcome=None
+        )
+
+        snaps_a = subagent_snapshots(parent_a)
+        assert [s.run_id for s in snaps_a] == [str(child_a)]
+        assert snaps_a[0].status == "success"
+
+        with _subagents_lock:
+            [shadowed] = list(_shadowed_subagents)
+            holders = [s for s in _subagents if s.agent_id == "worker"]
+        assert shadowed.logdir == child_a
+        status = shadowed.status()
+        assert status.status == "success"
+        assert isinstance(status.result, str)
+        assert status.result.startswith("from A")
+        # The addressable registry entry, cache and ID APIs stay with B.
+        assert [s.logdir for s in holders] == [child_b]
+        assert subagent_status("worker")["status"] == "cancelled"
+
+    def test_list_shows_both_conversations_children(self, tmp_path: Path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_list
+
+        self._two_conversations(
+            tmp_path, monkeypatch, a_outcome=ReturnType("success", "A result")
+        )
+
+        listed = sorted(
+            (e["prompt_preview"], e["status"])
+            for e in subagent_list()
+            if e["agent_id"] == "worker"
+        )
+        assert listed == [
+            ("prompt subagent-worker-aaaa", "success"),
+            ("prompt subagent-worker-bbbb", "cancelled"),
+        ]
+
+    def test_same_conversation_reuse_still_keeps_newest_only(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import subagent_snapshots
+        from gptme.tools.subagent.types import _shadowed_subagents, _subagents_lock
+
+        logs_dir = tmp_path / "logs"
+        parent = (logs_dir / "conv-a").resolve()
+        parent.mkdir(parents=True)
+        _persist_child(
+            logs_dir,
+            "subagent-worker-old1",
+            parent=parent,
+            started_at=10.0,
+            outcome=None,
+        )
+        newer = _persist_child(
+            logs_dir,
+            "subagent-worker-new2",
+            parent=parent,
+            started_at=20.0,
+            outcome=None,
+        )
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        assert [s.run_id for s in subagent_snapshots(parent)] == [str(newer)]
+        with _subagents_lock:
+            assert _shadowed_subagents == []
+
+    def test_live_holder_keeps_cache_when_scan_finds_other_conversation(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A run spawned before the lazy scan keeps the agent_id namespace."""
+        from gptme.tools.subagent.api import subagent_snapshots
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        logs_dir = tmp_path / "logs"
+        parent_a = (logs_dir / "conv-a").resolve()
+        parent_b = (logs_dir / "conv-b").resolve()
+        parent_a.mkdir(parents=True)
+        parent_b.mkdir(parents=True)
+        child_a = _persist_child(
+            logs_dir,
+            "subagent-worker-aaaa",
+            parent=parent_a,
+            started_at=10.0,
+            outcome=ReturnType("failure", "A failed"),
+        )
+        live = Subagent(
+            agent_id="worker",
+            prompt="live B",
+            thread=None,
+            logdir=logs_dir / "subagent-worker-live",
+            model=None,
+            started_at=30.0,
+            parent_logdir=parent_b,
+        )
+        live_result = ReturnType("success", "live B result")
+        with _subagents_lock:
+            _subagents.append(live)
+            with _subagent_results_lock:
+                _subagent_results["worker"] = live_result
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        snaps_a = subagent_snapshots(parent_a)
+        assert [(s.run_id, s.status) for s in snaps_a] == [(str(child_a), "failure")]
+        with _subagents_lock:
+            assert [s for s in _subagents if s.agent_id == "worker"] == [live]
+        with _subagent_results_lock:
+            assert _subagent_results["worker"] is live_result
+
+
 def _interrupted_log(logdir: Path) -> None:
     """A child that published work and was waiting externally when killed."""
     logdir.mkdir(parents=True, exist_ok=True)
@@ -668,6 +888,7 @@ def _reset_subagent_registry() -> None:
     """Clear in-process subagent state, as a parent restart would."""
     import gptme.tools.subagent.types as types_mod
     from gptme.tools.subagent.types import (
+        _shadowed_subagents,
         _subagent_results,
         _subagent_results_lock,
         _subagents,
@@ -677,6 +898,7 @@ def _reset_subagent_registry() -> None:
     types_mod._registry_rehydrated = False
     with _subagents_lock:
         _subagents.clear()
+        _shadowed_subagents.clear()
     with _subagent_results_lock:
         _subagent_results.clear()
 

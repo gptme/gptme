@@ -49,6 +49,7 @@ from .types import (
     SubtaskDef,
     _completion_queue,
     _progress_queue,
+    _shadowed_subagents,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -638,6 +639,7 @@ __all__ = [
     # Module-level state (re-exported for backward compatibility)
     "_subagents",
     "_subagents_lock",
+    "_shadowed_subagents",
     "_subagent_results",
     "_subagent_results_lock",
     "_completion_queue",

@@ -38,6 +38,7 @@ from gptme.tools import clear_tools
 from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag
 from gptme.tools.subagent import (
+    _shadowed_subagents,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -707,6 +708,7 @@ def cleanup_subagents_after():
         # even if the join/terminate phase above was interrupted.
         with _subagents_lock:
             _subagents.clear()
+            _shadowed_subagents.clear()
         # Clear cached terminal results too; many tests intentionally reuse agent IDs
         # like "explorer"/"checker", and the queued-cancel guards now treat a stale
         # cached result as "already completed" and skip the new launch.

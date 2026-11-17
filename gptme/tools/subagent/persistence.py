@@ -54,6 +54,8 @@ _RUNTIME_FIELDS = frozenset(
         "latest_progress",
         "frozen_duration_s",
         "snapshot_outcome",
+        "shadowed",
+        "shadowed_outcome",
     }
 )
 # Required Subagent.__init__ args that must round-trip even when null.

@@ -124,6 +124,13 @@ class SubtaskDef(TypedDict):
 _subagents: list["Subagent"] = []
 _subagents_lock = threading.Lock()
 
+# Persisted runs found by registry rehydration whose ``agent_id`` is already
+# held in ``_subagents`` by another conversation's run (agent IDs are only
+# unique within one conversation). They are kept out of ``_subagents`` so no
+# agent_id-addressed lookup, result cache entry or control call can resolve to
+# them; owner-scoped listings still show them. Guarded by ``_subagents_lock``.
+_shadowed_subagents: list["Subagent"] = []
+
 # Cache for subprocess results (keyed by agent_id)
 # This allows Subagent to remain frozen while storing mutable result state
 _subagent_results: dict[str, "ReturnType"] = {}
@@ -451,6 +458,13 @@ class Subagent:
     snapshot_outcome: ReturnType | None = field(
         default=None, init=False, compare=False, repr=False
     )
+    # Set on a rehydrated run held in ``_shadowed_subagents``. The agent_id-keyed
+    # result cache belongs to another conversation's run, so a shadowed run
+    # reports only its own persisted outcome (``shadowed_outcome``) or its log.
+    shadowed: bool = field(default=False, init=False, compare=False, repr=False)
+    shadowed_outcome: ReturnType | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
     # In-memory fallback cancellation signal for thread mode.
     # Set by subagent_cancel() when the control-file write fails (OSError), so the
     # STEP_PRE checkpoint hook can still stop the thread without the file.
@@ -652,8 +666,7 @@ class Subagent:
         if not allow_cancelled:
             # Check in-memory cache first so a failed persist does not let the
             # same-process caller bypass the cancellation guard.
-            with _subagent_results_lock:
-                cached = _subagent_results.get(self.agent_id)
+            cached = self._cached_result()
             if cached is not None and cached.status == "cancelled":
                 return (
                     f"Subagent '{self.agent_id}' was cancelled and cannot be "
@@ -693,9 +706,15 @@ class Subagent:
             return self.thread.is_alive()
         return False
 
-    def status(self) -> ReturnType:
+    def _cached_result(self) -> ReturnType | None:
+        """Return this run's cached terminal result, never another run's."""
+        if self.shadowed:
+            return self.shadowed_outcome
         with _subagent_results_lock:
-            cached_result = _subagent_results.get(self.agent_id)
+            return _subagent_results.get(self.agent_id)
+
+    def status(self) -> ReturnType:
+        cached_result = self._cached_result()
         if cached_result is not None:
             return cached_result
         if self.is_running():
@@ -761,9 +780,9 @@ class Subagent:
         where status() would incorrectly return "running" because the thread is alive.
         """
         # Return cached result if available (set by cancel or subprocess completion)
-        with _subagent_results_lock:
-            if self.agent_id in _subagent_results:
-                return _subagent_results[self.agent_id]
+        cached_result = self._cached_result()
+        if cached_result is not None:
+            return cached_result
 
         # Read token stats once; attach to every terminal ReturnType we return.
         usage = self._read_usage()
