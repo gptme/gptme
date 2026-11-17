@@ -1047,3 +1047,19 @@ def test_ripgrep_value_options_preserve_pattern(secret_tree: Path, option: str) 
 )
 def test_secret_path_glued_to_shell_operator_is_detected(command: str) -> None:
     assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo foo#bar; cat ~/.ssh/id_rsa",
+        "echo foo#bar && cat ~/.ssh/id_rsa",
+        "echo foo#bar\ncat ~/.aws/credentials",
+    ],
+)
+def test_secret_path_after_literal_hash_is_detected(
+    monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    assert _find_secret_path_in_cmd(command) is not None
+    monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+    assert guardrail_hook(ToolUse(tool="shell", args=[], content=command)) is not None
