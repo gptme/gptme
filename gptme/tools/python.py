@@ -59,6 +59,7 @@ from .base import (
     ToolSpec,
     ToolUse,
     callable_signature,
+    current_workspace,
 )
 
 if TYPE_CHECKING:
@@ -840,7 +841,8 @@ def execute_python(
 
     # Kernel mode: execute in a separate Jupyter kernel process
     if _resolve_kernel_backend():
-        cwd = Path.cwd()
+        # The kernel runs cells in the session workspace (see KernelBackend.execute).
+        cwd = current_workspace()
         pre_images = _snapshot_images(cwd)
         msgs = list(_execute_python_kernel(code))
         post_images = _snapshot_images(cwd)

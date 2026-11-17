@@ -48,3 +48,46 @@ def test_regular_helpers_still_reject_changed_directory(
     result = backend.execute(f"import os; os.chdir({str(target)!r}); host_helper()")
     assert result.error is not None
     assert "working directory differs" in result.error["evalue"]
+
+
+def _in_session(workspace: Path, fn):
+    """Run ``fn`` in its own context with ``workspace`` as the session workspace."""
+    import contextvars
+
+    from gptme.tools.shell import set_workspace_cwd
+
+    def run():
+        set_workspace_cwd(str(workspace))
+        return fn()
+
+    return contextvars.copy_context().run(run)
+
+
+@pytest.fixture
+def session_workspace(tmp_path: Path) -> Path:
+    """A server session's workspace, distinct from the process cwd (``tmp_path``)."""
+    ws = tmp_path / "session-ws"
+    ws.mkdir()
+    return ws
+
+
+def test_cell_runs_in_session_workspace(
+    backend: KernelBackend, session_workspace: Path
+) -> None:
+    result = _in_session(
+        session_workspace, lambda: backend.execute("import os; os.getcwd()")
+    )
+    assert result.error is None, result.error
+    assert result.result_text == repr(str(session_workspace.resolve()))
+
+
+def test_helpers_run_from_session_workspace(
+    backend: KernelBackend, session_workspace: Path
+) -> None:
+    def host_helper() -> str:
+        return "helper ran"
+
+    backend.register_bridge_function(host_helper)
+    result = _in_session(session_workspace, lambda: backend.execute("host_helper()"))
+    assert result.error is None, result.error
+    assert result.result_text == repr("helper ran")
