@@ -84,6 +84,35 @@ describe('ExternalSessionsView', () => {
     expect(screen.queryByText('No external sessions found')).not.toBeInTheDocument();
   });
 
+  it('hides cached sessions and an open detail panel while disconnected', () => {
+    const { use$ } = jest.requireMock('@legendapp/state/react') as { use$: jest.Mock };
+    use$.mockReturnValueOnce(false);
+    renderInRouter('/external-sessions?selected=session-1');
+
+    expect(
+      screen.getByText('Connect to a gptme server to view external sessions.')
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Imported session/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close session details' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/session · last 30 days/)).not.toBeInTheDocument();
+  });
+
+  it('shows the connect prompt instead of a cached error while disconnected', () => {
+    const { use$ } = jest.requireMock('@legendapp/state/react') as { use$: jest.Mock };
+    use$.mockReturnValueOnce(false);
+    mockUseQuery.mockImplementation(() => ({
+      data: undefined,
+      isLoading: false,
+      error: new Error('Server unavailable'),
+    }));
+    renderInRouter();
+
+    expect(
+      screen.getByText('Connect to a gptme server to view external sessions.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Failed to load sessions')).not.toBeInTheDocument();
+  });
+
   it('labels the search field and detail close button', async () => {
     const user = userEvent.setup();
     renderInRouter();
