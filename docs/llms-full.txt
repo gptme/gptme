@@ -14901,6 +14901,31 @@ resolved from the current directory, just as the save tool resolves them, and
 existing symlinks are followed before checking containment. It does not prevent
 concurrent symlink changes or writes through other tools.
 
+A hook that needs a tool's *structured* input should use the tool's public
+accessor rather than re-parsing or importing underscore-private helpers.
+``gptme.tools.patch_many.get_patch_many_targets(tool_use)`` returns the resolved
+``(path, patch)`` pairs a ``patch_many`` call would write, whichever input shape
+it uses (``None`` for other tools, ``[]`` for a call the tool will reject).
+Pass ``resolve_symlinks=False`` to inspect requested names too: a secret-path
+policy should check both the requested name and resolved destination, so a
+protected ``.env`` symlink cannot hide behind an ordinary target name.
+``gptme.tools.tmux.get_tmux_operations(tool_use)`` does the same for ``tmux``,
+returning ``(verb, arguments)`` pairs such as ``("new-session", "<shell command>")``.
+``get_tmux_key_text(keys)`` decodes ``send-keys`` quoting and common submission
+and whitespace keys for literal-input checks. It is not terminal emulation:
+existing pane state and arbitrary control-key editing remain outside the policy.
+For example:
+
+.. code-block:: python
+
+   from gptme.tools.patch_many import get_patch_many_targets
+
+   def deny_ssh_patches(data):
+       for path, _patch in get_patch_many_targets(data.tool_use) or []:
+           if ".ssh" in path.parts:
+               data.deny("patch_many may not write under .ssh")
+       yield from ()
+
 A denied call does not execute, its ``TOOL_EXECUTE_POST`` hooks do not run, and
 the reasons are returned to the model as the call's result
 (``Tool execution denied: …``). Because the seam is central, it covers tools
@@ -14917,6 +14942,11 @@ Which seam to use:
 The built-in ``guardrails`` hook uses both: credential/destructive-command rules
 at ``TOOL_CONFIRM`` (priority 200), and the secret-path rule for ``read`` at
 ``TOOL_EXECUTE_PRE`` (priority 200), since ``read`` never reaches confirmation.
+The same seam checks ``patch_many`` targets and the shell text that ``tmux``
+``new-session`` and ``send-keys`` hand to a shell through the accessors above.
+These policies also run at ``TOOL_CONFIRM`` for direct MCP execution, which
+bypasses the pre-execution seam. For ``patch_many`` reconfirmation, the policy
+inspects the edited multi-file preview rather than the original call's targets.
 Both registrations share one hook name, so ``HOOK_ALLOWLIST`` and
 ``disable_hook("guardrails")`` apply to both.
 

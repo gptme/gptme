@@ -956,6 +956,29 @@ confirmation, and a hook can deny the call by calling <code class="docutils lite
 resolved from the current directory, just as the save tool resolves them, and
 existing symlinks are followed before checking containment. It does not prevent
 concurrent symlink changes or writes through other tools.</p>
+<p>A hook that needs a tool’s <em>structured</em> input should use the tool’s public
+accessor rather than re-parsing or importing underscore-private helpers.
+<code class="docutils literal notranslate"><span class="pre">gptme.tools.patch_many.get_patch_many_targets(tool_use)</span></code> returns the resolved
+<code class="docutils literal notranslate"><span class="pre">(path,</span> <span class="pre">patch)</span></code> pairs a <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> call would write, whichever input shape
+it uses (<code class="docutils literal notranslate"><span class="pre">None</span></code> for other tools, <code class="docutils literal notranslate"><span class="pre">[]</span></code> for a call the tool will reject).
+Pass <code class="docutils literal notranslate"><span class="pre">resolve_symlinks=False</span></code> to inspect requested names too: a secret-path
+policy should check both the requested name and resolved destination, so a
+protected <code class="docutils literal notranslate"><span class="pre">.env</span></code> symlink cannot hide behind an ordinary target name.
+<code class="docutils literal notranslate"><span class="pre">gptme.tools.tmux.get_tmux_operations(tool_use)</span></code> does the same for <code class="docutils literal notranslate"><span class="pre">tmux</span></code>,
+returning <code class="docutils literal notranslate"><span class="pre">(verb,</span> <span class="pre">arguments)</span></code> pairs such as <code class="docutils literal notranslate"><span class="pre">(&quot;new-session&quot;,</span> <span class="pre">&quot;&lt;shell</span> <span class="pre">command&gt;&quot;)</span></code>.
+<code class="docutils literal notranslate"><span class="pre">get_tmux_key_text(keys)</span></code> decodes <code class="docutils literal notranslate"><span class="pre">send-keys</span></code> quoting and common submission
+and whitespace keys for literal-input checks. It is not terminal emulation:
+existing pane state and arbitrary control-key editing remain outside the policy.
+For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.patch_many</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_patch_many_targets</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">deny_ssh_patches</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">path</span><span class="p">,</span> <span class="n">_patch</span> <span class="ow">in</span> <span class="n">get_patch_many_targets</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">tool_use</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
+        <span class="k">if</span> <span class="s2">".ssh"</span> <span class="ow">in</span> <span class="n">path</span><span class="o">.</span><span class="n">parts</span><span class="p">:</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">deny</span><span class="p">(</span><span class="s2">"patch_many may not write under .ssh"</span><span class="p">)</span>
+    <span class="k">yield from</span> <span class="p">()</span>
+</pre></div>
+</div>
 <p>A denied call does not execute, its <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code> hooks do not run, and
 the reasons are returned to the model as the call’s result
 (<code class="docutils literal notranslate"><span class="pre">Tool</span> <span class="pre">execution</span> <span class="pre">denied:</span> <span class="pre">…</span></code>). Because the seam is central, it covers tools
@@ -971,6 +994,11 @@ never produces a prompt.</p>
 <p>The built-in <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> hook uses both: credential/destructive-command rules
 at <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> (priority 200), and the secret-path rule for <code class="docutils literal notranslate"><span class="pre">read</span></code> at
 <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> (priority 200), since <code class="docutils literal notranslate"><span class="pre">read</span></code> never reaches confirmation.
+The same seam checks <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> targets and the shell text that <code class="docutils literal notranslate"><span class="pre">tmux</span></code>
+<code class="docutils literal notranslate"><span class="pre">new-session</span></code> and <code class="docutils literal notranslate"><span class="pre">send-keys</span></code> hand to a shell through the accessors above.
+These policies also run at <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> for direct MCP execution, which
+bypasses the pre-execution seam. For <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> reconfirmation, the policy
+inspects the edited multi-file preview rather than the original call’s targets.
 Both registrations share one hook name, so <code class="docutils literal notranslate"><span class="pre">HOOK_ALLOWLIST</span></code> and
 <code class="docutils literal notranslate"><span class="pre">disable_hook(&quot;guardrails&quot;)</span></code> apply to both.</p>
 </section>

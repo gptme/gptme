@@ -701,6 +701,28 @@ on an earlier one landing.
 <dd><p>Resolve all patches in-memory before writing any files.</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.patch_many.</span></span><span class="sig-name descname"><span class="pre">get_patch_many_targets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tool_use</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../api/tools.html#gptme.tools.ToolUse" title="gptme.tools.ToolUse"><span class="pre">ToolUse</span></a></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolve_symlinks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.15)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Path</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Public structured input of a <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> call, for policy hooks.</p>
+<p>Returns the resolved <code class="docutils literal notranslate"><span class="pre">(path,</span> <span class="pre">patch)</span></code> pairs the call would write, in
+order, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when <code class="docutils literal notranslate"><span class="pre">tool_use</span></code> is not a <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> call. An
+unusable call (malformed, or a relative path escaping the working
+directory) returns <code class="docutils literal notranslate"><span class="pre">[]</span></code>: the tool rejects it before writing anything.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">resolve_symlinks=False</span></code> to inspect requested names as well as resolved
+destinations (e.g. a protected <code class="docutils literal notranslate"><span class="pre">.env</span></code> alias to an ordinary filename).
+Traversal validation still applies in both modes.</p>
+<p>Intended for <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> hooks, e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.patch_many</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_patch_many_targets</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">deny_ssh</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">path</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">get_patch_many_targets</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">tool_use</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]:</span>
+        <span class="k">if</span> <span class="s2">".ssh"</span> <span class="ow">in</span> <span class="n">path</span><span class="o">.</span><span class="n">parts</span><span class="p">:</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">deny</span><span class="p">(</span><span class="s2">"patch_many may not touch ~/.ssh"</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
 </section>
 
 
