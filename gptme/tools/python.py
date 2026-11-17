@@ -603,25 +603,27 @@ class TeeIO(io.StringIO):
         if not self._truncated:
             return value
         self.finish()
-        dropped = self._byte_count - self._buffered_bytes
         saved = f"; full output saved to {self._spill_path}" if self._spill_path else ""
-        marker = (
-            f"\n\n[... {dropped:,} bytes omitted "
-            f"({self._byte_count:,} total — capture limit reached, head only{saved}) ...]"
-        )
+        head = value.encode("utf-8", errors="surrogatepass")
         # The buffer never exceeds cap - marker reserve, so head + marker stays
         # within the cap and downstream _cap_output() will not truncate again.
         # A saved-path marker can outgrow the reserve: trim the head to fit.
-        excess = (
-            len(value.encode("utf-8", errors="surrogatepass"))
-            + len(marker.encode("utf-8", errors="surrogatepass"))
-            - _DEFAULT_MAX_OUTPUT_BYTES
-        )
-        if excess > 0:
-            value = _decode_slice(
-                value.encode("utf-8", errors="surrogatepass")[:-excess]
+        # Bytes trimmed from the head are omitted too, and counting them can
+        # lengthen the marker, so recompute until head + marker fits.
+        while True:
+            dropped = self._byte_count - len(head)
+            marker = (
+                f"\n\n[... {dropped:,} bytes omitted "
+                f"({self._byte_count:,} total — capture limit reached, head only{saved}) ...]"
             )
-        return value + marker
+            excess = (
+                len(head)
+                + len(marker.encode("utf-8", errors="surrogatepass"))
+                - _DEFAULT_MAX_OUTPUT_BYTES
+            )
+            if excess <= 0:
+                return head.decode("utf-8", errors="surrogatepass") + marker
+            head = _decode_slice(head[:-excess]).encode("utf-8", errors="surrogatepass")
 
 
 @contextmanager
