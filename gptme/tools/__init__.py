@@ -35,7 +35,7 @@ from .base import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
     from types import ModuleType
 
     from ..logmanager import Log
@@ -759,6 +759,7 @@ def execute_msg(
     log: Log | None = None,
     workspace: Path | None = None,
     tool_timings: dict[str, float] | None = None,
+    on_tool_execution: Callable[[int, ToolUse], None] | None = None,
 ) -> Generator[Message, None, None]:
     """Uses any tools called in a message and returns the response.
 
@@ -772,6 +773,8 @@ def execute_msg(
             repeated calls to the same tool accumulate correctly.  Pass an empty
             dict ``{}`` from the caller and read it back after the generator is
             exhausted to obtain ``tool_ms_by_name`` for timing metadata.
+        on_tool_execution: Called with the call index and tool use immediately
+            before a runnable call executes, after the availability check.
     """
     assert msg.role == "assistant", "Only assistant messages can be executed"
 
@@ -789,6 +792,8 @@ def execute_msg(
     for index, tooluse in remaining:
         runnable = tooluse.is_runnable
         if runnable:
+            if on_tool_execution is not None:
+                on_tool_execution(index, tooluse)
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 t0 = time.monotonic()
                 try:
