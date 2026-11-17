@@ -124,11 +124,13 @@ class SubtaskDef(TypedDict):
 _subagents: list["Subagent"] = []
 _subagents_lock = threading.Lock()
 
-# Persisted runs found by registry rehydration whose ``agent_id`` is already
-# held in ``_subagents`` by another conversation's run (agent IDs are only
-# unique within one conversation). They are kept out of ``_subagents`` so no
-# agent_id-addressed lookup, result cache entry or control call can resolve to
-# them; owner-scoped listings still show them. Guarded by ``_subagents_lock``.
+# Runs whose ``agent_id`` is held in ``_subagents`` by another conversation's
+# run (agent IDs are only unique within one conversation): found that way by
+# registry rehydration, or demoted when the other conversation took the ID over.
+# They are kept out of ``_subagents`` and the result cache, so agent_id-keyed
+# paths never resolve to them; owner-scoped listings still show them, and an
+# ID-based call from their own conversation swaps them back in
+# (``api._find_subagent``). Guarded by ``_subagents_lock``.
 _shadowed_subagents: list["Subagent"] = []
 
 # Cache for subprocess results (keyed by agent_id)
@@ -192,7 +194,30 @@ def set_subagent_result_if_absent(
     otherwise cache the OLD outcome for the resumed attempt. The identity check
     shares continuation's lock order (registry, then results). An unregistered
     attempt is not superseded and publishes normally.
+
+    A shadowed attempt (another conversation took the agent_id over after this
+    run exited but before its monitor got here) does not own the shared slot:
+    its outcome is kept on the run itself and persisted to its own logdir.
     """
+    if attempt is not None and attempt.shadowed:
+        from .persistence import persist_subagent_outcome
+
+        # Same lock order as _persist_cached_outcome (persist, then registry).
+        # Holding the persist lock across the write orders it before any write
+        # by a later attempt: if the owner reclaims and continues this run, the
+        # continuation's outcome cannot land first and be overwritten by ours.
+        with _outcome_persist_lock:
+            with _subagents_lock:
+                if attempt.shadowed:
+                    if attempt.shadowed_outcome is not None:
+                        return False
+                    object.__setattr__(attempt, "shadowed_outcome", result)
+                    shadowed = True
+                else:
+                    shadowed = False  # Reclaimed meanwhile: publish as holder.
+            if shadowed:
+                persist_subagent_outcome(attempt, result)
+                return True
     with _subagents_lock:
         if attempt is not None:
             current = next(

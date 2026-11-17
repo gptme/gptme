@@ -7,6 +7,7 @@ staged fan-out with no barrier between stages — item A advances to stage 2
 while item B is still in stage 1.
 """
 
+import contextvars
 import copy
 import json
 import logging
@@ -202,7 +203,9 @@ class BatchJob:
         pool = ThreadPoolExecutor(max_workers=len(self.agent_ids) or 1)
         try:
             futures = {
-                pool.submit(_wait_one, aid, deadline): aid
+                pool.submit(
+                    contextvars.copy_context().run, _wait_one, aid, deadline
+                ): aid
                 for aid in self.agent_ids
                 # Re-wait agents whose previous wait_all() call timed out, or
                 # whose post-cancel sweep left a synthetic "cancelled" placeholder
@@ -482,7 +485,13 @@ class BatchJob:
             pending = [aid for aid in self.agent_ids if aid not in self.results]
 
         threads = [
-            threading.Thread(target=_wait_one_notify, args=(aid,), daemon=True)
+            # Each worker runs in a copy of the caller's context, so
+            # subagent_wait() resolves IDs for the caller's conversation.
+            threading.Thread(
+                target=contextvars.copy_context().run,
+                args=(_wait_one_notify, aid),
+                daemon=True,
+            )
             for aid in pending
         ]
         for t in threads:
