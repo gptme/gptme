@@ -90,7 +90,8 @@ _SECRET_VALUE_PREFIX_RE = re.compile(
     r"gh[pousr]_|github_pat_|"
     r"sk-(?:ant-|or-|proj-)?|xox[baprs]-|"
     r"AKIA|ASIA|glpat-|AIza|ya29\.|npm_|dckr_pat_|"
-    r"rk_live_|sk_live_|pk_live_|rk_test_|sk_test_|pk_test_"
+    r"rk_live_|sk_live_|pk_live_|rk_test_|sk_test_|pk_test_|"
+    r"pplx-"
     r")"
 )
 
@@ -268,6 +269,7 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"|npm_[A-Za-z0-9]{30,}"
     r"|dckr_pat_[A-Za-z0-9_-]{16,}"
     r"|[rsp]k_(?:live|test)_[A-Za-z0-9]{16,}"
+    r"|pplx-[A-Za-z0-9-]{16,}"
     # JWT segments include '_' and '-': neither can allow another start inside
     # a segment, or repeated 'eyJ_' prefixes retry every remaining suffix.
     # Consume diff deletion markers from a boundary, preserving them on output.
