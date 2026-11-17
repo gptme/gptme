@@ -517,11 +517,13 @@ class GptmeAgent:
         if tool_call_id is None and tool_use.content:
             # A registered helper call asks under its owning tool (e.g. ipython
             # running ``view_image(...)`` confirms as ``vision``); the code is the
-            # same, so tie the confirmation to the call that is running it.
+            # same, so tie the confirmation to the call that is running it. Each
+            # call is reported right before it runs, so the latest match is the
+            # running one: an earlier call with the same code has already run.
             tool_call_id = next(
                 (
                     call_id
-                    for parsed, call_id in turn.calls
+                    for parsed, call_id in reversed(turn.calls)
                     if parsed.content == tool_use.content
                 ),
                 None,

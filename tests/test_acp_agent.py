@@ -2617,6 +2617,61 @@ class TestPromptToolPermission:
         assert agent._conn.request_permission.call_count == 1
         assert self._statuses(agent) == ["in_progress", "completed"]
 
+    def test_repeated_helper_confirmation_names_its_own_call(self, monkeypatch):
+        """Two equal helper calls in one message: each permission names its own call.
+
+        The helper asks under its owning tool, so it is tied to the running call
+        by content; rejecting the second must fail the second, not the first
+        that already ran.
+        """
+        from gptme.constants import DECLINED_CONTENT
+        from gptme.hooks import ConfirmAction, get_confirmation
+        from gptme.message import Message
+        from gptme.tools.base import ToolSpec, ToolUse
+
+        answers = iter(["allow-once", "reject-once"])
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```pyish\nhelper('x')\n```\n\n```pyish\nhelper('x')\n```", "Done."],
+            lambda **kwargs: _mock_permission_response(next(answers)),
+        )
+
+        def pyish(code, args, kwargs):
+            confirm = get_confirmation(tool_use=ToolUse("owner", [], code))
+            if confirm.action != ConfirmAction.CONFIRM:
+                yield Message("system", DECLINED_CONTENT)
+                return
+            ran.append(code)
+            yield Message("system", "ran")
+
+        spec = ToolSpec(name="pyish", desc="", execute=pyish, block_types=["pyish"])
+        monkeypatch.setattr("gptme.tools.get_tool", {"pyish": spec}.get)
+        monkeypatch.setattr("gptme.tools.get_tool_for_langtag", {"pyish": spec}.get)
+
+        self._prompt(agent)
+
+        assert ran == ["helper('x')"]
+        updates = [
+            call.kwargs["update"]
+            for call in agent._conn.session_update.call_args_list
+            if isinstance(call.kwargs["update"], dict)
+        ]
+        reported = [
+            u["toolCallId"] for u in updates if u.get("sessionUpdate") == "tool_call"
+        ]
+        assert len(reported) == 2
+        requested = [
+            call.kwargs["tool_call"]["toolCallId"]
+            for call in agent._conn.request_permission.call_args_list
+        ]
+        assert requested == reported
+        final = {
+            u["toolCallId"]: u["status"]
+            for u in updates
+            if u.get("sessionUpdate") == "tool_call_update"
+        }
+        assert final == {reported[0]: "completed", reported[1]: "failed"}
+
     def test_helper_confirmation_reuses_the_running_call(self, monkeypatch):
         """A helper confirming under its owning tool must settle the original call.
 
