@@ -155,12 +155,12 @@ def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
     The prefix rules below match text, so ``~/work/../.ssh/config`` and a
     relative ``.ssh/config`` slip past a literal comparison. Symlink targets
     are deliberately not resolved (see ``test_file_symlinks_in_globs``).
-    Substitution tokens (``$``, backticks) are not paths yet, so they keep
-    only the literal form. Glob characters still get the collapsed spelling:
-    outside a shell they are literal filename characters
-    (``proj[1]/../.ssh/config``), and an extra spelling only adds matches.
+    Metacharacters may be literal filename characters after shell quoting
+    (``work$/../.ssh/config``), including operands of arbitrary programs that
+    the reader-reach analysis does not inspect. Check the collapsed spelling
+    too; this does not evaluate substitutions or resolve symlinks.
     """
-    if not expanded or any(c in expanded for c in "$`"):
+    if not expanded:
         return [expanded]
     try:
         anchored = os.path.abspath(

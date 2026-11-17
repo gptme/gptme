@@ -296,7 +296,16 @@ class TestGuardrailHookEnforceMode:
         assert result.action == ConfirmAction.SKIP
 
     @pytest.mark.parametrize("dirname", ["work[1]", "work*", "work?", "work$", "work`"])
-    @pytest.mark.parametrize("reader", ["cat {}", "cat < {}"])
+    @pytest.mark.parametrize(
+        "reader",
+        [
+            "cat {}",
+            "cat < {}",
+            "python3 -c 'import pathlib,sys; "
+            'print(pathlib.Path(sys.argv[1]).read_text(), end="")\' {}',
+            "cp {} /dev/stdout",
+        ],
+    )
     @pytest.mark.parametrize("target", [".ssh", ".ssh-backup"])
     def test_shell_quoted_literal_traversal(
         self, monkeypatch, tmp_path, dirname, reader, target
