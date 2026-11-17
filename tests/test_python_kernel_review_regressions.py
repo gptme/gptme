@@ -91,3 +91,53 @@ def test_helpers_run_from_session_workspace(
     result = _in_session(session_workspace, lambda: backend.execute("host_helper()"))
     assert result.error is None, result.error
     assert result.result_text == repr("helper ran")
+
+
+@pytest.mark.parametrize("operation", ["save", "load"])
+def test_browser_state_uses_session_workspace(
+    backend: KernelBackend,
+    session_workspace: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    """A bridged browser helper must not read or overwrite another workspace."""
+    import json
+    from unittest.mock import MagicMock
+
+    pytest.importorskip("playwright")
+    from gptme.tools import _browser_playwright as bp
+    from gptme.tools import _browser_thread as bt
+    from gptme.tools import browser as browser_tool
+
+    own_state = {"cookies": [], "origins": [], "marker": "session A"}
+    other_state = {"cookies": [], "origins": [], "marker": "session B"}
+    target = session_workspace / "session.json"
+    other_target = tmp_path / "session.json"
+    other_target.write_text(json.dumps(other_state))
+    if operation == "load":
+        target.write_text(json.dumps(own_state))
+
+    context = MagicMock()
+    context.storage_state.side_effect = lambda *, path: Path(path).write_text(
+        json.dumps(own_state)
+    )
+    monkeypatch.setattr(browser_tool, "browser", "playwright")
+    monkeypatch.setattr(bp, "_current_context", context)
+    monkeypatch.setattr(bp, "_close_current_page", lambda: None)
+    monkeypatch.setattr(bt, "_override_storage_state", None)
+    # Keep browser startup out of this file-I/O/bridge regression. The real
+    # callback runs in the bridge's captured session context.
+    monkeypatch.setattr(bp, "_execute_with_retry", lambda fn, *args: fn(None, *args))
+    helper = getattr(browser_tool, f"{operation}_browser_state")
+    backend.register_bridge_function(helper)
+    result = _in_session(
+        session_workspace,
+        lambda: backend.execute(f"{operation}_browser_state('session.json')"),
+    )
+    assert result.error is None, result.error
+    assert str(target) in result.result_text
+    assert json.loads(target.read_text()) == own_state
+    assert json.loads(other_target.read_text()) == other_state
+    if operation == "load":
+        assert bt._override_storage_state == target
