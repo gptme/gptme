@@ -514,6 +514,18 @@ class GptmeAgent:
         tool_call_id = next(
             (call_id for parsed, call_id in turn.calls if parsed == tool_use), None
         )
+        if tool_call_id is None and tool_use.content:
+            # A registered helper call asks under its owning tool (e.g. ipython
+            # running ``view_image(...)`` confirms as ``vision``); the code is the
+            # same, so tie the confirmation to the call that is running it.
+            tool_call_id = next(
+                (
+                    call_id
+                    for parsed, call_id in turn.calls
+                    if parsed.content == tool_use.content
+                ),
+                None,
+            )
         tool_call = (
             self._tool_calls.get(session_id, {}).get(tool_call_id)
             if tool_call_id

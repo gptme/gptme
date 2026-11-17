@@ -2617,6 +2617,45 @@ class TestPromptToolPermission:
         assert agent._conn.request_permission.call_count == 1
         assert self._statuses(agent) == ["in_progress", "completed"]
 
+    def test_helper_confirmation_reuses_the_running_call(self, monkeypatch):
+        """A helper confirming under its owning tool must settle the original call.
+
+        execute_python asks as e.g. ``vision`` for ``view_image(...)`` while the
+        reported call is ``ipython``; a rejection must fail that call, not a new one.
+        """
+        from gptme.constants import DECLINED_CONTENT
+        from gptme.hooks import ConfirmAction, get_confirmation
+        from gptme.message import Message
+        from gptme.tools.base import ToolSpec, ToolUse
+
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```pyish\nhelper('x')\n```", "Okay."],
+            lambda **kwargs: _mock_permission_response("reject-once"),
+        )
+
+        def pyish(code, args, kwargs):
+            confirm = get_confirmation(tool_use=ToolUse("owner", [], code))
+            if confirm.action != ConfirmAction.CONFIRM:
+                yield Message("system", DECLINED_CONTENT)
+                return
+            ran.append(code)
+            yield Message("system", "ran")
+
+        spec = ToolSpec(name="pyish", desc="", execute=pyish, block_types=["pyish"])
+        monkeypatch.setattr("gptme.tools.get_tool", {"pyish": spec}.get)
+        monkeypatch.setattr("gptme.tools.get_tool_for_langtag", {"pyish": spec}.get)
+
+        self._prompt(agent)
+
+        assert ran == []
+        request = agent._conn.request_permission.call_args.kwargs
+        reported_id = agent._conn.session_update.call_args_list[0].kwargs["update"][
+            "toolCallId"
+        ]
+        assert request["tool_call"] == {"toolCallId": reported_id}
+        assert self._statuses(agent) == ["in_progress", "failed"]
+
     def test_auto_mode_does_not_ask(self, monkeypatch):
         agent, ran = self._setup(
             monkeypatch,
