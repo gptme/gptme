@@ -410,8 +410,8 @@ class TestCompletePendingToolCalls:
                 confirm = agent._create_confirm_with_tools("session_1", loop)
                 assert confirm("Run command: ls") is False
 
-            (call,) = agent._tool_calls["session_1"].values()
-            assert call.status == ToolCallStatus.FAILED
+            # The delivered FAILED update settles the call, so it is no longer stored.
+            assert not agent._tool_calls["session_1"]
 
             async def approve_late_and_complete():
                 reply.set_result(_mock_permission_response("allow-once"))
@@ -421,7 +421,8 @@ class TestCompletePendingToolCalls:
                 await agent._complete_pending_tool_calls("session_1")
 
             schedule(approve_late_and_complete(), loop).result(timeout=5)
-            assert call.status == ToolCallStatus.FAILED
+            # A late approval must not re-add the call or move it to in_progress.
+            assert not agent._tool_calls["session_1"]
             assert cancelled.is_set()
             statuses = [
                 item.kwargs["update"]["status"]
