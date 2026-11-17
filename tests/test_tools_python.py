@@ -430,6 +430,21 @@ def test_cap_output_spills_full_output_to_tool_outputs(tmp_path):
     assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
 
 
+def test_cap_output_survives_surrogate_in_saved_path(tmp_path):
+    """A logdir with an undecodable filename byte (surrogateescape) must not
+    break the marker sizing: the preview and pointer still come back."""
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    odd_path = tmp_path / "tool-outputs" / "bad\udcffname.txt"
+    with patch("gptme.tools.python._spill_full_output", return_value=odd_path):
+        capped = _cap_output(huge)
+    assert "bytes omitted" in capped
+    assert "full output saved to" in capped
+
+
 def test_cap_output_without_logdir_keeps_plain_marker():
     from unittest.mock import patch
 

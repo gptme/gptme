@@ -296,7 +296,10 @@ def _cap_output(output: str, command_info: str | None = None) -> str:
     # Reserve room for the marker (sized with the widest numbers it can hold)
     # so the result stays within the cap
     worst_marker = f"\n\n[... {total_bytes:,} bytes omitted ({total_bytes:,} total{saved_note}) ...]\n\n"
-    reserve = max(_CAPTURE_MARKER_RESERVE, len(worst_marker.encode("utf-8")))
+    reserve = max(
+        _CAPTURE_MARKER_RESERVE,
+        len(worst_marker.encode("utf-8", errors="surrogatepass")),
+    )
     half = (_DEFAULT_MAX_OUTPUT_BYTES - reserve) // 2
     head_bytes = encoded[:half]
     tail_bytes = encoded[-half:]
@@ -603,7 +606,7 @@ class TeeIO(io.StringIO):
         # A saved-path marker can outgrow the reserve: trim the head to fit.
         excess = (
             len(value.encode("utf-8", errors="surrogatepass"))
-            + len(marker.encode("utf-8"))
+            + len(marker.encode("utf-8", errors="surrogatepass"))
             - _DEFAULT_MAX_OUTPUT_BYTES
         )
         if excess > 0:
