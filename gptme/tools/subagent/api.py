@@ -403,13 +403,16 @@ def _write_cancel_op(logdir: Path, agent_id: str) -> None:
 
 
 def _wait_for_cached_subagent_result(
-    agent_id: str, timeout: float = 0.5, poll_interval: float = 0.005
+    sa: Subagent, timeout: float = 0.5, poll_interval: float = 0.005
 ) -> ReturnType | None:
-    """Briefly wait for a concurrent watchdog/cancel result to hit the cache."""
+    """Briefly wait for a concurrent watchdog/cancel result to hit the cache.
+
+    Reads through ``sa`` so a run never picks up the result of another
+    conversation's concurrent run with the same agent_id (gptme/gptme#4990).
+    """
     deadline = time.monotonic() + timeout
     while True:
-        with _subagent_results_lock:
-            cached_result = _subagent_results.get(agent_id)
+        cached_result = sa._cached_result()
         if cached_result is not None:
             return cached_result
 
@@ -1380,6 +1383,7 @@ def subagent(
                             agent_id,
                             preserved,
                             has_output_schema=bool(sa.output_schema),
+                            attempt=sa,
                         )
                     if not cached:
                         return
@@ -1422,12 +1426,12 @@ def subagent(
                     if not set_subagent_result_if_absent(agent_id, result, attempt=sa):
                         # Timeout/cancel won the cache race. Cleanup already ran above.
                         # Patch the stored result with branch info so callers can find it.
-                        # A shadowed run's slot belongs to another conversation.
-                        if preserved_branch and not sa.shadowed:
+                        if preserved_branch:
                             update_subagent_result_with_branch(
                                 agent_id,
                                 preserved_branch,
                                 has_output_schema=bool(sa.output_schema),
+                                attempt=sa,
                             )
                         return
                     try:
@@ -2645,7 +2649,7 @@ def subagent_wait(
     # A shadowed run (another conversation's running run holds the ID) must not
     # read the agent_id-keyed cache; sa.status() reports its own outcome.
     cached_status = (
-        _wait_for_cached_subagent_result(agent_id)
+        _wait_for_cached_subagent_result(sa)
         if sa.is_running() and not sa.shadowed
         else None
     )

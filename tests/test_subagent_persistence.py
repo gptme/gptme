@@ -1282,6 +1282,93 @@ class TestOwnerScopedIdLookup:
             for _, gate in runs.values():
                 gate.set()
 
+    def test_live_run_never_reads_concurrent_holders_result(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A wait already bound to A must not return B's result from the slot."""
+        from gptme.tools.subagent.api import _wait_for_cached_subagent_result
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("timeout", "B timed out"), attempt=sa_b
+            )
+            assert sa_a.is_running()
+            assert _wait_for_cached_subagent_result(sa_a, timeout=0.05) is None
+            assert sa_a.status().status == "running"
+            # The thread finalizer reads its answer through _read_log().
+            assert sa_a._read_log().result != "B timed out"
+            assert sa_b.status().result == "B timed out"
+        finally:
+            gate_a.set()
+            gate_b.set()
+
+    def test_branch_notice_stays_with_shadowed_run(self, tmp_path: Path, monkeypatch):
+        """A's preserved-work notice amends A's outcome, never B's slot."""
+        from gptme.tools.subagent.persistence import load_subagent_outcome
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "B done"), attempt=sa_b
+            )
+            self._finish(sa_a, gate_a)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("failure", "A boom"), attempt=sa_a
+            )
+            assert sa_a.shadowed
+            update_subagent_result_with_branch("worker", "keep-a", attempt=sa_a)
+            assert _subagent_results["worker"].result == "B done"
+            own = sa_a.status().result
+            assert isinstance(own, str) and own.startswith("A boom")
+            assert "keep-a" in own
+            persisted = load_subagent_outcome(sa_a)
+            assert persisted is not None and persisted.result == own
+        finally:
+            gate_a.set()
+            gate_b.set()
+
+    def test_unshadowed_run_never_amends_concurrent_holders_slot(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A still-registered older run must not append its notice to B's slot."""
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "B done"), attempt=sa_b
+            )
+            assert not sa_a.shadowed
+            update_subagent_result_with_branch("worker", "keep-a", attempt=sa_a)
+            assert _subagent_results["worker"].result == "B done"
+            # B's own notice still lands in its slot.
+            update_subagent_result_with_branch("worker", "keep-b", attempt=sa_b)
+            result = _subagent_results["worker"].result
+            assert isinstance(result, str) and "keep-b" in result
+        finally:
+            gate_a.set()
+            gate_b.set()
+
     def test_same_conversation_newer_run_still_supersedes(
         self, tmp_path: Path, monkeypatch
     ):

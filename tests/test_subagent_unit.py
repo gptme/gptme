@@ -4139,7 +4139,9 @@ class TestMaxTimeWatchdog:
             None,
             ReturnType("timeout", "Auto-cancelled after 0.5s (max_time exceeded)"),
         ]
-        monkeypatch.setattr(subagent_api, "_subagent_results", cache)
+        # The poll reads through Subagent._cached_result(), which lives in the
+        # types module (gptme/gptme#4990).
+        monkeypatch.setattr(subagent_types, "_subagent_results", cache)
 
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = True
@@ -4154,8 +4156,11 @@ class TestMaxTimeWatchdog:
         )
         with _subagents_lock:
             _subagents.append(sa)
-
-        result = subagent_wait("wait-race-thread", timeout=0)
+        try:
+            result = subagent_wait("wait-race-thread", timeout=0)
+        finally:
+            with _subagents_lock:
+                _subagents.remove(sa)
 
         # Two reads prove the result came from the retry loop, not the first read.
         assert cache.get.call_count == 2
