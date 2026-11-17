@@ -307,6 +307,9 @@ async def test_cancel_after_persisting_reply_pairs_native_calls(
         await asyncio.to_thread(app._generation_body)
         assert not app._in_step
         assert app._terminal_outcome == "idle"
+        assert [m.content for m in displayed if m.role == "assistant"] == [
+            reply.content
+        ]
         assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
         assert sum(m.content == INTERRUPT_CONTENT for m in manager.log) == 1
         assert displayed[-1].content == INTERRUPT_CONTENT

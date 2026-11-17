@@ -4830,9 +4830,12 @@ class GptmeApp(App):
         """Runs the step loop until no more runnable tools."""
         manager = self.manager
         persister = StepPersister(manager)
+        pending_reply: Message | None = None
 
         def before_tools(msg: Message) -> None:
+            nonlocal pending_reply
             # Persist the reply while its tools run, then update the view.
+            pending_reply = msg
             persister.before_tools(msg)
             self.call_from_thread(self._on_before_tool_execution, msg)
 
@@ -4902,6 +4905,8 @@ class GptmeApp(App):
                             if msg.content == DECLINED_CONTENT:
                                 declined = True
                             self.call_from_thread(self._on_step_message, msg)
+                            if msg.role == "assistant":
+                                pending_reply = None
                 except KeyboardInterrupt:
                     interrupted = True
                 finally:
@@ -4913,6 +4918,12 @@ class GptmeApp(App):
                     # executor's own interrupt handler starts (e.g. waiting
                     # for the before-tools UI callback). Pair those calls
                     # before another user prompt hides the trailing reply.
+                    if pending_reply is not None:
+                        # The UI callback may not have run yet. The normal
+                        # step renderer also handles an already-rendered reply
+                        # without duplicating it.
+                        self.call_from_thread(self._on_step_message, pending_reply)
+                        pending_reply = None
                     first_repair = len(manager.log)
                     if not _close_interrupted_tool_calls(manager, quiet=True):
                         manager.append(Message("system", INTERRUPT_CONTENT))
