@@ -540,6 +540,8 @@ class TeeIO(io.StringIO):
     def _spill_append(self, s: str) -> None:
         if self._spill_failed:
             return
+        from ..util.output_storage import _encode
+
         try:
             if self._spill is None:
                 self._spill = _open_spill_file(self._label)
@@ -547,8 +549,8 @@ class TeeIO(io.StringIO):
                     self._spill_failed = True
                     return
                 # Everything buffered so far is the head of the full output
-                self._spill.append(self.getvalue().encode("utf-8", errors="replace"))
-            self._spill.append(s.encode("utf-8", errors="replace"))
+                self._spill.append(_encode(self.getvalue()))
+            self._spill.append(_encode(s))
             self._spill_path = self._spill.path
         except Exception as e:  # spilling is best-effort; capture must continue
             logger.warning("Could not spill python %s overflow: %s", self._label, e)
@@ -576,6 +578,12 @@ class TeeIO(io.StringIO):
         self._byte_count += len(encoded)
         limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
         room = limit - self._buffered_bytes
+        if self._truncated:
+            # Once truncated, the head is a closed prefix: every later write
+            # goes to the spill file only, even one that would fit the slack
+            # left by a dropped partial character.
+            self._spill_append(s)
+            return n_chars
         if len(encoded) > room:
             self._truncated = True
             self._spill_append(s)

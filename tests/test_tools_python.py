@@ -549,6 +549,39 @@ def test_teeio_spills_overflow_to_tool_outputs(tmp_path):
     assert tee._spill is None  # closed by get_captured
 
 
+def test_teeio_spill_keeps_small_write_after_multibyte_split(tmp_path):
+    """A small write after a split multibyte char must still reach the file,
+    and non-UTF-8 filename bytes (surrogateescape) must round-trip."""
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import (
+        _CAPTURE_MARKER_RESERVE,
+        _DEFAULT_MAX_OUTPUT_BYTES,
+        TeeIO,
+    )
+
+    limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
+    # Leave 2 bytes of room, then write a 4-byte char: the partial char is
+    # dropped from the head, leaving slack a later "\n" would fit into.
+    first = "a" * (limit - 2)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee = TeeIO(io.StringIO(), "stdout")
+        tee.write(first)
+        tee.write("\U0001f600")  # 4 bytes, crosses the cap
+        tee.write("\n")
+        tee.write("name-\udcff")  # surrogateescaped 0xff byte
+        tee.get_captured()
+
+    files = [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+    assert len(files) == 1
+    assert files[0].read_bytes() == (
+        first.encode() + "\U0001f600\n".encode() + b"name-\xff"
+    )
+
+
 def test_teeio_without_logdir_has_no_spill_pointer():
     import io
     from unittest.mock import patch
