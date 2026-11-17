@@ -328,11 +328,13 @@ def test_image_results_respect_vision_boundary(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("fmt", ["markdown", "tool"])
 @pytest.mark.parametrize("name", ["browser", "chats"])
-def test_format_specific_guidance_uses_direct_calls(name, fmt, monkeypatch):
-    monkeypatch.setattr("gptme.tools.python.registered_functions", {})
-    init_tools(allowlist=[name])
-    tool = get_tool(name)
-    assert tool is not None
+def test_format_specific_guidance_uses_direct_calls(name, fmt):
+    from importlib import import_module
+
+    # Rendering guidance needs the real spec, not an installed browser backend.
+    # Keep these assertions active in no-extras installs too.
+    spec = import_module(f"gptme.tools.{name}").tool
+    tool = make_direct_call_tool(spec)
     instructions = tool.get_instructions(fmt)
     assert "Use ipython" not in instructions
     assert "exactly one call" in instructions
