@@ -549,6 +549,45 @@ def test_teeio_spills_overflow_to_tool_outputs(tmp_path):
     assert tee._spill is None  # closed by get_captured
 
 
+def test_teeio_long_spill_path_counts_trimmed_head_bytes(tmp_path):
+    """A saved-path marker longer than the reserve trims the head; the marker's
+    omitted count must include those trimmed bytes (head + omitted == total)."""
+    import io
+    import re
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import (
+        _CAPTURE_MARKER_RESERVE,
+        _DEFAULT_MAX_OUTPUT_BYTES,
+        TeeIO,
+        _cap_output,
+    )
+
+    logdir = tmp_path / ("d" * 200) / ("e" * 200)
+    logdir.mkdir(parents=True)
+    assert len(str(logdir)) > _CAPTURE_MARKER_RESERVE
+    chunk = "x" * 1024
+    n_writes = _DEFAULT_MAX_OUTPUT_BYTES // len(chunk) + 50
+    manager = SimpleNamespace(logdir=logdir)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee = TeeIO(io.StringIO(), "stdout")
+        for _ in range(n_writes):
+            tee.write(chunk)
+        captured = tee.get_captured()
+
+    head, sep, _ = captured.partition("\n\n[... ")
+    assert sep, "marker missing"
+    m = re.search(r"\[\.\.\. ([\d,]+) bytes omitted \(([\d,]+) total", captured)
+    assert m
+    omitted, total = (int(g.replace(",", "")) for g in m.groups())
+    assert total == len(chunk) * n_writes
+    assert len(head.encode("utf-8")) + omitted == total
+    assert "full output saved to" in captured
+    assert len(captured.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert _cap_output(captured) == captured
+
+
 def test_teeio_spill_keeps_small_write_after_multibyte_split(tmp_path):
     """A small write after a split multibyte char must still reach the file,
     and non-UTF-8 filename bytes (surrogateescape) must round-trip."""
