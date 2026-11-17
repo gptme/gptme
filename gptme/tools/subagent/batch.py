@@ -18,6 +18,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from concurrent.futures import wait as futures_wait
+from contextvars import copy_context
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, cast
@@ -1047,8 +1048,11 @@ def _subagent_parallel_capped(
     pool = ThreadPoolExecutor(max_workers=max_concurrent)
     _timed_out = False
     try:
+        # Each worker needs its own copy of the caller's context: subagent()
+        # reads the current conversation there to capture ownership and turns.
         futures: dict[Future[tuple[str, dict]], str] = {
-            pool.submit(run_one, aid, prompt): aid for aid, prompt in tasks
+            pool.submit(copy_context().run, run_one, aid, prompt): aid
+            for aid, prompt in tasks
         }
         try:
             for future in as_completed(futures, timeout=timeout):
@@ -1309,10 +1313,11 @@ def subagent_pipeline(
             if "\n\nFull log: " in prev_result_text:
                 prev_result_text = prev_result_text.split("\n\nFull log: ", 1)[0]
 
+    # One context per item, never shared concurrently between worker threads.
     threads = [
         threading.Thread(
-            target=process_item,
-            args=(idx, item_id, item_prompt),
+            target=copy_context().run,
+            args=(process_item, idx, item_id, item_prompt),
             daemon=True,
         )
         for idx, (item_id, item_prompt) in enumerate(items)
