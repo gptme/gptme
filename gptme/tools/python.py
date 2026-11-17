@@ -248,11 +248,38 @@ def _format_cell_output(stdout: str, stderr: str) -> str:
     return output
 
 
-def _cap_output(output: str) -> str:
+def _spill_full_output(output: str, command_info: str | None) -> Path | None:
+    """Save *output* under the conversation's ``tool-outputs/``; best-effort.
+
+    Returns None when no conversation directory is active or the write fails,
+    so truncation still applies without the pointer.
+    """
+    try:
+        from ..logmanager import LogManager
+        from ..util.output_storage import save_large_output
+
+        manager = LogManager.get_current_log()
+        if manager is None or not manager.logdir:
+            return None
+        _, saved_path = save_large_output(
+            content=output,
+            logdir=manager.logdir,
+            output_type="python",
+            command_info=command_info,
+        )
+        return saved_path
+    except Exception as e:  # saving must never break the truncation itself
+        logger.warning("Could not save full python output: %s", e)
+        return None
+
+
+def _cap_output(output: str, command_info: str | None = None) -> str:
     """Cap output to a reasonable size (10 MiB) with head+tail truncation.
 
     The cap is measured in UTF-8 bytes, not characters, so multibyte characters
-    are counted correctly.
+    are counted correctly. When output is dropped and a conversation directory
+    is active, the full text is saved under ``tool-outputs/`` and the omission
+    marker names the file.
     """
     # surrogatepass: valid Python strings may hold lone surrogates (e.g. from
     # surrogateescape-decoded filenames) that strict UTF-8 encoding rejects
@@ -261,15 +288,21 @@ def _cap_output(output: str) -> str:
     if total_bytes <= _DEFAULT_MAX_OUTPUT_BYTES:
         return output
 
+    saved_path = _spill_full_output(output, command_info)
+    saved_note = f"; full output saved to {saved_path}" if saved_path else ""
+
     # Output exceeds cap; return head+tail with truncation marker (byte-level slice)
-    # Reserve room for the marker so the result stays within the cap
-    half = (_DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE) // 2
+    # Reserve room for the marker (sized with the widest numbers it can hold)
+    # so the result stays within the cap
+    worst_marker = f"\n\n[... {total_bytes:,} bytes omitted ({total_bytes:,} total{saved_note}) ...]\n\n"
+    reserve = max(_CAPTURE_MARKER_RESERVE, len(worst_marker.encode("utf-8")))
+    half = (_DEFAULT_MAX_OUTPUT_BYTES - reserve) // 2
     head_bytes = encoded[:half]
     tail_bytes = encoded[-half:]
     omitted = total_bytes - len(head_bytes) - len(tail_bytes)
     head = _decode_slice(head_bytes)
     tail = _decode_slice(tail_bytes)
-    return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total) ...]\n\n{tail}"
+    return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total{saved_note}) ...]\n\n{tail}"
 
 
 def _snapshot_images(cwd: Path) -> dict[Path, float]:
@@ -622,14 +655,20 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     output = ""
 
     if result.stdout:
-        output += md_codeblock("stdout", _cap_output(result.stdout).rstrip()) + "\n\n"
+        output += (
+            md_codeblock("stdout", _cap_output(result.stdout, "kernel stdout").rstrip())
+            + "\n\n"
+        )
 
     if result.result_text is not None:
-        result_str = _cap_output(result.result_text)
+        result_str = _cap_output(result.result_text, "kernel result")
         output += f"Result:\n{md_codeblock('', result_str)}\n\n"
 
     if result.stderr:
-        output += md_codeblock("stderr", _cap_output(result.stderr).rstrip()) + "\n\n"
+        output += (
+            md_codeblock("stderr", _cap_output(result.stderr, "kernel stderr").rstrip())
+            + "\n\n"
+        )
 
     if result.error:
         tb_str = "\n".join(result.error.get("traceback", []))
@@ -703,9 +742,15 @@ def execute_python(
             label = "Wasmtime sandbox"
         output = ""
         if stdout:
-            output += md_codeblock("stdout", _cap_output(stdout).rstrip()) + "\n\n"
+            output += (
+                md_codeblock("stdout", _cap_output(stdout, f"{label} stdout").rstrip())
+                + "\n\n"
+            )
         if stderr:
-            output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
+            output += (
+                md_codeblock("stderr", _cap_output(stderr, f"{label} stderr").rstrip())
+                + "\n\n"
+            )
         if returncode not in (0, None):
             output += f"Process exited with code {returncode}\n"
         yield Message(

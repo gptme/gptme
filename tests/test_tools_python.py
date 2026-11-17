@@ -410,6 +410,59 @@ def test_cap_output_large_stdout():
     assert capped.endswith("xxx")  # tail preserved
 
 
+def test_cap_output_spills_full_output_to_tool_outputs(tmp_path):
+    """Dropped bytes must stay recoverable: full text saved, marker names the file."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        capped = _cap_output(huge, "kernel stdout")
+
+    saved = list((tmp_path / "tool-outputs").rglob("*"))
+    files = [f for f in saved if f.is_file()]
+    assert len(files) == 1
+    assert files[0].read_text() == huge
+    assert f"full output saved to {files[0]}" in capped
+    assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+
+
+def test_cap_output_without_logdir_keeps_plain_marker():
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        capped = _cap_output(huge)
+    assert "bytes omitted" in capped
+    assert "saved" not in capped
+
+
+def test_cap_output_survives_spill_failure(tmp_path):
+    """A failing save must not break the truncation it accompanies."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with (
+        patch("gptme.logmanager.LogManager.get_current_log", return_value=manager),
+        patch(
+            "gptme.util.output_storage.save_large_output",
+            side_effect=OSError("disk full"),
+        ),
+    ):
+        capped = _cap_output(huge)
+    assert "bytes omitted" in capped
+    assert "saved" not in capped
+
+
 def test_cap_output_small_output():
     """Test that small output is not truncated."""
     from gptme.tools.python import _cap_output
