@@ -31,6 +31,7 @@ from .types import (
     Role,
     Subagent,
     SubtaskDef,
+    _shadowed_subagents,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -80,6 +81,42 @@ def _register_rehydrated_subagent(loaded: Subagent, *, newest: bool = True) -> S
     return loaded
 
 
+def _register_scanned_subagent(loaded: Subagent) -> None:
+    """Publish one registry-scan hit without hiding same-named children.
+
+    Agent IDs are only unique within a conversation, so the scan deduplicates by
+    ``(parent_logdir, agent_id)``. The first run seen for an agent_id (the scan
+    is newest-first) becomes the addressable registry entry and seeds the
+    agent_id-keyed result cache, as before. A run whose ID is already held by
+    another conversation's run goes to ``_shadowed_subagents`` with its own
+    persisted outcome, so owner-scoped listings still show it while ID-based
+    lookups, the result cache and control calls keep resolving to the holder.
+    """
+    from .persistence import load_subagent_outcome
+
+    outcome = load_subagent_outcome(loaded)
+    with _subagents_lock:
+        same_id = [s for s in _subagents if s.agent_id == loaded.agent_id]
+        if not same_id:
+            with _subagent_results_lock:
+                if outcome is not None:
+                    _subagent_results.setdefault(loaded.agent_id, outcome)
+                _subagents.append(loaded)
+            return
+        # A newer run of this conversation (or this very run) is already known.
+        known = same_id + [
+            s for s in _shadowed_subagents if s.agent_id == loaded.agent_id
+        ]
+        if any(
+            s.parent_logdir == loaded.parent_logdir or s.logdir == loaded.logdir
+            for s in known
+        ):
+            return
+        object.__setattr__(loaded, "shadowed", True)
+        object.__setattr__(loaded, "shadowed_outcome", outcome)
+        _shadowed_subagents.append(loaded)
+
+
 def _maybe_rehydrate_registry() -> None:
     """One-shot scan of the logs directory to rebuild _subagents after a restart.
 
@@ -108,7 +145,7 @@ def _maybe_rehydrate_registry() -> None:
                 ", ".join(sa.agent_id for sa in rehydrated),
             )
             for sa in rehydrated:
-                _register_rehydrated_subagent(sa)
+                _register_scanned_subagent(sa)
         _types._registry_rehydrated = True
 
 
@@ -2144,7 +2181,14 @@ def subagent_list() -> list[dict]:
     _maybe_rehydrate_registry()
     now = time.time()
     with _subagents_lock:
-        agents = list(_subagents)  # copy under lock, then iterate outside
+        # copy under lock, then iterate outside
+        agents = list(_subagents)
+        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
+        agents += [
+            s
+            for s in _shadowed_subagents
+            if (s.parent_logdir, s.agent_id) not in known_owners
+        ]
 
     result: list[dict[str, Any]] = []
     for sa in agents:
@@ -2212,19 +2256,27 @@ def subagent_snapshots(
     owner = Path(parent_logdir).resolve()
     with _subagents_lock:
         agents = list(_subagents)
+        # Runs whose agent_id another conversation holds (see _shadowed_subagents).
+        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
+        shadowed = [
+            s
+            for s in _shadowed_subagents
+            if s.parent_logdir == owner
+            and (s.parent_logdir, s.agent_id) not in known_owners
+        ]
     newest: dict[str, Subagent] = {}
     for sa in agents:
         newest[sa.agent_id] = sa  # append-only: last entry is the newest run
     now = time.time()
     snapshots = []
-    for sa in agents:
+    for sa in agents + shadowed:
         if sa.parent_logdir != owner:
             continue
         if parent_branch is not None and (sa.parent_branch or "main") != parent_branch:
             continue
         status: str
         duration_s: float | None = None
-        if newest[sa.agent_id] is sa:
+        if newest.get(sa.agent_id) is sa:
             # status() honors cached cancellation/timeout before worker liveness.
             with _subagent_results_lock:
                 cached_outcome = _subagent_results.get(sa.agent_id)
@@ -2272,6 +2324,22 @@ def subagent_snapshots(
                             else max(now - sa.started_at, 0),
                         )
                     duration_s = sa.frozen_duration_s
+        elif sa.shadowed:
+            # A shadowed run never reads the agent_id-keyed cache, so its
+            # status() is its own persisted outcome or transcript.
+            outcome = sa.snapshot_outcome or sa.status()
+            status = outcome.status
+            if status not in ("running", "unknown"):
+                object.__setattr__(sa, "snapshot_outcome", outcome)
+                if sa.frozen_duration_s is None:
+                    object.__setattr__(
+                        sa,
+                        "frozen_duration_s",
+                        outcome.duration_s
+                        if outcome.duration_s is not None
+                        else max(now - sa.started_at, 0),
+                    )
+                duration_s = sa.frozen_duration_s
         elif sa.is_running():
             status = "running"
         else:
