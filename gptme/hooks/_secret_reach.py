@@ -66,7 +66,11 @@ class _Grep:
 
 
 def _parse_grep(
-    args: list[str], *, ripgrep: bool = False, node: object | None = None
+    args: list[str],
+    *,
+    ripgrep: bool = False,
+    node: object | None = None,
+    workspace: Path | None = None,
 ) -> _Grep:
     result = _Grep(ripgrep=ripgrep)
     operands: list[tuple[str, str]] = []
@@ -190,7 +194,10 @@ def _parse_grep(
             result.exclude_dirs.append(value)
         elif flag == "exclude_from":
             try:
-                fd = os.open(value, os.O_RDONLY | os.O_NONBLOCK)
+                path = (
+                    os.path.join(workspace, value) if workspace is not None else value
+                )
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
                 with os.fdopen(fd, "rb") as stream:
                     data = stream.read(65537)
             except OSError:
@@ -613,9 +620,11 @@ def _bash_glob_pattern(pattern: str) -> str:
     return pattern
 
 
-def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
-    """Expand pathname components with a shared directory-entry budget."""
-    paths = [os.sep if os.path.isabs(pattern) else "."]
+def _expand(
+    pattern: str, budget: _Budget, *, workspace: Path | None = None
+) -> Iterator[str]:
+    """Expand pattern components, keeping the starting directory literal."""
+    paths = [os.sep if os.path.isabs(pattern) else str(workspace or ".")]
     for component in Path(pattern).parts:
         if component == os.sep:
             continue
@@ -727,10 +736,19 @@ def _selected(grep: _Grep, path: str, root: str) -> bool:
 
 
 def find_secret_reach(
-    command: str, is_secret: Callable[[str], bool], normalize: Callable[[str], str]
+    command: str,
+    is_secret: Callable[[str], bool],
+    normalize: Callable[[str], str],
+    *,
+    workspace: Path | None = None,
 ) -> str | None:
-    """Find a literal reader's glob or shallow recursive-grep secret operand."""
+    """Find a literal reader's direct, glob or shallow recursive secret operand."""
     from ..tools.shell import _parse_bash
+
+    def anchor(path: str) -> str:
+        # Shell sessions can have a cwd distinct from the server process. Anchor
+        # before filesystem discovery, without changing cwd or resolving symlinks.
+        return os.path.join(workspace, path) if workspace is not None else path
 
     budget = _Budget()
     pending = [_parse_bash(command.encode())]
@@ -744,7 +762,7 @@ def find_secret_reach(
             continue
         name = Path(words[0]).name
         grep = (
-            _parse_grep(words[1:], ripgrep=name == "rg", node=node)
+            _parse_grep(words[1:], ripgrep=name == "rg", node=node, workspace=workspace)
             if name in {"grep", "egrep", "fgrep", "rg"}
             else None
         )
@@ -768,7 +786,9 @@ def find_secret_reach(
         patterns: dict[str, list[str]] = {word: [word] for word in extra_files}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()
-            expanded_patterns = _glob_patterns(raw, include_literal=recursive)
+            # Quoted metacharacters are literal filenames too. Include them so
+            # the lexical scanner's glob/substitution skip cannot hide a read.
+            expanded_patterns = _glob_patterns(raw, include_literal=True)
             if expanded_patterns:
                 try:
                     patterns.setdefault(shlex.split(raw)[0], []).extend(
@@ -784,7 +804,7 @@ def find_secret_reach(
                 continue
             files.append(word)
             stdin_operands.add(word)
-            expanded_patterns = _glob_patterns(raw, include_literal=recursive)
+            expanded_patterns = _glob_patterns(raw, include_literal=True)
             if expanded_patterns:
                 patterns.setdefault(word, []).extend(expanded_patterns)
         for operand in files:
@@ -792,10 +812,10 @@ def find_secret_reach(
                 (
                     path
                     for pattern in patterns[operand]
-                    for path in _expand(pattern, budget)
+                    for path in _expand(pattern, budget, workspace=workspace)
                 )
                 if operand in patterns
-                else [normalize(operand)]
+                else [anchor(normalize(operand))]
             )
             for path in expanded:
                 if (

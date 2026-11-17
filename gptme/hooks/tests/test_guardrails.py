@@ -48,6 +48,37 @@ class TestIsSecretPath:
     def test_ssh_private_key(self):
         assert _is_secret_path("~/.ssh/id_rsa")
 
+    @pytest.fixture
+    def fake_home(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("x")
+        (home / "work").mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(home)
+        return home
+
+    def test_dotdot_into_secret_dir(self, fake_home):
+        assert _is_secret_path("~/work/../.ssh/config")
+        assert _is_secret_path(f"{fake_home}/work/../.ssh/config")
+
+    def test_relative_path_anchored_at_cwd(self, fake_home):
+        assert _is_secret_path(".ssh/config")
+
+    def test_dotdot_through_dir_with_glob_chars(self, fake_home):
+        # Outside a shell, [ ] * ? are literal filename characters, so
+        # proj[1]/../.ssh/config still resolves to ~/.ssh/config.
+        (fake_home / "proj[1]").mkdir()
+        assert _is_secret_path("proj[1]/../.ssh/config")
+        assert _is_secret_path("~/proj[1]/../.ssh/config")
+
+    def test_dotdot_into_absolute_secret_prefix(self):
+        assert _is_secret_path("/etc/../etc/shadow")
+
+    def test_sibling_of_secret_dir_still_allowed(self, fake_home):
+        (fake_home / ".ssh-backup").mkdir()
+        assert not _is_secret_path(str(fake_home / ".ssh-backup" / "x"))
+
     def test_ssh_dir(self):
         assert _is_secret_path("~/.ssh/")
 
@@ -239,6 +270,168 @@ class TestGuardrailHookEnforceMode:
     @pytest.mark.parametrize(
         "cmd",
         [
+            "cat .ssh/config",
+            "cat work/../.ssh/config",
+            "python script.py --file=.ssh/config",
+            "cat .s*/config",
+            "grep -r needle .",
+        ],
+    )
+    def test_shell_paths_use_workspace(self, monkeypatch, tmp_path, cmd):
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("needle\n")
+        (home / "work").mkdir()
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(server)
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=home
+        )
+
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    @pytest.mark.parametrize("dirname", ["work[1]", "work*", "work?", "work$", "work`"])
+    @pytest.mark.parametrize(
+        "reader",
+        [
+            "cat {}",
+            "cat < {}",
+            "python3 -c 'import pathlib,sys; "
+            'print(pathlib.Path(sys.argv[1]).read_text(), end="")\' {}',
+            "cp {} /dev/stdout",
+        ],
+    )
+    @pytest.mark.parametrize("target", [".ssh", ".ssh-backup"])
+    def test_shell_quoted_literal_traversal(
+        self, monkeypatch, tmp_path, dirname, reader, target
+    ):
+        import shlex
+        import subprocess
+
+        home = tmp_path / "home"
+        (home / target).mkdir(parents=True)
+        (home / target / "config").write_text("fake-secret\n")
+        (home / dirname).mkdir()
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(server)
+        cmd = reader.format(shlex.quote(f"{dirname}/../{target}/config"))
+        # Confirm the shell really reads our fake secret, not a glob expansion.
+        assert subprocess.check_output(cmd, shell=True, cwd=home, text=True) == (
+            "fake-secret\n"
+        )
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=home
+        )
+
+        if target == ".ssh":
+            assert isinstance(result, ConfirmationResult)
+            assert result.action == ConfirmAction.SKIP
+        else:
+            assert result is None
+
+    @pytest.mark.parametrize("dirname", ["project[1]", "project*", "project?"])
+    @pytest.mark.parametrize("cmd", ["grep -r TOKEN .", "cat .e*"])
+    def test_shell_workspace_glob_characters_are_literal(
+        self, monkeypatch, tmp_path, dirname, cmd
+    ):
+        workspace = tmp_path / dirname
+        workspace.mkdir()
+        (workspace / ".env").write_text("TOKEN=secret\n")
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.chdir(server)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=workspace
+        )
+
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    @pytest.mark.parametrize("dirname", ["project[1]", "project*", "project?"])
+    def test_shell_workspace_glob_does_not_search_sibling(
+        self, monkeypatch, tmp_path, dirname
+    ):
+        workspace = tmp_path / dirname
+        workspace.mkdir()
+        sibling = tmp_path / "project1"
+        sibling.mkdir()
+        (sibling / ".env").write_text("TOKEN=secret\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        cmd = "grep -r TOKEN ."
+
+        assert (
+            guardrail_hook(
+                _make_tool_use("shell", cmd), preview=cmd, workspace=workspace
+            )
+            is None
+        )
+
+    @pytest.mark.parametrize("option", ["--exclude-from=rules", "--exclude-from rules"])
+    @pytest.mark.parametrize("excluded", [False, True])
+    def test_shell_grep_exclusions_use_workspace(
+        self, monkeypatch, tmp_path, option, excluded
+    ):
+        import subprocess
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("needle\n")
+        (home / "rules").write_text("*\n" if excluded else "")
+        server = tmp_path / "server"
+        server.mkdir()
+        (server / "rules").write_text("" if excluded else "*\n")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(server)
+        cmd = f"grep -r {option} needle ."
+        actual = subprocess.run(
+            cmd, shell=True, cwd=home, text=True, capture_output=True, check=False
+        )
+        assert actual.returncode == (1 if excluded else 0)
+        assert bool(actual.stdout) is not excluded
+
+        result = guardrail_hook(
+            _make_tool_use("shell", cmd), preview=cmd, workspace=home
+        )
+
+        if excluded:
+            assert result is None
+        else:
+            assert isinstance(result, ConfirmationResult)
+            assert result.action == ConfirmAction.SKIP
+
+    def test_shell_workspace_overrides_process_cwd(self, monkeypatch, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir()
+        workspace = tmp_path / "project"
+        workspace.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.chdir(home)
+        cmd = "cat .ssh/config"
+
+        assert (
+            guardrail_hook(
+                _make_tool_use("shell", cmd), preview=cmd, workspace=workspace
+            )
+            is None
+        )
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
             "echo start && git reflog expire --all",
             "ls && cat ~/.ssh/id_rsa",
         ],
@@ -262,6 +455,103 @@ class TestGuardrailHookEnforceMode:
         assert result.action == ConfirmAction.SKIP
         assert result.message is not None
         assert "credentials" in result.message or "Blocked" in result.message
+
+    @pytest.mark.parametrize("dirname", ["work$", "work`", "$GUARD_TEST_DIR"])
+    @pytest.mark.parametrize("target", [".ssh", ".ssh-backup"])
+    @pytest.mark.parametrize("entrypoint", ["content", "args", "kwargs"])
+    def test_read_tool_literal_substitution_traversal(
+        self, monkeypatch, tmp_path, dirname, target, entrypoint
+    ):
+        from ...tools.read import execute_read
+        from ..guardrails import guardrail_pre_hook
+        from ..types import ToolExecutePreData
+
+        home = tmp_path / "home"
+        (home / target).mkdir(parents=True)
+        (home / target / "config").write_text("synthetic-content\n")
+        (home / dirname).mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GUARD_TEST_DIR", str(tmp_path / "elsewhere" / "work"))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
+        monkeypatch.chdir(home)
+        path = f"~/{dirname}/../{target}/config"
+        content = path if entrypoint == "content" else ""
+        args = [path] if entrypoint == "args" else None
+        kwargs = {"path": path} if entrypoint == "kwargs" else None
+
+        # The reader expands ~ but treats $ and backticks as literal characters.
+        messages = list(execute_read(content, args, kwargs))
+        assert any("synthetic-content" in message.content for message in messages)
+        tool_use = _make_tool_use("read", content, args=args, kwargs=kwargs)
+        result = guardrail_hook(tool_use)
+        pre_data = ToolExecutePreData(tool_use=tool_use)
+        list(guardrail_pre_hook(pre_data))
+        if target == ".ssh":
+            assert isinstance(result, ConfirmationResult)
+            assert result.action == ConfirmAction.SKIP
+            assert pre_data.denied
+        else:
+            assert result is None
+            assert not pre_data.denied
+
+    def test_read_batch_with_deleted_cwd_still_denies_secret(
+        self, monkeypatch, tmp_path
+    ):
+        from ...tools.read import execute_read
+        from ..guardrails import guardrail_pre_hook
+        from ..types import ToolExecutePreData
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("synthetic-secret\n")
+        gone = tmp_path / "gone"
+        gone.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
+        monkeypatch.chdir(gone)
+        gone.rmdir()
+        content = "notes.txt\n~/.ssh/config"
+        messages = list(execute_read(content, None, None))
+        assert any("synthetic-secret" in message.content for message in messages)
+        tool_use = _make_tool_use("read", content)
+        data = ToolExecutePreData(tool_use=tool_use)
+        list(guardrail_pre_hook(data))
+        assert data.denied
+        result = guardrail_hook(tool_use)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_read_literal_traversal_uses_execution_workspace(
+        self, monkeypatch, tmp_path
+    ):
+        from ...tools import shell
+        from ...tools.read import execute_read
+        from ..guardrails import guardrail_pre_hook
+        from ..types import ToolExecutePreData
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("synthetic-secret\n")
+        (home / "work$").mkdir()
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
+        monkeypatch.chdir(server)
+        monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(home))
+        path = "work$/../.ssh/config"
+        messages = list(execute_read(path, None, None))
+        assert any("synthetic-secret" in message.content for message in messages)
+        tool_use = _make_tool_use("read", path)
+        data = ToolExecutePreData(tool_use=tool_use, workspace=home)
+        list(guardrail_pre_hook(data))
+        assert data.denied
+        result = guardrail_hook(tool_use, workspace=home)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
 
     def test_read_tool_pem_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")

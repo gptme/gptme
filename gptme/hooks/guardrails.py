@@ -149,10 +149,35 @@ def _path_has_prefix(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
 
 
-def _is_secret_path(path: str) -> bool:
+def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
+    """Literal spelling plus its ``..``-collapsed, tool-cwd-anchored form.
+
+    The prefix rules below match text, so ``~/work/../.ssh/config`` and a
+    relative ``.ssh/config`` slip past a literal comparison. Symlink targets
+    are deliberately not resolved (see ``test_file_symlinks_in_globs``).
+    Metacharacters may be literal filename characters after shell quoting
+    (``work$/../.ssh/config``), including operands of arbitrary programs that
+    the reader-reach analysis does not inspect. Check the collapsed spelling
+    too; this does not evaluate substitutions or resolve symlinks.
+    """
+    if not expanded:
+        return [expanded]
+    try:
+        anchored = os.path.abspath(
+            os.path.join(workspace, expanded) if workspace is not None else expanded
+        )
+    except (OSError, ValueError):
+        return [expanded]
+    return [expanded] if anchored == expanded else [expanded, anchored]
+
+
+def _is_secret_path(path: str, workspace: Path | None = None) -> bool:
     """Return True if ``path`` looks like it leads to a secret/credential file."""
     expanded = _normalize_path_token(path)
+    return any(_is_secret_spelling(s) for s in _path_spellings(expanded, workspace))
 
+
+def _is_secret_spelling(expanded: str) -> bool:
     for secret_dir in _SECRET_HOME_DIRS:
         if _path_has_prefix(expanded, _normalize_path_token(secret_dir)):
             return True
@@ -174,7 +199,7 @@ def _is_secret_path(path: str) -> bool:
     return basename == ".env" or basename.startswith(".env.local")
 
 
-def _find_secret_path_in_cmd(cmd: str) -> str | None:
+def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
     """Return the first token in ``cmd`` that looks like a secret path, or None."""
     import shlex
 
@@ -197,7 +222,7 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
         if token.startswith("-"):
             if "=" in token:
                 value = token.split("=", 1)[1].strip("'\"")
-                if value and _is_secret_path(value):
+                if value and _is_secret_path(value, workspace):
                     return value
             continue
         # Skip command names (heuristic: no path separators and no home marker)
@@ -209,12 +234,14 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
             and not token.startswith(".")
         ):
             continue
-        if _is_secret_path(token):
+        if _is_secret_path(token, workspace):
             return token
 
     from ._secret_reach import find_secret_reach
 
-    return find_secret_reach(cmd, _is_secret_path, _normalize_path_token)
+    return find_secret_reach(
+        cmd, _is_secret_path, _normalize_path_token, workspace=workspace
+    )
 
 
 def _read_paths_from_tool_use(tool_use: "ToolUse") -> list[str]:
@@ -257,8 +284,23 @@ def _read_secret_path_reason(
             for line in preview.splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
+    from ..tools.base import current_workspace
+    from ..tools.read import _configured_read_root
+
     for path_arg in path_candidates:
-        if _is_secret_path(path_arg):
+        # read expands ~, not shell variables or substitutions. Check its
+        # literal spelling too: work$/../.ssh/config still reaches ~/.ssh.
+        literal = os.path.expanduser(path_arg)
+        try:
+            if not os.path.isabs(literal):
+                read_root, _ = _configured_read_root()
+                literal = os.path.join(read_root or current_workspace(), literal)
+            literal = os.path.abspath(literal)
+        except (OSError, ValueError, RuntimeError):
+            # A bad relative operand must not hide a later absolute secret
+            # in a batch (e.g. when the process cwd has been deleted).
+            pass
+        if _is_secret_path(path_arg) or _is_secret_spelling(literal):
             return (
                 f"Secret path access blocked: read tool references {path_arg!r}. "
                 "Use a dedicated secrets manager or explicit user approval."
@@ -293,7 +335,9 @@ def _patch_many_secret_path_reason(
     return None
 
 
-def _shell_text_block_reason(cmd: str, subject: str) -> str | None:
+def _shell_text_block_reason(
+    cmd: str, subject: str, workspace: Path | None = None
+) -> str | None:
     """Return the block reason for shell text, or None if it is allowed.
 
     The one rule set for anything that ends up in a shell: ``shell`` commands,
@@ -314,7 +358,7 @@ def _shell_text_block_reason(cmd: str, subject: str) -> str | None:
     credential_reason = credential_output_reason(cmd)
     if credential_reason:
         return credential_reason
-    secret = _find_secret_path_in_cmd(cmd)
+    secret = _find_secret_path_in_cmd(cmd, workspace)
     if secret:
         return (
             f"Secret path access blocked: {subject} references {secret!r}. "
@@ -395,7 +439,7 @@ def guardrail_hook(
     if tool_use.tool == "shell":
         cmd = (preview or tool_use.preview_content or "").strip()
         if cmd:
-            block_reason = _shell_text_block_reason(cmd, "shell command")
+            block_reason = _shell_text_block_reason(cmd, "shell command", workspace)
 
     elif tool_use.tool == "read":
         # Not dead code: reads dispatched by ToolUse.execute() are policed at
