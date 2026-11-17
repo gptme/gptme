@@ -1696,6 +1696,28 @@ def _is_slash_command_token(word: str) -> bool:
 @main.group()
 def models():
     """Model-related utilities."""
+    # Provider plugins registered via the ``gptme.plugins`` entry-point group are
+    # only visible once the plugin registry is initialised (``gptme`` does this
+    # in ``init()``); without it, listing sees just the legacy ``gptme.providers``
+    # group and reports plugin models as unknown.
+    previous_logging_disable = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        # Imports and init callbacks can print before the subcommand's JSON
+        # guard runs. Keep startup diagnostics off stdout for all formats,
+        # including --simple and recommended --format json.
+        with redirect_stdout(sys.stderr):
+            from ..init import _init_plugins  # fmt: skip
+
+            _init_plugins()
+    except Exception as exc:
+        # Restore logging first so the failure is visible with --verbose.
+        logging.disable(previous_logging_disable)
+        logging.getLogger(__name__).debug(
+            "Plugin discovery failed for models command: %s", exc
+        )
+    finally:
+        logging.disable(previous_logging_disable)
 
 
 @models.command("list")
