@@ -28,7 +28,13 @@ from ..tools import ToolUse, get_tools, set_tools
 from ..tools.mcp_adapter import create_mcp_tools
 from ..util.auto_naming import generate_conversation_id
 from ..util.context import md_codeblock
-from .adapter import acp_content_to_gptme_message, gptme_message_to_acp_content
+from .adapter import (
+    acp_content_to_gptme_message,
+    gptme_message_to_acp_content,
+    text_block,
+    update_agent_message,
+    update_available_commands,
+)
 from .types import (
     PermissionKind,
     PermissionOption,
@@ -959,10 +965,7 @@ class GptmeAgent:
             return
 
         try:
-            from acp import (
-                text_block,
-                update_agent_message,
-            )
+            import acp.schema  # noqa: F401
         except ImportError:
             logger.debug("acp not installed, skipping session-open notifications")
             await self._send_available_commands(session_id)
@@ -1011,9 +1014,6 @@ class GptmeAgent:
         if not self._conn or session_id in self._session_commands_advertised:
             return
         try:
-            from acp.helpers import (
-                update_available_commands,
-            )
             from acp.schema import (
                 AvailableCommand,
             )
@@ -1156,11 +1156,6 @@ class GptmeAgent:
                 "agent-client-protocol package not installed. "
                 "Install with: pip install 'gptme[acp]'"
             )
-
-        from acp import (
-            text_block,
-            update_agent_message,
-        )
 
         # Surface initialization errors as visible agent messages
         if self._init_error:
