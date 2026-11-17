@@ -2565,6 +2565,7 @@ class WorkOverviewScreen(ModalScreen):
         self._watches: list = []
         self._cursor = 0
         self._reading = False
+        self._loaded = False  # first read landed; before it, rows are placeholders
 
     def _read_inputs(self) -> "tuple[list[SubagentSnapshot], list]":
         """Read child and monitor snapshots from disk (blocking).
@@ -2604,6 +2605,7 @@ class WorkOverviewScreen(ModalScreen):
             else None
         )
         self._children, self._watches = inputs or self._read_inputs()
+        self._loaded = True
 
         keys = [(c.run_id, c.started_at) for c in self._children]
         if selected_key in keys:
@@ -2669,8 +2671,11 @@ class WorkOverviewScreen(ModalScreen):
         self.call_after_refresh(self._start_refresh)
 
     def on_resize(self) -> None:
-        # Only the row width changed: re-fit the rows already read.
-        self.call_after_refresh(self._show_summary)
+        # Only the row width changed: re-fit the rows already read. Before the
+        # first read there are none, and redrawing would replace "Loading…" with
+        # a false "No children" frame.
+        if self._loaded:
+            self.call_after_refresh(self._show_summary)
 
     def on_screen_resume(self) -> None:
         self.call_after_refresh(self._start_refresh)
