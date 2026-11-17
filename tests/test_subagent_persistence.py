@@ -852,6 +852,69 @@ class TestCrossConversationRehydration:
             "prompt subagent-worker-bbbb",
         ]
 
+    def test_owner_status_selects_own_child(self, tmp_path: Path, monkeypatch):
+        """With owner context, subagent_status resolves A's child not B's."""
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools.subagent.api import subagent_status
+
+        parent_a, parent_b, child_a, child_b = self._two_conversations(
+            tmp_path, monkeypatch, a_outcome=ReturnType("success", "A result")
+        )
+        monkeypatch.setattr(
+            LogManager,
+            "get_current_log",
+            staticmethod(lambda: SimpleNamespace(logdir=parent_a)),
+        )
+        result = subagent_status("worker")
+        assert result["status"] == "success", f"Expected A's success, got: {result}"
+        assert result.get("result") == "A result"
+
+    def test_owner_cancel_does_not_cross_conversation(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """With owner context, subagent_cancel won't cancel another conversation's child."""
+        import threading
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+        from gptme.tools.subagent.api import subagent_cancel
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        logs_dir = tmp_path / "logs"
+        parent_a = (logs_dir / "conv-a").resolve()
+        parent_b = (logs_dir / "conv-b").resolve()
+        parent_a.mkdir(parents=True)
+        parent_b.mkdir(parents=True)
+        # Only B has a live "worker" child (a mock running subagent)
+        live_b = Subagent(
+            agent_id="worker",
+            prompt="B task",
+            thread=threading.Thread(target=lambda: None),
+            logdir=logs_dir / "subagent-worker-bbbb",
+            model=None,
+            parent_logdir=parent_b,
+        )
+        (logs_dir / "subagent-worker-bbbb").mkdir(parents=True)
+        with _subagents_lock:
+            _subagents.append(live_b)
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+        # A's context: set LogManager to return parent_a
+        monkeypatch.setattr(
+            LogManager,
+            "get_current_log",
+            staticmethod(lambda: SimpleNamespace(logdir=parent_a)),
+        )
+        # A calls cancel("worker") — B's worker should NOT be cancelled
+        with pytest.raises(ValueError, match="not found"):
+            subagent_cancel("worker")
+        # Verify no result was set for B's child
+        from gptme.tools.subagent.types import _subagent_results, _subagent_results_lock
+
+        with _subagent_results_lock:
+            assert "worker" not in _subagent_results
+
     def test_list_shows_both_conversations_children(self, tmp_path: Path, monkeypatch):
         from gptme.tools.subagent.api import subagent_list
 

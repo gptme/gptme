@@ -46,6 +46,79 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
+def _get_caller_owner() -> Path | None:
+    """Return the logdir of the currently active LogManager, or None.
+
+    Reads the ContextVar set by the chat loop so it works when subagent control
+    APIs are called from within an ipython tool execution.  Returns None for
+    bare library calls that run outside any conversation context.
+    """
+    from ...logmanager import LogManager  # fmt: skip
+
+    log = LogManager.get_current_log()
+    return getattr(log, "logdir", None) if log is not None else None
+
+
+def _find_subagent_for_owner(
+    agent_id: str, owner_logdir: Path | None
+) -> Subagent | None:
+    """Return a subagent scoped to owner_logdir when set.
+
+    With an owner_logdir, searches both the main registry and the shadowed list
+    for a child whose ``parent_logdir`` matches, then falls back to disk.  When
+    owner_logdir is None, delegates to :func:`_find_subagent` for backwards
+    compatibility with bare library calls that have no conversation context.
+
+    Disk hits are returned as shadowed entries so :meth:`Subagent._cached_result`
+    reads the persisted outcome directly rather than racing the global
+    ``_subagent_results`` cache (which belongs to the other conversation's holder).
+    """
+    if owner_logdir is None:
+        return _find_subagent(agent_id)
+
+    # Resolve so symlinks don't cause false misses (Subagent.__post_init__ resolves logdir/parent_logdir)
+    owner_logdir = Path(owner_logdir).resolve()
+
+    with _subagents_lock:
+        # Main registry — newest first (matches _find_subagent convention)
+        sa = next(
+            (
+                s
+                for s in reversed(_subagents)
+                if s.agent_id == agent_id and s.parent_logdir == owner_logdir
+            ),
+            None,
+        )
+        if sa is not None:
+            return sa
+        # Shadowed registry — same-named children whose agent_id slot belongs to
+        # another conversation's run (populated by _register_scanned_subagent)
+        sa = next(
+            (
+                s
+                for s in reversed(_shadowed_subagents)
+                if s.agent_id == agent_id and s.parent_logdir == owner_logdir
+            ),
+            None,
+        )
+        if sa is not None:
+            return sa
+
+    # Disk fallback: load matching this owner only (skips the global holder's logdir)
+    loaded = load_subagent_by_id(agent_id, owner_logdir=owner_logdir)
+    if loaded is None:
+        return None
+    # Mark as shadowed and seed the persisted outcome so _cached_result() can
+    # return it directly without touching the global _subagent_results cache,
+    # which belongs to whichever conversation holds the agent_id namespace.
+    from .persistence import load_subagent_outcome  # fmt: skip
+
+    outcome = load_subagent_outcome(loaded)
+    object.__setattr__(loaded, "shadowed", True)
+    object.__setattr__(loaded, "shadowed_outcome", outcome)
+    return loaded
+
+
 def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
     """Return a live or persisted subagent, registering disk hits into memory.
 
@@ -1354,7 +1427,8 @@ def subagent_cancel(agent_id: str) -> str:
     Returns:
         A human-readable status message
     """
-    sa = _find_subagent(agent_id)
+    owner = _get_caller_owner()
+    sa = _find_subagent_for_owner(agent_id, owner)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -1623,7 +1697,8 @@ def subagent_steer(
     """
     from ...prompt_queue import queue_prompt  # fmt: skip
 
-    sa = _find_subagent(agent_id)
+    owner = _get_caller_owner()
+    sa = _find_subagent_for_owner(agent_id, owner)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -1768,7 +1843,8 @@ def subagent_continue(
             outcome is ``cancelled``. Defaults to False so cancellation is final
             unless the caller explicitly opts in.
     """
-    sa = _find_subagent(agent_id)
+    owner = _get_caller_owner()
+    sa = _find_subagent_for_owner(agent_id, owner)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id!r} not found.")
@@ -2367,7 +2443,8 @@ def subagent_snapshots(
 
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
-    sa = _find_subagent(agent_id)
+    owner = _get_caller_owner()
+    sa = _find_subagent_for_owner(agent_id, owner)
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
     return asdict(sa.status())
@@ -2390,7 +2467,8 @@ def subagent_wait(
     """
     # Use the most recently spawned entry — _subagents is append-only, so
     # reversed() finds the newest match when the same agent_id is reused.
-    sa = _find_subagent(agent_id, newest=True)
+    owner = _get_caller_owner()
+    sa = _find_subagent_for_owner(agent_id, owner)
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")

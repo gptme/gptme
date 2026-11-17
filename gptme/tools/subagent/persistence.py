@@ -302,12 +302,20 @@ def load_subagent_meta(logdir: Path) -> Subagent | None:
         return None
 
 
-def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent | None:
+def load_subagent_by_id(
+    agent_id: str,
+    logs_dir: Path | None = None,
+    owner_logdir: Path | None = None,
+) -> Subagent | None:
     """Load one persisted subagent by id from the logs directory.
 
     Planner logdirs are ``subagent-{id}``. Executor/thread/subprocess/ACP logdirs
     are ``subagent-{id}-{4 random chars}``. When several matches exist, return
     the newest by ``started_at``.
+
+    When *owner_logdir* is set, only entries whose ``parent_logdir`` matches are
+    considered — this scopes disk lookups to the calling conversation so a
+    same-named child from a different conversation is never returned.
     """
     from ...dirs import get_logs_dir
 
@@ -315,6 +323,10 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
         logs_dir = get_logs_dir()
     if not logs_dir.is_dir():
         return None
+
+    # Resolve so symlinks don't cause false misses (Subagent.__post_init__ resolves parent_logdir)
+    if owner_logdir is not None:
+        owner_logdir = Path(owner_logdir).resolve()
 
     prefix = f"subagent-{agent_id}-"
     exact = logs_dir / f"subagent-{agent_id}"
@@ -336,6 +348,7 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
         if (
             sa is not None
             and sa.agent_id == agent_id
+            and (owner_logdir is None or sa.parent_logdir == owner_logdir)
             and (
                 (entry / "conversation.jsonl").exists()
                 or load_subagent_outcome(sa) is not None
