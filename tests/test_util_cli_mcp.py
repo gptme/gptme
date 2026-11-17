@@ -315,12 +315,48 @@ class TestMCPInfo:
         assert "Environment: 1 variables" in result.output
         assert "Connected" in result.output
 
+    def test_local_sse_server_shows_transport(self, mock_config, mock_mcp_client):
+        """SSE servers are labelled so `mcp info` shows the transport in use."""
+        from gptme.config import MCPServerConfig
+
+        for transport, url, expected in [
+            ("", "http://localhost:8080/sse", "Type: HTTP (SSE)"),
+            ("sse", "http://localhost:8080/events", "Type: HTTP (SSE)"),
+            ("", "http://localhost:8080/mcp", "Type: HTTP\n"),
+        ]:
+            server = MCPServerConfig(name="s", url=url, transport=transport)
+            mock_config.mcp.servers = [server]
+            tools_mock = Mock()
+            tools_mock.tools = []
+            mock_mcp_client.connect.return_value = (tools_mock, Mock())
+
+            result = CliRunner().invoke(main, ["mcp", "info", "s"])
+
+            assert result.exit_code == 0, result.output
+            assert expected in result.output, result.output
+
+    def test_local_malformed_url_does_not_crash(self, mock_config, mock_mcp_client):
+        """A malformed URL must not crash `mcp info` when choosing the type label."""
+        from gptme.config import MCPServerConfig
+
+        server = MCPServerConfig(name="s", url="https://[2001:db8::1/mcp")
+        mock_config.mcp.servers = [server]
+        tools_mock = Mock()
+        tools_mock.tools = []
+        mock_mcp_client.connect.return_value = (tools_mock, Mock())
+
+        result = CliRunner().invoke(main, ["mcp", "info", "s"])
+
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "Type: HTTP\n" in result.output, result.output
+
     def test_local_http_server(self, mock_config, mock_mcp_client):
         """Test info for locally configured HTTP server."""
         server = Mock()
         server.name = "http-server"
         server.enabled = True
         server.is_http = True
+        server.is_sse = False  # real MCPServerConfig returns a plain bool
         server.url = "http://localhost:8080"
         server.headers = {"Authorization": "Bearer token"}
         mock_config.mcp.servers = [server]
@@ -333,7 +369,7 @@ class TestMCPInfo:
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "info", "http-server"])
         assert result.exit_code == 0
-        assert "Type: HTTP" in result.output
+        assert "Type: HTTP\n" in result.output, result.output
         assert "URL: http://localhost:8080" in result.output
         assert "Headers: 1 configured" in result.output
         server.env = {}
@@ -344,6 +380,7 @@ class TestMCPInfo:
         server.name = "http-server"
         server.enabled = False
         server.is_http = True
+        server.is_sse = False
         server.url = "https://user:secret@example.com/mcp?token=hunter2"
         server.headers = {}
         mock_config.mcp.servers = [server]
