@@ -6,9 +6,12 @@ This module provides bidirectional conversion between:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..message import Message
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def gptme_message_to_acp_content(msg: Message) -> list[dict]:
@@ -64,3 +67,29 @@ def acp_content_to_gptme_message(content: list, role: RoleType) -> Message:
                 text_parts.append(getattr(c, "text", "") or "")
 
     return Message(role=role, content="\n".join(text_parts))
+
+
+# Schema constructors for outgoing session updates. acp 1.0 removed
+# ``acp.helpers`` and its top-level re-exports, so build the schema objects
+# directly; this works on both the 0.x and 1.x SDKs.
+
+
+def text_block(text: str) -> Any:
+    from acp.schema import TextContentBlock
+
+    return TextContentBlock(type="text", text=text)
+
+
+def update_agent_message(content: Any) -> Any:
+    from acp.schema import AgentMessageChunk
+
+    return AgentMessageChunk(session_update="agent_message_chunk", content=content)
+
+
+def update_available_commands(commands: Iterable[Any]) -> Any:
+    from acp.schema import AvailableCommandsUpdate
+
+    return AvailableCommandsUpdate(
+        session_update="available_commands_update",
+        available_commands=list(commands),
+    )

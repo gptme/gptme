@@ -51,16 +51,19 @@ class TestAcpContentToGptmeMessage:
 
     def test_pydantic_text_block(self):
         """ACP SDK returns Pydantic TextContentBlock objects, not dicts."""
-        acp = pytest.importorskip("acp")
-        block = acp.text_block("hello from zed")
+        schema = pytest.importorskip("acp.schema")
+        block = schema.TextContentBlock(type="text", text="hello from zed")
         msg = acp_content_to_gptme_message([block], "user")
         assert msg.role == "user"
         assert msg.content == "hello from zed"
 
     def test_pydantic_multiple_blocks(self):
         """Multiple Pydantic blocks should be joined correctly."""
-        acp = pytest.importorskip("acp")
-        blocks = [acp.text_block("Part 1"), acp.text_block("Part 2")]
+        schema = pytest.importorskip("acp.schema")
+        blocks = [
+            schema.TextContentBlock(type="text", text="Part 1"),
+            schema.TextContentBlock(type="text", text="Part 2"),
+        ]
         msg = acp_content_to_gptme_message(blocks, "user")
         assert msg.content == "Part 1\nPart 2"
 
