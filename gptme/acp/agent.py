@@ -1354,23 +1354,42 @@ class GptmeAgent:
                 step_tool_calls[index] = tool_call.tool_call_id
                 _send_from_worker(self._report_tool_call(session_id, tool_call))
 
+            # Tool-result messages already delivered as tool-call content; the
+            # post-turn forwarding below must not repeat them as agent text.
+            delivered_as_content: set[int] = set()
+
             def settle_step_tool_calls(step_msgs: list[Message]) -> None:
-                """Give each call of the step its own outcome, read from its outputs."""
+                """Give each call of the step its own outcome and output."""
                 failed = {
                     item.metadata.get("tool_call")
                     for item in step_msgs
                     if item.metadata
                     and item.metadata.get("tool_status") in ("failed", "denied")
                 }
+                outputs: dict[int, list[Message]] = {}
+                for item in step_msgs:
+                    index = item.metadata.get("tool_call") if item.metadata else None
+                    if item.role != "assistant" and index in step_tool_calls:
+                        outputs.setdefault(index, []).append(item)
                 for index, tool_call_id in step_tool_calls.items():
                     status = (
                         ToolCallStatus.FAILED
                         if index in failed
                         else ToolCallStatus.COMPLETED
                     )
+                    content = [
+                        {"type": "content", "content": block}
+                        for item in outputs.get(index, [])
+                        for block in gptme_message_to_acp_content(item)
+                    ]
+                    # A failed send is retried at end of turn with the same
+                    # stored content (_update_tool_call keeps it on the call).
                     _send_from_worker(
-                        self._update_tool_call(session_id, tool_call_id, status)
+                        self._update_tool_call(
+                            session_id, tool_call_id, status, content or None
+                        )
                     )
+                    delivered_as_content.update(id(m) for m in outputs.get(index, []))
                 step_tool_calls.clear()
 
             def run_chat_turn() -> tuple[list[Message], str]:
@@ -1508,8 +1527,11 @@ class GptmeAgent:
                 if response_msg.role == "assistant":
                     # Tokens were already sent via on_token batching; just persist to log.
                     log.append(response_msg)
+                elif id(response_msg) in delivered_as_content:
+                    # Already sent as the content of its tool call.
+                    log.append(response_msg)
                 else:
-                    # Tool results and other non-assistant messages: send via session_update.
+                    # Other non-assistant messages: send via session_update.
                     content = gptme_message_to_acp_content(response_msg)
                     for block in content:
                         text = block.get("text", "")
