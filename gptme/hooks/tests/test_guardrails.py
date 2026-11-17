@@ -65,6 +65,13 @@ class TestIsSecretPath:
     def test_relative_path_anchored_at_cwd(self, fake_home):
         assert _is_secret_path(".ssh/config")
 
+    def test_dotdot_through_dir_with_glob_chars(self, fake_home):
+        # Outside a shell, [ ] * ? are literal filename characters, so
+        # proj[1]/../.ssh/config still resolves to ~/.ssh/config.
+        (fake_home / "proj[1]").mkdir()
+        assert _is_secret_path("proj[1]/../.ssh/config")
+        assert _is_secret_path("~/proj[1]/../.ssh/config")
+
     def test_dotdot_into_absolute_secret_prefix(self):
         assert _is_secret_path("/etc/../etc/shadow")
 
