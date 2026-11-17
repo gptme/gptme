@@ -1206,13 +1206,12 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
-                with _subagent_results_lock:
-                    if agent_id in _subagent_results:
-                        logger.info(
-                            f"Skipping cancelled queued subprocess subagent {agent_id}"
-                        )
-                        _exec._cleanup_isolation(sa)
-                        return
+                if sa._cached_result() is not None:
+                    logger.info(
+                        f"Skipping cancelled queued subprocess subagent {agent_id}"
+                    )
+                    _exec._cleanup_isolation(sa)
+                    return
                 process = _exec._run_subagent_subprocess(
                     prompt=prompt,
                     logdir=logdir,
@@ -1337,9 +1336,8 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
-                with _subagent_results_lock:
-                    cancelled = agent_id in _subagent_results
-                if cancelled:
+                own_run = _own_run[0]
+                if own_run._cached_result() is not None:
                     logger.info(f"Skipping cancelled queued thread subagent {agent_id}")
                     sa = _own_run[0] if _own_run else None
                     if sa:

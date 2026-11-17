@@ -1602,6 +1602,53 @@ class TestSubagentCancel:
                 "cancelled", "Cancelled by orchestrator"
             )
 
+    @pytest.mark.parametrize("use_subprocess", [False, True])
+    def test_other_conversations_timeout_does_not_skip_queued_launch(
+        self, monkeypatch, tmp_path, use_subprocess: bool
+    ) -> None:
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        parent = [tmp_path / "parent-a"]
+        monkeypatch.setattr(
+            LogManager, "get_current_log", lambda: SimpleNamespace(logdir=parent[0])
+        )
+        sem = threading.BoundedSemaphore(1)
+        assert sem.acquire(timeout=0)
+        monkeypatch.setattr(subagent_api, "get_slot_sem", lambda: sem)
+        launch_mock = MagicMock()
+        monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", launch_mock)
+        monkeypatch.setattr(subagent_api._exec, "_run_subagent_subprocess", launch_mock)
+        monkeypatch.setattr(subagent_api._exec, "_monitor_subprocess", lambda sa: None)
+        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", lambda sa: None)
+        monkeypatch.setattr(subagent_api, "notify_completion", lambda *a, **kw: None)
+
+        subagent("shared-queued", "A work", use_subprocess=use_subprocess)
+        with _subagents_lock:
+            sa_a = _subagents[-1]
+        parent[0] = tmp_path / "parent-b"
+        subagent("shared-queued", "B work", use_subprocess=use_subprocess)
+        with _subagents_lock:
+            sa_b = _subagents[-1]
+        try:
+            subagent_api._timeout_subagent("shared-queued", 0.1, expected_run=sa_b)
+        finally:
+            sem.release()
+            for sa in (sa_a, sa_b):
+                assert sa.thread is not None
+                sa.thread.join(timeout=5)
+                assert not sa.thread.is_alive()
+        assert launch_mock.call_count == 1
+        assert launch_mock.call_args.kwargs["prompt"] == "A work"
+        assert sa_b.status().status == "timeout"
+
     def test_cancelled_queued_subprocess_does_not_launch_after_slot_frees(
         self, monkeypatch, tmp_path
     ):
