@@ -149,6 +149,7 @@ def test_non_credential_mid_line_text_is_kept(line):
         "npm_" + "a" * 32,
         "dckr_" + "pat_" + "a" * 32,
         "rk_" + "live_" + "a" * 32,
+        "pplx-" + "c64da60ccfbeecb1b4a9727e9a9b5ab62dd2313e2a89c959",
         "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12,
     ],
 )
