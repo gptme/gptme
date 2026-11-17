@@ -44,6 +44,48 @@ class TestExecuteParsing:
 
 
 @pytest.mark.skipif(False, reason="")  # override pytestmark — no tmux needed
+@pytest.mark.skipif(False, reason="")  # no real tmux needed
+def test_send_keys_ends_tmux_option_parsing(monkeypatch):
+    """Key text like ``-N`` must be typed, not consumed as a tmux option."""
+    from gptme.tools import tmux
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+    tmux.send_keys("gptme_1", "-N 1 printenv Enter")
+    assert calls[0] == [
+        "tmux",
+        "send-keys",
+        "-t",
+        "gptme_1",
+        "--",
+        "-N",
+        "1",
+        "printenv",
+        "Enter",
+    ]
+
+
+@pytest.mark.skipif(False, reason="")  # no real tmux needed
+def test_send_keys_escapes_trailing_semicolon(monkeypatch):
+    """A bare/trailing ``;`` arg is a tmux command separator; it must be typed."""
+    from gptme.tools import tmux
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+    tmux.send_keys("gptme_1", "x ';' run-shell printenv 'a;'")
+    assert calls[0][5:] == ["x", "\\;", "run-shell", "printenv", "a\\;"]
+
+
 class TestNewSessionRetries:
     """Tests for retry behavior when a new tmux session is not ready yet."""
 
@@ -319,3 +361,40 @@ class TestCapturePaneInternal:
 
         output = _capture_pane(session_id)
         assert "capture test" in output
+
+
+def test_get_tmux_operations():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.tmux import get_tmux_operations
+
+    use = ToolUse(
+        "tmux", [], "new-session sleep 5\nsend-keys gptme_1 'ls' Enter\nlist-sessions"
+    )
+    assert get_tmux_operations(use) == [
+        ("new-session", "sleep 5"),
+        ("send-keys", "gptme_1 'ls' Enter"),
+        ("list-sessions", ""),
+    ]
+    assert get_tmux_operations(ToolUse("shell", [], "ls")) is None
+    # kwargs (function-call) form
+    kw = ToolUse("tmux", None, None, {"command": "kill-session gptme_2"})
+    assert get_tmux_operations(kw) == [("kill-session", "gptme_2")]
+
+
+@pytest.mark.parametrize(
+    ("keys", "text"),
+    [
+        ("'printenv' Enter", "printenv\n"),
+        ("'print' 'env' C-m", "printenv\n"),
+        ("'echo' Space 'hello' Tab Enter", "echo hello\t\n"),
+        # tmux key names are case-insensitive
+        ("'printenv' space Enter", "printenv \n"),
+        ("'printenv' ENTER", "printenv\n"),
+        ("'echo' SPACE 'hi' c-M", "echo hi\n"),
+        ("'unclosed", "'unclosed"),
+    ],
+)
+def test_get_tmux_key_text(keys, text):
+    from gptme.tools.tmux import get_tmux_key_text
+
+    assert get_tmux_key_text(keys) == text

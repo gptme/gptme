@@ -23,6 +23,8 @@ from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
 
+    from .base import ToolUse
+
 # Keep this under 1024 chars: it is the OpenAI tool description
 # (tests/test_tools.py::test_tool_descriptions_within_openai_limit).
 instructions = """
@@ -63,7 +65,7 @@ on an earlier one landing.
 """.strip()
 
 
-def _resolve_path(raw_path: str) -> Path:
+def _resolve_path(raw_path: str, *, resolve_symlinks: bool = True) -> Path:
     """Resolve a path and reject relative traversal outside the current directory."""
     path_display = Path(raw_path).expanduser()
     path = resolve_in_workspace(path_display)
@@ -78,7 +80,7 @@ def _resolve_path(raw_path: str) -> Path:
                 f"which is outside current directory {cwd}"
             ) from err
 
-    return path
+    return path if resolve_symlinks else path_display.absolute()
 
 
 def _parse_patches_from_content(
@@ -102,7 +104,9 @@ def _parse_patches_from_content(
     return list(zip(paths, patches))
 
 
-def _parse_patches_from_kwargs(kwargs: Mapping[str, object]) -> list[tuple[Path, str]]:
+def _parse_patches_from_kwargs(
+    kwargs: Mapping[str, object], *, resolve_symlinks: bool = True
+) -> list[tuple[Path, str]]:
     """Parse patches from kwargs format: {patches: [{path, patch}, ...]}."""
     raw = kwargs.get("patches")
     if raw is None:
@@ -128,7 +132,9 @@ def _parse_patches_from_kwargs(kwargs: Mapping[str, object]) -> list[tuple[Path,
                 f"Patch entry {i} must use string 'path' and 'patch' values"
             )
 
-        result.append((_resolve_path(path_value), patch_value))
+        result.append(
+            (_resolve_path(path_value, resolve_symlinks=resolve_symlinks), patch_value)
+        )
 
     return result
 
@@ -158,7 +164,9 @@ def _serialize_confirmation_payload(
     )
 
 
-def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
+def _parse_confirmation_payload(
+    content: str, *, resolve_symlinks: bool = True
+) -> list[tuple[Path, str]]:
     """Parse file sections, treating headers inside patch hunks as literal text."""
     sections: list[tuple[Path, list[str]]] = []
     end_marker: str | None = None
@@ -186,7 +194,14 @@ def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
             match = _CONFIRM_HEADER_RE.fullmatch("\n".join(header))
             if match is None:
                 raise ValueError("Invalid patch_many payload: empty path header")
-            sections.append((_resolve_path(match.group("path")), []))
+            sections.append(
+                (
+                    _resolve_path(
+                        match.group("path"), resolve_symlinks=resolve_symlinks
+                    ),
+                    [],
+                )
+            )
         elif sections and line == ORIGINAL.strip():
             sections[-1][1].append(line)
             end_marker = DIVIDER.strip()
@@ -470,73 +485,119 @@ def execute_patch_many_impl(
     yield Message("system", result)
 
 
-def execute_patch_many(
+class _CallInputError(ValueError):
+    """The call's input is unusable; the message is what the model is told."""
+
+
+def _entries_from_call(
     code: str | None,
     args: list[str] | None,
-    kwargs: dict[str, str] | None,
-) -> Generator[Message, None, None]:
-    """Execute patch_many from a markdown block or tool/function-call kwargs."""
+    kwargs: Mapping[str, str] | None,
+    *,
+    resolve_symlinks: bool = True,
+) -> list[tuple[Path, str | Patch]]:
+    """Resolve a call's ``(path, patch)`` entries from whichever of the three
+    input shapes it uses (kwargs ``patches``, ``=== PATH: ===`` headers, or
+    positional paths plus one conflict-marker patch per path).
+
+    Shared by execution and :func:`get_patch_many_targets` so what a policy
+    hook sees is exactly what the tool will write.
+    """
     if code is None and kwargs is not None and "patches" in kwargs:
         try:
-            kwarg_entries = _parse_patches_from_kwargs(kwargs)
+            return list(
+                _parse_patches_from_kwargs(kwargs, resolve_symlinks=resolve_symlinks)
+            )
         except (ValueError, json.JSONDecodeError) as e:
-            yield Message("system", f"Error parsing patches from kwargs: {e}")
-            return
-
-        yield from execute_with_confirmation(
-            _serialize_confirmation_payload(kwarg_entries),
-            args,
-            kwargs,
-            execute_fn=_execute_patch_many_confirmed,
-            get_path_fn=_get_confirmation_path,
-            allow_edit=True,
-        )
-        return
+            raise _CallInputError(f"Error parsing patches from kwargs: {e}") from e
 
     if not code:
-        yield Message("system", "No patch content provided")
-        return
+        raise _CallInputError("No patch content provided")
 
     # Multi-hunk format: paths embedded in content with === PATH: ... === headers
     # Only the first line selects this format: a simple-format patch may contain
     # literal path headers inside its ORIGINAL or UPDATED content.
     if _CONFIRM_HEADER_RE.match(code.lstrip()):
         try:
-            patch_entries: list[tuple[Path, str | Patch]] = list(
-                _parse_confirmation_payload(code)
+            return list(
+                _parse_confirmation_payload(code, resolve_symlinks=resolve_symlinks)
             )
         except ValueError as e:
-            yield Message("system", f"Error parsing patches: {e}")
-            return
-        yield from execute_with_confirmation(
-            _serialize_confirmation_payload(patch_entries),
-            args,
-            kwargs,
-            execute_fn=_execute_patch_many_confirmed,
-            get_path_fn=_get_confirmation_path,
-            allow_edit=True,
-        )
-        return
+            raise _CallInputError(f"Error parsing patches: {e}") from e
 
     # Simple format: space-separated paths in fence header, one hunk per file
     if not args or not args[0]:
-        yield Message(
-            "system",
-            "No file paths provided. Usage: ```patch_many path1 path2 ...",
+        raise _CallInputError(
+            "No file paths provided. Usage: ```patch_many path1 path2 ..."
         )
-        return
 
     try:
-        paths = [_resolve_path(arg) for arg in args]
-        patch_pairs: list[tuple[Path, str | Patch]] = list(
-            _parse_patches_from_content(code, paths)
-        )
+        paths = [_resolve_path(arg, resolve_symlinks=resolve_symlinks) for arg in args]
+        return list(_parse_patches_from_content(code, paths))
     except ValueError as e:
-        yield Message("system", f"Error parsing patches: {e}")
+        raise _CallInputError(f"Error parsing patches: {e}") from e
+
+
+def get_patch_many_targets(
+    tool_use: ToolUse, *, resolve_symlinks: bool = True
+) -> list[tuple[Path, str]] | None:
+    """Public structured input of a ``patch_many`` call, for policy hooks.
+
+    Returns the resolved ``(path, patch)`` pairs the call would write, in
+    order, or ``None`` when ``tool_use`` is not a ``patch_many`` call. An
+    unusable call (malformed, or a relative path escaping the working
+    directory) returns ``[]``: the tool rejects it before writing anything.
+
+    Set ``resolve_symlinks=False`` to inspect requested names as well as resolved
+    destinations (e.g. a protected ``.env`` alias to an ordinary filename).
+    Traversal validation still applies in both modes.
+
+    Intended for ``TOOL_EXECUTE_PRE`` hooks, e.g.::
+
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        def deny_ssh(data):
+            for path, _ in get_patch_many_targets(data.tool_use) or []:
+                if ".ssh" in path.parts:
+                    data.deny("patch_many may not touch ~/.ssh")
+    """
+    if tool_use.tool != "patch_many":
+        return None
+    try:
+        entries = _entries_from_call(
+            tool_use.content,
+            tool_use.args,
+            tool_use.kwargs,
+            resolve_symlinks=resolve_symlinks,
+        )
+    except _CallInputError:
+        return []
+    # Execution serializes the entries and re-parses that payload, so a patch
+    # string embedding a ``=== PATH: ===`` header after a complete hunk becomes
+    # an extra target. Report the round-tripped targets: what will be written.
+    try:
+        return _parse_confirmation_payload(
+            _serialize_confirmation_payload(entries),
+            resolve_symlinks=resolve_symlinks,
+        )
+    except ValueError:
+        return []
+
+
+def execute_patch_many(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+) -> Generator[Message, None, None]:
+    """Execute patch_many from a markdown block or tool/function-call kwargs."""
+    try:
+        entries = _entries_from_call(code, args, kwargs)
+    except _CallInputError as e:
+        yield Message("system", str(e))
         return
 
     yield from execute_with_confirmation(
-        _serialize_confirmation_payload(patch_pairs),
+        _serialize_confirmation_payload(entries),
         args,
         kwargs,
         execute_fn=_execute_patch_many_confirmed,

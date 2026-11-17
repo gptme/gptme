@@ -132,7 +132,7 @@ def test_dispatcher_preserves_literal_fallback_keys(
     messages = list(tmux.execute_tmux(f"send-keys 1 {keys}", [], None))
     assert len(messages) == 1
     assert messages[0].content.startswith("Sent ")
-    assert calls == [["tmux", "send-keys", "-t", "gptme_1", keys]]
+    assert calls == [["tmux", "send-keys", "-t", "gptme_1", "--", keys]]
 
 
 @pytest.mark.parametrize("suffix", ['"unclosed', "'unclosed"])

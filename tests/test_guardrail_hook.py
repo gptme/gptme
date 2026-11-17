@@ -669,3 +669,186 @@ class TestPreExecutionSeam:
 
         assert ran == [], f"a denied {tool_name} call must not execute"
         assert any("covered by the central seam" in m.content for m in msgs)
+
+
+class TestPatchManySecretTargets:
+    """``patch_many`` writes are policed through the public targets accessor."""
+
+    PATCH = "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+
+    def _call(self, benign, secret) -> ToolUse:
+        import json
+
+        patches = [
+            {"path": str(benign), "patch": self.PATCH},
+            {"path": str(secret), "patch": self.PATCH},
+        ]
+        return ToolUse(
+            tool="patch_many",
+            args=None,
+            content=None,
+            kwargs={"patches": json.dumps(patches)},
+        )
+
+    @pytest.mark.parametrize("mode", ["enforce", "shadow"])
+    def test_secret_target_denied_only_in_enforce(self, tmp_path, monkeypatch, mode):
+        from gptme.hooks.guardrails import register
+
+        benign = tmp_path / "notes.txt"
+        secret = tmp_path / ".env"
+        benign.write_text("old\n")
+        secret.write_text("old\n")
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        register()
+        try:
+            msgs = list(self._call(benign, secret).execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+
+        if mode == "enforce":
+            contents = "\n".join(m.content for m in msgs)
+            assert "Secret path access blocked" in contents
+            # Atomic denial: the benign file is untouched too.
+            assert benign.read_text() == "old\n"
+            assert secret.read_text() == "old\n"
+        else:
+            assert secret.read_text() == "new\n"
+            assert benign.read_text() == "new\n"
+
+
+class TestTmuxShellText:
+    """``tmux`` new-session/send-keys text gets the shell tool's rules."""
+
+    @staticmethod
+    def _run(monkeypatch, mode: str, content: str) -> str:
+        from gptme.hooks.guardrails import register
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        register()
+        # Record instead of spawning tmux: only the seam decision is under test.
+        ran: list[str] = []
+
+        def fake_execute(code, args, kwargs):
+            ran.append(code or "")
+            yield Message("system", "ran")
+
+        spec = ToolSpec(name="tmux", desc="test", execute=fake_execute)
+        monkeypatch.setattr(
+            "gptme.tools.get_tool", lambda name: spec if name == "tmux" else None
+        )
+        try:
+            msgs = list(ToolUse(tool="tmux", args=[], content=content).execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+        return "ran" if ran else "\n".join(m.content for m in msgs)
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "new-session cat ~/.ssh/id_rsa",
+            "send-keys gptme_1 'cat ~/.ssh/id_rsa' Enter",
+            "send-keys gptme_1\tcat ~/.ssh/id_rsa",
+            "send-keys gptme_1 'printenv' Enter",
+            "send-keys gptme_1 'rm -rf /' Enter",
+            "send-keys gptme_1 'print' 'env' C-m",
+            "new-session rm -rf /",
+        ],
+    )
+    def test_enforce_denies(self, monkeypatch, content):
+        out = self._run(monkeypatch, "enforce", content)
+        assert out != "ran"
+        assert "blocked" in out.lower()
+
+    @pytest.mark.parametrize(
+        "content",
+        ["new-session python3 -m http.server", "send-keys gptme_1 'ls -la' Enter"],
+    )
+    def test_enforce_allows_ordinary(self, monkeypatch, content):
+        assert self._run(monkeypatch, "enforce", content) == "ran"
+
+    def test_shadow_does_not_block(self, monkeypatch):
+        assert (
+            self._run(monkeypatch, "shadow", "new-session cat ~/.ssh/id_rsa") == "ran"
+        )
+
+
+class TestStructuredConfirmationGuardrails:
+    PATCH = "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+
+    @pytest.mark.parametrize("mode", ["enforce", "shadow", "off"])
+    def test_confirmation_checks_patch_many_payload(self, tmp_path, monkeypatch, mode):
+        from gptme.hooks.confirm import ConfirmAction
+        from gptme.hooks.guardrails import guardrail_hook
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        safe = ToolUse("patch_many", [str(tmp_path / "notes.txt")], self.PATCH)
+        # Reconfirmation must inspect the edited preview, not the original call.
+        preview = f"=== PATH: {tmp_path / '.env'} ===\n{self.PATCH}"
+        result = guardrail_hook(safe, preview=preview)
+        if mode == "enforce":
+            assert result is not None and result.action == ConfirmAction.SKIP
+        else:
+            assert result is None
+
+    @pytest.mark.parametrize("form", ["kwargs", "headers", "positional"])
+    @pytest.mark.parametrize("secret_alias", [True, False])
+    def test_symlink_names_and_destinations(
+        self, tmp_path, monkeypatch, form, secret_alias
+    ):
+        import json
+
+        from gptme.hooks.guardrails import register
+
+        target = tmp_path / ("runtime" if secret_alias else ".env")
+        alias = tmp_path / (".env" if secret_alias else "runtime")
+        target.write_text("old\n")
+        alias.symlink_to(target)
+        if form == "kwargs":
+            use = ToolUse(
+                "patch_many",
+                None,
+                None,
+                {"patches": json.dumps([{"path": str(alias), "patch": self.PATCH}])},
+            )
+        elif form == "headers":
+            use = ToolUse("patch_many", [], f"=== PATH: {alias} ===\n{self.PATCH}")
+        else:
+            use = ToolUse("patch_many", [str(alias)], self.PATCH)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        register()
+        try:
+            messages = list(use.execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+        assert target.read_text() == "old\n"
+        assert any("Secret path access blocked" in m.content for m in messages)
+
+    def test_edited_target_does_not_write(self, tmp_path, monkeypatch):
+        from gptme.hooks.guardrails import register
+
+        safe, secret = tmp_path / "notes.txt", tmp_path / ".env"
+        safe.write_text("old\n")
+        secret.write_text("old\n")
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        register()
+
+        def edit_target(tool_use, preview=None, workspace=None):
+            if preview and str(secret) in preview:
+                return ConfirmationResult.confirm()
+            return ConfirmationResult.edit(f"=== PATH: {secret} ===\n{self.PATCH}")
+
+        register_hook(
+            "test.guardrail", HookType.TOOL_CONFIRM, edit_target, priority=100
+        )
+        try:
+            messages = list(ToolUse("patch_many", [str(safe)], self.PATCH).execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+        assert secret.read_text() == "old\n"
+        assert safe.read_text() == "old\n"
+        assert any("Secret path access blocked" in m.content for m in messages)

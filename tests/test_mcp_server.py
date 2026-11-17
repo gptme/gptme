@@ -426,20 +426,45 @@ class TestMCPServerHandlers:
         assert "guardrail" in text.lower(), f"Expected guardrail skip; got: {text!r}"
 
     @pytest.mark.asyncio
-    async def test_mcp_read_enforces_guardrails(self, monkeypatch) -> None:
-        """MCP read of a secret path must skip under GPTME_GUARDRAILS=enforce."""
+    @pytest.mark.parametrize("tool_name", ["read", "patch_many", "tmux"])
+    async def test_mcp_secret_access_enforces_guardrails(
+        self, monkeypatch, tmp_path, tool_name
+    ) -> None:
+        """Direct MCP execution must not bypass the tools' guardrail policies."""
         import mcp.types as types
 
         from gptme.hooks.auto_confirm import register as register_auto_confirm
         from gptme.hooks.guardrails import register as register_guardrails
+        from gptme.tools.patch_many import tool_patch_many
         from gptme.tools.read import tool as read_tool
+        from gptme.tools.tmux import tool as tmux_tool
 
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         register_guardrails()
         register_auto_confirm()
 
-        server = GptmeMCPServer(tool_names=["read"])
-        server._loaded_tools = [read_tool]
+        secret = tmp_path / ".env"
+        secret.write_text("old\n")
+        arguments = {
+            "read": {"path": str(secret)},
+            "patch_many": {
+                "patches": json.dumps(
+                    [
+                        {
+                            "path": str(secret),
+                            "patch": "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED",
+                        }
+                    ]
+                )
+            },
+            "tmux": {"command": f"new-session cat {secret}"},
+        }
+        server = GptmeMCPServer(tool_names=[tool_name])
+        server._loaded_tools = [
+            {"read": read_tool, "patch_many": tool_patch_many, "tmux": tmux_tool}[
+                tool_name
+            ]
+        ]
         from gptme.hooks.registry import get_registry
 
         server._hook_registry = get_registry()
@@ -447,7 +472,7 @@ class TestMCPServerHandlers:
         req = types.CallToolRequest(
             method="tools/call",
             params=types.CallToolRequestParams(
-                name="read", arguments={"path": "/nonexistent/.ssh/id_rsa"}
+                name=tool_name, arguments=arguments[tool_name]
             ),
         )
         result = await server._server.request_handlers[types.CallToolRequest](req)
@@ -456,6 +481,7 @@ class TestMCPServerHandlers:
             c.text for c in result.root.content if hasattr(c, "text") and c.text
         )
         assert "guardrail" in text.lower(), f"Expected guardrail skip; got: {text!r}"
+        assert secret.read_text() == "old\n"
 
     @pytest.mark.asyncio
     async def test_mcp_confirm_hooks_run_once(

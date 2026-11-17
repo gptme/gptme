@@ -252,6 +252,44 @@ def new_session(command: str) -> Message:
     )
 
 
+def _parse_send_keys(keys: str) -> list[str]:
+    """Decode the literal key arguments passed to tmux, including quoting."""
+    try:
+        return shlex.split(keys)
+    except ValueError:
+        return [keys]
+
+
+def _escape_tmux_semicolon(arg: str) -> str:
+    """Make a trailing ``;`` literal: tmux treats an argv element ending in an
+    unescaped ``;`` (including a bare ``;``) as a command separator, so
+    ``send-keys x ';' run-shell ...`` would run a second tmux command outside
+    the inspected key text."""
+    if arg.endswith(";"):
+        return arg[:-1] + "\\;"
+    return arg
+
+
+def get_tmux_key_text(keys: str) -> str:
+    """Return typed text for literal-input policy checks, not terminal emulation.
+
+    tmux concatenates argument text without spaces. Common submission/whitespace
+    keys are decoded; arbitrary control keys and existing pane state are outside
+    this stateless policy's scope.
+    """
+    # tmux matches key names case-insensitively (``space``, ``ENTER``, ``c-m``).
+    special = {
+        "enter": "\n",
+        "return": "\n",
+        "c-m": "\n",
+        "c-j": "\n",
+        "space": " ",
+        "tab": "\t",
+        "c-i": "\t",
+    }
+    return "".join(special.get(key.lower(), key) for key in _parse_send_keys(keys))
+
+
 def send_keys(pane_id: str, keys: str) -> Message:
     if pane_id.startswith("%") and pane_id[1:].isdigit():
         # Native pane IDs cannot be prefixed. Check ownership before accepting
@@ -279,16 +317,13 @@ def send_keys(pane_id: str, keys: str) -> Message:
             )
     elif not pane_id.startswith("gptme_"):
         pane_id = f"gptme_{pane_id}"
-    # Parse keys into separate arguments to avoid shell injection
-    # shlex.split properly handles quoted strings and escapes
-    try:
-        key_args = shlex.split(keys)
-    except ValueError:
-        # Fall back to single argument if shlex can't parse (unmatched quotes, etc.)
-        key_args = [keys]
+    # Shared with the policy accessor so quoting is decoded identically.
+    key_args = [_escape_tmux_semicolon(a) for a in _parse_send_keys(keys)]
     try:
         result = subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, *key_args],
+            # "--" keeps key text like "-N" typed, not parsed as tmux options,
+            # matching what the policy accessor sees.
+            ["tmux", "send-keys", "-t", pane_id, "--", *key_args],
             check=False,
             capture_output=True,
             text=True,
@@ -644,20 +679,53 @@ def _split_tmux_commands(cmd: str) -> list[str]:
     return commands
 
 
+def _tmux_call_text(
+    code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
+) -> str:
+    """The tmux command batch of a call, from either input shape."""
+    if code is not None and args is not None:
+        # Trailing spaces can invalidate a heredoc terminator; keep the source
+        # intact until shell boundaries have been validated.
+        return code
+    if kwargs is not None:
+        return kwargs.get("command", "")
+    return ""
+
+
+def get_tmux_operations(tool_use: ToolUse) -> list[tuple[str, str]] | None:
+    """Public structured input of a ``tmux`` call, for policy hooks.
+
+    Returns the call's operations in order as ``(verb, arguments)`` pairs,
+    split exactly as execution splits them (``new-session``'s arguments are the
+    shell command it starts; ``send-keys``' are ``"<pane> <keys>"``). Returns
+    ``None`` when ``tool_use`` is not a ``tmux`` call and ``[]`` for a batch
+    the tool rejects before running anything.
+    """
+    if tool_use.tool != "tmux":
+        return None
+    try:
+        commands = _split_tmux_commands(
+            _tmux_call_text(tool_use.content, tool_use.args, tool_use.kwargs)
+        )
+    except ValueError:
+        return []
+    operations = []
+    for command in commands:
+        parts = command.split(maxsplit=1)
+        if parts:
+            operations.append((parts[0], parts[1] if len(parts) > 1 else ""))
+    return operations
+
+
 def execute_tmux(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
     """Executes a command in tmux and returns the output."""
-    cmd = ""
     if code is not None and args is not None:
         assert not args
-        # Trailing spaces can invalidate a heredoc terminator; keep the source
-        # intact until shell boundaries have been validated.
-        cmd = code
-    elif kwargs is not None:
-        cmd = kwargs.get("command", "")
+    cmd = _tmux_call_text(code, args, kwargs)
 
     try:
         commands = _split_tmux_commands(cmd)

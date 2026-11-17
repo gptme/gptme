@@ -1260,3 +1260,103 @@ def test_staging_cleanup_preserves_primary_error(
     assert target.stat().st_ino == original_inode
     assert not stages[0].exists()
     assert list(tmp_path.glob(".patch-many-*")) == leftovers
+
+
+class TestGetPatchManyTargets:
+    """Public structured input for policy hooks."""
+
+    PATCH = "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+
+    def test_other_tools_return_none(self):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        assert get_patch_many_targets(ToolUse("shell", [], "ls")) is None
+
+    def test_kwargs_form(self, tmp_path):
+        import json
+
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+        patches = [{"path": str(p), "patch": self.PATCH} for p in (a, b)]
+        use = ToolUse("patch_many", None, None, {"patches": json.dumps(patches)})
+        assert get_patch_many_targets(use) == [(a, self.PATCH), (b, self.PATCH)]
+
+    def test_embedded_header_after_hunk_is_a_target(self, tmp_path):
+        """Execution re-parses the serialized payload, so the accessor must too."""
+        import json
+
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a, outside = tmp_path / "a.txt", tmp_path / ".env"
+        smuggled = f"{self.PATCH}\n=== PATH: {outside} ===\n{self.PATCH}"
+        use = ToolUse(
+            "patch_many",
+            None,
+            None,
+            {"patches": json.dumps([{"path": str(a), "patch": smuggled}])},
+        )
+        assert [p for p, _ in get_patch_many_targets(use) or []] == [a, outside]
+
+    def test_header_form(self, tmp_path):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+        content = f"=== PATH: {a} ===\n{self.PATCH}\n\n=== PATH: {b} ===\n{self.PATCH}"
+        use = ToolUse("patch_many", [], content)
+        assert get_patch_many_targets(use) == [(a, self.PATCH), (b, self.PATCH)]
+
+    def test_simple_form(self, tmp_path):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        a = tmp_path / "a.txt"
+        use = ToolUse("patch_many", [str(a)], self.PATCH)
+        assert get_patch_many_targets(use) == [(a, self.PATCH)]
+
+    def test_unusable_call_returns_empty(self):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.patch_many import get_patch_many_targets
+
+        # Malformed (no paths) and traversal-escaping calls write nothing.
+        assert get_patch_many_targets(ToolUse("patch_many", [], self.PATCH)) == []
+        escape = ToolUse("patch_many", ["../../../../etc/x"], self.PATCH)
+        assert get_patch_many_targets(escape) == []
+
+
+@pytest.mark.parametrize("form", ["kwargs", "headers", "positional"])
+def test_get_patch_many_targets_preserves_requested_symlink(tmp_path, form):
+    import json
+
+    from gptme.tools.base import ToolUse
+    from gptme.tools.patch_many import get_patch_many_targets
+
+    alias, target = tmp_path / ".env", tmp_path / "runtime"
+    target.write_text("old\n")
+    alias.symlink_to(target)
+    patch = TestGetPatchManyTargets.PATCH
+    if form == "kwargs":
+        use = ToolUse(
+            "patch_many",
+            None,
+            None,
+            {"patches": json.dumps([{"path": str(alias), "patch": patch}])},
+        )
+    elif form == "headers":
+        use = ToolUse("patch_many", [], f"=== PATH: {alias} ===\n{patch}")
+    else:
+        use = ToolUse("patch_many", [str(alias)], patch)
+    assert get_patch_many_targets(use) == [(target, patch)]
+    assert get_patch_many_targets(use, resolve_symlinks=False) == [(alias, patch)]
+
+
+def test_requested_targets_still_reject_traversal():
+    from gptme.tools.base import ToolUse
+    from gptme.tools.patch_many import get_patch_many_targets
+
+    use = ToolUse("patch_many", ["../../../../etc/x"], TestGetPatchManyTargets.PATCH)
+    assert get_patch_many_targets(use, resolve_symlinks=False) == []
