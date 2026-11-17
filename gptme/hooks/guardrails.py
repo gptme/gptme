@@ -386,7 +386,10 @@ def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
             # new_session starts bash from the tmux client's process cwd,
             # not the hook's conversation workspace.
             text = arguments
-            directory = Path.cwd()
+            try:
+                directory = Path.cwd()
+            except OSError:
+                directory = None
         elif verb == "send-keys":
             parts = arguments.split(maxsplit=1)
             text = get_tmux_key_text(parts[1]) if len(parts) > 1 else ""

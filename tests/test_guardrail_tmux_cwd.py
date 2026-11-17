@@ -127,3 +127,19 @@ def test_metadata_query_does_not_interpret_option_like_target(monkeypatch):
     monkeypatch.setattr(subprocess, "run", run)
     assert get_tmux_pane_cwd("-x") == Path("/tmp")
     assert calls[0][4] == "gptme_-x"
+
+
+def test_unavailable_pane_retains_process_relative_checks(pane_tree, monkeypatch):
+    process, _ = pane_tree
+    (process / "config").mkdir()
+    (process / "config" / "client.pem").write_text("synthetic\n")
+    monkeypatch.setattr("gptme.tools.tmux.get_tmux_pane_cwd", lambda _: None)
+    assert blocked(ToolUse("tmux", [], "send-keys 1 'cat config/*' Enter"))
+
+
+def test_unavailable_process_cwd_does_not_hide_literal_secret(pane_tree, monkeypatch):
+    def unavailable():
+        raise FileNotFoundError("cwd unavailable")
+
+    monkeypatch.setattr(Path, "cwd", staticmethod(unavailable))
+    assert blocked(ToolUse("tmux", [], "new-session cat ~/.ssh/id_rsa"))
