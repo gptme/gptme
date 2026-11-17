@@ -410,6 +410,74 @@ def test_cap_output_large_stdout():
     assert capped.endswith("xxx")  # tail preserved
 
 
+def test_cap_output_spills_full_output_to_tool_outputs(tmp_path):
+    """Dropped bytes must stay recoverable: full text saved, marker names the file."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        capped = _cap_output(huge, "kernel stdout")
+
+    saved = list((tmp_path / "tool-outputs").rglob("*"))
+    files = [f for f in saved if f.is_file()]
+    assert len(files) == 1
+    assert files[0].read_text() == huge
+    assert f"full output saved to {files[0]}" in capped
+    assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+
+
+def test_cap_output_survives_surrogate_in_saved_path(tmp_path):
+    """A logdir with an undecodable filename byte (surrogateescape) must not
+    break the marker sizing: the preview and pointer still come back."""
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    odd_path = tmp_path / "tool-outputs" / "bad\udcffname.txt"
+    with patch("gptme.tools.python._spill_full_output", return_value=odd_path):
+        capped = _cap_output(huge)
+    assert "bytes omitted" in capped
+    assert "full output saved to" in capped
+
+
+def test_cap_output_without_logdir_keeps_plain_marker():
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        capped = _cap_output(huge)
+    assert "bytes omitted" in capped
+    assert "saved" not in capped
+
+
+def test_cap_output_survives_spill_failure(tmp_path):
+    """A failing save must not break the truncation it accompanies."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with (
+        patch("gptme.logmanager.LogManager.get_current_log", return_value=manager),
+        patch(
+            "gptme.util.output_storage.save_large_output",
+            side_effect=OSError("disk full"),
+        ),
+    ):
+        capped = _cap_output(huge)
+    assert "bytes omitted" in capped
+    assert "saved" not in capped
+
+
 def test_cap_output_small_output():
     """Test that small output is not truncated."""
     from gptme.tools.python import _cap_output
@@ -452,6 +520,81 @@ def test_teeio_truncation_marker():
     assert _cap_output(captured) == captured, (
         "marker must not trigger a second truncation"
     )
+
+
+def test_teeio_spills_overflow_to_tool_outputs(tmp_path):
+    """Bytes past the capture cap stream to disk; the marker names the file."""
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO, _cap_output
+
+    chunk = "line of output\n" * 64  # ~1 KiB per write
+    n_writes = _DEFAULT_MAX_OUTPUT_BYTES // len(chunk) + 50
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee = TeeIO(io.StringIO(), "stdout")
+        for _ in range(n_writes):
+            tee.write(chunk)
+        captured = tee.get_captured()
+
+    files = [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+    assert len(files) == 1
+    assert files[0].read_text() == chunk * n_writes  # nothing lost
+    assert f"full output saved to {files[0]}" in captured
+    assert "head only" in captured
+    assert len(captured.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert _cap_output(captured) == captured
+    assert tee._spill is None  # closed by get_captured
+
+
+def test_teeio_spill_keeps_small_write_after_multibyte_split(tmp_path):
+    """A small write after a split multibyte char must still reach the file,
+    and non-UTF-8 filename bytes (surrogateescape) must round-trip."""
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import (
+        _CAPTURE_MARKER_RESERVE,
+        _DEFAULT_MAX_OUTPUT_BYTES,
+        TeeIO,
+    )
+
+    limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
+    # Leave 2 bytes of room, then write a 4-byte char: the partial char is
+    # dropped from the head, leaving slack a later "\n" would fit into.
+    first = "a" * (limit - 2)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee = TeeIO(io.StringIO(), "stdout")
+        tee.write(first)
+        tee.write("\U0001f600")  # 4 bytes, crosses the cap
+        tee.write("\n")
+        tee.write("name-\udcff")  # surrogateescaped 0xff byte
+        tee.get_captured()
+
+    files = [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+    assert len(files) == 1
+    assert files[0].read_bytes() == (
+        first.encode() + "\U0001f600\n".encode() + b"name-\xff"
+    )
+
+
+def test_teeio_without_logdir_has_no_spill_pointer():
+    import io
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        tee = TeeIO(io.StringIO(), "stdout")
+        tee.write("a" * (_DEFAULT_MAX_OUTPUT_BYTES + 10))
+        tee.write("b" * 10)
+        captured = tee.get_captured()
+    assert "head only" in captured
+    assert "saved" not in captured
 
 
 def test_teeio_single_oversized_write_keeps_head():

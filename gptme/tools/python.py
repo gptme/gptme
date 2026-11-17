@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     )
 
     from ..message import ArtifactDescriptor, MessageMetadata
+    from ..util.output_storage import PrivateOutputFile
     from .python_kernel import KernelExecResult
 
 
@@ -248,11 +249,38 @@ def _format_cell_output(stdout: str, stderr: str) -> str:
     return output
 
 
-def _cap_output(output: str) -> str:
+def _spill_full_output(output: str, command_info: str | None) -> Path | None:
+    """Save *output* under the conversation's ``tool-outputs/``; best-effort.
+
+    Returns None when no conversation directory is active or the write fails,
+    so truncation still applies without the pointer.
+    """
+    try:
+        from ..logmanager import LogManager
+        from ..util.output_storage import save_large_output
+
+        manager = LogManager.get_current_log()
+        if manager is None or not manager.logdir:
+            return None
+        _, saved_path = save_large_output(
+            content=output,
+            logdir=manager.logdir,
+            output_type="python",
+            command_info=command_info,
+        )
+        return saved_path
+    except Exception as e:  # saving must never break the truncation itself
+        logger.warning("Could not save full python output: %s", e)
+        return None
+
+
+def _cap_output(output: str, command_info: str | None = None) -> str:
     """Cap output to a reasonable size (10 MiB) with head+tail truncation.
 
     The cap is measured in UTF-8 bytes, not characters, so multibyte characters
-    are counted correctly.
+    are counted correctly. When output is dropped and a conversation directory
+    is active, the full text is saved under ``tool-outputs/`` and the omission
+    marker names the file.
     """
     # surrogatepass: valid Python strings may hold lone surrogates (e.g. from
     # surrogateescape-decoded filenames) that strict UTF-8 encoding rejects
@@ -261,15 +289,24 @@ def _cap_output(output: str) -> str:
     if total_bytes <= _DEFAULT_MAX_OUTPUT_BYTES:
         return output
 
+    saved_path = _spill_full_output(output, command_info)
+    saved_note = f"; full output saved to {saved_path}" if saved_path else ""
+
     # Output exceeds cap; return head+tail with truncation marker (byte-level slice)
-    # Reserve room for the marker so the result stays within the cap
-    half = (_DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE) // 2
+    # Reserve room for the marker (sized with the widest numbers it can hold)
+    # so the result stays within the cap
+    worst_marker = f"\n\n[... {total_bytes:,} bytes omitted ({total_bytes:,} total{saved_note}) ...]\n\n"
+    reserve = max(
+        _CAPTURE_MARKER_RESERVE,
+        len(worst_marker.encode("utf-8", errors="surrogatepass")),
+    )
+    half = (_DEFAULT_MAX_OUTPUT_BYTES - reserve) // 2
     head_bytes = encoded[:half]
     tail_bytes = encoded[-half:]
     omitted = total_bytes - len(head_bytes) - len(tail_bytes)
     head = _decode_slice(head_bytes)
     tail = _decode_slice(tail_bytes)
-    return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total) ...]\n\n{tail}"
+    return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total{saved_note}) ...]\n\n{tail}"
 
 
 def _snapshot_images(cwd: Path) -> dict[Path, float]:
@@ -471,13 +508,64 @@ def _get_ipython():
     return _ipython
 
 
+def _open_spill_file(label: str) -> "PrivateOutputFile | None":
+    """Open a private ``tool-outputs/python/`` file for streaming overflow."""
+    from datetime import datetime, timezone
+
+    from ..logmanager import LogManager
+    from ..util.output_storage import open_private_output_file
+
+    manager = LogManager.get_current_log()
+    if manager is None or not manager.logdir:
+        return None
+    stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return open_private_output_file(manager.logdir, "python", f"{stamp}-{label}.txt")
+
+
 class TeeIO(io.StringIO):
-    def __init__(self, original_stream):
+    def __init__(self, original_stream, label: str = "output"):
         super().__init__()
         self.original_stream = original_stream
+        self._label = label
         self._byte_count = 0
         self._buffered_bytes = 0
         self._truncated = False
+        # Once the capture cap is hit, the overflow streams to disk (when a
+        # conversation dir is active) so the dropped bytes stay recoverable
+        # while memory stays bounded.
+        self._spill: PrivateOutputFile | None = None
+        self._spill_path: Path | None = None
+        self._spill_failed = False
+
+    def _spill_append(self, s: str) -> None:
+        if self._spill_failed:
+            return
+        from ..util.output_storage import _encode
+
+        try:
+            if self._spill is None:
+                self._spill = _open_spill_file(self._label)
+                if self._spill is None:
+                    self._spill_failed = True
+                    return
+                # Everything buffered so far is the head of the full output
+                self._spill.append(_encode(self.getvalue()))
+            self._spill.append(_encode(s))
+            self._spill_path = self._spill.path
+        except Exception as e:  # spilling is best-effort; capture must continue
+            logger.warning("Could not spill python %s overflow: %s", self._label, e)
+            self._spill_failed = True
+            self._spill_path = None
+            self.finish()
+
+    def finish(self) -> None:
+        """Close the spill file, if any. Safe to call repeatedly."""
+        spill, self._spill = self._spill, None
+        if spill is not None:
+            try:
+                spill.close()
+            except OSError as e:
+                logger.warning("Could not close python spill file: %s", e)
 
     def write(self, s):
 
@@ -490,8 +578,15 @@ class TeeIO(io.StringIO):
         self._byte_count += len(encoded)
         limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
         room = limit - self._buffered_bytes
+        if self._truncated:
+            # Once truncated, the head is a closed prefix: every later write
+            # goes to the spill file only, even one that would fit the slack
+            # left by a dropped partial character.
+            self._spill_append(s)
+            return n_chars
         if len(encoded) > room:
             self._truncated = True
+            self._spill_append(s)
             if room <= 0:
                 return n_chars
             kept = _decode_slice(encoded[:room])
@@ -507,25 +602,40 @@ class TeeIO(io.StringIO):
         value = self.getvalue()
         if not self._truncated:
             return value
+        self.finish()
+        dropped = self._byte_count - self._buffered_bytes
+        saved = f"; full output saved to {self._spill_path}" if self._spill_path else ""
+        marker = (
+            f"\n\n[... {dropped:,} bytes omitted "
+            f"({self._byte_count:,} total — capture limit reached, head only{saved}) ...]"
+        )
         # The buffer never exceeds cap - marker reserve, so head + marker stays
         # within the cap and downstream _cap_output() will not truncate again.
-        dropped = self._byte_count - self._buffered_bytes
-        return (
-            value + f"\n\n[... {dropped:,} bytes omitted "
-            f"({self._byte_count:,} total — capture limit reached, head only) ...]"
+        # A saved-path marker can outgrow the reserve: trim the head to fit.
+        excess = (
+            len(value.encode("utf-8", errors="surrogatepass"))
+            + len(marker.encode("utf-8", errors="surrogatepass"))
+            - _DEFAULT_MAX_OUTPUT_BYTES
         )
+        if excess > 0:
+            value = _decode_slice(
+                value.encode("utf-8", errors="surrogatepass")[:-excess]
+            )
+        return value + marker
 
 
 @contextmanager
 def capture_and_display():
-    stdout_capture = TeeIO(sys.stdout)
-    stderr_capture = TeeIO(sys.stderr)
+    stdout_capture = TeeIO(sys.stdout, "stdout")
+    stderr_capture = TeeIO(sys.stderr, "stderr")
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = stdout_capture, stderr_capture
     try:
         yield stdout_capture, stderr_capture
     finally:
         sys.stdout, sys.stderr = old_stdout, old_stderr
+        stdout_capture.finish()
+        stderr_capture.finish()
 
 
 def _kernel_image_attachments(
@@ -622,14 +732,20 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     output = ""
 
     if result.stdout:
-        output += md_codeblock("stdout", _cap_output(result.stdout).rstrip()) + "\n\n"
+        output += (
+            md_codeblock("stdout", _cap_output(result.stdout, "kernel stdout").rstrip())
+            + "\n\n"
+        )
 
     if result.result_text is not None:
-        result_str = _cap_output(result.result_text)
+        result_str = _cap_output(result.result_text, "kernel result")
         output += f"Result:\n{md_codeblock('', result_str)}\n\n"
 
     if result.stderr:
-        output += md_codeblock("stderr", _cap_output(result.stderr).rstrip()) + "\n\n"
+        output += (
+            md_codeblock("stderr", _cap_output(result.stderr, "kernel stderr").rstrip())
+            + "\n\n"
+        )
 
     if result.error:
         tb_str = "\n".join(result.error.get("traceback", []))
@@ -703,9 +819,15 @@ def execute_python(
             label = "Wasmtime sandbox"
         output = ""
         if stdout:
-            output += md_codeblock("stdout", _cap_output(stdout).rstrip()) + "\n\n"
+            output += (
+                md_codeblock("stdout", _cap_output(stdout, f"{label} stdout").rstrip())
+                + "\n\n"
+            )
         if stderr:
-            output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
+            output += (
+                md_codeblock("stderr", _cap_output(stderr, f"{label} stderr").rstrip())
+                + "\n\n"
+            )
         if returncode not in (0, None):
             output += f"Process exited with code {returncode}\n"
         yield Message(
