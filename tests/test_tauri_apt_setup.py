@@ -41,6 +41,14 @@ def test_tauri_apt_setup_is_shared_and_bounded() -> None:
     assert 0 < hit < miss
 
 
+def test_tauri_e2e_uses_supported_linux_build_baseline() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tauri.yml").read_text())
+    # Ubuntu 26.04 renamed webkit2gtk-driver; keep the real webview test on
+    # the supported Linux release baseline rather than following latest.
+    assert workflow["jobs"]["e2e"]["runs-on"] == "ubuntu-24.04"
+    assert "ubuntu-24.04" in workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
+
+
 def test_old_tag_build_loads_action_from_workflow_revision() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/tauri.yml").read_text())
     for name in ("lint", "test", "e2e", "build", "build-sidecar", "release"):

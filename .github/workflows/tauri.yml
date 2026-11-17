@@ -174,7 +174,9 @@ jobs:
 
   e2e:
     name: E2E tests (tauri-driver, Linux)
-    runs-on: ubuntu-latest
+    # Match the Linux release baseline. Ubuntu 26.04 (latest) no longer
+    # provides webkit2gtk-driver under the package name used below.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     needs: [lint, test]
     env:
