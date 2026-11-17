@@ -299,7 +299,9 @@ def test_step_persister_writes_reply_before_tools_and_patches_timings(
     mock_response = Message("assistant", "```shell\nsleep 300\n```", metadata=mock_meta)
     seen_during_tool: list[dict] = []
 
-    def fake_execute_msg(msg, log, workspace=None, tool_timings=None):
+    def fake_execute_msg(
+        msg, log, workspace=None, tool_timings=None, on_tool_execution=None
+    ):
         # What a TUI child view reading the transcript sees mid-tool.
         seen_during_tool.extend(_read_jsonl(logfile))
         assert tool_timings is not None
@@ -345,7 +347,9 @@ def test_step_persister_keeps_reply_when_tools_are_interrupted(monkeypatch, tmp_
     manager.append(Message("user", "run something", quiet=True))
     mock_response = Message("assistant", "```shell\nsleep 300\n```")
 
-    def crashing_execute_msg(msg, log, workspace=None, tool_timings=None):
+    def crashing_execute_msg(
+        msg, log, workspace=None, tool_timings=None, on_tool_execution=None
+    ):
         raise KeyboardInterrupt
         yield  # pragma: no cover
 
