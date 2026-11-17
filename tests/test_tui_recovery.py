@@ -262,7 +262,7 @@ async def test_real_recovery_exhaustion_or_backoff_cancel_never_completes(
 
 @pytest.mark.parametrize("answered", [False, True])
 def test_tui_resume_pairs_crashed_tool_call_before_accepting_prompt(
-    tmp_path: Path, answered: bool
+    tmp_path: Path, answered: bool, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Repair saved native calls before a new user prompt hides the trailing step."""
     messages = [
@@ -277,7 +277,11 @@ def test_tui_resume_pairs_crashed_tool_call_before_accepting_prompt(
         messages.append(Message("system", "completed", call_id="call_1"))
     manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
 
+    capsys.readouterr()
     GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+    # Construction precedes on_mount's stdout redirection. Recovery belongs
+    # in the transcript/UI, not as stray output on the raw terminal.
+    assert capsys.readouterr().out == ""
 
     results = [m for m in manager.log if m.call_id == "call_1"]
     assert len(results) == 1

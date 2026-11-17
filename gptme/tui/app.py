@@ -3088,7 +3088,7 @@ class GptmeApp(App):
         self.manager = manager
         # Repair a process death before accepting another prompt: a new user
         # message would hide the trailing unanswered native call from recovery.
-        _close_interrupted_tool_calls(manager)
+        _close_interrupted_tool_calls(manager, quiet=True)
         # Inspection never replaces the parent manager, context or widgets.
         self._child_view: Widget | None = None
         self._child_drafts: dict[str, tuple[str, Selection, dict[str, str]]] = {}

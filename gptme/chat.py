@@ -1083,7 +1083,7 @@ def _turn_reply_completed(log: Log) -> bool:
     return bool(last_content.strip()) and not _has_pending_tooluse(log)
 
 
-def _close_interrupted_tool_calls(manager: LogManager) -> bool:
+def _close_interrupted_tool_calls(manager: LogManager, *, quiet: bool = False) -> bool:
     """Answer tool calls left unfinished by a process death, then mark the turn interrupted.
 
     Replies are persisted before their tools run (:class:`StepPersister`), so a
@@ -1115,9 +1115,10 @@ def _close_interrupted_tool_calls(manager: LogManager) -> bool:
                 "system",
                 "Tool call interrupted: the session ended before it returned a result.",
                 call_id=call_id,
+                quiet=quiet,
             )
         )
-    manager.append(Message("system", INTERRUPT_CONTENT))
+    manager.append(Message("system", INTERRUPT_CONTENT, quiet=quiet))
     return True
 
 
