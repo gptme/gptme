@@ -2066,6 +2066,60 @@ def test_watch_wake_reserves_idle_step(monkeypatch, tmp_path):
         SessionManager.remove_session(session.id)
 
 
+@pytest.mark.parametrize("plain_observer", [False, True])
+def test_watch_wake_defers_for_acp_owned_conversation(
+    monkeypatch, tmp_path, plain_observer
+):
+    """Watch wake must not answer an ACP-owned conversation in-process.
+
+    ACP ownership is per conversation: a newer plain observer (e.g. a web UI
+    tab) does not release it. Mirrors the peer-wake rule.
+    """
+    from datetime import timedelta
+
+    import gptme.server.session_step as session_step
+    from gptme.config import ChatConfig
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = f"watch-wake-acp-{plain_observer}"
+    acp = SessionManager.create_session(conversation_id)
+    acp.use_acp = True
+    acp.acp_last_user_msg_index = 3
+    sessions = [acp]
+    if plain_observer:
+        observer = SessionManager.create_session(conversation_id)
+        observer.last_activity = acp.last_activity + timedelta(seconds=5)
+        sessions.append(observer)
+    config = ChatConfig(
+        _logdir=tmp_path / conversation_id,
+        model="local/test",
+        workspace=tmp_path,
+        watch_autowake=True,
+    )
+    started = unittest.mock.MagicMock(return_value=True)
+    manager = unittest.mock.MagicMock()
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", unittest.mock.MagicMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        LogManager, "load", unittest.mock.MagicMock(return_value=manager)
+    )
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
+    try:
+        completion = Message("system", "✅ Subagent done")
+        assert SessionManager.request_watch_wake(conversation_id, completion) is False
+        manager.append.assert_not_called()
+        started.assert_not_called()
+        assert all(item.step_seq == 0 for item in sessions)
+        assert not any(item.generating for item in sessions)
+        assert acp.acp_last_user_msg_index == 3
+    finally:
+        for item in sessions:
+            SessionManager.remove_session(item.id)
+
+
 def test_watch_wake_respects_conversation_opt_out(monkeypatch, tmp_path):
     from gptme.config import ChatConfig
     from gptme.server.session_models import SessionManager
