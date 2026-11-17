@@ -1466,7 +1466,7 @@ class TestSubagentCancel:
             notify_calls.append((agent_id, status, summary))
 
         def fake_set_subagent_result_if_absent(
-            agent_id: str, result: ReturnType
+            agent_id: str, result: ReturnType, **_kwargs: object
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
@@ -1515,7 +1515,7 @@ class TestSubagentCancel:
             cleanup_calls.append(sa.agent_id)
 
         def fake_set_subagent_result_if_absent(
-            agent_id: str, result: ReturnType
+            agent_id: str, result: ReturnType, **_kwargs: object
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
@@ -1572,7 +1572,7 @@ class TestSubagentCancel:
             notify_calls.append((agent_id, status, summary))
 
         def fake_set_subagent_result_if_absent(
-            agent_id: str, result: ReturnType
+            agent_id: str, result: ReturnType, **_kwargs: object
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(

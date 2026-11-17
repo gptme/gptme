@@ -219,16 +219,32 @@ def set_subagent_result_if_absent(
                 persist_subagent_outcome(attempt, result)
                 return True
     with _subagents_lock:
+        demoted = False
         if attempt is not None:
             current = next(
                 (s for s in reversed(_subagents) if s.agent_id == agent_id), None
             )
             if current is not None and current is not attempt:
-                return False
-        with _subagent_results_lock:
-            if agent_id in _subagent_results:
-                return False
-            _subagent_results[agent_id] = result
+                registered = any(s is attempt for s in _subagents)
+                if not registered or current.parent_logdir == attempt.parent_logdir:
+                    return False  # Superseded by a continuation of this run.
+                # Another conversation's run holds the agent_id slot because both
+                # ran at once (gptme/gptme#4990). This attempt is not superseded:
+                # keep its outcome on the run, like any other non-holder.
+                _subagents.remove(attempt)
+                object.__setattr__(attempt, "shadowed", True)
+                object.__setattr__(attempt, "shadowed_outcome", None)
+                _shadowed_subagents.append(attempt)
+                demoted = True
+        if not demoted:
+            with _subagent_results_lock:
+                if agent_id in _subagent_results:
+                    return False
+                _subagent_results[agent_id] = result
+    if demoted:
+        # Publish through the shadowed branch above, outside the registry lock
+        # so it keeps the persist-then-registry lock order.
+        return set_subagent_result_if_absent(agent_id, result, attempt=attempt)
     _persist_cached_outcome(agent_id)
     return True
 

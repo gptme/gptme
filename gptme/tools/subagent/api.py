@@ -1322,6 +1322,11 @@ def subagent(
         # set within the same millisecond just before sa = Subagent() is created).
         _subagent_launch_time = time.time()
 
+        # The run this thread executes. Agent IDs are only unique within one
+        # conversation, so a lookup by agent_id can find another conversation's
+        # concurrent run (gptme/gptme#4990).
+        _own_run: list[Subagent] = []
+
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -1333,10 +1338,7 @@ def subagent(
                     cancelled = agent_id in _subagent_results
                 if cancelled:
                     logger.info(f"Skipping cancelled queued thread subagent {agent_id}")
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
+                    sa = _own_run[0] if _own_run else None
                     if sa:
                         _exec._cleanup_isolation(sa)
                     return
@@ -1365,14 +1367,13 @@ def subagent(
                     # If subagent creation fails, notify with error status
                     logger.error(f"Subagent {agent_id} failed during execution: {e}")
                     cached = set_subagent_result_if_absent(
-                        agent_id, ReturnType("failure", str(e))
+                        agent_id,
+                        ReturnType("failure", str(e)),
+                        attempt=_own_run[0] if _own_run else None,
                     )
                     # Preserve the location even when timeout/cancel won the cache
                     # race. Cleanup must run before notifying callers of failure.
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
+                    sa = _own_run[0] if _own_run else None
                     preserved = _exec._cleanup_isolation(sa) if sa else None
                     if preserved and sa:
                         update_subagent_result_with_branch(
@@ -1396,8 +1397,7 @@ def subagent(
                     return
 
                 # Notify via hook system when complete (only if successful)
-                with _subagents_lock:
-                    sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+                sa = _own_run[0] if _own_run else None
                 if sa:
                     # prompt_queue_closed is already set inside _create_subagent_thread
                     # (right after chat() returns, before this thread gets the lock).
@@ -1419,10 +1419,11 @@ def subagent(
                             result,
                             result=f"{result.result}{preserved_notice(preserved_branch)}",
                         )
-                    if not set_subagent_result_if_absent(agent_id, result):
+                    if not set_subagent_result_if_absent(agent_id, result, attempt=sa):
                         # Timeout/cancel won the cache race. Cleanup already ran above.
                         # Patch the stored result with branch info so callers can find it.
-                        if preserved_branch:
+                        # A shadowed run's slot belongs to another conversation.
+                        if preserved_branch and not sa.shadowed:
                             update_subagent_result_with_branch(
                                 agent_id,
                                 preserved_branch,
@@ -1486,6 +1487,7 @@ def subagent(
             prompt_queue_closed=_pqc,
             fork_message_count=len(fork_messages) if fork_messages is not None else 0,
         )
+        _own_run.append(sa)
         with _subagents_lock:
             _subagents.append(sa)
             with _subagent_results_lock:
@@ -1515,9 +1517,15 @@ def _timeout_subagent(
     reused the same agent ID.
     """
     with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+        if expected_run is not None:
+            # Not a lookup by agent_id: another conversation may run the same
+            # ID concurrently (gptme/gptme#4990).
+            registered = any(s is expected_run for s in _subagents)
+            sa = expected_run if registered else None
+        else:
+            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
 
-    if sa is None or (expected_run is not None and sa is not expected_run):
+    if sa is None:
         return  # Agent ID now belongs to another run
     if not sa.is_running():
         return  # Already finished normally before the timer fired
@@ -1525,7 +1533,9 @@ def _timeout_subagent(
     timeout_result = ReturnType(
         "timeout", f"Auto-cancelled after {max_time}s (max_time exceeded)"
     )
-    if not set_subagent_result_if_absent(agent_id, timeout_result):
+    if not set_subagent_result_if_absent(
+        agent_id, timeout_result, attempt=expected_run
+    ):
         return  # Another result was set concurrently (subagent finished at the same time)
 
     if sa.execution_mode == "subprocess" and sa.process:
