@@ -135,3 +135,42 @@ def test_reply_persisted_before_tools_run(
         ]
         assert [m.role for m in reloaded].count("assistant") == 1
         assert (reloaded[1].metadata or {})["timings"]["tool_ms"] == 7.0
+
+
+def test_resume_closes_tool_call_left_by_hard_kill(tmp_path: Path) -> None:
+    """A reply persisted before its tool ran must not reach the provider unanswered."""
+    call = '@shell(call_1): {"command": "sleep 99"}'
+    manager = LogManager(
+        [
+            Message("user", "work"),
+            Message("assistant", call, metadata={"tool_format": "tool"}),
+        ],
+        logdir=tmp_path,
+        lock=False,
+    )
+
+    assert chat._close_interrupted_tool_calls(manager) is True
+
+    result, marker = manager.log[-2], manager.log[-1]
+    assert (result.role, result.call_id) == ("system", "call_1")
+    assert marker.content == chat.INTERRUPT_CONTENT
+    assert chat._should_prompt_for_input(manager.log)
+    # Idempotent, and a completed call is left alone.
+    assert chat._close_interrupted_tool_calls(manager) is False
+    reloaded = LogManager.load(tmp_path, lock=False)
+    assert reloaded.log[-1].content == chat.INTERRUPT_CONTENT
+
+
+def test_resume_leaves_answered_tool_call_alone(tmp_path: Path) -> None:
+    call = '@shell(call_1): {"command": "ls"}'
+    manager = LogManager(
+        [
+            Message("user", "work"),
+            Message("assistant", call, metadata={"tool_format": "tool"}),
+            Message("system", "ok", call_id="call_1"),
+        ],
+        logdir=tmp_path,
+        lock=False,
+    )
+    assert chat._close_interrupted_tool_calls(manager) is False
+    assert len(manager.log) == 3

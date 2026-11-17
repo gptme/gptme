@@ -414,6 +414,8 @@ def chat(
         # Convert prompt_msgs to a queue for unified handling
         prompt_queue = list(prompt_msgs)
 
+        _close_interrupted_tool_calls(manager)
+
         # main loop
         _run_chat_loop(
             manager,
@@ -1078,6 +1080,44 @@ def _turn_reply_completed(log: Log) -> bool:
         "",
     )
     return bool(last_content.strip()) and not _has_pending_tooluse(log)
+
+
+def _close_interrupted_tool_calls(manager: LogManager) -> bool:
+    """Answer tool calls left unfinished by a process death, then mark the turn interrupted.
+
+    Replies are persisted before their tools run (:class:`StepPersister`), so a
+    hard kill mid-tool leaves a trailing assistant message whose structured
+    calls have no result. Native-tool providers reject that history
+    (``tool_use`` without ``tool_result``). Pair each unanswered call with an
+    error result and add the interrupt marker, so resume returns to the prompt
+    exactly as after Ctrl-C. Returns True if the log was changed.
+    """
+    msgs = manager.log.messages
+    last = next(
+        (i for i in range(len(msgs) - 1, -1, -1) if msgs[i].role != "system"), None
+    )
+    if last is None or msgs[last].role != "assistant":
+        return False
+    done = {m.call_id for m in msgs[last + 1 :] if m.call_id}
+    open_ids = [
+        tooluse.call_id
+        for tooluse in ToolUse.iter_from_content(
+            msgs[last].content, (msgs[last].metadata or {}).get("tool_format")
+        )
+        if tooluse.call_id and tooluse.call_id not in done
+    ]
+    if not open_ids:
+        return False
+    for call_id in open_ids:
+        manager.append(
+            Message(
+                "system",
+                "Tool call interrupted: the session ended before it returned a result.",
+                call_id=call_id,
+            )
+        )
+    manager.append(Message("system", INTERRUPT_CONTENT))
+    return True
 
 
 def _has_pending_tooluse(log: Log) -> bool:
