@@ -182,7 +182,7 @@ export const AdminView: FC = () => {
               size="sm"
               className="h-8 gap-1.5"
               onClick={() => refetch()}
-              disabled={isLoading}
+              disabled={!isConnected || isLoading}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
@@ -215,7 +215,12 @@ export const AdminView: FC = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        {error ? (
+        {!isConnected ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
+            <Shield className="h-10 w-10" />
+            <p className="text-sm font-medium">Connect to a gptme server to view sessions.</p>
+          </div>
+        ) : error ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
             <AlertCircle className="h-10 w-10 text-destructive" />
             <div>
@@ -236,14 +241,8 @@ export const AdminView: FC = () => {
         ) : sessions.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
             <Shield className="h-10 w-10" />
-            {isConnected ? (
-              <>
-                <p className="text-sm font-medium">No active sessions</p>
-                <p className="text-xs">Sessions appear here when users open conversations.</p>
-              </>
-            ) : (
-              <p className="text-sm font-medium">Connect to a gptme server to view sessions.</p>
-            )}
+            <p className="text-sm font-medium">No active sessions</p>
+            <p className="text-xs">Sessions appear here when users open conversations.</p>
           </div>
         ) : (
           <table className="w-full text-sm">
