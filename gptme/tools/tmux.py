@@ -290,6 +290,40 @@ def get_tmux_key_text(keys: str) -> str:
     return "".join(special.get(key.lower(), key) for key in _parse_send_keys(keys))
 
 
+def get_tmux_pane_cwd(pane_id: str) -> Path | None:
+    """Read the target's directory without reading its contents or running keys.
+
+    Match ``send_keys`` shorthand and restrict native IDs to our namespace.
+    A disappearing pane or unavailable server has no observable directory.
+    """
+    if not (
+        pane_id.startswith("%") and pane_id[1:].isdigit()
+    ) and not pane_id.startswith("gptme_"):
+        pane_id = f"gptme_{pane_id}"
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "-t",
+                pane_id,
+                "#{session_name}\t#{pane_current_path}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    owner, separator, directory = result.stdout.rstrip("\n").partition("\t")
+    if result.returncode or not separator or not owner.startswith("gptme_"):
+        return None
+    path = Path(directory)
+    return path if path.is_absolute() else None
+
+
 def send_keys(pane_id: str, keys: str) -> Message:
     if pane_id.startswith("%") and pane_id[1:].isdigit():
         # Native pane IDs cannot be prefixed. Check ownership before accepting
