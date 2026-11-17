@@ -1,6 +1,7 @@
 """Offline regressions for the CLI turn return and post-hook boundary."""
 
 import importlib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
@@ -232,3 +233,43 @@ def test_chat_repairs_interrupted_call_before_resume_injection(
     assert seen[3].content == chat.INTERRUPT_CONTENT
     assert seen[4].content == resume.content
     assert LogManager.load(logdir, lock=False).log.messages == seen
+
+
+def test_native_tool_interrupt_pairs_calls_in_same_cli_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupt inside a tool is handled by execute_msg, not the CLI catch."""
+    from gptme.tools import ToolUse, init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+    manager = LogManager([Message("user", "work")], logdir=tmp_path, lock=False)
+    reply = Message(
+        "assistant",
+        '@shell(call_1): {"command": "sleep 99"}\n@shell(call_2): {"command": "pwd"}',
+        metadata={"tool_format": "tool"},
+    )
+    executed: list[str | None] = []
+
+    def interrupted_tool(self: ToolUse, **kwargs: object) -> Iterator[Message]:
+        executed.append(self.call_id)
+        raise KeyboardInterrupt
+        yield  # Keep the real execute_msg generator/interrupt boundary.
+
+    monkeypatch.setattr(ToolUse, "execute", interrupted_tool)
+    monkeypatch.setattr(chat, "reply", lambda *a, **kw: reply)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_args: False)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+
+    assert chat._process_message_conversation(
+        manager, False, "tool", "openai/gpt-4o-mini"
+    )
+    assert executed == ["call_1"]
+    assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
+    assert manager.log[2].content == chat.INTERRUPT_CONTENT
+    manager.append(Message("user", "continue"))
+    reloaded = LogManager.load(tmp_path, lock=False)
+    assert [m.call_id for m in reloaded.log if m.call_id] == ["call_1", "call_2"]
