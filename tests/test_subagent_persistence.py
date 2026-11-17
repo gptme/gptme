@@ -426,15 +426,18 @@ class TestScanRehydrate:
         assert loaded.prompt == "new"
 
 
+@pytest.fixture
+def clear_current_log() -> Iterator[None]:
+    """Run without a current conversation, so ``subagent_list()`` is unscoped."""
+    from gptme.logmanager import LogManager, _current_log_var
+
+    with LogManager.preserve_current():
+        _current_log_var.set(None)
+        yield
+
+
+@pytest.mark.usefixtures("clear_current_log")
 class TestRegistryRehydration:
-    @pytest.fixture(autouse=True)
-    def clear_current_log(self) -> Iterator[None]:
-        from gptme.logmanager import LogManager, _current_log_var
-
-        with LogManager.preserve_current():
-            _current_log_var.set(None)
-            yield
-
     def setup_method(self):
         import gptme.tools.subagent.types as types_mod
         from gptme.tools.subagent.types import (
@@ -784,6 +787,7 @@ def _persist_child(
     return logdir.resolve()
 
 
+@pytest.mark.usefixtures("clear_current_log")
 class TestCrossConversationRehydration:
     """Agent IDs are only unique per conversation (gptme/gptme#4981).
 
