@@ -591,6 +591,13 @@ class SessionManager:
             with session.step_lock:
                 if cls._conversation_busy(conversation_id, sessions):
                     return False
+                # Same ACP ownership rule as peer wake: the wake dispatches an
+                # in-process step, which must not answer a conversation whose
+                # input cursor and runtime an ACP session owns. Ownership is
+                # per conversation, so a newer plain observer does not release
+                # it. Returning False leaves the event queued, not lost.
+                if any(item.use_acp for item in sessions):
+                    return False
                 config = ChatConfig.load_or_create(
                     get_logs_dir() / conversation_id, ChatConfig()
                 )
