@@ -1843,3 +1843,56 @@ def test_stream_firehose_guards_still_stop_child(
         proc.wait(timeout=3)
         if proc.stdout is not None:
             proc.stdout.close()
+
+
+def _watch_cli_in_workspace(args: str, workspace: Path, logdir: Path) -> Message:
+    """Arm a watch from a server-style session whose workspace is ``workspace``."""
+    import contextvars
+
+    from gptme.tools.shell import set_workspace_cwd
+
+    def run() -> Message:
+        set_workspace_cwd(str(workspace))
+        return _watch_cli(args, logdir)
+
+    return contextvars.copy_context().run(run)
+
+
+@pytest.fixture
+def session_workspaces(tmp_path, monkeypatch):
+    """Session workspace plus a different process cwd, as after another session's chdir."""
+    workspace, elsewhere, logdir = (tmp_path / n for n in ("ws", "elsewhere", "log"))
+    for d in (workspace, elsewhere, logdir):
+        d.mkdir()
+    monkeypatch.chdir(elsewhere)
+    return workspace, elsewhere, logdir
+
+
+def _wait_fired(w: Watch, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    while not w.fired and time.time() < deadline:
+        time.sleep(0.05)
+
+
+def test_run_executes_in_session_workspace(session_workspaces):
+    workspace, elsewhere, logdir = session_workspaces
+    _watch_cli_in_workspace("run pwd", workspace, logdir)
+    w = next(w for w in _record_all() if w.kind == "run")
+    _wait_fired(w)
+    assert w.fired
+    assert str(workspace.resolve()) in w.events[-1]
+    assert str(elsewhere.resolve()) not in w.events[-1]
+
+
+def test_until_reprobes_in_session_workspace(session_workspaces):
+    """The poll thread re-spawns the probe every tick, outside the session context."""
+    workspace, elsewhere, logdir = session_workspaces
+    (workspace / "marker").write_text("")
+    _watch_cli_in_workspace(
+        "until test -f marker --every 0.1s --timeout 3s", workspace, logdir
+    )
+    w = next(w for w in _record_all() if w.kind == "until")
+    _wait_fired(w)
+    assert w.fired
+    assert not w.expired
+    assert "condition met" in w.events[-1]

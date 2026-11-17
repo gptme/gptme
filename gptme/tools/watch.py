@@ -27,7 +27,7 @@ from typing import cast
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec
+from .base import Parameter, ToolSpec, current_workspace
 from .shell_validation import is_allowlisted, is_denylisted
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,10 @@ class Watch:
     fired: bool = False
     logdir: Path | None = None  # routing key: conversation logdir at arm time
     proc: subprocess.Popen | None = None  # set for run/stream; killed on cancel
+    # Session workspace at arm time. Commands run here, not in the process cwd:
+    # a server shares one process (and one cwd) across conversations, and the
+    # until-poller re-spawns from a thread outside the session's context.
+    cwd: Path | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
@@ -417,6 +421,7 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
             stderr=subprocess.STDOUT,
             text=True,
             errors="replace",
+            cwd=watch.cwd,
         )
         watch.proc = proc
         # Retain only the displayed prefix, but drain the pipe continuously so
@@ -969,11 +974,11 @@ def watch_allowlist_hook(
     if command is None:
         return None
     # Resolve relative sensitive-path rules against the watched child's actual
-    # working directory (it inherits the process cwd), not the conversation
-    # logdir — the two can differ, and a logdir-relative check could
-    # auto-approve a relative path the command does not actually resolve
+    # working directory (the session workspace, see ``Watch.cwd``), not the
+    # conversation logdir — the two can differ, and a logdir-relative check
+    # could auto-approve a relative path the command does not actually resolve
     # against.
-    if is_allowlisted(command, cwd=Path.cwd()):
+    if is_allowlisted(command, cwd=current_workspace()):
         logger.debug("Watch command allowlisted, auto-confirming: %s", command[:50])
         return ConfirmationResult.confirm()
     return None
@@ -1292,6 +1297,7 @@ def _watch(
             created=time.time(),
             deadline=_deadline(opts),
             logdir=logdir,
+            cwd=current_workspace(),
         )
         w.id = _new_id()
         w.branch = branch
@@ -1306,6 +1312,7 @@ def _watch(
                 stderr=subprocess.STDOUT,
                 text=True,
                 errors="replace",
+                cwd=w.cwd,
             )
             w.proc = proc
             return _spawn(w, _poll_run, proc)
@@ -1317,6 +1324,7 @@ def _watch(
             text=True,
             errors="replace",
             bufsize=1,
+            cwd=w.cwd,
         )
         w.proc = proc
         return _spawn(w, _poll_stream, proc)
