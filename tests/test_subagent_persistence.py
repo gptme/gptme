@@ -2,6 +2,7 @@
 
 import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -778,6 +779,78 @@ class TestCrossConversationRehydration:
         # The addressable registry entry, cache and ID APIs stay with B.
         assert [s.logdir for s in holders] == [child_b]
         assert subagent_status("worker")["status"] == "cancelled"
+
+    @pytest.mark.parametrize("terminal_status", ["timeout", "cancelled"])
+    def test_shadowed_writer_publishes_outcome_after_scan(
+        self, tmp_path: Path, monkeypatch, terminal_status
+    ):
+        from gptme.tools.subagent.api import subagent_snapshots, subagent_status
+        from gptme.tools.subagent.execution import acquire_writer_lease
+        from gptme.tools.subagent.persistence import load_subagent_meta
+        from gptme.tools.subagent.types import _shadowed_subagents
+
+        parent_a, _, child_a, _ = self._two_conversations(
+            tmp_path, monkeypatch, a_outcome=None
+        )
+        writer = load_subagent_meta(child_a)
+        assert writer is not None
+        writer = replace(writer, execution_mode="subprocess")
+        persist_subagent_meta(writer)
+        lease = acquire_writer_lease(child_a)
+        if lease is None:
+            pytest.skip("writer leases require flock")
+        try:
+            [running] = subagent_snapshots(parent_a)
+            assert running.status == "running"
+            [shadowed] = _shadowed_subagents
+            assert shadowed.status().status == "running"
+            outcome = ReturnType(terminal_status, "late outcome", duration_s=7.0)
+            assert persist_subagent_outcome(writer, outcome)
+        finally:
+            lease.close()
+
+        assert shadowed.status() == outcome
+        [finished] = subagent_snapshots(parent_a)
+        assert (finished.status, finished.elapsed_s) == (terminal_status, 7)
+        assert subagent_status("worker")["status"] == "cancelled"
+
+    def test_live_reuse_hides_same_owners_shadowed_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import subagent_list, subagent_snapshots
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        parent_a, parent_b, _, child_b = self._two_conversations(
+            tmp_path, monkeypatch, a_outcome=ReturnType("success", "old A")
+        )
+        assert len(subagent_snapshots(parent_a)) == 1
+        live = Subagent(
+            agent_id="worker",
+            prompt="new A",
+            thread=None,
+            logdir=tmp_path / "new-a",
+            model=None,
+            started_at=30.0,
+            parent_logdir=parent_a,
+        )
+        with _subagents_lock:
+            _subagents.append(live)
+            with _subagent_results_lock:
+                _subagent_results["worker"] = ReturnType("timeout", "new A outcome")
+
+        assert [(s.run_id, s.status) for s in subagent_snapshots(parent_a)] == [
+            (str(live.logdir), "timeout")
+        ]
+        assert [s.run_id for s in subagent_snapshots(parent_b)] == [str(child_b)]
+        assert [e["prompt_preview"] for e in subagent_list()] == [
+            "new A",
+            "prompt subagent-worker-bbbb",
+        ]
 
     def test_list_shows_both_conversations_children(self, tmp_path: Path, monkeypatch):
         from gptme.tools.subagent.api import subagent_list

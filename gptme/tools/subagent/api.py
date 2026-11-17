@@ -2182,7 +2182,13 @@ def subagent_list() -> list[dict]:
     now = time.time()
     with _subagents_lock:
         # copy under lock, then iterate outside
-        agents = list(_subagents) + list(_shadowed_subagents)
+        agents = list(_subagents)
+        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
+        agents += [
+            s
+            for s in _shadowed_subagents
+            if (s.parent_logdir, s.agent_id) not in known_owners
+        ]
 
     result: list[dict[str, Any]] = []
     for sa in agents:
@@ -2251,7 +2257,13 @@ def subagent_snapshots(
     with _subagents_lock:
         agents = list(_subagents)
         # Runs whose agent_id another conversation holds (see _shadowed_subagents).
-        shadowed = [s for s in _shadowed_subagents if s.parent_logdir == owner]
+        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
+        shadowed = [
+            s
+            for s in _shadowed_subagents
+            if s.parent_logdir == owner
+            and (s.parent_logdir, s.agent_id) not in known_owners
+        ]
     newest: dict[str, Subagent] = {}
     for sa in agents:
         newest[sa.agent_id] = sa  # append-only: last entry is the newest run

@@ -709,6 +709,13 @@ class Subagent:
     def _cached_result(self) -> ReturnType | None:
         """Return this run's cached terminal result, never another run's."""
         if self.shadowed:
+            if self.shadowed_outcome is None:
+                # A surviving subprocess may publish its outcome after the scan.
+                from .persistence import load_subagent_outcome
+
+                object.__setattr__(
+                    self, "shadowed_outcome", load_subagent_outcome(self)
+                )
             return self.shadowed_outcome
         with _subagent_results_lock:
             return _subagent_results.get(self.agent_id)
