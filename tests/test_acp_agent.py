@@ -206,8 +206,9 @@ class TestUpdateToolCall:
             )
         )
 
-        tc = agent._tool_calls["session_1"]["call_existing"]
-        assert tc.content == content
+        update = agent._conn.session_update.await_args.kwargs["update"]
+        assert update["content"] == content
+        assert not agent._tool_calls["session_1"]
 
     def test_update_sends_session_update(self):
         agent = _make_agent_with_tool()
@@ -223,6 +224,34 @@ class TestUpdateToolCall:
         assert update["sessionUpdate"] == "tool_call_update"
         assert update["toolCallId"] == "call_existing"
         assert update["status"] == "completed"
+
+    def test_terminal_update_is_retried_with_its_original_outcome(self):
+        agent = _make_agent_with_tool()
+        agent._conn.session_update.side_effect = [RuntimeError("disconnected"), None]
+
+        with pytest.raises(RuntimeError, match="disconnected"):
+            _run(
+                agent._update_tool_call(
+                    "session_1", "call_existing", ToolCallStatus.FAILED
+                )
+            )
+
+        assert "call_existing" in agent._tool_calls["session_1"]
+        _run(agent._complete_pending_tool_calls("session_1", success=True))
+        assert agent._conn.session_update.await_count == 2
+        assert (
+            agent._conn.session_update.await_args.kwargs["update"]["status"] == "failed"
+        )
+        assert "call_existing" not in agent._tool_calls["session_1"]
+
+    def test_delivered_terminal_update_releases_call(self):
+        agent = _make_agent_with_tool()
+        _run(
+            agent._update_tool_call(
+                "session_1", "call_existing", ToolCallStatus.COMPLETED
+            )
+        )
+        assert not agent._tool_calls["session_1"]
 
     def test_update_no_connection(self):
         agent = GptmeAgent()
@@ -273,20 +302,30 @@ class TestCompletePendingToolCalls:
         agent = _make_agent_with_mixed_calls()
         _run(agent._complete_pending_tool_calls("session_1"))
 
-        calls = agent._tool_calls["session_1"]
-        assert calls["call_pending"].status == ToolCallStatus.COMPLETED
-        assert calls["call_progress"].status == ToolCallStatus.COMPLETED
-        # Already terminal states should be unchanged
-        assert calls["call_done"].status == ToolCallStatus.COMPLETED
-        assert calls["call_failed"].status == ToolCallStatus.FAILED
+        updates = {
+            call.kwargs["update"]["toolCallId"]: call.kwargs["update"]["status"]
+            for call in agent._conn.session_update.await_args_list
+        }
+        assert updates == {
+            "call_pending": "completed",
+            "call_progress": "completed",
+            "call_done": "completed",
+            "call_failed": "failed",
+        }
+        assert not agent._tool_calls["session_1"]
 
     def test_complete_with_failure(self):
         agent = _make_agent_with_mixed_calls()
         _run(agent._complete_pending_tool_calls("session_1", success=False))
 
-        calls = agent._tool_calls["session_1"]
-        assert calls["call_pending"].status == ToolCallStatus.FAILED
-        assert calls["call_progress"].status == ToolCallStatus.FAILED
+        updates = {
+            call.kwargs["update"]["toolCallId"]: call.kwargs["update"]["status"]
+            for call in agent._conn.session_update.await_args_list
+        }
+        assert updates["call_pending"] == "failed"
+        assert updates["call_progress"] == "failed"
+        assert updates["call_done"] == "completed"
+        assert not agent._tool_calls["session_1"]
 
     def test_no_tool_calls_for_session(self):
         agent = GptmeAgent()
@@ -487,8 +526,9 @@ class TestCreateConfirmWithTools:
         result = self._run_callback_with_threaded_loop(agent, "Run command: rm -rf /")
         assert result is False
 
-        tc = list(agent._tool_calls["session_1"].values())[0]
-        assert tc.status == ToolCallStatus.FAILED
+        update = agent._conn.session_update.await_args.kwargs["update"]
+        assert update["status"] == "failed"
+        assert not agent._tool_calls["session_1"]
 
 
 class TestInitializeWithoutAcp:
@@ -2202,6 +2242,68 @@ class TestPromptToolCallOutcomes:
         )
 
         assert result.stop_reason == "cancelled"
+        events = self._tool_events(agent)
+        assert [status for _, status in events] == ["in_progress", "completed"]
+        assert len({call_id for call_id, _ in events}) == 1
+
+    @pytest.mark.parametrize(
+        ("terminal_status", "tool"), [("completed", "okay"), ("failed", "boom")]
+    )
+    def test_prompt_retries_terminal_delivery_without_changing_outcome(
+        self, monkeypatch, terminal_status, tool
+    ):
+        agent = self._setup(
+            monkeypatch, [f"```{tool}\nrun\n```", RuntimeError("provider went away")]
+        )
+        delivered = []
+        failed_once = False
+
+        async def send(**kwargs):
+            nonlocal failed_once
+            update = kwargs["update"]
+            if (
+                isinstance(update, dict)
+                and update.get("sessionUpdate") == "tool_call_update"
+            ):
+                if not failed_once:
+                    failed_once = True
+                    raise RuntimeError("temporary send failure")
+                delivered.append(update["status"])
+
+        agent._conn.session_update.side_effect = send
+        result = _run(
+            agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+        )
+
+        assert result.stop_reason == "cancelled"
+        assert failed_once
+        assert delivered == [terminal_status]
+        assert not agent._tool_calls["s1"]
+
+    def test_call_unloaded_by_previous_call_is_not_reported(self, monkeypatch):
+        """Availability is checked at execution, not at the start of the step."""
+        agent = self._setup(
+            monkeypatch,
+            ["```okay\nunload boom\n```\n\n```boom\nnever runs\n```", "Done."],
+        )
+        from gptme.message import Message
+        from gptme.tools import get_tool
+        from gptme.tools.base import ToolSpec
+
+        specs = {name: get_tool(name) for name in ("okay", "boom")}
+        # Parsing still recognizes the code block after unload, but execution
+        # must observe the current registry, as it does for MCP tool removal.
+        monkeypatch.setattr("gptme.tools.get_tool", specs.get)
+
+        def unload(code, args, kwargs):
+            specs.pop("boom")
+            return Message("system", "unloaded boom")
+
+        specs["okay"] = ToolSpec(
+            name="okay", desc="", execute=unload, block_types=["okay"]
+        )
+        _run(agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"))
+
         events = self._tool_events(agent)
         assert [status for _, status in events] == ["in_progress", "completed"]
         assert len({call_id for call_id, _ in events}) == 1

@@ -372,6 +372,10 @@ class GptmeAgent:
             update=update,
             source="gptme",
         )
+        # Terminal entries are retained until delivery succeeds. A failed send
+        # leaves the intended outcome available for the end-of-turn retry.
+        if status in (ToolCallStatus.COMPLETED, ToolCallStatus.FAILED):
+            self._tool_calls.get(session_id, {}).pop(tool_call_id, None)
 
     async def _request_tool_permission(
         self,
@@ -565,7 +569,7 @@ class GptmeAgent:
         session_id: str,
         success: bool = True,
     ) -> None:
-        """Mark all in-progress tool calls as completed.
+        """Settle open calls and retry undelivered terminal updates.
 
         Args:
             session_id: The session ID
@@ -574,16 +578,18 @@ class GptmeAgent:
         if session_id not in self._tool_calls:
             return
 
-        for tool_call_id, tool_call in self._tool_calls[session_id].items():
-            # Complete both IN_PROGRESS and PENDING tool calls
-            # PENDING calls may be orphaned if permission request failed to transition
-            if tool_call.status in (ToolCallStatus.IN_PROGRESS, ToolCallStatus.PENDING):
+        for tool_call_id, tool_call in list(self._tool_calls[session_id].items()):
+            # A stored terminal status is an undelivered outcome, not a call
+            # whose result can be inferred from the turn's overall success.
+            status = tool_call.status
+            if status in (ToolCallStatus.IN_PROGRESS, ToolCallStatus.PENDING):
                 status = ToolCallStatus.COMPLETED if success else ToolCallStatus.FAILED
-                await self._update_tool_call(
-                    session_id,
-                    tool_call_id,
-                    status,
-                )
+            await self._update_tool_call(
+                session_id,
+                tool_call_id,
+                status,
+                content=tool_call.content,
+            )
 
     async def initialize(
         self,
@@ -1329,31 +1335,24 @@ class GptmeAgent:
             # calls of the assistant message (execute_msg's call_index).
             step_tool_calls: dict[int, str] = {}
 
-            def on_before_tool_execution(response: Message) -> None:
-                """Report each runnable call of this step before it runs."""
-                step_tool_calls.clear()
+            def on_tool_execution(index: int, tool_use: ToolUse) -> None:
+                """Report a call at execute_msg's per-call execution boundary."""
                 if not self._conn:
                     return
-                # Text generated before the calls must reach the client first.
+                # Text generated before the call must reach the client first.
                 _flush_batch()
-                # Same parse as execute_msg, so indices match its call_index.
-                for index, tool_use in enumerate(
-                    ToolUse.iter_from_content(response.content)
-                ):
-                    if not tool_use.is_runnable:
-                        continue
-                    tool_call = ToolCall(
-                        tool_call_id=ToolCall.generate_id(),
-                        title=f"Executing {tool_use.tool}",
-                        kind=gptme_tool_to_acp_kind(tool_use.tool),
-                        status=ToolCallStatus.IN_PROGRESS,
-                        raw_input={
-                            "tool": tool_use.tool,
-                            "preview": (tool_use.content or "")[:100],
-                        },
-                    )
-                    step_tool_calls[index] = tool_call.tool_call_id
-                    _send_from_worker(self._report_tool_call(session_id, tool_call))
+                tool_call = ToolCall(
+                    tool_call_id=ToolCall.generate_id(),
+                    title=f"Executing {tool_use.tool}",
+                    kind=gptme_tool_to_acp_kind(tool_use.tool),
+                    status=ToolCallStatus.IN_PROGRESS,
+                    raw_input={
+                        "tool": tool_use.tool,
+                        "preview": (tool_use.content or "")[:100],
+                    },
+                )
+                step_tool_calls[index] = tool_call.tool_call_id
+                _send_from_worker(self._report_tool_call(session_id, tool_call))
 
             def settle_step_tool_calls(step_msgs: list[Message]) -> None:
                 """Give each call of the step its own outcome, read from its outputs."""
@@ -1430,7 +1429,7 @@ class GptmeAgent:
                                 workspace=log.workspace,
                                 model=effective_model,
                                 on_token=on_token,
-                                on_before_tool_execution=on_before_tool_execution,
+                                on_tool_execution=on_tool_execution,
                                 logdir=log.logdir,
                                 max_tokens=prompt_max_tokens,
                             )

@@ -1494,6 +1494,7 @@ def step(
     on_before_tool_execution: Callable[[Message], None] | None = None,
     logdir: Path | None = None,
     max_tokens: int | None = None,
+    on_tool_execution: Callable[[int, ToolUse], None] | None = None,
 ) -> Generator[Message, None, None]:
     """Runs a single pass of the chat - generates response and executes tools."""
     default_model = get_default_model()
@@ -1585,6 +1586,7 @@ def step(
                     log=log,
                     workspace=workspace,
                     tool_timings=tool_timings,
+                    on_tool_execution=on_tool_execution,
                 )
             )
             if tool_timings:
