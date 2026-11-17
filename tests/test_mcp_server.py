@@ -426,6 +426,54 @@ class TestMCPServerHandlers:
         assert "guardrail" in text.lower(), f"Expected guardrail skip; got: {text!r}"
 
     @pytest.mark.asyncio
+    async def test_mcp_dispatches_tool_execute_pre_denial(self) -> None:
+        """A TOOL_EXECUTE_PRE denial must stop an MCP call before the executor."""
+        import mcp.types as types
+
+        from gptme.hooks import HookType, register_hook, unregister_hook
+        from gptme.message import Message
+
+        executed = False
+
+        def execution_spy(code, args, kwargs):
+            nonlocal executed
+            executed = True
+            yield Message("system", "executed")
+
+        def deny_all(data):
+            data.deny("blocked by pre-hook test")
+            yield from ()
+
+        server = GptmeMCPServer(tool_names=["shell"])
+        server._init_tools()
+        server._loaded_tools = [
+            ToolSpec(
+                name="shell",
+                desc="Shell.",
+                execute=execution_spy,
+                block_types=["shell"],
+                parameters=[Parameter(name="command", type="string", required=True)],
+            )
+        ]
+        register_hook("test_mcp_pre_deny", HookType.TOOL_EXECUTE_PRE, deny_all)
+        try:
+            req = types.CallToolRequest(
+                method="tools/call",
+                params=types.CallToolRequestParams(
+                    name="shell", arguments={"command": "echo hi"}
+                ),
+            )
+            result = await server._server.request_handlers[types.CallToolRequest](req)
+        finally:
+            unregister_hook("test_mcp_pre_deny", HookType.TOOL_EXECUTE_PRE)
+        assert isinstance(result.root, types.CallToolResult)
+        text = " ".join(
+            c.text for c in result.root.content if hasattr(c, "text") and c.text
+        )
+        assert not executed
+        assert "blocked by pre-hook test" in text
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("tool_name", ["read", "patch_many", "tmux"])
     async def test_mcp_secret_access_enforces_guardrails(
         self, monkeypatch, tmp_path, tool_name
@@ -698,6 +746,30 @@ class TestWorkspaceHandling:
         assert chdir_calls == [str(tmp_path)], (
             f"Expected os.chdir({tmp_path!s}) but got {chdir_calls}"
         )
+
+    def test_relative_workspace_is_resolved_before_chdir(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A relative workspace must not be re-resolved against itself after chdir."""
+        monkeypatch.chdir(tmp_path)
+        server = GptmeMCPServer(workspace="project")
+        expected = str(tmp_path / "project")
+        assert server._workspace == expected
+
+        chdir_calls: list[str] = []
+
+        def _drain_coro(coro):
+            coro.close()
+
+        from unittest.mock import patch
+
+        with (
+            patch("gptme.mcp.server.os.chdir", side_effect=chdir_calls.append),
+            patch.object(server, "_init_tools"),
+            patch("asyncio.run", side_effect=_drain_coro),
+        ):
+            server.serve_stdio()
+        assert chdir_calls == [expected]
 
     def test_serve_stdio_no_chdir_without_workspace(self) -> None:
         """serve_stdio must not call os.chdir when workspace is None."""

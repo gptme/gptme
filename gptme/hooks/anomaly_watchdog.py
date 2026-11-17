@@ -7,7 +7,7 @@ Monitors tool calls for three suspicious patterns:
 
 Activation:
   GPTME_ANOMALY_WATCHDOG=warn    # log warnings, continue execution
-  GPTME_ANOMALY_WATCHDOG=block   # block the tool call via TOOL_CONFIRM (skip)
+  GPTME_ANOMALY_WATCHDOG=block   # deny the tool call at TOOL_EXECUTE_PRE
   GPTME_ANOMALY_WATCHDOG=off     # disabled (default)
 
 Optional tuning:
@@ -36,15 +36,13 @@ from ..hooks import (
     register_hook,
 )
 from ..plugins.plugin import GptmePlugin
-from ._policy_block import POLICY_BLOCK_MARKER, policy_block_message
+from ._policy_block import policy_block_message
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from ..hooks.confirm import ConfirmationResult
     from ..hooks.types import ToolExecutePostData, ToolExecutePreData
     from ..message import Message
-    from ..tools.base import ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +70,6 @@ _WINDOW_LOCK = threading.Lock()
 # copies a harness makes.
 _thread_window_local = threading.local()
 _thread_window_counter = itertools.count(1)
-
-# Tool calls rejected by this watchdog, keyed by object identity with a short
-# TTL. TOOL_CONFIRM fires before execution and TOOL_EXECUTE_POST after, and the
-# same ``ToolUse`` object flows through both (it is the object published by
-# ``get_current_tool_use``), so marking a rejection lets the post hook avoid
-# counting a write that never happened. Without this, a burst of blocked
-# attempts keeps refreshing the storm window and locks out later legitimate
-# writes.
-#
-# Identity is used rather than the value because ``ToolUse`` holds list/dict
-# fields, so hashing it raises TypeError. Entries are popped on first use and
-# aged out by TTL, so a recycled id cannot outlive the call it belongs to.
-#
-# Like the write window, this ledger is shared by every conversation in the
-# process, so its mutations are serialized by ``_REJECTED_LOCK``: the prune and
-# the cap-``clear()`` are check-then-act sequences, and an unguarded clear could
-# wipe a marker another thread had just written.
-_rejected_calls: dict[int, float] = {}
-_REJECTED_LOCK = threading.Lock()
-_REJECTED_TTL = 300.0
 
 
 def _thread_window_key() -> str:
@@ -157,14 +135,8 @@ _BUILTIN_TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 _MAX_DETAIL_LEN = 200
 
-# Skip reason prefix. The post hook reads it back to recognise a blocked call
-# (see ``_result_was_blocked``), so writer and reader share one constant.
+# Prefix of the denial reason this watchdog gives the model.
 _BLOCK_PREFIX = "Blocked by anomaly_watchdog:"
-
-# The skip reason goes through the shared policy-block helper, which puts the
-# marker first. Read-back matches the whole composed prefix so it still
-# identifies *this* watchdog's block and not another block site's.
-_BLOCK_MESSAGE_PREFIX = f"{POLICY_BLOCK_MARKER} {_BLOCK_PREFIX}"
 
 
 def _tool_namespace(tool: str) -> str:
@@ -354,10 +326,10 @@ def _prune_stale_windows(now: float, window: float) -> None:
 def record_write() -> None:
     """Record that a write actually executed (called from the post hook).
 
-    Recording happens *after* execution, so a call this watchdog blocked
-    (``_consume_rejected``) never enters the window — otherwise a burst of
-    blocked attempts would reach the limit and lock out later legitimate
-    writes.
+    Recording happens *after* execution, and a call denied at
+    TOOL_EXECUTE_PRE never reaches the post hook, so it never enters the
+    window — otherwise a burst of blocked attempts would reach the limit and
+    lock out later legitimate writes.
     """
     window = _write_window()
     now = time.monotonic()
@@ -377,7 +349,7 @@ def _check_write_storm() -> tuple[bool, str] | None:
     Read-only: the window holds writes that already executed (see
     ``record_write``), and this check runs *before* the call in flight executes,
     so the window cannot count it — hence the ``+ 1``. A call that trips the
-    limit is skipped in block mode (see ``anomaly_watchdog_confirm``) and so is
+    limit is denied in block mode (see ``check_tool_pre``) and so is
     never recorded, which is what keeps a rejected burst from refreshing its own
     window and locking out later legitimate writes.
 
@@ -471,35 +443,12 @@ def _check_novel_host(tool_use: Any) -> tuple[bool, str] | None:
     )
 
 
-def _mark_rejected(tool_use: Any) -> None:
-    """Remember that this tool call was blocked before it could execute."""
-    now = time.monotonic()
-    with _REJECTED_LOCK:
-        for key in list(_rejected_calls):
-            if now - _rejected_calls.get(key, now) > _REJECTED_TTL:
-                _rejected_calls.pop(key, None)
-        if len(_rejected_calls) >= 512:
-            # Evict the oldest entry only: clearing the whole ledger would
-            # drop the markers of blocked calls still awaiting their post
-            # hook, letting them be counted as executed writes.
-            oldest = min(_rejected_calls, key=_rejected_calls.__getitem__)
-            _rejected_calls.pop(oldest, None)
-        _rejected_calls[id(tool_use)] = now
-
-
-def _consume_rejected(tool_use: Any) -> bool:
-    """Return True (once) if this call was blocked before execution."""
-    with _REJECTED_LOCK:
-        marked = _rejected_calls.pop(id(tool_use), None)
-    return marked is not None and time.monotonic() - marked <= _REJECTED_TTL
-
-
 def _detect_findings(tool_use: Any, workspace: Path | None) -> list[tuple[bool, str]]:
     """Run all enabled anomaly checks; return ``(blockable, message)`` pairs.
 
     ``blockable`` is False for a finding whose evidence cannot be trusted to
     stop the call (see ``_check_write_storm``); those are reported to the
-    session but never turned into a confirmation skip.
+    session but never turned into a denial.
     """
     findings: list[tuple[bool, str]] = []
     namespace = _tool_namespace(tool_use.tool)
@@ -543,22 +492,33 @@ def _emit(
 def check_tool_pre(
     data: ToolExecutePreData,
 ) -> Generator[Message, None, None]:
-    """TOOL_EXECUTE_PRE hook: surface warn-mode findings as system messages.
+    """TOOL_EXECUTE_PRE hook: deny (block mode) or report (warn mode) anomalies.
 
-    In block mode, blocking happens in the TOOL_CONFIRM hook (see
-    ``anomaly_watchdog_confirm``) — TOOL_EXECUTE_PRE cannot prevent tool
-    execution, it only stops lower-priority hooks.
+    Block mode denies at this seam rather than in a confirmation hook: every
+    tool passes through here, whereas tools such as ``gh``, ``browser`` and
+    ``convert`` never call ``execute_with_confirmation()`` and so were invisible
+    to a TOOL_CONFIRM-only block. The denial goes through the shared
+    policy-block helper, so it carries the ``[policy-block]`` marker the block
+    budget counts and the finality text.
+
+    A finding that is not blockable (see ``_check_write_storm``) is reported to
+    the session in either mode but never denied.
     """
     tool_use = data.tool_use
     if tool_use is None or not _enabled():
         return
 
     findings = _detect_findings(tool_use, data.workspace)
-    # In warn mode every finding is reported. In block mode the blockable ones
-    # are the confirm hook's to enforce, but a report-only finding must still
-    # reach the session — that hook can only return a skip, not a message.
+    if _mode() == "block":
+        blockable = [msg for can_block, msg in findings if can_block]
+        if blockable:
+            data.deny(
+                policy_block_message(
+                    "anomaly_watchdog", _BLOCK_PREFIX + "\n" + "\n".join(blockable)
+                ).content
+            )
     reportable = [
-        msg for blockable, msg in findings if _mode() == "warn" or not blockable
+        msg for can_block, msg in findings if _mode() == "warn" or not can_block
     ]
     if not reportable:
         return
@@ -571,76 +531,29 @@ def check_tool_pre(
     )
 
 
-def _result_was_blocked(result_msgs: tuple[Message, ...] | None) -> bool:
-    """Whether a tool result is this watchdog's own skip message.
-
-    Independent of the identity marker: the reason is a string this module
-    owns, so it still identifies a blocked call if the ``ToolUse`` object is
-    copied or reconstructed between the confirm and post hooks.
-    """
-    for msg in result_msgs or ():
-        content = msg.content
-        if isinstance(content, str) and content.startswith(_BLOCK_MESSAGE_PREFIX):
-            return True
-    return False
-
-
 def check_tool_post(
     data: ToolExecutePostData,
 ) -> Generator[Message, None, None]:
     """TOOL_EXECUTE_POST hook: record writes that actually executed.
 
-    The post hook fires on the success path of every tool call, including one
-    whose confirmation was skipped — so the window is only advanced once we
-    know this watchdog did not reject the call.
+    A call this watchdog denied at TOOL_EXECUTE_PRE returns before the post
+    hook fires, so everything that reaches here executed or was skipped by a
+    later hook.
 
-    Known boundary: a write declined by a *later* confirmation hook (the
-    interactive CLI/Server confirm) still reaches this hook and is counted.
-    That is not observable from here — the confirmation result is not part of
+    Known boundary: a write declined by a confirmation hook (the interactive
+    CLI/Server confirm) still reaches this hook and is counted. That is not
+    observable from here — the confirmation result is not part of
     ``ToolExecutePostData`` — and the watchdog targets unattended runs, where
     nothing declines.
     """
     tool_use = data.tool_use
-    if _enabled() and tool_use is not None:
-        # Two independent signals: the identity marker the confirm hook left
-        # (works even when no result is available) and this watchdog's own skip
-        # text in the result (works whatever object reaches this hook).
-        rejected = _consume_rejected(tool_use) or _result_was_blocked(data.result_msgs)
-        if not rejected and _tool_namespace(tool_use.tool) in _WRITE_TOOLS:
-            record_write()
+    if (
+        _enabled()
+        and tool_use is not None
+        and _tool_namespace(tool_use.tool) in _WRITE_TOOLS
+    ):
+        record_write()
     yield from ()
-
-
-def anomaly_watchdog_confirm(
-    tool_use: ToolUse,
-    preview: str | None = None,
-    workspace: Path | None = None,
-) -> ConfirmationResult | None:
-    """TOOL_CONFIRM hook: block flagged tool calls in block mode.
-
-    Returns ``ConfirmationResult.skip(...)`` so the executor actually skips
-    the tool (mirrors guardrails' enforce mode). Returns None otherwise to
-    fall through to the next confirm hook.
-    """
-    if _mode() != "block":
-        return None
-
-    blockable = [
-        msg for blockable, msg in _detect_findings(tool_use, workspace) if blockable
-    ]
-    if not blockable:
-        return None
-
-    from ..hooks.confirm import ConfirmationResult
-
-    # Route through the shared helper so the denial carries the
-    # ``[policy-block]`` marker (counted by the block budget) and the FINALITY
-    # text. ``policy_block_message`` logs the block at WARNING.
-    reason = policy_block_message(
-        "anomaly_watchdog", _BLOCK_PREFIX + "\n" + "\n".join(blockable)
-    ).content
-    _mark_rejected(tool_use)
-    return ConfirmationResult.skip(reason)
 
 
 def register() -> None:
@@ -660,19 +573,13 @@ def register() -> None:
         "anomaly_watchdog.tool_pre",
         HookType.TOOL_EXECUTE_PRE,
         check_tool_pre,
-        priority=150,  # after guardrails (200), before confirm hooks
+        priority=150,  # after guardrails (200), before auto snapshots (90)
     )
     register_hook(
         "anomaly_watchdog.tool_post",
         HookType.TOOL_EXECUTE_POST,
         check_tool_post,
         priority=150,
-    )
-    register_hook(
-        "anomaly_watchdog.confirm",
-        HookType.TOOL_CONFIRM,
-        anomaly_watchdog_confirm,
-        priority=150,  # after guardrails (200), before cli/server confirm
     )
     logger.debug("Registered anomaly_watchdog hooks (mode=%s)", _mode())
 

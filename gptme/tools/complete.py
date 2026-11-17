@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from xml.sax.saxutils import escape as xml_escape
 
 from ..hooks import HookType, StopPropagation
-from ..hooks._policy_block import POLICY_BLOCK_MARKER
+from ..hooks._policy_block import POLICY_BLOCK_MARKER, TOOL_DENIAL_PREFIX
 from ..hooks.confirm import ConfirmAction, get_confirmation
 from ..message import Message, MessageMetadata
 from ..sandbox import SandboxConfig, build_env, wrap_shell_cmd
@@ -132,12 +132,24 @@ def current_episode(messages: "list[Message]") -> "list[Message]":
     return list(messages)
 
 
+def _is_policy_block(content: str) -> bool:
+    """True if *content* is a policy block, bare or inside a joined denial."""
+    if content.startswith(TOOL_DENIAL_PREFIX):
+        # ToolUse.execute joins every pre-hook denial with "; ", so the policy
+        # block may follow an ordinary denial from an earlier hook.
+        return any(
+            part.startswith(POLICY_BLOCK_MARKER)
+            for part in content.removeprefix(TOOL_DENIAL_PREFIX).split("; ")
+        )
+    return content.startswith(POLICY_BLOCK_MARKER)
+
+
 def count_policy_blocks(messages: "list[Message]") -> int:
     """Count policy blocks (``[policy-block]`` system messages) in the current episode."""
     return sum(
         1
         for m in current_episode(messages)
-        if m.role == "system" and (m.content or "").startswith(POLICY_BLOCK_MARKER)
+        if m.role == "system" and _is_policy_block(m.content or "")
     )
 
 

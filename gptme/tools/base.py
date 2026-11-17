@@ -984,6 +984,7 @@ class ToolUse:
                 result_msgs: list[Message] = []
                 execution_completed = False
                 try:
+                    from ..hooks._policy_block import TOOL_DENIAL_PREFIX  # fmt: skip
                     from ..hooks.types import ToolExecutePreData  # fmt: skip
 
                     # Trigger pre-execution hooks (tool.execute.pre)
@@ -1005,7 +1006,7 @@ class ToolUse:
                         denial = own(
                             Message(
                                 "system",
-                                "Tool execution denied: " + "; ".join(pre_data.denials),
+                                TOOL_DENIAL_PREFIX + "; ".join(pre_data.denials),
                                 call_id=self.call_id,
                                 metadata={"tool": self.tool, "tool_status": "denied"},
                             )
