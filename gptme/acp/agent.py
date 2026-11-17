@@ -12,12 +12,16 @@ import hashlib
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..config import ChatConfig, MCPServerConfig, get_config, get_project_config
 from ..dirs import get_logs_dir
+from ..hooks import HookType, register_hook
+from ..hooks.confirm import ConfirmationResult
+from ..hooks.registry import HookRegistry, get_registry, set_registry
 from ..init import init
 from ..llm.models import get_default_model, set_default_model
 from ..logmanager import LogManager, list_conversations
@@ -43,6 +47,40 @@ if TYPE_CHECKING:
     from ..message import Message
 
 logger = logging.getLogger(__name__)
+
+# How long a tool waits for the client to answer a permission request.
+_PERMISSION_TIMEOUT_S = 60.0
+
+
+@dataclass
+class _AcpTurn:
+    """What the TOOL_CONFIRM hook needs to ask the client about a call."""
+
+    agent: GptmeAgent
+    session_id: str
+    loop: asyncio.AbstractEventLoop
+    # Calls reported for the current step: (parsed ToolUse, ACP tool call id).
+    calls: list[tuple[ToolUse, str]] = field(default_factory=list)
+
+
+# Set for the duration of an ACP prompt turn; the hook registry is
+# process-global, so this is how a confirmation finds its session.
+_acp_turn: contextvars.ContextVar[_AcpTurn | None] = contextvars.ContextVar(
+    "acp_turn", default=None
+)
+
+
+def _acp_confirm_hook(
+    tool_use: ToolUse,
+    preview: str | None = None,
+    workspace: Path | None = None,
+) -> ConfirmationResult | None:
+    """TOOL_CONFIRM hook: ask the ACP client before a tool runs."""
+    turn = _acp_turn.get()
+    if turn is None:
+        return None  # Not an ACP turn: leave it to other hooks or the default.
+    return turn.agent._confirm_tool_use(turn, tool_use)
+
 
 # Bound for closing one host-supplied MCP client during cancel/shutdown.
 # MCPClient.close() also interrupts in-flight calls; this is the ACP-side cap
@@ -276,6 +314,10 @@ class GptmeAgent:
         self._session_modes: dict[str, str] = {}
         # Phase 2: Track active tool calls per session
         self._tool_calls: dict[str, dict[str, ToolCall]] = {}
+        # The hook registry is a ContextVar and every ACP request runs in its
+        # own task, so hooks registered in initialize() would otherwise be
+        # invisible to prompt turns. Captured there, installed per turn.
+        self._hook_registry: HookRegistry | None = None
         # Phase 2: Permission policies per session (allow_always, reject_always)
         self._permission_policies: dict[str, dict[str, str]] = {}
         # Track sessions where AvailableCommandsUpdate was successfully sent.
@@ -459,6 +501,79 @@ class GptmeAgent:
         except Exception as e:
             logger.warning("Permission request failed: %s, denying for safety", e)
             return False
+
+    def _confirm_tool_use(
+        self, turn: _AcpTurn, tool_use: ToolUse
+    ) -> ConfirmationResult:
+        """Ask the client whether a call may run (called from the executor thread).
+
+        Reuses the tool call already reported for this step, so the client sees
+        one call that is either allowed or ends FAILED.
+        """
+        session_id = turn.session_id
+        tool_call_id = next(
+            (call_id for parsed, call_id in turn.calls if parsed == tool_use), None
+        )
+        tool_call = (
+            self._tool_calls.get(session_id, {}).get(tool_call_id)
+            if tool_call_id
+            else None
+        )
+
+        def send(coro: Coroutine[Any, Any, Any], timeout: float) -> Any:
+            future = asyncio.run_coroutine_threadsafe(coro, turn.loop)
+            try:
+                return future.result(timeout=timeout)
+            finally:
+                # A late client answer must not act after we decided.
+                future.cancel()
+
+        if tool_call is None:
+            # Not reported by this step (e.g. a confirmation from a nested
+            # call): report it now so the permission request has a call to name.
+            tool_call = ToolCall(
+                tool_call_id=ToolCall.generate_id(),
+                title=f"Executing {tool_use.tool}",
+                kind=gptme_tool_to_acp_kind(tool_use.tool),
+                status=ToolCallStatus.IN_PROGRESS,
+                raw_input={
+                    "tool": tool_use.tool,
+                    "preview": (tool_use.content or "")[:100],
+                },
+            )
+            try:
+                send(self._report_tool_call(session_id, tool_call), 5.0)
+            except Exception:
+                logger.debug("Failed to report tool call", exc_info=True)
+
+        try:
+            allowed = send(
+                self._request_tool_permission(session_id, tool_call),
+                _PERMISSION_TIMEOUT_S,
+            )
+            reason = "Permission denied by the ACP client"
+        except Exception as e:
+            logger.warning("Tool permission check failed: %r, denying for safety", e)
+            allowed = False
+            reason = "Permission request to the ACP client failed or timed out"
+
+        if allowed:
+            return ConfirmationResult.confirm()
+        try:
+            send(
+                self._update_tool_call(
+                    session_id,
+                    tool_call.tool_call_id,
+                    ToolCallStatus.FAILED,
+                    content=[
+                        {"type": "content", "content": {"type": "text", "text": reason}}
+                    ],
+                ),
+                5.0,
+            )
+        except Exception:
+            logger.debug("Failed to report denied tool call", exc_info=True)
+        return ConfirmationResult.skip(reason)
 
     def _create_confirm_with_tools(
         self,
@@ -667,6 +782,15 @@ class GptmeAgent:
                 )
 
             self._initialized = True
+            # init(interactive=False) registers no confirmation hook, so without
+            # this every tool runs unasked even in "default" mode.
+            register_hook(
+                "acp_permission",
+                HookType.TOOL_CONFIRM,
+                _acp_confirm_hook,
+                priority=100,
+            )
+            self._hook_registry = get_registry()
             # Capture the resolved model (from config/env/auto-detect)
             # so subsequent handlers use the same model
             resolved = get_default_model()
@@ -1361,6 +1485,7 @@ class GptmeAgent:
             # Tool calls of the current step, keyed by their position among the
             # calls of the assistant message (execute_msg's call_index).
             step_tool_calls: dict[int, str] = {}
+            turn = _AcpTurn(agent=self, session_id=session_id, loop=loop)
 
             def on_tool_execution(index: int, tool_use: ToolUse) -> None:
                 """Report a call at execute_msg's per-call execution boundary."""
@@ -1379,6 +1504,7 @@ class GptmeAgent:
                     },
                 )
                 step_tool_calls[index] = tool_call.tool_call_id
+                turn.calls.append((tool_use, tool_call.tool_call_id))
                 _send_from_worker(self._report_tool_call(session_id, tool_call))
 
             # Tool-result messages already delivered as tool-call content; the
@@ -1398,7 +1524,14 @@ class GptmeAgent:
                     index = item.metadata.get("tool_call") if item.metadata else None
                     if item.role != "assistant" and index in step_tool_calls:
                         outputs.setdefault(index, []).append(item)
+                reported = self._tool_calls.get(session_id, {})
                 for index, tool_call_id in step_tool_calls.items():
+                    stored = reported.get(tool_call_id)
+                    # Gone means a terminal update was already delivered; a
+                    # stored FAILED awaits the end-of-turn retry. Either way it
+                    # was settled already, e.g. by a permission denial.
+                    if stored is None or stored.status == ToolCallStatus.FAILED:
+                        continue
                     status = (
                         ToolCallStatus.FAILED
                         if index in failed
@@ -1418,6 +1551,7 @@ class GptmeAgent:
                     )
                     delivered_as_content.update(id(m) for m in outputs.get(index, []))
                 step_tool_calls.clear()
+                turn.calls.clear()
 
             def run_chat_turn() -> tuple[list[Message], str]:
                 """Run every generation/tool step in one ACP prompt turn.
@@ -1429,6 +1563,7 @@ class GptmeAgent:
                 # The interactive chat loop keeps stepping after a runnable tool
                 # call so the model can inspect its result and finish the turn.
                 # ACP has no outer gptme loop, so reproduce that behavior here.
+                _acp_turn.set(turn)
                 response_msgs: list[Message] = []
                 step_log = list(log.log)
                 # Same boundary as the CLI chat loop: TURN_PRE after the user
@@ -1525,6 +1660,8 @@ class GptmeAgent:
 
             # Copy context to propagate ContextVars (model, config, tools, etc.)
             # to the executor thread — run_in_executor doesn't do this by default
+            if self._hook_registry is not None:
+                set_registry(self._hook_registry)
             ctx = contextvars.copy_context()
             response_msgs, chat_stop_reason = await loop.run_in_executor(
                 None, ctx.run, run_chat_turn

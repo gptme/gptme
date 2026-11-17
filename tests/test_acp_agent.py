@@ -2491,3 +2491,185 @@ class TestPromptToolCallOutcomes:
         log = agent._registry.get("s1").log
         appended = [c.args[0].content for c in log.append.call_args_list]
         assert any("ran first" in text for text in appended)
+
+class TestPromptToolPermission:
+    """In "default" mode a confirming tool asks the client before it runs."""
+
+    @staticmethod
+    def _setup(monkeypatch, replies: list[str], permission, patch_hooks=True):
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import importlib
+
+        from gptme.acp.agent import _acp_confirm_hook
+        from gptme.hooks import HookType
+        from gptme.hooks.types import Hook
+        from gptme.message import Message
+        from gptme.tools.base import ToolSpec
+        from gptme.util.ask_execute import execute_with_confirmation
+
+        ran: list[str] = []
+
+        def run(code, path):
+            ran.append(code)
+            yield Message("system", f"ran {code.strip()}")
+
+        def guarded(code, args, kwargs):
+            # Same confirmation path as the real shell/save tools.
+            return execute_with_confirmation(
+                code,
+                args,
+                kwargs,
+                execute_fn=run,
+                get_path_fn=lambda *a: None,
+                allow_edit=False,
+            )
+
+        spec = ToolSpec(
+            name="guarded", desc="", execute=guarded, block_types=["guarded"]
+        )
+        monkeypatch.setattr("gptme.tools.get_tool", {"guarded": spec}.get)
+        monkeypatch.setattr("gptme.tools.get_tool_for_langtag", {"guarded": spec}.get)
+
+        pending = iter(replies)
+        chat_module = importlib.import_module("gptme.chat")
+        monkeypatch.setattr(
+            chat_module,
+            "_reply_with_overflow_recovery",
+            lambda **kwargs: Message("assistant", next(pending)),
+        )
+        monkeypatch.setattr(
+            chat_module, "prepare_messages", lambda msgs, *args, **kwargs: msgs
+        )
+
+        # initialize() registers this hook; serve it as the only TOOL_CONFIRM
+        # hook so no other registered confirm hook decides instead.
+        acp_hook = Hook(
+            name="acp_permission",
+            hook_type=HookType.TOOL_CONFIRM,
+            func=_acp_confirm_hook,
+            priority=100,
+        )
+        if patch_hooks:
+            monkeypatch.setattr(
+                "gptme.hooks.get_hooks",
+                lambda hook_type=None: (
+                    [acp_hook] if hook_type == HookType.TOOL_CONFIRM else []
+                ),
+            )
+
+        agent = GptmeAgent()
+        agent._conn = MagicMock()
+        agent._conn.session_update = AsyncMock()
+        agent._conn.request_permission = AsyncMock(side_effect=permission)
+        agent._session_commands_advertised.add("s1")
+        agent._session_models["s1"] = "openai/gpt-4o-mini"
+        log = _make_mock_log()
+        log.log = []
+        log.workspace = None
+        log.logdir = None
+        agent._registry.create("s1", log=log)
+        return agent, ran
+
+    @staticmethod
+    def _statuses(agent) -> list[str]:
+        return [
+            call.kwargs["update"]["status"]
+            for call in agent._conn.session_update.call_args_list
+            if isinstance(call.kwargs["update"], dict)
+            and call.kwargs["update"].get("sessionUpdate")
+            in ("tool_call", "tool_call_update")
+        ]
+
+    def _prompt(self, agent):
+        return _run(
+            agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+        )
+
+    def test_rejected_call_does_not_run_and_is_failed(self, monkeypatch):
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```guarded\nrm -rf build\n```", "Okay, I won't."],
+            lambda **kwargs: _mock_permission_response("reject-once"),
+        )
+
+        assert self._prompt(agent).stop_reason == "end_turn"
+
+        assert ran == []
+        request = agent._conn.request_permission.call_args.kwargs
+        reported_id = agent._conn.session_update.call_args_list[0].kwargs["update"][
+            "toolCallId"
+        ]
+        assert request["tool_call"] == {"toolCallId": reported_id}
+        assert self._statuses(agent) == ["in_progress", "failed"]
+
+    def test_allowed_call_runs_and_completes(self, monkeypatch):
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```guarded\nls\n```", "Done."],
+            lambda **kwargs: _mock_permission_response("allow-once"),
+        )
+
+        self._prompt(agent)
+
+        assert ran == ["ls"]
+        assert agent._conn.request_permission.call_count == 1
+        assert self._statuses(agent) == ["in_progress", "completed"]
+
+    def test_auto_mode_does_not_ask(self, monkeypatch):
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```guarded\nls\n```", "Done."],
+            lambda **kwargs: pytest.fail("auto mode must not ask"),
+        )
+        agent._session_modes["s1"] = "auto"
+
+        self._prompt(agent)
+
+        assert ran == ["ls"]
+        assert self._statuses(agent) == ["in_progress", "completed"]
+
+    def test_initialize_registers_the_confirm_hook(self, monkeypatch):
+        """initialize() must install the hook: init(interactive=False) adds none."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from gptme.hooks import HookType, get_hooks, unregister_hook
+
+        monkeypatch.setattr("gptme.acp.agent.init", lambda **kwargs: None)
+        unregister_hook("acp_permission", HookType.TOOL_CONFIRM)
+        try:
+            _run(GptmeAgent().initialize(protocol_version=1))
+            names = [h.name for h in get_hooks(HookType.TOOL_CONFIRM)]
+            assert "acp_permission" in names
+        finally:
+            unregister_hook("acp_permission", HookType.TOOL_CONFIRM)
+
+    def test_hook_from_initialize_reaches_a_prompt_in_another_task(self, monkeypatch):
+        """ACP runs each request in its own task; the registry is a ContextVar.
+
+        Hooks registered by initialize() must still fire during a later prompt.
+        """
+        import contextvars
+
+        agent, ran = self._setup(
+            monkeypatch,
+            ["```guarded\nrm -rf build\n```", "Okay."],
+            lambda **kwargs: _mock_permission_response("reject-once"),
+            patch_hooks=False,
+        )
+        monkeypatch.setattr("gptme.acp.agent.init", lambda **kwargs: None)
+
+        async def serve():
+            # Two requests, two tasks, as acp's task supervisor runs them.
+            await asyncio.create_task(agent.initialize(protocol_version=1))
+            await asyncio.create_task(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+            )
+
+        # A fresh context: no hook registry exists before the first request.
+        contextvars.Context().run(asyncio.run, serve())
+
+        assert ran == []
+        assert agent._conn.request_permission.call_count == 1
