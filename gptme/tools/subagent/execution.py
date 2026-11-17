@@ -34,6 +34,7 @@ from .. import (
     get_tools,
     load_tool,
     set_tools,
+    with_direct_function_calls,
 )
 from .._allowlist import (
     is_hint_pattern,
@@ -216,7 +217,9 @@ def _resolve_profile_tools(
     for tool in loaded_tools:
         if tool.name in _SUBAGENT_SIGNAL_TOOLS and tool not in available_tools:
             available_tools.append(tool)
-    return available_tools
+    # Read-only profiles (researcher, explorer) list function-only tools such as
+    # browser and chats without ipython: give those a direct call path (#4964).
+    return with_direct_function_calls(available_tools)
 
 
 def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | None]:

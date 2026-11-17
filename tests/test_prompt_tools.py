@@ -13,7 +13,7 @@ from gptme.prompts import (
     prompt_tools,
     prompt_user,
 )
-from gptme.tools import ToolFormat, clear_tools, init_tools
+from gptme.tools import ToolFormat, ToolSpec, clear_tools, init_tools
 
 
 @pytest.mark.parametrize(
@@ -176,17 +176,35 @@ def test_prompt_tools_reasoning_model_respects_explicit_no_examples():
 
 
 @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
-def test_prompt_tools_omits_function_only_tools_without_ipython(
+def test_prompt_tools_describes_direct_calls_without_ipython(
     tool_format: ToolFormat,
 ):
-    """Without ipython, subagent's functions can't be called: don't describe them (#4953)."""
+    """Without ipython, subagent is called directly through its own tool (#4964)."""
     clear_tools()
     tools = init_tools(allowlist=["shell", "subagent"])
     assert "subagent" in {tool.name for tool in tools}
 
     prompt = next(prompt_tools(tools, tool_format, examples=True)).content
+    clear_tools()
     assert "Executes shell commands" in prompt
-    assert "subagent" not in prompt
+    assert "subagent" in prompt
+    assert "call these functions directly through the 'subagent' tool" in prompt
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_prompt_tools_omits_uncallable_function_only_tools(
+    tool_format: ToolFormat,
+):
+    """A function-only tool with no ipython and no direct call path is not described (#4953)."""
+
+    def ping() -> None:
+        """Do nothing."""
+
+    tool = ToolSpec(name="fnonly", desc="Function-only test tool", functions=[ping])
+    assert tool.is_function_only
+
+    prompt = next(prompt_tools([tool], tool_format, examples=True)).content
+    assert "fnonly" not in prompt
 
 
 def test_prompt_tools_describes_function_only_tools_with_ipython(monkeypatch):

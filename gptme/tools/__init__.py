@@ -154,9 +154,6 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
 _tools_init_lock = threading.Lock()
 _warned_mcp_allowlists: set[tuple[str, ...]] = set()
 _warned_mcp_allowlists_lock = threading.Lock()
-# Guarded by _tools_init_lock (only touched from init_tools).
-_warned_function_only_tools: set[str] = set()
-
 # Tool through which function-only tools (``ToolSpec.is_function_only``) are called.
 FUNCTION_CALL_TOOL = "ipython"
 
@@ -171,22 +168,22 @@ def _function_only_hint(tool_name: str, subject: str | None = None) -> str:
     )
 
 
-def _warn_function_only_without_ipython(loaded_tools: list[ToolSpec]) -> None:
-    """Warn when a loaded tool can't be invoked because ``ipython`` is missing.
+def with_direct_function_calls(tools: list[ToolSpec]) -> list[ToolSpec]:
+    """Make function-only tools callable when ``ipython`` is not among *tools*.
 
-    Function-only tools (e.g. ``subagent``) expose their capability as Python
-    functions in the IPython REPL. Without ``ipython`` the model sees no way
-    to call them. We warn instead of silently granting ``ipython``: an explicit
-    allowlist must never gain an unlisted capability (see _add_required_tools),
-    and ``ipython`` is arbitrary code execution.
+    Function-only tools (e.g. ``browser``, ``chats``, ``subagent``) expose their
+    capability as Python functions in the IPython REPL. Without ``ipython`` the
+    model would have no way to call them (#4953, #4964). Instead of silently
+    granting ``ipython`` — an explicit allowlist must never gain an unlisted
+    capability (see _add_required_tools), and ``ipython`` is arbitrary code
+    execution — each such tool gets a direct-call handler that only accepts one
+    call to its own functions with literal arguments (see ``_direct_call``).
+
+    Returns *tools* unchanged when ``ipython`` is present.
     """
-    if any(t.name == FUNCTION_CALL_TOOL for t in loaded_tools):
-        return
-    for tool in loaded_tools:
-        if not tool.is_function_only or tool.name in _warned_function_only_tools:
-            continue
-        _warned_function_only_tools.add(tool.name)
-        logger.warning("%s", _function_only_hint(tool.name))
+    from ._direct_call import with_direct_calls  # fmt: skip
+
+    return with_direct_calls(tools, FUNCTION_CALL_TOOL)
 
 
 def _unregister_tool_hooks(tool: ToolSpec) -> None:
@@ -521,7 +518,7 @@ def init_tools(
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
-        _warn_function_only_without_ipython(loaded_tools)
+        loaded_tools[:] = with_direct_function_calls(loaded_tools)
 
         available_tools = get_available_tools(include_mcp=include_mcp)
         for tool_name in tool_names:
@@ -735,8 +732,8 @@ def _enable_hint_for_disabled_tool(tool_name: str) -> str:
     if tool is None:
         return ""
     if tool.is_function_only:
-        # Allowlisting the tool alone never makes it executable (#4953):
-        # its functions are only reachable through ipython.
+        # With ipython loaded, function-only tools keep no call path of their
+        # own (#4953): their functions are reachable through ipython.
         if has_tool(FUNCTION_CALL_TOOL):
             assert tool.functions  # is_function_only guarantees a nonempty list
             # IPython registers the callable's __name__, not the tool/metadata name.
@@ -745,7 +742,12 @@ def _enable_hint_for_disabled_tool(tool_name: str) -> str:
                 f" Its functions are called from Python code through the "
                 f"'{FUNCTION_CALL_TOOL}' tool, e.g. {function_name}(...)."
             )
-        return " " + _function_only_hint(tool_name, subject="It")
+        # Without ipython, a loaded function-only tool is directly callable
+        # (with_direct_function_calls); one that is still uncallable was
+        # installed bypassing that path. An unloaded one only needs to be
+        # allowlisted, so never steer toward granting ipython (#4964).
+        if has_tool(tool_name):
+            return " " + _function_only_hint(tool_name, subject="It")
     if tool.disabled_by_default and not _is_session_allowlisted(tool):
         return f" Add --tools +{tool_name} to enable it."
     return ""
@@ -1164,9 +1166,14 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             if spec is requested_spec:
                 requested = initialized_spec
 
+        assert requested is not None
+        if not has_tool(FUNCTION_CALL_TOOL):
+            initialized = with_direct_function_calls(initialized)
+            requested_name = requested.name
+            requested = next(t for t in initialized if t.name == requested_name)
+
         _get_loaded_tools().extend(initialized)
         for spec in initialized:
             logger.info("Loaded tool '%s' mid-conversation", spec.name)
 
-        assert requested is not None
         return requested
