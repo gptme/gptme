@@ -311,13 +311,16 @@ def md_codeblock(lang: str | Path, content: str) -> str:
     return f"````{lang}\n{content}\n````"
 
 
-def textfile_as_codeblock(path: Path) -> str | None:
+def textfile_as_codeblock(
+    path: Path, *, display_path: Path | None = None
+) -> str | None:
     """Include file content as a codeblock."""
     try:
         if path.exists() and path.is_file():
             try:
                 return md_codeblock(
-                    path, _check_content_size(_read_text_capped(path), str(path))
+                    display_path if display_path is not None else path,
+                    _check_content_size(_read_text_capped(path), str(path)),
                 )
             except UnicodeDecodeError:
                 return None
@@ -373,13 +376,13 @@ def embed_attached_file_content(
         else:
             # Fall back to reading from original path
             try:
-                stat = f.stat()
+                stat = orig_f.stat()
             except FileNotFoundError:
                 stat = None
             if not check_modified or (
                 stat and stat.st_mtime <= datetime.timestamp(msg.timestamp)
             ):
-                content = textfile_as_codeblock(f)
+                content = textfile_as_codeblock(orig_f, display_path=f)
                 if not content:
                     # Non-text file, skip
                     continue

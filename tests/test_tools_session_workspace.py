@@ -197,3 +197,42 @@ def test_display_path_relative_to_session_workspace(workspaces):
 
     shown = _in_session(a, lambda: file_to_display_path(f, a.resolve()))
     assert shown == Path("src/x.py")
+
+
+@pytest.mark.parametrize("check_modified", [False, True])
+@pytest.mark.parametrize("source_state", ["unchanged", "modified", "missing"])
+def test_attachment_reads_original_path_not_display_path(
+    workspaces, check_modified, source_state
+):
+    a, _, elsewhere = workspaces
+    source = a / "note.txt"
+    source.write_text("session attachment content")
+    (elsewhere / "note.txt").write_text("other conversation content")
+
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content, md_codeblock
+
+    msg = Message("user", "Read the attachment", files=[source])
+    expected = "session attachment content"
+    if source_state == "modified":
+        later = msg.timestamp.timestamp() + 60
+        os.utime(source, (later, later))
+        if check_modified:
+            expected = "<file was modified after message>"
+    elif source_state == "missing":
+        source.unlink()
+        expected = "<file not found, may have been moved>"
+
+    result = _in_session(
+        a,
+        lambda: embed_attached_file_content(msg, a.resolve(), check_modified),
+    )
+
+    if source_state == "missing" and not check_modified:
+        assert result.content == msg.content
+        assert result.files == [Path("note.txt")]
+    else:
+        assert result.content == msg.content + "\n\n" + md_codeblock(
+            "note.txt", expected
+        )
+        assert result.files == []
