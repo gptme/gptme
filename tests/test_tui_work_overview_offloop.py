@@ -264,7 +264,13 @@ async def test_resize_before_first_read_keeps_loading_placeholder(
             assert "Loading" in rendered
             assert "No children" not in rendered
             release.set()
-            await pilot.pause(0.3)
+            # Bounded wait for the worker to land and render, not a fixed pause.
+            for _ in range(100):
+                if app.screen._loaded:
+                    break
+                await pilot.pause(0.05)
+            assert app.screen._loaded
+            await pilot.pause()
             rendered = str(
                 app.screen.query_one("#work-overview-content", Static).render()
             )
