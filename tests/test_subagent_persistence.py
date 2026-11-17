@@ -1158,6 +1158,10 @@ class TestOwnerScopedIdLookup:
         assert [(s.run_id, s.status) for s in subagent_snapshots(parent_b)] == [
             (str(child_b), "cancelled")
         ]
+        assert [e["status"] for e in subagent_list()] == ["success"]
+        as_conversation(parent_b)
+        assert [e["status"] for e in subagent_list()] == ["cancelled"]
+        as_conversation(None)
         assert sorted(e["status"] for e in subagent_list()) == ["cancelled", "success"]
 
     def test_caller_without_own_run_keeps_process_wide_lookup(
