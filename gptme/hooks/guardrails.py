@@ -284,10 +284,22 @@ def _read_secret_path_reason(
             for line in preview.splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
+    from ..tools.base import current_workspace
+    from ..tools.read import _configured_read_root
+
     for path_arg in path_candidates:
         # read expands ~, not shell variables or substitutions. Check its
         # literal spelling too: work$/../.ssh/config still reaches ~/.ssh.
-        literal = os.path.abspath(os.path.expanduser(path_arg))
+        literal = os.path.expanduser(path_arg)
+        try:
+            if not os.path.isabs(literal):
+                read_root, _ = _configured_read_root()
+                literal = os.path.join(read_root or current_workspace(), literal)
+            literal = os.path.abspath(literal)
+        except (OSError, ValueError, RuntimeError):
+            # A bad relative operand must not hide a later absolute secret
+            # in a batch (e.g. when the process cwd has been deleted).
+            pass
         if _is_secret_path(path_arg) or _is_secret_spelling(literal):
             return (
                 f"Secret path access blocked: read tool references {path_arg!r}. "

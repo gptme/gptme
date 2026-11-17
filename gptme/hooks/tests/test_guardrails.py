@@ -486,6 +486,64 @@ class TestGuardrailHookEnforceMode:
             assert result is None
             assert not pre_data.denied
 
+    def test_read_batch_with_deleted_cwd_still_denies_secret(
+        self, monkeypatch, tmp_path
+    ):
+        from ...tools.read import execute_read
+        from ..guardrails import guardrail_pre_hook
+        from ..types import ToolExecutePreData
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("synthetic-secret\n")
+        gone = tmp_path / "gone"
+        gone.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
+        monkeypatch.chdir(gone)
+        gone.rmdir()
+        content = "notes.txt\n~/.ssh/config"
+        messages = list(execute_read(content, None, None))
+        assert any("synthetic-secret" in message.content for message in messages)
+        tool_use = _make_tool_use("read", content)
+        data = ToolExecutePreData(tool_use=tool_use)
+        list(guardrail_pre_hook(data))
+        assert data.denied
+        result = guardrail_hook(tool_use)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
+    def test_read_literal_traversal_uses_execution_workspace(
+        self, monkeypatch, tmp_path
+    ):
+        from ...tools import shell
+        from ...tools.read import execute_read
+        from ..guardrails import guardrail_pre_hook
+        from ..types import ToolExecutePreData
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "config").write_text("synthetic-secret\n")
+        (home / "work$").mkdir()
+        server = tmp_path / "server"
+        server.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
+        monkeypatch.chdir(server)
+        monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(home))
+        path = "work$/../.ssh/config"
+        messages = list(execute_read(path, None, None))
+        assert any("synthetic-secret" in message.content for message in messages)
+        tool_use = _make_tool_use("read", path)
+        data = ToolExecutePreData(tool_use=tool_use, workspace=home)
+        list(guardrail_pre_hook(data))
+        assert data.denied
+        result = guardrail_hook(tool_use, workspace=home)
+        assert isinstance(result, ConfirmationResult)
+        assert result.action == ConfirmAction.SKIP
+
     def test_read_tool_pem_blocked(self, monkeypatch):
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         tool_use = _make_tool_use("read", "/tmp/server.pem")
