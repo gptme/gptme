@@ -200,15 +200,22 @@ def set_subagent_result_if_absent(
     its outcome is kept on the run itself and persisted to its own logdir.
     """
     if attempt is not None and attempt.shadowed:
-        from .persistence import persist_subagent_outcome
+        from .persistence import load_subagent_outcome, persist_subagent_outcome
 
         # Same lock order as _persist_cached_outcome (persist, then registry).
         # Holding the persist lock across the write orders it before any write
         # by a later attempt: if the owner reclaims and continues this run, the
         # continuation's outcome cannot land first and be overwritten by ours.
         with _outcome_persist_lock:
+            # A new concurrent launch clears the shared ID slot. An earlier
+            # timeout/cancel may therefore survive only in this run's outcome
+            # file when its late finalizer is demoted. Restore that winner
+            # before accepting a second terminal result for the same attempt.
+            persisted = load_subagent_outcome(attempt)
             with _subagents_lock:
                 if attempt.shadowed:
+                    if attempt.shadowed_outcome is None and persisted is not None:
+                        object.__setattr__(attempt, "shadowed_outcome", persisted)
                     if attempt.shadowed_outcome is not None:
                         return False
                     object.__setattr__(attempt, "shadowed_outcome", result)

@@ -1282,6 +1282,42 @@ class TestOwnerScopedIdLookup:
             for _, gate in runs.values():
                 gate.set()
 
+    @pytest.mark.parametrize("terminal", ["timeout", "cancelled"])
+    def test_late_completion_preserves_terminal_outcome_after_slot_reuse(
+        self, tmp_path: Path, monkeypatch, terminal: Status
+    ) -> None:
+        """A late finalizer cannot replace A's timeout after B clears the slot."""
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            set_subagent_result_if_absent,
+        )
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b = None
+        gate_b = None
+        outcome = ReturnType(terminal, f"A {terminal}")
+        try:
+            _completed_log(sa_a.logdir, "late A success")
+            assert set_subagent_result_if_absent("worker", outcome, attempt=sa_a)
+            sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+            # The real launch registration clears the previous agent_id slot.
+            with _subagent_results_lock:
+                _subagent_results.pop("worker", None)
+            self._finish(sa_a, gate_a)
+            assert not set_subagent_result_if_absent(
+                "worker", sa_a._read_log(), attempt=sa_a
+            )
+            assert sa_a.status() == outcome
+            assert load_subagent_outcome(sa_a) == outcome
+            assert sa_b.status().status == "running"
+            assert "worker" not in _subagent_results
+        finally:
+            self._finish(sa_a, gate_a)
+            if sa_b is not None and gate_b is not None:
+                self._finish(sa_b, gate_b)
+
     def test_live_run_never_reads_concurrent_holders_result(
         self, tmp_path: Path, monkeypatch
     ):
