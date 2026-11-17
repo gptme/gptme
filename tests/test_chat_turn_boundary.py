@@ -182,6 +182,7 @@ def test_chat_repairs_interrupted_call_before_resume_injection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     resume_role: Literal["user", "system"],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Resume-only instructions must not mask a saved, unanswered native call."""
     logdir = tmp_path / "conversation"
@@ -210,6 +211,7 @@ def test_chat_repairs_interrupted_call_before_resume_injection(
     monkeypatch.setattr(chat, "init", lambda *args: None)
     monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
     monkeypatch.setattr(chat, "_run_chat_loop", run_loop)
+    capsys.readouterr()
     chat.chat(
         [],
         [],
@@ -222,6 +224,9 @@ def test_chat_repairs_interrupted_call_before_resume_injection(
         resume_msgs=[resume],
     )
 
+    # Recovery is displayed by history replay, not once on append and again
+    # on replay. quiet=True still preserves visibility when printing history.
+    assert capsys.readouterr().out.count("Tool call interrupted:") == 1
     assert [m.call_id for m in seen if m.call_id] == ["call_1"]
     assert seen[2].call_id == "call_1"
     assert seen[3].content == chat.INTERRUPT_CONTENT
