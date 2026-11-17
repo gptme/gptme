@@ -1437,6 +1437,17 @@ def format_job_output(
                 paths.append(f"stderr: `{job.stderr_log_path}`")
             if paths:
                 blocks.append(label + ":\n" + "\n".join(paths))
+            if dropped and omit_evicted_prefix:
+                # Only promise recovery when the spool retained the full output.
+                recovery = (
+                    "read them from the files above."
+                    if label == "Full output" and paths
+                    else "omitted text may also be missing from the files."
+                )
+                blocks.append(
+                    f"Preview omits the earliest {dropped} chars "
+                    f"(evicted from memory); {recovery}"
+                )
         elif log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")
         elif log_path is not None:

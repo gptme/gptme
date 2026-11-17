@@ -18,6 +18,7 @@ from gptme.tools.shell_background import (
     BackgroundJob,
     _write_job_log,
     complete_background_job,
+    execute_output_command,
     format_job_output,
     register_background_job,
     reset_background_jobs,
@@ -80,6 +81,37 @@ def test_preview_names_both_stream_files(direct_job) -> None:
     assert "ERROR-BEGIN" in stderr_path.read_text()
     assert "ERROR-END" in stderr_path.read_text()
     assert direct_job._stderr_buffer_start > 0
+
+
+def test_preview_reports_ram_evicted_prefix(direct_job) -> None:
+    """The spool is complete, but the preview tail must not look complete."""
+    preview = format_job_output(direct_job, *direct_job.get_output(), complete=True)
+    dropped = direct_job._stdout_buffer_start + direct_job._stderr_buffer_start
+    assert dropped > 0
+    assert (
+        f"Preview omits the earliest {dropped} chars (evicted from memory)" in preview
+    )
+    assert "read them from the files above" in preview
+    assert "omitted text may also be missing" not in preview
+
+
+def test_incremental_preview_does_not_report_global_ram_eviction(
+    direct_job, monkeypatch
+) -> None:
+    """Incremental reads use spool cursors, not the evicted RAM prefix."""
+    monkeypatch.setattr(
+        "gptme.tools.shell_background.get_background_job", lambda _: direct_job
+    )
+    assert direct_job._stderr_buffer_start > 0
+    messages = list(execute_output_command(f"{direct_job.id} --new"))
+    preview = "\n".join(message.content for message in messages)
+    assert "ERROR-END" in preview
+    assert "truncated, showing last" in preview  # Display truncation stays visible.
+    assert "Preview omits the earliest" not in preview
+    assert (
+        "No new output."
+        in list(execute_output_command(f"{direct_job.id} --new"))[0].content
+    )
 
 
 def test_reader_closes_files_while_job_remains_reachable(direct_job) -> None:
@@ -514,6 +546,14 @@ def test_failed_writer_waits_for_reader_before_publishing_receipt(
         assert job.receipt_path is None
         # The pipe reader keeps draining after disk persistence fails.
         job._commit_spool_bytes(True, b"after failure\n")
+        monkeypatch.setattr(bg, "_MAX_BUFFER_SIZE", 64)
+        job._ingest_text(True, "after failure\n" * 20)
+        assert job._stdout_buffer_start > 0
+        preview = format_job_output(job, *job.get_output(), complete=True)
+        assert "Partial output (capture omitted data)" in preview
+        assert "Preview omits the earliest" in preview
+        assert "read them from the files above" not in preview
+        assert "omitted text may also be missing from the files" in preview
         process.returncode = 7
         job._finalize_spools()
         assert job.receipt_path is not None
