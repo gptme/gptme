@@ -618,6 +618,30 @@ def _handle_pr_merge(
         yield Message("system", f"Error: {result['message']}")
 
 
+def _save_oversized_stdout(stdout: str, command_info: str):
+    """Save oversized pass-through stdout under the conversation's tool-outputs.
+
+    Returns the saved path, or None without a conversation directory or when
+    saving fails: the omission notice must still be delivered either way.
+    """
+    try:
+        from ..logmanager import LogManager
+        from ..util.output_storage import save_large_output
+
+        manager = LogManager.get_current_log()
+        if manager and manager.logdir:
+            _, saved_path = save_large_output(
+                content=stdout,
+                logdir=manager.logdir,
+                output_type="gh",
+                command_info=command_info,
+            )
+            return saved_path
+    except Exception as e:  # best-effort; the omission notice still applies
+        logger.warning("Could not save full gh output: %s", e)
+    return None
+
+
 def _passthrough_gh(
     args: list[str] | None, code: str | None
 ) -> Generator[Message, None, None]:
@@ -654,13 +678,24 @@ def _passthrough_gh(
                 msg += "\n\n" + "\n\n".join(details)
             yield Message("system", msg)
         elif len((result.stdout or "").strip()) > max_chars:
+            saved_path = _save_oversized_stdout(
+                (result.stdout or "").strip(), shlex.join(cmd)
+            )
+            if saved_path is not None:
+                where = (
+                    f"The full output was saved to {saved_path}; read it "
+                    "selectively (tail, grep, jq). "
+                )
+            else:
+                where = (
+                    "Inspect the result with a read-only query using --jq/--limit, "
+                    "or use the shell tool to redirect a read-only query to a file. "
+                )
             yield Message(
                 "system",
                 "Command succeeded (exit 0), but stdout exceeded the response limit "
-                "and was omitted. Do not repeat a mutating command: its changes have "
-                "already been applied. Inspect the result with a read-only query "
-                "using --jq/--limit, or use the shell tool to redirect a read-only "
-                "query to a file.",
+                f"and was omitted. {where}Do not repeat a mutating command: its "
+                "changes have already been applied.",
             )
         elif output:
             yield Message("system", output)

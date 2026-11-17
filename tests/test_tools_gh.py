@@ -1104,6 +1104,38 @@ class TestExecuteGh:
         assert len(messages) == 1
         assert messages[0].content == "(no output)"
 
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_oversized_stdout_is_saved(self, mock_run, tmp_path):
+        """Oversized successful stdout is kept on disk, not just omitted."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        big = "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+        mock_run.return_value = MagicMock(stdout=big, stderr="", returncode=0)
+        manager = MagicMock(logdir=tmp_path)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+            messages = list(_passthrough_gh(["api", "repos/o/r/issues"], None))
+        assert len(messages) == 1
+        content = messages[0].content
+        assert "was omitted" in content
+        assert "Do not repeat a mutating command" in content
+        saved = list((tmp_path / "tool-outputs" / "gh").glob("*.txt"))
+        assert len(saved) == 1
+        assert big in saved[0].read_text()
+        assert str(saved[0]) in content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_oversized_stdout_without_logdir(self, mock_run):
+        """Without a conversation directory the notice keeps the query advice."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        big = "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+        mock_run.return_value = MagicMock(stdout=big, stderr="", returncode=0)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+            messages = list(_passthrough_gh(["api", "repos/o/r/issues"], None))
+        assert len(messages) == 1
+        assert "--jq/--limit" in messages[0].content
+        assert "saved to" not in messages[0].content
+
     @patch("gptme.tools.gh._handle_pr_status")
     def test_command_kwarg_dispatches_native_handler(self, mock_status):
         """A structured `command` kwarg is split and dispatched natively.
@@ -1649,7 +1681,10 @@ class TestUnsupportedFlagsPassThrough:
     @patch("gptme.tools.gh.subprocess.run")
     def test_passthrough_oversized_json_is_not_returned_as_partial_json(self, mock_run):
         mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
-        messages = list(_passthrough_gh(["pr", "view", "5", "--json", "body"], None))
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+            messages = list(
+                _passthrough_gh(["pr", "view", "5", "--json", "body"], None)
+            )
         assert messages[0].content.startswith("Command succeeded (exit 0)")
         assert "shell" in messages[0].content
         assert '"body"' not in messages[0].content
@@ -1662,7 +1697,8 @@ class TestUnsupportedFlagsPassThrough:
         mock_run.return_value = MagicMock(
             stdout="x" * 100_000 + tail, stderr="", returncode=0
         )
-        messages = list(_passthrough_gh(["issue", "list"], None))
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+            messages = list(_passthrough_gh(["issue", "list"], None))
         content = messages[0].content
         assert content.startswith("Command succeeded (exit 0)")
         assert "shell" in content
@@ -1671,9 +1707,10 @@ class TestUnsupportedFlagsPassThrough:
     @patch("gptme.tools.gh.subprocess.run")
     def test_oversized_mutation_response_does_not_recommend_retry(self, mock_run):
         mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
-        messages = list(
-            _passthrough_gh(["api", "repos/o/r/issues", "-f", "title=test"], None)
-        )
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+            messages = list(
+                _passthrough_gh(["api", "repos/o/r/issues", "-f", "title=test"], None)
+            )
         mock_run.assert_called_once()
         content = messages[0].content
         assert content.startswith("Command succeeded (exit 0)")
