@@ -645,6 +645,7 @@ it.each([false, true])(
     let handlers!: Parameters<ApiClient['subscribeToEvents']>[1];
     jest.mocked(mockClient.subscribeToEvents).mockImplementation(async (_id, callbacks) => {
       handlers = callbacks;
+      conversations$.get(_id)!.maxTokens.set(64);
       callbacks.onConnected?.();
     });
     const options = {
@@ -665,13 +666,16 @@ it.each([false, true])(
       handlers.onError('Error code: 402 - Payment required');
     });
     const failed = conversations$.get(id)!.data.log.get()[0];
-    expect(failed).toMatchObject({ _status: 'failed', _retry: { persistence: 'saved', options } });
+    expect(failed).toMatchObject({
+      _status: 'failed',
+      _retry: { persistence: 'saved', options: { ...options, maxTokens: 64 } },
+    });
     jest.mocked(mockClient.step).mockClear();
     await act(async () => {
       await result.current.retryMessage(failed);
     });
     expect(mockClient.step).toHaveBeenCalledTimes(1);
-    expect(mockClient.step).toHaveBeenCalledWith(id, options.model, false, 'main', 123, 0.4, 0.8);
+    expect(mockClient.step).toHaveBeenCalledWith(id, options.model, false, 'main', 64, 0.4, 0.8);
     expect(post).toHaveBeenCalledTimes(withFiles ? 1 : 0);
     expect(upload).toHaveBeenCalledTimes(withFiles ? 1 : 0);
     expect(conversations$.get(id)!.data.log.get()).toHaveLength(1);

@@ -75,6 +75,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   const generationChainRef = useRef<Promise<void> | null>(null);
   // Deferred step: set when post-persistence 409 retries exhaust; fired by onStepComplete.
   const pendingStepRef = useRef<(() => Promise<void>) | null>(null);
+  const generationPromptRef = useRef<string | undefined>(undefined);
   const loadingOlderMessagesRef = useRef(false);
   const isLoadingOlderMessages$ = useObservable(false);
   const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
@@ -572,11 +573,22 @@ export function useConversation(conversationId: string, serverId?: string) {
               // generation was refused. The server may still be working.
               if (title === 'Payment required' || title === 'Authentication failed') {
                 // The server persists a system error before emitting `error`.
-                const userMessage = [...(messages$?.peek() ?? [])]
-                  .reverse()
-                  .find((message) => message.role === 'user');
+                const log = messages$?.peek() ?? [];
+                const index = generationPromptRef.current
+                  ? log.findIndex((message) => message.timestamp === generationPromptRef.current)
+                  : -1;
+                const userMessage = log[index];
                 const timestamp = userMessage?.timestamp;
                 if (timestamp) {
+                  if (userMessage._retry) {
+                    messages$![index]._retry.set({
+                      ...userMessage._retry,
+                      diagnostics: [
+                        ...(userMessage._retry.diagnostics ?? []),
+                        `Error: ${description}`,
+                      ],
+                    });
+                  }
                   setMessageStatus(conversationId, timestamp, 'failed', description);
                 }
               }
@@ -605,6 +617,19 @@ export function useConversation(conversationId: string, serverId?: string) {
                 return;
               }
               const initialStepStream = conversation$?.initialStepStream?.get();
+              const log = conversation$?.data.log.get() ?? [];
+              const index = log.length - 1;
+              const prompt = log[index];
+              generationPromptRef.current = prompt?.role === 'user' ? prompt.timestamp : undefined;
+              if (prompt?._retry) {
+                conversation$!.data.log[index]._retry.options.set({
+                  ...prompt._retry.options,
+                  stream: initialStepStream ?? true,
+                  maxTokens: conversation$?.maxTokens?.get(),
+                  temperature: conversation$?.temperature?.get(),
+                  topP: conversation$?.topP?.get(),
+                });
+              }
               clearInitialStepState(conversationId);
               // The handshake snapshot precedes this request. Keep Stop available
               // while step() starts, before the first generation_started event.
@@ -818,8 +843,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           .every(
             (message) =>
               message.role === 'system' &&
-              Boolean(userMessage._error) &&
-              message.content === `Error: ${userMessage._error}`
+              (userMessage._retry?.diagnostics ?? []).includes(message.content)
           );
       if (resumingSavedMessage && !onlyRefusalDiagnostics) {
         throw new Error(
@@ -839,7 +863,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       const log = conversation$?.data.log;
       const index = log?.get().findIndex((m) => m.timestamp === userMessage.timestamp);
       if (log && index !== undefined && index >= 0) {
-        log[index]._retry.set({ persistence, options: retryOptions });
+        log[index]._retry.set({ ...log[index]._retry.get(), persistence, options: retryOptions });
       }
     };
     try {
@@ -892,6 +916,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       for (let attempt = 0; ; attempt++) {
         try {
           checkRetryTurn();
+          generationPromptRef.current = userMessage.timestamp;
           await api.step(
             conversationId,
             options?.model,

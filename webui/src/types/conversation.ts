@@ -32,6 +32,8 @@ export interface Message {
   _error?: string;
   /** Client-only: persistence outcome and generation settings for explicit Retry. */
   _retry?: {
+    /** Persisted system diagnostics belonging to attempts of this prompt. */
+    diagnostics?: string[];
     persistence: 'saved' | 'rejected' | 'unknown';
     options: {
       model?: string;

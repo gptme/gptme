@@ -1116,9 +1116,11 @@ describe('useConversation', () => {
 
       // The event stream is subscribed when a message starts a generation, so
       // send once first; onError then covers the failure that arrives mid-turn.
+      jest.useFakeTimers({ now: new Date('2026-11-18T15:59:00Z') });
       await act(async () => {
         await result.current.sendMessage({ message: 'Hello' });
       });
+      jest.setSystemTime(new Date('2026-11-18T15:59:01Z'));
       mockToast.mockClear();
 
       // What the server forwards for an HTTP 402 from the LLM gateway: the
@@ -1127,9 +1129,6 @@ describe('useConversation', () => {
 
       expect(eventHandlers).toBeDefined();
       act(() => {
-        // Keep the user identity distinct from the streaming placeholder's clock.
-        const log$ = conversations$.get('chat-placeholder')!.data.log;
-        log$[log$.get().length - 1].timestamp.set('2026-11-18T15:59:00Z');
         eventHandlers!.onMessageStart!();
         if (systemError) {
           eventHandlers!.onMessageAdded!({
@@ -1175,8 +1174,51 @@ describe('useConversation', () => {
           .data.log.get()
           .find((message) => message.content === 'Hello')?._status
       ).toBe('sent');
+      jest.useRealTimers();
     }
   );
+
+  it('allows successive refusal diagnostics but does not blame a late upload', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Active prompt' });
+    });
+    const log$ = conversations$.get('chat-placeholder')!.data.log;
+    const owner = log$.get().at(-1)!;
+    for (const [index, error] of [
+      'Error code: 402 - Payment required',
+      'Error code: 401 - Unauthorized',
+    ].entries()) {
+      act(() => {
+        eventHandlers!.onMessageAdded!({
+          role: 'system',
+          content: `Error: ${error}`,
+          timestamp: `error-${index}`,
+        });
+        eventHandlers!.onError!(error);
+      });
+      await act(async () => {
+        await result.current.retryMessage(
+          log$.get().find((message) => message.timestamp === owner.timestamp)!
+        );
+      });
+    }
+    expect(step).toHaveBeenCalledTimes(3);
+    act(() => {
+      log$.push({
+        role: 'user',
+        content: 'Late upload',
+        timestamp: 'late-upload',
+        _status: 'sent',
+      });
+      eventHandlers!.onError!('Error code: 402 - Payment required');
+    });
+    expect(log$.get().find((message) => message.timestamp === owner.timestamp)?._status).toBe(
+      'failed'
+    );
+    expect(log$.get().at(-1)?._status).toBe('sent');
+  });
 
   it('does not mark a saved prompt failed when the event stream loses its connection', async () => {
     conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
