@@ -2480,8 +2480,11 @@ def get_workspace_cwd() -> str | None:
     """Get the session's current directory, following its shell after ``cd``."""
     workspace = _workspace_cwd.get()
     shell = _shell_var.get()
-    if workspace is not None and shell is not None and shell._cwd:
-        return shell._cwd
+    if workspace is not None:
+        if shell is not None and shell._cwd:
+            return shell._cwd
+        # Promotion releases the shell before lazily creating its replacement.
+        return _promoted_next_cwd.get() or workspace
     return workspace
 
 

@@ -139,6 +139,47 @@ def test_promoted_command_seeds_replacement_from_live_cwd(
     assert stdout == str(dest)
 
 
+@pytest.mark.parametrize("workspace", [True, False], ids=["server", "cli"])
+def test_file_tools_follow_cwd_before_promoted_shell_is_replaced(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, workspace: bool
+) -> None:
+    from gptme.tools.base import current_workspace
+    from gptme.tools.precommit import _get_repo_root
+    from gptme.tools.save import execute_save_impl
+    from gptme.tools.shell import _shell_var
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    if workspace:
+        set_workspace_cwd(str(tmp_path))
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    assert shell.run(f"cd {shlex.quote(str(project))}; git init -q")[0] == 0
+    host_cwd = Path.cwd()
+
+    messages = list(execute_shell_impl("sleep 30", logdir=None, timeout=60))
+    assert "Promoted to background shell job" in messages[-1].content
+    assert _shell_var.get() is None
+    if workspace:
+        # A subsequent server step still binds the initial workspace.
+        set_workspace_cwd(str(tmp_path))
+
+    list(execute_save_impl("after promotion", Path("result.txt")))
+    assert (project / "result.txt").read_text().strip() == "after promotion"
+    assert not (tmp_path / "result.txt").exists()
+    assert current_workspace() == project.resolve()
+    assert _get_repo_root() == project.resolve()
+    assert get_workspace_cwd() == (str(project) if workspace else None)
+    # Reading the promotion seed must neither consume it nor create a shell.
+    assert _shell_var.get() is None
+    assert _promoted_next_cwd.get() == str(project)
+    assert Path.cwd() == host_cwd
+    assert get_shell().get_cwd() == project
+
+
 def test_keyboard_interrupt_before_promotion_terminates_command(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
