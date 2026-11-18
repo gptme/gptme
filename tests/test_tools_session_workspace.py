@@ -8,6 +8,8 @@ each other's, whatever the process cwd happens to be.
 
 import contextvars
 import os
+import shlex
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -45,6 +47,61 @@ def test_current_workspace_defaults_to_cwd(workspaces):
 def test_current_workspace_prefers_session(workspaces):
     a, _, _ = workspaces
     assert _in_session(a, current_workspace) == a.resolve()
+
+
+@pytest.mark.parametrize("operation", ["workspace", "precommit", "save"])
+def test_tools_follow_shell_cd_in_each_session(
+    workspaces: tuple[Path, Path, Path],
+    operation: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.tools.precommit import _get_repo_root
+    from gptme.tools.save import execute_save_impl
+    from gptme.tools.shell import ShellSession, get_shell
+
+    a, b, elsewhere = workspaces
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    sessions: list[tuple[contextvars.Context, ShellSession, Path, Path]] = []
+    try:
+        for root in (a, b):
+            project = root / "project"
+            project.mkdir()
+            for repo in (root, project):
+                subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            context = contextvars.copy_context()
+
+            def start(root: Path = root, project: Path = project) -> ShellSession:
+                set_workspace_cwd(str(root))
+                shell = get_shell()
+                status, _, error = shell.run(f"cd {shlex.quote(str(project))}")
+                assert status == 0, error
+                return shell
+
+            shell = context.run(start)
+            sessions.append((context, shell, root, project))
+
+        for context, _, root, project in sessions:
+
+            def use_tools(root: Path = root, project: Path = project) -> None:
+                # The next server step rebinds the initial workspace. The live
+                # shell's cwd must still win without moving the host process.
+                set_workspace_cwd(str(root))
+                if operation == "workspace":
+                    assert current_workspace() == project.resolve()
+                elif operation == "precommit":
+                    repo_root = _get_repo_root()
+                    assert repo_root is not None
+                    assert repo_root.resolve() == project.resolve()
+                else:
+                    list(execute_save_impl(root.name, Path("result.txt")))
+                    assert (project / "result.txt").read_text().strip() == root.name
+                    assert not (root / "result.txt").exists()
+
+            context.run(use_tools)
+        assert Path.cwd() == elsewhere
+    finally:
+        for _, shell, _, _ in sessions:
+            shell.close()
 
 
 def test_save_relative_path_lands_in_session_workspace(workspaces):
