@@ -26,6 +26,7 @@ itself; the others cover setup, utilities, agents, and evaluation. Every tool ac
 
 - ``gptme-agent`` — create and manage autonomous agents; see :doc:`agents`.
 - ``gptme-service`` — scaffold a persistent headless agent as a systemd or launchd service.
+- ``gptme-cloud`` — run a prompt in a gptme.ai ephemeral sandbox and fetch the patch.
 
 **Setup and diagnostics** (:doc:`reference <cli/setup>`)
 
@@ -57,7 +58,7 @@ Reference pages:
 - :doc:`cli/gptme-server` — web UI and REST API server
 - :doc:`cli/gptme-tui` — terminal UI
 - :doc:`cli/gptme-util` — utilities (chats, models, memory, tools, …)
-- :doc:`cli/agents` — ``gptme-agent`` and ``gptme-service``
+- :doc:`cli/agents` — ``gptme-agent``, ``gptme-service`` and ``gptme-cloud``
 - :doc:`cli/gptme-mcp-server` — expose gptme tools over MCP
 - :doc:`cli/setup` — onboarding, auth, init, tutorial, doctor
 - :doc:`cli/sessions` — status, resume, checkpoint, stats
@@ -104,6 +105,7 @@ inside a session, and :doc:`config` for configuration files and environment vari
        "gptme-mcp-server": "cli/gptme-mcp-server.html",
        "gptme-agent": "cli/agents.html",
        "gptme-service": "cli/agents.html",
+       "gptme-cloud": "cli/agents.html",
        "gptme-onboard": "cli/setup.html",
        "gptme-auth": "cli/setup.html",
        "gptme-init": "cli/setup.html",

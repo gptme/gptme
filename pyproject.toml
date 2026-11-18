@@ -183,6 +183,7 @@ gptme-resume = "gptme.cli.cmd_resume:resume"
 gptme-mcp-server = "gptme.cli.cmd_mcp_serve:main"
 gptme-stats = "gptme.cli.cmd_stats:stats"
 gptme-service = "gptme.cli.cmd_service:cli"
+gptme-cloud = "gptme.cli.cmd_cloud:main"
 gptme-dataset = "gptme.cli.cmd_dataset:dataset"
 
 # A build-only tool.poetry table makes Dependabot's uv parser ignore the
