@@ -1,5 +1,7 @@
 """Attachment policy preserves explicit loading and legacy opt-in boundaries."""
 
+from pathlib import Path
+
 import pytest
 from PIL import Image
 
@@ -96,3 +98,26 @@ def test_configured_workspace_files_load_independently_of_path_policy(
         "configured-content-marker"
         in context.embed_attached_file_content(user, workspace).content
     )
+
+
+def test_attachments_with_the_same_display_path_stay_distinct(tmp_path, monkeypatch):
+    # With the cwd in a workspace subdirectory, the relative `note.txt` (resolved
+    # against the workspace) and the absolute `<ws>/sub/note.txt` both display as
+    # `note.txt` while naming different files; neither may replace the other.
+    workspace = tmp_path / "ws"
+    sub = workspace / "sub"
+    sub.mkdir(parents=True)
+    (workspace / "note.txt").write_text("workspace-note-marker")
+    (sub / "note.txt").write_text("sub-note-marker")
+    (workspace / "img.bin").write_bytes(b"\x89PNG\x00workspace")
+    (sub / "img.bin").write_bytes(b"\x89PNG\x00sub")
+    monkeypatch.chdir(sub)
+
+    text = Message("user", "see files", files=[Path("note.txt"), sub / "note.txt"])
+    embedded = context.embed_attached_file_content(text, workspace)
+    assert "workspace-note-marker" in embedded.content
+    assert "sub-note-marker" in embedded.content
+
+    binary = Message("user", "see files", files=[Path("img.bin"), sub / "img.bin"])
+    kept = context.embed_attached_file_content(binary, workspace).files
+    assert kept == [workspace / "img.bin", sub / "img.bin"]

@@ -353,20 +353,22 @@ def embed_attached_file_content(
         for orig_f in msg.files
         if not isinstance(orig_f, URI)
     ]
-    files_text = {}
+    # Keyed by the original path: with the cwd inside a workspace subdirectory two
+    # different files can share one display label.
+    files_text: dict[Path, str] = {}
 
     # Get logdir for content-addressed storage lookup
     manager = LogManager.get_current_log()
     logdir = manager.logdir if manager else None
 
-    read_paths = {}
+    read_paths: dict[Path, Path] = {}
     for orig_f, f in files_with_originals:
         read_path = orig_f.expanduser()
         if not read_path.is_absolute():
             read_path = (
                 workspace if workspace is not None else current_workspace()
             ) / read_path
-        read_paths[f] = read_path
+        read_paths[orig_f] = read_path
         # Try to read from content-addressed storage first (if available)
         stored_content = None
         if logdir and msg.file_hashes:
@@ -379,7 +381,7 @@ def embed_attached_file_content(
 
         if stored_content is not None:
             # Use stored content (preserves original version)
-            files_text[f] = md_codeblock(f, stored_content)
+            files_text[orig_f] = md_codeblock(f, stored_content)
         else:
             # Fall back to reading from original path
             try:
@@ -393,20 +395,26 @@ def embed_attached_file_content(
                 if not content:
                     # Non-text file, skip
                     continue
-                files_text[f] = content
+                files_text[orig_f] = content
             else:
                 if not stat:
-                    files_text[f] = md_codeblock(
+                    files_text[orig_f] = md_codeblock(
                         f, "<file not found, may have been moved>"
                     )
                 else:
-                    files_text[f] = md_codeblock(f, "<file was modified after message>")
+                    files_text[orig_f] = md_codeblock(
+                        f, "<file was modified after message>"
+                    )
     # Provider handlers still need readable paths for unembedded attachments.
     file_content = "\n\n".join(files_text.values())
     return replace(
         msg,
         content=msg.content + ("\n\n" + file_content if file_content else ""),
-        files=[read_paths[f] for _, f in files_with_originals if f not in files_text],
+        files=[
+            read_paths[orig_f]
+            for orig_f, _ in files_with_originals
+            if orig_f not in files_text
+        ],
     )
 
 
