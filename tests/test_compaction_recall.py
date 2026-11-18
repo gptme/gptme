@@ -404,7 +404,7 @@ def test_resume_catalog_rebuild_does_not_exceed_budget(tmp_path, monkeypatch):
     assert without_catalog < budget < without_catalog + catalog_tokens
 
     fake_model = SimpleNamespace(
-        model="gpt-4", context=10_000, max_output=100, full="gpt-4"
+        model="gpt-4", context=10_000, max_output=100, full="gpt-4", context_budget=None
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
@@ -507,7 +507,11 @@ def test_oversized_checkpoint_drops_catalog_before_truncating(tmp_path, monkeypa
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume.get_default_model",
         lambda: SimpleNamespace(
-            model="gpt-4", context=10_000, max_output=100, full="gpt-4"
+            model="gpt-4",
+            context=10_000,
+            max_output=100,
+            full="gpt-4",
+            context_budget=None,
         ),
     )
     monkeypatch.setattr(
