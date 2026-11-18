@@ -7,6 +7,7 @@ shared by all of them leaked variables from one conversation into another
 
 import atexit
 import contextvars
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -19,8 +20,13 @@ from gptme.tools import python as python_tool
 
 
 def _close_shell(shell: Any) -> None:
+    history = shell.history_manager
+    if history is not None and history.save_thread is not None:
+        history.save_thread.stop()
     atexit.unregister(shell.atexit_operations)
     shell.atexit_operations()
+    if history is not None:
+        history.db.close()
 
 
 @pytest.fixture(autouse=True)
@@ -112,6 +118,8 @@ def test_python_tool_owns_its_session_cleanup(tmp_path: Path) -> None:
     assert first.history_manager is None
     if save_thread is not None:
         assert not save_thread.is_alive()
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        history.db.execute("SELECT 1")
     assert "conv-a" not in python_tool._conversation_ipython
     assert "conv-b" in python_tool._conversation_ipython
     # Repeated session-end delivery must be harmless.
@@ -135,13 +143,18 @@ def test_plot_snapshot_matches_execution_directory(
         from gptme.message import Message
 
         def execute_kernel(code: str) -> Iterator[Message]:
-            exec(code, {})
+            # A real kernel executes in current_workspace(), not the server cwd.
+            with monkeypatch.context() as kernel_patch:
+                kernel_patch.chdir(workspace)
+                exec(code, {})
             yield Message("system", "Executed code block.")
 
         monkeypatch.setattr(python_tool, "_execute_python_kernel", execute_kernel)
     messages = list(python_tool.execute_python(code, [], None))
     artifacts = (messages[-1].metadata or {}).get("artifacts", [])
-    assert [a["path"] for a in artifacts] == [str(execution_dir / "plot.png")]
+    expected_dir = workspace if kernel else execution_dir
+    assert [a["path"] for a in artifacts] == [str(expected_dir / "plot.png")]
+    assert Path.cwd() == execution_dir
 
 
 def test_cli_context_keeps_the_process_global_shell() -> None:

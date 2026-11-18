@@ -570,10 +570,20 @@ def reset_conversation_ipython(conversation_id: str) -> None:
     with _conv_ipython_lock:
         shell = _conversation_ipython.pop(conversation_id, None)
     if shell is not None:
+        # Older IPython versions end the history session but do not stop its
+        # saving thread or close its database. Keep the manager before shell
+        # cleanup clears it, and stop the writer before closing its resources.
+        history = shell.history_manager
+        if history is not None and history.save_thread is not None:
+            history.save_thread.stop()
         # IPython registers a bound atexit callback, which otherwise keeps the
         # shell alive even after removing it from our registry.
         atexit.unregister(shell.atexit_operations)
-        shell.atexit_operations()
+        try:
+            shell.atexit_operations()
+        finally:
+            if history is not None:
+                history.db.close()
 
 
 def _session_end_ipython_cleanup(
