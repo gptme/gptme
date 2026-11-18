@@ -63,8 +63,19 @@ def _context_file_sort_key(path: Path) -> tuple[int, str]:
 
 
 def _sorted_workspace_matches(workspace: Path, fileglob: str) -> list[Path]:
-    """Return glob matches in a deterministic order."""
-    return sorted(workspace.glob(fileglob), key=_context_file_sort_key)
+    """Return glob matches in a deterministic order.
+
+    Absolute patterns (including ``~`` entries after expansion) are globbed from
+    their anchor, since ``Path.glob`` rejects them. Callers still drop matches
+    outside the workspace.
+    """
+    pattern = Path(fileglob)
+    if pattern.is_absolute():
+        anchor = Path(pattern.anchor)
+        matches = anchor.glob(str(pattern.relative_to(anchor)))
+    else:
+        matches = workspace.glob(fileglob)
+    return sorted(matches, key=_context_file_sort_key)
 
 
 def _get_git_status(workspace: Path) -> str | None:
