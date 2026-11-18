@@ -2477,8 +2477,12 @@ def set_workspace_cwd(cwd: str) -> None:
 
 
 def get_workspace_cwd() -> str | None:
-    """Get the workspace directory for the current context, if set."""
-    return _workspace_cwd.get()
+    """Get the session's current directory, following its shell after ``cd``."""
+    workspace = _workspace_cwd.get()
+    shell = _shell_var.get()
+    if workspace is not None and shell is not None and shell._cwd:
+        return shell._cwd
+    return workspace
 
 
 def get_shell() -> ShellSession:
