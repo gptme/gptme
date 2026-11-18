@@ -142,6 +142,53 @@ def test_pdf_helper_uses_session_workspace(
     assert not (tmp_path / "images").exists()
 
 
+@pytest.mark.parametrize("relative_output", [True, False])
+def test_recording_helper_uses_session_workspace(
+    backend: KernelBackend,
+    session_workspace: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative_output: bool,
+) -> None:
+    """Recording must not overwrite the same relative path in the host cwd."""
+    import importlib
+    from unittest.mock import MagicMock
+
+    computer_tool = importlib.import_module("gptme.tools.computer")
+    output = session_workspace / "videos" / "demo.mp4"
+    other_output = tmp_path / "videos" / "demo.mp4"
+    other_output.parent.mkdir()
+    other_output.write_bytes(b"another session's video")
+    # Start the real kernel before replacing Popen for the ffmpeg boundary.
+    assert backend.execute("0").error is None
+    proc = MagicMock()
+    proc.poll.return_value = None
+    commands: list[list[str]] = []
+
+    def record(cmd: list[str], **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_bytes(b"this session's video")
+        return proc
+
+    monkeypatch.setattr(computer_tool.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(computer_tool, "_get_display_resolution", lambda: (1024, 768))
+    monkeypatch.setattr(computer_tool, "_sleep", lambda _: None)
+    monkeypatch.setattr(computer_tool.subprocess, "Popen", record)
+    backend.register_bridge_function(computer_tool.record_screen)
+    destination = "videos/demo.mp4" if relative_output else str(output)
+    result = _in_session(
+        session_workspace,
+        lambda: backend.execute(f"str(record_screen({destination!r}, duration=0))"),
+    )
+    assert result.error is None, result.error
+    assert result.result_text == repr(str(output))
+    assert commands[0][-1] == str(output)
+    assert output.read_bytes() == b"this session's video"
+    assert other_output.read_bytes() == b"another session's video"
+    assert Path.cwd() == tmp_path
+    proc.terminate.assert_called_once()
+
+
 @pytest.mark.parametrize("operation", ["save", "load"])
 def test_browser_state_uses_session_workspace(
     backend: KernelBackend,
