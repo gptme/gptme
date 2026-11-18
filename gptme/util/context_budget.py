@@ -54,7 +54,8 @@ def get_context_budget(
 
     Args:
         model_context: The model's declared context window in tokens.
-        max_output: Reserved tokens for model output (default 8192).
+        max_output: Model output allowance (default 8192). Without model_id,
+            treated as a reservation and never reduced.
         headroom: Additional safety margin (default 1000).
         model_id: Fully-qualified model ID used for per-model config lookup.
         model_context_budget: Budget declared by built-in model metadata.
@@ -62,15 +63,26 @@ def get_context_budget(
     Returns:
         Token count at which compaction should be triggered.
     """
-    # Some providers advertise max_output as (nearly) the whole window, meaning
-    # "output may use whatever the prompt leaves", not a reservation. OpenRouter
-    # lists deepseek-v4.1-flash with max_completion_tokens 943,718 of a
-    # 1,048,576 window; reserving all of it left a ~104k ceiling, so a large
-    # system prompt put every post-compaction conversation back at the trigger
-    # and compaction fired every few tool calls. Requests omit max_tokens unless
-    # the user sets one, so bound the reservation for window-shaped values.
-    if max_output > model_context // 2:
-        max_output = min(max_output, max(_DEFAULT_MAX_OUTPUT, model_context // 8))
+    from ..config import get_config  # fmt: skip
+
+    cfg = get_config()
+    request_output = cfg.chat.max_tokens if cfg.chat is not None else None
+    if model_id is not None:
+        from ..llm import _resolve_max_tokens  # fmt: skip
+
+        # Use the same CLI/chat > provider env/config > default precedence as
+        # the outgoing request. Never shrink a real request reservation.
+        request_output = _resolve_max_tokens(model_id, request_output)
+        # Some providers advertise max_output as nearly the whole window,
+        # meaning "output may use whatever the prompt leaves". Reserving all
+        # 943,718 advertised tokens on DeepSeek's 1,048,576 window left ~104k
+        # for input and caused compaction every few tool calls.
+        # Only reduce metadata when we know the actual request allowance;
+        # other providers may fill in their own max_tokens from metadata.
+        if request_output is not None and max_output > model_context // 2:
+            max_output = min(max_output, max(_DEFAULT_MAX_OUTPUT, model_context // 8))
+    if request_output is not None:
+        max_output = max(max_output, request_output)
     safe_ceiling = model_context - max_output - headroom
     if safe_ceiling <= 0:
         # Clamp instead of raising so env/config overrides still resolve on
@@ -97,10 +109,6 @@ def get_context_budget(
         if parsed.is_integer():
             return min(int(parsed), safe_ceiling)
         return None
-
-    from ..config import get_config  # fmt: skip
-
-    cfg = get_config()
 
     # 1. One-chat CLI override (persisted in the conversation config).
     if cfg.chat is not None and cfg.chat.context_budget is not None:

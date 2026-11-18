@@ -131,7 +131,65 @@ def test_window_shaped_max_output_does_not_collapse_budget():
     a 1,048,576 window. Reserving all of it left a ~104k budget and made
     compaction fire every few tool calls.
     """
-    assert get_context_budget(1_048_576, max_output=943_718) == 256_000
+    assert (
+        get_context_budget(
+            1_048_576,
+            max_output=943_718,
+            model_id="openrouter/deepseek/deepseek-v4.1-flash-1017",
+        )
+        == 256_000
+    )
+
+
+@pytest.mark.parametrize("source", ["env", "user", "project", "chat"])
+@pytest.mark.parametrize("override", [None, "1.0", "500000"])
+def test_window_shaped_output_preserves_request_reservation(
+    monkeypatch, source, override
+):
+    """Explicit output limits constrain even explicit compaction budgets."""
+    from gptme.llm import _resolve_max_tokens
+
+    if override is not None:
+        monkeypatch.setenv("GPTME_CONTEXT_BUDGET", override)
+    previous = get_config()
+    cfg = Config(user=UserConfig())
+    if source == "env":
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "900000")
+    elif source == "user":
+        cfg.user.env["MAX_TOKENS"] = "900000"
+    elif source == "project":
+        cfg.project = ProjectConfig(env={"MAX_TOKENS": "900000"})
+    else:
+        cfg.chat = ChatConfig(max_tokens=900_000)
+        # The chat/CLI value takes precedence over provider env overrides.
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "16000")
+    try:
+        set_config(cfg)
+        model_id = "openrouter/deepseek/deepseek-v4.1-flash-1017"
+        outgoing = _resolve_max_tokens(
+            model_id, cfg.chat.max_tokens if cfg.chat else None
+        )
+        budget = get_context_budget(1_048_576, max_output=943_718, model_id=model_id)
+        assert outgoing == 900_000
+        assert budget == 147_576
+        assert budget + outgoing + 1000 <= 1_048_576
+    finally:
+        set_config(previous)
+
+
+def test_large_provider_default_reservation_is_not_reduced():
+    """Do not assume providers without a resolved limit omit max_tokens."""
+    assert (
+        get_context_budget(
+            200_000, max_output=150_000, model_id="anthropic/claude-sonnet-4-6"
+        )
+        == 49_000
+    )
+
+
+def test_large_reservation_without_model_metadata_is_not_reduced():
+    """A standalone caller's explicit reservation is not provider metadata."""
+    assert get_context_budget(200_000, max_output=150_000) == 49_000
 
 
 def test_realistic_max_output_is_still_reserved():
