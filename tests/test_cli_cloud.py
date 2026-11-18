@@ -288,3 +288,29 @@ def test_fetch_survives_an_unwritable_destination(tmp_path):
     assert res.exit_code == 1
     assert "patch: write failed" in res.output
     assert (out / "final.md").read_bytes() == body
+
+
+def test_download_transport_error_does_not_leak_the_signed_url(tmp_path):
+    secret = "https://signed.example/patch?sig=SECRET123"
+    body = b"diff"
+    listing = {
+        "artifacts": [
+            {
+                "name": "patch",
+                "status": "available",
+                "url": secret,
+                "sha256": hashlib.sha256(body).hexdigest(),
+            }
+        ]
+    }
+    boom = requests.exceptions.ConnectionError(
+        f"Max retries exceeded with url: {secret}"
+    )
+    with patch("requests.get") as get:
+        get.side_effect = [_resp(200, listing), boom]
+        res = _invoke(["fetch", RUN, "--out", str(tmp_path / "out")])
+    assert res.exit_code == 1
+    assert "patch: download failed" in res.output
+    assert "ConnectionError" in res.output
+    assert "SECRET123" not in res.output
+    assert "signed.example" not in res.output

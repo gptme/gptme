@@ -96,12 +96,21 @@ def _check_run_id(run_id: str) -> str:
     return run_id
 
 
-def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
-    """``requests.get``/``post`` with transport failures reported as ``TransportError``."""
+def _request(
+    method: str, url: str, *, secret_url: bool = False, **kwargs: Any
+) -> requests.Response:
+    """``requests.get``/``post`` with transport failures reported as ``TransportError``.
+
+    ``secret_url`` marks a URL that carries its own credential (a signed
+    artifact link): neither it nor the underlying exception text, which
+    repeats it, goes into the error.
+    """
     send = requests.post if method == "POST" else requests.get
     try:
         return send(url, **kwargs)
     except requests.RequestException as e:
+        if secret_url:
+            raise TransportError(f"{method} <signed url>: {type(e).__name__}") from None
         raise TransportError(f"{method} {url}: {type(e).__name__}: {e}") from e
 
 
@@ -324,7 +333,7 @@ def fetch_cmd(ctx: click.Context, run_id: str, out: Path) -> None:
             continue
         # The signed URL carries its own credential: do not add the PAT.
         try:
-            resp = _request("GET", art["url"], timeout=120)
+            resp = _request("GET", art["url"], secret_url=True, timeout=120)
         except TransportError as e:
             click.echo(f"{name}: download failed ({e.message})", err=True)
             problems += 1
