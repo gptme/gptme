@@ -316,27 +316,28 @@ def update_subagent_result_with_branch(
                     if own is None:
                         return
                     object.__setattr__(attempt, "shadowed_outcome", own)
+                    target: Subagent | None = attempt
                 else:
-                    own = None
-                    holder = next(
+                    target = next(
                         (s for s in reversed(_subagents) if s.agent_id == agent_id),
                         None,
                     )
                     if (
-                        holder is not None
-                        and holder is not attempt
-                        and holder.parent_logdir != attempt.parent_logdir
+                        target is not None
+                        and target is not attempt
+                        and target.parent_logdir != attempt.parent_logdir
                     ):
                         return  # The slot belongs to another conversation's run.
                     with _subagent_results_lock:
-                        amended = amend(_subagent_results.get(agent_id))
-                        if amended is None:
+                        own = amend(_subagent_results.get(agent_id))
+                        if own is None:
                             return
-                        _subagent_results[agent_id] = amended
-            if own is not None:
-                persist_subagent_outcome(attempt, own)
-                return
-        _persist_cached_outcome(agent_id)
+                        _subagent_results[agent_id] = own
+            # Persist before releasing the persist lock: a takeover that lands
+            # after the amendment would otherwise leave it in memory only, and
+            # a restart would lose the preserved-work notice.
+            if target is not None:
+                persist_subagent_outcome(target, own)
         return
     with _subagent_results_lock:
         amended = amend(_subagent_results.get(agent_id))
@@ -829,7 +830,12 @@ class Subagent:
             # A surviving subprocess may publish its outcome after the scan.
             from .persistence import load_subagent_outcome
 
-            object.__setattr__(self, "shadowed_outcome", load_subagent_outcome(self))
+            loaded = load_subagent_outcome(self)
+            with _subagents_lock:
+                # Publishers set shadowed_outcome under this lock; never
+                # overwrite one that landed while we read disk.
+                if self.shadowed_outcome is None and loaded is not None:
+                    object.__setattr__(self, "shadowed_outcome", loaded)
         return self.shadowed_outcome
 
     def status(self) -> ReturnType:

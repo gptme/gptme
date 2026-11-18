@@ -1376,6 +1376,92 @@ class TestOwnerScopedIdLookup:
             gate_a.set()
             gate_b.set()
 
+    def test_holders_branch_notice_is_persisted_before_a_takeover(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A takeover right after the amendment must not leave it in memory only."""
+        from gptme.tools.subagent import types as types_mod
+        from gptme.tools.subagent.persistence import load_subagent_outcome
+        from gptme.tools.subagent.types import (
+            _shadowed_subagents,
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, _, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        try:
+            self._finish(sa_a, gate_a)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("failure", "A boom"), attempt=sa_a
+            )
+            real_lock = types_mod._outcome_persist_lock
+
+            class TakeoverOnRelease:
+                """Another conversation takes the ID over as the lock is released."""
+
+                def __enter__(self):
+                    real_lock.acquire()
+
+                def __exit__(self, *exc):
+                    real_lock.release()
+                    with _subagents_lock:
+                        if sa_a.shadowed:
+                            return
+                        with _subagent_results_lock:
+                            popped = _subagent_results.pop("worker", None)
+                        _subagents.remove(sa_a)
+                        object.__setattr__(sa_a, "shadowed", True)
+                        object.__setattr__(sa_a, "shadowed_outcome", popped)
+                        _shadowed_subagents.append(sa_a)
+
+            monkeypatch.setattr(types_mod, "_outcome_persist_lock", TakeoverOnRelease())
+            update_subagent_result_with_branch("worker", "keep-a", attempt=sa_a)
+            persisted = load_subagent_outcome(sa_a)
+            assert persisted is not None
+            assert isinstance(persisted.result, str) and "keep-a" in persisted.result
+        finally:
+            gate_a.set()
+
+    def test_shadowed_read_never_clobbers_a_concurrent_publish(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A read that found nothing on disk must not erase an outcome set meanwhile."""
+        from gptme.tools.subagent import persistence
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "B done"), attempt=sa_b
+            )
+            self._finish(sa_a, gate_a)
+            outcome = ReturnType("failure", "A boom")
+            assert set_subagent_result_if_absent("worker", outcome, attempt=sa_a)
+            assert sa_a.shadowed
+            object.__setattr__(sa_a, "shadowed_outcome", None)
+
+            def load_races_publish(sa):
+                # The publisher stores the outcome while the reader is on disk,
+                # which it has not reached yet: the read finds nothing.
+                object.__setattr__(sa, "shadowed_outcome", outcome)
+
+            monkeypatch.setattr(
+                persistence, "load_subagent_outcome", load_races_publish
+            )
+            assert sa_a._cached_result() == outcome
+            assert sa_a.shadowed_outcome == outcome
+        finally:
+            gate_a.set()
+            gate_b.set()
+
     def test_unshadowed_run_never_amends_concurrent_holders_slot(
         self, tmp_path: Path, monkeypatch
     ):
