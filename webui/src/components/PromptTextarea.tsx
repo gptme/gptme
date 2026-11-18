@@ -78,6 +78,7 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProp
     return (
       <Textarea
         ref={ref}
+        rows={1}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
