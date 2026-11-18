@@ -77,3 +77,23 @@ def test_explicit_name_in_host_directory_is_not_a_session_reference(workspaces):
         )
         == []
     )
+
+
+@pytest.mark.parametrize("fresh", [False, True])
+def test_symlink_attachment_keeps_reference_file_type(
+    workspaces, monkeypatch, fresh, requires_symlinks
+):
+    a, _, _ = workspaces
+    target = a / "cache.bin"
+    target.write_text("SYMLINKED-TEXT")
+    link = a / "notes.txt"
+    link.symlink_to("cache.bin")
+    if fresh:
+        monkeypatch.setenv("GPTME_FRESH", "1")
+
+    message = in_workspace(a, include_paths, Message("user", "read @notes.txt"), a)
+    if fresh:
+        assert message.files == [link]
+        assert message.files[0].read_text() == "SYMLINKED-TEXT"
+    else:
+        assert "SYMLINKED-TEXT" in message.content

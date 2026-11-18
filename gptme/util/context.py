@@ -25,7 +25,7 @@ from ..constants import (
 )
 from ..message import Message
 from ..tools import has_tool
-from ..tools.base import current_workspace, resolve_in_workspace
+from ..tools.base import current_workspace
 from .gh import (
     get_github_issue_content,
     get_github_pr_content,
@@ -579,6 +579,12 @@ def enrich_messages_with_context(
     return msgs
 
 
+def _prompt_file_path(prompt: str) -> Path:
+    """Anchor a prompt path without replacing a symlink's file-type suffix."""
+    path = Path(prompt).expanduser()
+    return path if path.is_absolute() else current_workspace() / path
+
+
 def include_paths(
     msg: Message,
     workspace: Path | None = None,
@@ -710,7 +716,7 @@ def _include_paths(
                 skipped_paths.append(word)
                 continue
             try:
-                f = resolve_in_workspace(Path(word))
+                f = _prompt_file_path(word)
                 # An explicit @ reference with spaces names one resource.
                 # Compatibility-mode implicit commands such as `./main.py --help`
                 # still scan words; quoted URL prose stays on the consent path.
@@ -950,7 +956,7 @@ def _iter_discovered_paths(
             # Extensionless names such as @Makefile and @src are intentional;
             # nonexistent social handles remain prose. No cwd listing needed.
             try:
-                return resolve_in_workspace(Path(w)).exists()
+                return _prompt_file_path(w).exists()
             except OSError:
                 return False
 
@@ -1256,7 +1262,7 @@ def _resource_to_codeblock(
 
     try:
         # check if prompt is a path, if so, replace it with the contents of that file
-        f = resolve_in_workspace(Path(prompt))
+        f = _prompt_file_path(prompt)
         if f.exists() and f.is_file():
             file_content = _check_content_size(_read_text_capped(f), str(f))
             return md_codeblock(prompt, file_content)
@@ -1280,7 +1286,7 @@ def _resource_to_codeblock(
     except UnicodeDecodeError:
         # Binary file — return metadata instead of contents
         # Skip visual formats (images, PDF) already handled via msg.files
-        f = resolve_in_workspace(Path(prompt))
+        f = _prompt_file_path(prompt)
         if f.suffix[1:].lower() not in ("png", "jpg", "jpeg", "gif", "webp", "pdf"):
             return _binary_file_metadata(f, prompt)
         return None
@@ -1295,7 +1301,7 @@ def _resource_to_codeblock(
     urls = []
     for word in words:
         try:
-            f = resolve_in_workspace(Path(word))
+            f = _prompt_file_path(word)
             if f.exists() and f.is_file():
                 paths.append(word)
                 continue
@@ -1372,7 +1378,7 @@ def _parse_prompt_files(prompt: str) -> Path | None:
     Files added here will either be included inline (legacy mode) or in fresh context (fresh context mode).
     """
     try:
-        p = resolve_in_workspace(Path(prompt))
+        p = _prompt_file_path(prompt)
         if not (p.exists() and p.is_file()):
             return None
 
