@@ -207,7 +207,8 @@ def flock(lock):
 def new_session(command: str) -> Message:
     # Match the directory used by the new-session guardrail, independently of
     # the process cwd or an already-running tmux server's default directory.
-    directory = _escape_tmux_semicolon(str(current_workspace()))
+    # tmux expands -c as a format; double literal hashes before parsing argv.
+    directory = _escape_tmux_semicolon(str(current_workspace()).replace("#", "##"))
     # Retry loop to handle race conditions where session already exists
     max_retries = 5
     session_id = ""

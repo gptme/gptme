@@ -164,7 +164,9 @@ def test_unavailable_process_cwd_does_not_hide_literal_secret(pane_tree, monkeyp
 
 
 @pytest.mark.parametrize("use_workspace", [True, False])
-@pytest.mark.parametrize("session_name", ["session with spaces", "session;"])
+@pytest.mark.parametrize(
+    "session_name", ["session with spaces", "session;", "session##", "session#{pid}"]
+)
 def test_new_session_launches_in_checked_directory(
     pane_tree, monkeypatch, use_workspace, session_name
 ):
