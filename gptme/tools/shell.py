@@ -2704,12 +2704,6 @@ def _session_end_shell_cleanup(
     if conversation_id:
         close_conversation_shell(conversation_id)
         reset_background_jobs(conversation_id, all_conversations=False)
-        # Drop the conversation's in-process IPython shell too, when the python
-        # tool is active. Read it from sys.modules so a shell-only session does
-        # not import the interpreter machinery just to clean up.
-        python_tool = sys.modules.get("gptme.tools.python")
-        if python_tool is not None:
-            python_tool.reset_conversation_ipython(conversation_id)
 
     yield from ()
 

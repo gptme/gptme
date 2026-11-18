@@ -25,6 +25,7 @@ reliable SIGINT interrupts and project-environment isolation
 """
 
 import ast
+import atexit
 import dataclasses
 import functools
 import importlib.util
@@ -37,13 +38,12 @@ import tempfile
 import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from contextvars import ContextVar
 from logging import getLogger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..constants import DECLINED_CONTENT
-from ..hooks import ConfirmAction, current_conversation_id, get_confirmation
+from ..hooks import ConfirmAction, StopPropagation, current_conversation_id, get_confirmation
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.interrupt import (
@@ -69,6 +69,7 @@ if TYPE_CHECKING:
         InteractiveShell,  # fmt: skip
     )
 
+    from ..logmanager import LogManager
     from ..message import ArtifactDescriptor, MessageMetadata
     from ..util.output_storage import PrivateOutputFile
     from .python_kernel import KernelExecResult
@@ -81,8 +82,7 @@ _IPYTHON_BACKEND = os.environ.get("GPTME_IPYTHON_BACKEND", "auto").lower()
 
 # In-process backend state. CLI sessions share the process-global `_ipython`;
 # server conversations get one shell each, held in `_conversation_ipython` so
-# SESSION_END can drop it. `_ipython_var` is the context-local handle.
-_ipython_var: ContextVar[Any | None] = ContextVar("ipython_shell", default=None)
+# SESSION_END can drop it.
 _conversation_ipython: dict[str, Any] = {}
 _conv_ipython_lock = threading.Lock()
 
@@ -414,6 +414,9 @@ def register_function(func: T, *, tool_name: str | None = None) -> T:
     # if ipython is already initialized, push the function to it to make it available
     if _ipython is not None:
         _ipython.push({func.__name__: func})
+    with _conv_ipython_lock:
+        for shell in _conversation_ipython.values():
+            shell.push({func.__name__: func})
     # Do not select a backend here: tool initialization runs before chat()
     # switches into the selected workspace. Bridge stubs are synced at execution.
     return func
@@ -550,14 +553,11 @@ def _get_ipython():
             _ipython = _new_ipython()
         return _ipython
 
-    shell = _ipython_var.get()
-    if shell is None:
-        with _conv_ipython_lock:
-            shell = _conversation_ipython.get(conversation_id)
-            if shell is None:
-                shell = _new_ipython()
-                _conversation_ipython[conversation_id] = shell
-        _ipython_var.set(shell)
+    with _conv_ipython_lock:
+        shell = _conversation_ipython.get(conversation_id)
+        if shell is None:
+            shell = _new_ipython()
+            _conversation_ipython[conversation_id] = shell
     return shell
 
 
@@ -568,7 +568,21 @@ def reset_conversation_ipython(conversation_id: str) -> None:
     everything its namespace holds) per conversation that ever ran Python.
     """
     with _conv_ipython_lock:
-        _conversation_ipython.pop(conversation_id, None)
+        shell = _conversation_ipython.pop(conversation_id, None)
+    if shell is not None:
+        # IPython registers a bound atexit callback, which otherwise keeps the
+        # shell alive even after removing it from our registry.
+        atexit.unregister(shell.atexit_operations)
+        shell.atexit_operations()
+
+
+def _session_end_ipython_cleanup(
+    manager: "LogManager", **kwargs
+) -> Generator[Message | StopPropagation, None, None]:
+    """Release Python state even when the shell tool is not loaded."""
+    if manager.logdir:
+        reset_conversation_ipython(manager.logdir.name)
+    yield from ()
 
 
 def _open_spill_file(label: str) -> "PrivateOutputFile | None":
@@ -925,9 +939,9 @@ def execute_python(
     _ipython = _get_ipython()
 
     # Snapshot image files before execution so we can detect newly created plots.
-    # Use the session workspace: with several server conversations in one
-    # process the process cwd belongs to whichever conversation chdir'd last.
-    cwd = current_workspace()
+    # Match where the in-process cell actually executes. Workspace-scoped cwd
+    # execution is separate work; changing only the snapshot loses attachments.
+    cwd = Path.cwd()
     pre_images = _snapshot_images(cwd)
 
     # Capture and display output in real-time
@@ -1234,6 +1248,7 @@ tool = ToolSpec(
         ),
     ],
     load_priority=10,
+    hooks={"session_end": ("session.end", _session_end_ipython_cleanup, 0)},
     hints=frozenset({"code-exec", "destructive"}),
 )
 __doc__ = tool.get_doc(__doc__)
