@@ -1303,6 +1303,59 @@ describe('useConversation', () => {
     });
   });
 
+  it('gives a new prompt ownership after the previous prompt was refused', async () => {
+    conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    jest.useFakeTimers({ now: new Date('2026-11-18T22:10:00Z') });
+    try {
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Refused A' });
+      });
+      act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+      jest.setSystemTime(new Date('2026-11-18T22:10:01Z'));
+      step.mockImplementationOnce(async () => {
+        eventHandlers!.onMessageAdded!({
+          role: 'system',
+          content: 'Error: Error code: 401 - Unauthorized',
+          timestamp: 'b-diagnostic',
+        });
+        eventHandlers!.onError!('Error code: 401 - Unauthorized');
+        throw new ApiClientError('Error code: 401 - Unauthorized', 500);
+      });
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Refused B' });
+      });
+      const log$ = conversations$.get('chat-placeholder')!.data.log;
+      const b = log$.get().find((message) => message.content === 'Refused B')!;
+      expect(b._retry?.diagnostics).toContain('Error: Error code: 401 - Unauthorized');
+      await act(async () => {
+        await result.current.retryMessage(b);
+      });
+      expect(step).toHaveBeenCalledTimes(3);
+      expect(sendMessageApi).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('offers Retry for an HTTP-only initial-step refusal', async () => {
+    const log$ = conversations$.get('chat-placeholder')!.data.log;
+    log$[0]._retry.set({ persistence: 'saved', options: { stream: false } });
+    step.mockRejectedValueOnce(new ApiClientError('Unauthorized', 401));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      eventHandlers!.onConnected!();
+    });
+    expect(log$[0]._status.get()).toBe('failed');
+    await act(async () => {
+      await result.current.retryMessage(log$[0].get());
+    });
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(sendMessageApi).not.toHaveBeenCalled();
+  });
+
   it.each(['user', 'assistant', 'system', 'tool'] as const)(
     'withholds continuation Retry after newer %s activity',
     async (role) => {

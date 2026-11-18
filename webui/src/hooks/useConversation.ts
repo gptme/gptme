@@ -625,6 +625,7 @@ export function useConversation(conversationId: string, serverId?: string) {
                   }
                   setMessageStatus(conversationId, timestamp, 'failed', description);
                 }
+                conversation$?.generationPrompt.set(undefined);
               }
 
               toast({
@@ -678,6 +679,13 @@ export function useConversation(conversationId: string, serverId?: string) {
               ).catch((error) => {
                 console.error('[useConversation] Error triggering initial step:', error);
                 setGenerating(conversationId, false);
+                const { title, description } = getApiErrorPresentation(error);
+                if (
+                  prompt?.timestamp &&
+                  (title === 'Payment required' || title === 'Authentication failed')
+                ) {
+                  setMessageStatus(conversationId, prompt.timestamp, 'failed', description);
+                }
                 toastStepStartError(toast, error);
               });
             },
