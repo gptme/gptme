@@ -30,9 +30,9 @@ import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
+from .base import current_workspace
 from .shell_memory import Target as MemoryTarget
 from .shell_memory import group_alive, kill_group
 from .shell_memory import watch as watch_memory
@@ -550,7 +550,7 @@ class KernelBackend:
 
     @staticmethod
     def _is_uv_project() -> bool:
-        """Return True if the current directory looks like a uv-managed project.
+        """Return True if the session workspace looks like a uv-managed project.
 
         Requires an explicit uv marker — a ``uv.lock`` file or a ``[tool.uv]``
         section in ``pyproject.toml``. A plain pip project that merely has a
@@ -560,7 +560,7 @@ class KernelBackend:
         import tomlkit
         from tomlkit.exceptions import ParseError
 
-        cwd = Path.cwd()
+        cwd = current_workspace()
         if (cwd / "uv.lock").exists():
             return True
         pyproject = cwd / "pyproject.toml"
@@ -705,7 +705,10 @@ class KernelBackend:
 
         # Pass env only when we actually want to override something; passing
         # None causes jupyter_client's provisioner to crash (it calls .get on it).
-        start_kwargs: dict = {"extra_arguments": []}
+        start_kwargs: dict = {
+            "extra_arguments": [],
+            "cwd": str(current_workspace()),
+        }
         if extra_env:
             start_kwargs["env"] = extra_env
         try:

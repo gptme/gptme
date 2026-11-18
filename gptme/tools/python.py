@@ -59,6 +59,7 @@ from .base import (
     ToolSpec,
     ToolUse,
     callable_signature,
+    current_workspace,
 )
 
 if TYPE_CHECKING:
@@ -120,7 +121,7 @@ def _should_use_kernel() -> bool:
     # Any of these signals is enough: a .venv / VIRTUAL_ENV (even without a
     # working Python inside — the kernel will fall through to uv run), or a
     # uv-managed project (uv.lock / [tool.uv]).
-    cache_key = (os.getcwd(), os.environ.get("VIRTUAL_ENV"))
+    cache_key = (str(current_workspace()), os.environ.get("VIRTUAL_ENV"))
     if _kernel_mode_cache is None or _kernel_mode_cache_key != cache_key:
         from .python_kernel import KernelBackend
 
@@ -402,11 +403,11 @@ def _detect_venv(env_only: bool = False) -> Path | None:
 
     Checks in order:
     1. VIRTUAL_ENV environment variable (set when a venv is activated)
-    2. .venv directory in the current working directory (skipped if env_only=True)
+    2. .venv directory in the session workspace (skipped if env_only=True)
 
     Args:
-        env_only: If True, only check VIRTUAL_ENV (skip cwd-based detection).
-                  Used during early init before os.chdir(workspace) has run.
+        env_only: If True, only check VIRTUAL_ENV (skip workspace detection).
+                  Used during early init before the workspace is selected.
     """
     # Check VIRTUAL_ENV env var (set by `source .venv/bin/activate`)
     virtual_env = os.environ.get("VIRTUAL_ENV")
@@ -416,8 +417,7 @@ def _detect_venv(env_only: bool = False) -> Path | None:
             return venv_path
 
     if not env_only:
-        # Check for .venv in cwd (only valid after os.chdir(workspace))
-        cwd_venv = Path.cwd() / ".venv"
+        cwd_venv = current_workspace() / ".venv"
         if cwd_venv.is_dir():
             return cwd_venv
 
@@ -803,7 +803,7 @@ def execute_python(
         sandbox_exec_wasmtime,
     )
 
-    sandbox_cfg = SandboxConfig.from_env(workspace=Path.cwd())
+    sandbox_cfg = SandboxConfig.from_env(workspace=current_workspace())
     if sandbox_cfg.backend in ("docker", "wasmtime"):
         ok, avail_msg = sandbox_cfg.check_available()
         if not ok:
