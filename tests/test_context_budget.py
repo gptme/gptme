@@ -1,6 +1,7 @@
 """Tests for the context budget computation (Phase 1 of #3812)."""
 
 import math
+from collections.abc import Iterator
 
 import pytest
 
@@ -16,6 +17,19 @@ from gptme.config import (
     set_config,
 )
 from gptme.util.context_budget import get_context_budget
+
+
+@pytest.fixture(autouse=True)
+def isolated_budget_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Budget expectations must not inherit the host's output or budget knobs."""
+    monkeypatch.delenv("GPTME_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("GPTME_CONTEXT_BUDGET", raising=False)
+    previous = get_config()
+    set_config(Config(user=UserConfig()))
+    try:
+        yield
+    finally:
+        set_config(previous)
 
 
 def test_default_budget_is_fraction_of_window():
