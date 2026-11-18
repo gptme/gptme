@@ -491,7 +491,7 @@ const SubmitButton: FC<{ isBusy: boolean; isDisabled: boolean; hasText: boolean 
           ? 'animate-[pulse_1s_ease-in-out_infinite] bg-red-600 px-3 text-white hover:bg-red-700'
           : showQueue
             ? 'bg-blue-600 px-3 text-white hover:bg-blue-700'
-            : 'w-7 bg-green-600 p-0 text-green-100'
+            : 'w-7 bg-primary p-0 text-primary-foreground hover:bg-primary/90'
       }`}
       disabled={!canSubmit}
       aria-label={showStop ? 'Stop generation' : showQueue ? 'Queue message' : 'Send message'}
