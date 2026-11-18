@@ -12,6 +12,7 @@ import flask
 from pydantic import BaseModel, Field
 
 from ..lessons.index import LessonIndex
+from ..tools.base import current_workspace
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
@@ -53,7 +54,10 @@ def _default_reputation_index_path() -> Path:
     configured = os.environ.get("GPTME_SKILL_REPUTATION_INDEX")
     if configured:
         return Path(configured).expanduser()
-    return Path.cwd() / "state" / "skill-reputation" / "scores" / "_index.json"
+    # ``Path.cwd()`` is process-wide and a server chdir's it for conversations
+    # with one or no user messages, so it would name whichever conversation
+    # last moved the process. Resolve against the session workspace instead.
+    return current_workspace() / "state" / "skill-reputation" / "scores" / "_index.json"
 
 
 def _load_reputation_index(index_path: Path | None = None) -> dict[str, dict[str, Any]]:
