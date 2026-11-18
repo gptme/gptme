@@ -46,7 +46,7 @@ from ..logmanager import check_for_modifications
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.git_cmd import GIT_CMD
-from .base import ToolSpec
+from .base import ToolSpec, current_workspace
 
 if TYPE_CHECKING:
     from ..logmanager import Log, LogManager
@@ -88,9 +88,10 @@ def use_checks() -> bool:
         return False
 
     # Check for .pre-commit-config.yaml in any parent directory
+    workspace = current_workspace()
     has_config = any(
         parent.joinpath(".pre-commit-config.yaml").exists()
-        for parent in [Path.cwd(), *Path.cwd().parents]
+        for parent in [workspace, *workspace.parents]
     )
 
     if explicit_enabled and not has_config:
@@ -126,6 +127,7 @@ def _get_repo_root() -> Path | None:
     try:
         result = subprocess.run(
             [GIT_CMD, "rev-parse", "--show-toplevel"],
+            cwd=current_workspace(),
             capture_output=True,
             check=False,
             timeout=10,
@@ -224,7 +226,8 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
             if Path(runner).name.lower() in ("prek", "prek.exe")
             else (".pre-commit-config.yaml",)
         )
-        for parent in (Path.cwd(), *Path.cwd().parents):
+        workspace = current_workspace()
+        for parent in (workspace, *workspace.parents):
             config = next(
                 (parent / name for name in config_names if (parent / name).is_file()),
                 None,
@@ -239,7 +242,12 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
         subprocess.run(
-            cmd, cwd=root, capture_output=True, text=True, check=True, timeout=300
+            cmd,
+            cwd=root if root is not None else current_workspace(),
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
         )
         return True, None  # No issues found
     except subprocess.TimeoutExpired:

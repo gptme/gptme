@@ -9,6 +9,7 @@ each other's, whatever the process cwd happens to be.
 import contextvars
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -137,3 +138,120 @@ def test_save_append_refuse_workspace_fifo(workspaces, operation):
     assert len(messages) == 1
     assert "not a regular file" in messages[0].content
     assert not (elsewhere / "pipe").exists()
+
+
+def test_precommit_detects_config_in_session_workspace(workspaces, monkeypatch):
+    a, b, _ = workspaces
+    (a / ".pre-commit-config.yaml").write_text("repos: []\n")
+    from gptme.tools.precommit import use_checks
+
+    # Pin auto-detection and runner availability, not the developer's config/PATH.
+    config = Mock()
+    config.get_env.return_value = ""
+    monkeypatch.setattr("gptme.tools.precommit.get_config", lambda: config)
+    monkeypatch.setattr(
+        "gptme.tools.precommit.shutil.which",
+        lambda name: str(a / name),
+    )
+
+    assert _in_session(a, use_checks) is True
+    assert _in_session(b, use_checks) is False
+
+
+def test_precommit_repo_root_is_session_repo(workspaces):
+    import subprocess
+
+    a, b, _ = workspaces
+    for ws in (a, b):
+        subprocess.run(["git", "init", "-q", str(ws)], check=True)
+
+    from gptme.tools.precommit import _get_repo_root
+
+    assert _in_session(a, _get_repo_root).resolve() == a.resolve()
+    assert _in_session(b, _get_repo_root).resolve() == b.resolve()
+
+
+def test_vent_records_session_workspace(workspaces, monkeypatch, tmp_path):
+    import json
+
+    a, _, _ = workspaces
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+    from gptme.tools.vent import _vent_this_turn, execute_vent
+
+    def vent():
+        _vent_this_turn.set(False)
+        return execute_vent("stuck", None, None)
+
+    _in_session(a, vent)
+    ledger = tmp_path / "data" / "gptme" / "friction-ledger.jsonl"
+    entry = json.loads(ledger.read_text().splitlines()[-1])
+    assert entry["workspace"] == str(a.resolve())
+
+
+def test_display_path_relative_to_session_workspace(workspaces):
+    a, _, _ = workspaces
+    f = a / "src" / "x.py"
+
+    from gptme.util.context import file_to_display_path
+
+    shown = _in_session(a, lambda: file_to_display_path(f, a.resolve()))
+    assert shown == Path("src/x.py")
+
+
+@pytest.mark.parametrize("check_modified", [False, True])
+@pytest.mark.parametrize("source_state", ["unchanged", "modified", "missing"])
+@pytest.mark.parametrize("relative", [False, True])
+def test_attachment_reads_original_path_not_display_path(
+    workspaces, check_modified, source_state, relative
+):
+    a, _, elsewhere = workspaces
+    source = a / "note.txt"
+    source.write_text("session attachment content")
+    (elsewhere / "note.txt").write_text("other conversation content")
+
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content, md_codeblock
+
+    attachment = source.relative_to(a) if relative else source
+    msg = Message("user", "Read the attachment", files=[attachment])
+    expected = "session attachment content"
+    if source_state == "modified":
+        later = msg.timestamp.timestamp() + 60
+        os.utime(source, (later, later))
+        if check_modified:
+            expected = "<file was modified after message>"
+    elif source_state == "missing":
+        source.unlink()
+        expected = "<file not found, may have been moved>"
+
+    result = _in_session(
+        a,
+        lambda: embed_attached_file_content(msg, a.resolve(), check_modified),
+    )
+
+    if source_state == "missing" and not check_modified:
+        assert result.content == msg.content
+        assert result.files == [source]
+    else:
+        assert result.content == msg.content + "\n\n" + md_codeblock(
+            "note.txt", expected
+        )
+        assert result.files == []
+
+
+def test_binary_attachment_keeps_original_path(workspaces):
+    a, _, elsewhere = workspaces
+    from PIL import Image
+
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content
+
+    source = a / "pic.png"
+    Image.new("RGB", (2, 2), "red").save(source)
+    Image.new("RGB", (2, 2), "blue").save(elsewhere / "pic.png")
+    msg = Message("user", "Inspect the attachment", files=[source])
+
+    result = _in_session(a, lambda: embed_attached_file_content(msg, a.resolve()))
+    assert result.content == msg.content
+    assert result.files == [source]
