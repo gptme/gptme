@@ -236,3 +236,55 @@ def test_bad_poll_is_rejected_before_a_run_is_created(poll):
         res = _invoke(["run", "p", "--wait", "--poll", poll])
     assert res.exit_code == 2
     post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["1" * 36, "-" * 36, "1111111122223333444455555555555555", RUN + "0"],
+)
+def test_run_id_must_be_a_real_uuid(bad):
+    with patch("requests.get") as get:
+        res = _invoke(["status", bad])
+    assert res.exit_code != 0
+    get.assert_not_called()
+
+
+def test_transport_failure_is_a_clean_error_and_names_the_idempotency_key():
+    with patch("requests.post", side_effect=requests.exceptions.Timeout("slow")):
+        res = _invoke(["run", "fix it", "--idempotency-key", "key-1"])
+    assert res.exit_code != 0
+    assert "Traceback" not in res.output
+    assert "Timeout" in res.output
+    assert "--idempotency-key key-1" in res.output
+
+
+def test_fetch_survives_an_unwritable_destination(tmp_path):
+    out = tmp_path / "out"
+    (out / "patch").mkdir(parents=True)  # a directory where the artifact goes
+    body = b"diff"
+    listing = {
+        "artifacts": [
+            {
+                "name": "patch",
+                "status": "available",
+                "url": "https://signed/patch",
+                "sha256": hashlib.sha256(body).hexdigest(),
+            },
+            {
+                "name": "final.md",
+                "status": "available",
+                "url": "https://signed/final",
+                "sha256": hashlib.sha256(body).hexdigest(),
+            },
+        ]
+    }
+    with patch("requests.get") as get:
+        get.side_effect = [
+            _resp(200, listing),
+            _resp(200, content=body),
+            _resp(200, content=body),
+        ]
+        res = _invoke(["fetch", RUN, "--out", str(out)])
+    assert res.exit_code == 1
+    assert "patch: write failed" in res.output
+    assert (out / "final.md").read_bytes() == body

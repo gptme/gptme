@@ -39,7 +39,9 @@ URL_ENV = "GPTME_CLOUD_URL"
 
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "expired"})
 
-_RUN_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+_RUN_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -52,6 +54,10 @@ _AUTH_HINTS = {
 
 class CloudError(click.ClickException):
     """A failed API call, with the server's error code when it sent one."""
+
+
+class TransportError(CloudError):
+    """The request never produced an HTTP response (timeout, connection reset)."""
 
 
 def _headers(token: str, extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -90,6 +96,15 @@ def _check_run_id(run_id: str) -> str:
     return run_id
 
 
+def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
+    """``requests.get``/``post`` with transport failures reported as ``TransportError``."""
+    send = requests.post if method == "POST" else requests.get
+    try:
+        return send(url, **kwargs)
+    except requests.RequestException as e:
+        raise TransportError(f"{method} {url}: {type(e).__name__}: {e}") from e
+
+
 def _emit(data: dict[str, Any], as_json: bool, line: str) -> None:
     click.echo(json.dumps(data, indent=2) if as_json else line)
 
@@ -113,7 +128,8 @@ class _Client:
         self.token = token
 
     def create(self, body: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
-        resp = requests.post(
+        resp = _request(
+            "POST",
             self.base,
             json=body,
             headers=_headers(self.token, {"Idempotency-Key": idempotency_key}),
@@ -123,7 +139,8 @@ class _Client:
 
     def get(self, run_id: str) -> dict[str, Any]:
         return _json(
-            requests.get(
+            _request(
+                "GET",
                 f"{self.base}/{_check_run_id(run_id)}",
                 headers=_headers(self.token),
                 timeout=30,
@@ -132,7 +149,8 @@ class _Client:
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         return _json(
-            requests.post(
+            _request(
+                "POST",
                 f"{self.base}/{_check_run_id(run_id)}/cancel",
                 headers=_headers(self.token),
                 timeout=30,
@@ -141,7 +159,8 @@ class _Client:
 
     def artifacts(self, run_id: str) -> dict[str, Any]:
         return _json(
-            requests.get(
+            _request(
+                "GET",
                 f"{self.base}/{_check_run_id(run_id)}/artifacts",
                 headers=_headers(self.token),
                 timeout=30,
@@ -229,7 +248,15 @@ def run_cmd(
         body["limits"] = limits
 
     client = _client(ctx)
-    run = client.create(body, idempotency_key or str(uuid.uuid4()))
+    key = idempotency_key or str(uuid.uuid4())
+    try:
+        run = client.create(body, key)
+    except TransportError as e:
+        # The server may have created the run before the connection failed.
+        # Retrying with the same key returns it instead of starting a second one.
+        raise TransportError(
+            f"{e.message}\nthe run may exist; retry with --idempotency-key {key}"
+        ) from e
     if not wait:
         _emit(run, as_json, f"{run['id']} {run['status']}")
         return
@@ -296,7 +323,12 @@ def fetch_cmd(ctx: click.Context, run_id: str, out: Path) -> None:
                 problems += 1
             continue
         # The signed URL carries its own credential: do not add the PAT.
-        resp = requests.get(art["url"], timeout=120)
+        try:
+            resp = _request("GET", art["url"], timeout=120)
+        except TransportError as e:
+            click.echo(f"{name}: download failed ({e.message})", err=True)
+            problems += 1
+            continue
         if not resp.ok:
             click.echo(f"{name}: download failed ({resp.status_code})", err=True)
             problems += 1
@@ -310,7 +342,12 @@ def fetch_cmd(ctx: click.Context, run_id: str, out: Path) -> None:
             click.echo(f"{name}: checksum mismatch, not written", err=True)
             problems += 1
             continue
-        _write_replacing(out / name, resp.content)
+        try:
+            _write_replacing(out / name, resp.content)
+        except OSError as e:
+            click.echo(f"{name}: write failed ({e})", err=True)
+            problems += 1
+            continue
         click.echo(f"{out / name} ({len(resp.content)} bytes)")
     if data.get("dirty"):
         click.echo("note: the agent left uncommitted changes", err=True)
