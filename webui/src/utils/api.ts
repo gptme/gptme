@@ -188,15 +188,17 @@ export function getApiErrorPresentation(
   } else if (error instanceof Error && error.message) {
     description = error.message;
   } else if (typeof error === 'string' && error) {
-    // Server-Sent Events carry the failure as a plain string (`callbacks.onError(
-    // data.error)`), not an ApiClientError. The server re-raises provider errors
-    // verbatim, so the status only survives inside the message, e.g.
-    // "Error code: 402 - Payment required". Classify it here so an SSE failure is
-    // labelled the same way a send-time failure is.
     description = error;
-    if (/\b402\b/.test(error) || /payment required/i.test(error)) {
+  }
+
+  // SSE sends provider text directly; HTTP can wrap the same text in a 500
+  // ApiClientError. Classify both transports alike, without overriding an
+  // explicit payment/authentication status or inspecting fallback prose.
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (title !== 'Payment required' && title !== 'Authentication failed') {
+    if (/\b402\b/.test(message) || /payment required/i.test(message)) {
       title = 'Payment required';
-    } else if (/\b401\b/.test(error) || /unauthori[sz]ed/i.test(error)) {
+    } else if (/\b401\b/.test(message) || /unauthori[sz]ed/i.test(message)) {
       title = 'Authentication failed';
     }
   }

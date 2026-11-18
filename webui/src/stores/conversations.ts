@@ -49,6 +49,8 @@ export interface ConversationState {
   streamClientGeneration?: number | null;
   // Prompt owning the accepted step, shared with every split-view subscriber.
   generationPrompt?: string;
+  // Terminal SSE/local-stop events invalidate late step HTTP acknowledgments.
+  generationRevision?: number;
   connectionStatus: ConversationConnectionStatus;
   reconnectAttempt: number | null;
   reconnectMaxAttempts: number | null;

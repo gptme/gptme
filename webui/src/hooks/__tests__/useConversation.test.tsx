@@ -55,6 +55,8 @@ describe('useConversation', () => {
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
         onToolExecuting?: (id: string) => void;
         onReconnectState?: (state: { generating: boolean; pendingTools: any[] }) => void;
+        onInterrupted?: () => void;
+        onToolComplete?: (id: string, duration: number, success: boolean) => void;
         onError?: (error: string) => void;
       }
     | undefined;
@@ -1337,6 +1339,142 @@ describe('useConversation', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it.each(['local', 'server', 'completed'])(
+    'does not retain a %s prompt as owner of the next early refusal',
+    async (ending) => {
+      conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      jest.useFakeTimers({ now: new Date('2026-11-18T22:15:00Z') });
+      try {
+        let finishStep!: () => void;
+        step.mockReturnValueOnce(
+          new Promise<void>((resolve) => {
+            finishStep = resolve;
+          })
+        );
+        let sending!: Promise<void>;
+        await act(async () => {
+          sending = result.current.sendMessage({ message: 'Old A' });
+        });
+        await act(async () => {
+          if (ending === 'local') await result.current.interruptGeneration();
+          else if (ending === 'server') eventHandlers!.onInterrupted!();
+          else eventHandlers!.onStepComplete!();
+          finishStep();
+          await sending;
+        });
+        jest.setSystemTime(new Date('2026-11-18T22:15:01Z'));
+        const error = 'Error code: 401 - Unauthorized';
+        step.mockImplementationOnce(async () => {
+          eventHandlers!.onMessageAdded!({
+            role: 'system',
+            content: `Error: ${error}`,
+            timestamp: 'b-error',
+          });
+          eventHandlers!.onError!(error);
+          throw new ApiClientError(error, 500);
+        });
+        await act(async () => {
+          await result.current.sendMessage({ message: 'New B' });
+        });
+        const log$ = conversations$.get('chat-placeholder')!.data.log;
+        expect(log$.get().find((message) => message.content === 'Old A')?._status).toBe('sent');
+        const b = log$.get().find((message) => message.content === 'New B')!;
+        expect(b._retry?.diagnostics).toContain(`Error: ${error}`);
+        await act(async () => {
+          await result.current.retryMessage(b);
+        });
+        expect(step).toHaveBeenCalledTimes(3);
+        expect(sendMessageApi).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
+
+  it.each(['pending', 'executing'])(
+    'keeps ownership across step_complete with a %s manual tool',
+    async (toolState) => {
+      conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Confirm a tool' });
+      });
+      const log$ = conversations$.get('chat-placeholder')!.data.log;
+      const prompt = log$.get().at(-1)!;
+      // Keep the streamed placeholder's timestamp distinct from the sent prompt.
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      act(() => {
+        eventHandlers!.onMessageAdded!({
+          role: 'assistant',
+          content: 'Tool call',
+          timestamp: 'call',
+        });
+        eventHandlers!.onToolPending!('tool-1', { tool: 'shell', content: 'pwd' }, false);
+      });
+      if (toolState === 'executing') {
+        await act(async () => {
+          await result.current.confirmTool('confirm');
+        });
+        act(() => {
+          eventHandlers!.onToolExecuting!('tool-1');
+        });
+      }
+      act(() => {
+        eventHandlers!.onStepComplete!();
+      });
+      if (toolState === 'pending') {
+        await act(async () => {
+          await result.current.confirmTool('confirm');
+        });
+        act(() => {
+          eventHandlers!.onToolExecuting!('tool-1');
+        });
+      }
+      act(() => {
+        eventHandlers!.onMessageAdded!({
+          role: 'tool',
+          content: '/workspace',
+          timestamp: 'result',
+        });
+        eventHandlers!.onToolComplete!('tool-1', 10, true);
+        eventHandlers!.onMessageStart!();
+        eventHandlers!.onMessageAdded!({
+          role: 'system',
+          content: 'Error: Error code: 402 - Payment required',
+          timestamp: 'error',
+        });
+        eventHandlers!.onError!('Error code: 402 - Payment required');
+      });
+      const failed = log$.get().find((message) => message.timestamp === prompt.timestamp)!;
+      expect(failed._status).toBe('failed');
+      await act(async () => {
+        await result.current.retryMessage(failed);
+      });
+      expect(step).toHaveBeenCalledTimes(2);
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      expect(editMessageApi).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([401, 402])('offers Retry for an HTTP-500-wrapped initial %s refusal', async (status) => {
+    const log$ = conversations$.get('chat-placeholder')!.data.log;
+    log$[0]._retry.set({ persistence: 'saved', options: { stream: false } });
+    step.mockRejectedValueOnce(new ApiClientError(`Error code: ${status} - Provider refused`, 500));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      eventHandlers!.onConnected!();
+    });
+    expect(log$[0]._status.get()).toBe('failed');
+    await act(async () => {
+      await result.current.retryMessage(log$[0].get());
+    });
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(sendMessageApi).not.toHaveBeenCalled();
   });
 
   it('offers Retry for an HTTP-only initial-step refusal', async () => {

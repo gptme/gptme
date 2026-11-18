@@ -95,12 +95,20 @@ export function useConversation(conversationId: string, serverId?: string) {
       topP?: number
     ) => {
       const previous = conversation$?.generationPrompt.peek();
+      const revision = conversation$?.generationRevision.peek();
       if (!previous) conversation$?.generationPrompt.set(timestamp);
       try {
         await api.step(conversationId, model, stream, branch, maxTokens, temperature, topP);
-        conversation$?.generationPrompt.set(timestamp);
+        // Completion, refusal or Stop may arrive before this HTTP response.
+        // An acknowledgment must not resurrect ownership released by that event.
+        if (conversation$?.generationRevision.peek() === revision) {
+          conversation$?.generationPrompt.set(timestamp);
+        }
       } catch (error) {
-        if (conversation$?.generationPrompt.peek() === timestamp) {
+        if (
+          conversation$?.generationRevision.peek() === revision &&
+          conversation$?.generationPrompt.peek() === timestamp
+        ) {
           conversation$?.generationPrompt.set(previous);
         }
         throw error;
@@ -413,7 +421,12 @@ export function useConversation(conversationId: string, serverId?: string) {
               }, 100);
             },
             onStepComplete: () => {
-              conversation$?.generationPrompt.set(undefined);
+              // A step can end at a manual-confirmation pause. The next model
+              // call belongs to the same prompt and starts without stepForPrompt.
+              if (!conversation$?.pendingTool.peek() && !conversation$?.executingTool.peek()) {
+                conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+                conversation$?.generationPrompt.set(undefined);
+              }
               // step_complete fires after session.generating=False on the server,
               // so it's safe to clear generating immediately — no need to guess.
               // Cancel the 100ms fallback timer from onMessageComplete if still pending;
@@ -543,6 +556,8 @@ export function useConversation(conversationId: string, serverId?: string) {
               setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
+              conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+              conversation$?.generationPrompt.set(undefined);
               setGenerating(conversationId, false);
               setPendingTool(conversationId, null, null);
               setExecutingTool(conversationId, null, null);
@@ -625,6 +640,7 @@ export function useConversation(conversationId: string, serverId?: string) {
                   }
                   setMessageStatus(conversationId, timestamp, 'failed', description);
                 }
+                conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
                 conversation$?.generationPrompt.set(undefined);
               }
 
@@ -1102,6 +1118,8 @@ export function useConversation(conversationId: string, serverId?: string) {
     // without a session id yet. The API interrupt is best-effort and no-ops
     // until a session exists.
     stopRequestedRef.current = true;
+    conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+    conversation$?.generationPrompt.set(undefined);
     clearInitialStepState(conversationId);
     setGenerating(conversationId, false);
 

@@ -1455,6 +1455,23 @@ describe('getApiErrorPresentation', () => {
     });
   });
 
+  it.each([
+    [401, 'Authentication failed'],
+    [402, 'Payment required'],
+  ])('classifies provider %s consistently across SSE and HTTP wrappers', (status, title) => {
+    const message = `Error code: ${status} - Provider refused`;
+    for (const error of [message, new Error(message), new ApiClientError(message, 500)]) {
+      expect(getApiErrorPresentation(error)).toEqual({ title, description: message });
+    }
+  });
+
+  it('keeps an explicit auth status ahead of provider-like message text', () => {
+    expect(getApiErrorPresentation(new ApiClientError('Unauthorized request 402', 401))).toEqual({
+      title: 'Authentication failed',
+      description: 'Unauthorized request 402',
+    });
+  });
+
   it('preserves fallback title for generic errors while surfacing the message', () => {
     expect(
       getApiErrorPresentation(new Error('Boom'), {
