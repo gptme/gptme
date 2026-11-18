@@ -6,7 +6,7 @@ import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { use$, useObservable } from '@legendapp/state/react';
-import { ChatInput, type ChatOptions } from '@/components/ChatInput';
+import { ChatInput, type ChatOptions, type ChatInputHandle } from '@/components/ChatInput';
 import { AlertTriangle, History, Server, Copy, RotateCcw } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { ExamplesSection } from '@/components/ExamplesSection';
@@ -41,12 +41,18 @@ export const WelcomeView = () => {
   const { consumeSeedPrompt } = useEmbeddedContext();
   const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   // The new-chat draft belongs to the active server and account.
-  const [inputValue, setInputValue] = useComposerDraft(composerDraftKey(connectionConfig));
+  const draftKey = composerDraftKey(connectionConfig);
+  const [inputValue, setInputValue] = useComposerDraft(draftKey);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const [hostedLoopbackReachable, setHostedLoopbackReachable] = useState(false);
   const seedConsumedRef = useRef(false);
   // Set when the host marked the seed as already submitted (auto-send). Fires
   // once the server is connected; until then the text stays pre-filled.
-  const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null);
+  const pendingAutoSend = useRef<{ prompt: string; owner: string } | null>(null);
+  const handleInputChange: typeof setInputValue = (next) => {
+    pendingAutoSend.current = null;
+    setInputValue(next);
+  };
   const mountedRef = useRef(false);
   useEffect(() => {
     mountedRef.current = true;
@@ -72,9 +78,9 @@ export const WelcomeView = () => {
     if (inputValue) return;
     setInputValue(seed.prompt);
     if (seed.autoSend) {
-      setPendingAutoSend(seed.prompt);
+      pendingAutoSend.current = { prompt: seed.prompt, owner: draftKey };
     }
-  }, [consumeSeedPrompt, inputValue, setInputValue]);
+  }, [consumeSeedPrompt, draftKey, inputValue, setInputValue]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
@@ -181,16 +187,21 @@ export const WelcomeView = () => {
   // is not dropped while an instance is still starting; until then the text is
   // pre-filled and an ordinary Enter works.
   //
-  // handleSend is deliberately not a dependency: it is recreated on every
-  // render, so listing it would re-run this effect each render. The pending
-  // value is cleared before the send, so the send still happens exactly once.
+  // Bind the request to its server/account and cancel permanently on a switch
+  // or text replacement. Clear the ref before submission (including StrictMode
+  // effect replay), then let ChatInput preserve settings and clear its draft.
   useEffect(() => {
-    if (!pendingAutoSend || !isConnected || isSubmitting) return;
-    const prompt = pendingAutoSend;
-    setPendingAutoSend(null);
-    void handleSend(prompt);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingAutoSend, isConnected, isSubmitting]);
+    const pending = pendingAutoSend.current;
+    if (!pending) return;
+    if (pending.owner !== draftKey) {
+      pendingAutoSend.current = null;
+      return;
+    }
+    if (inputValue !== pending.prompt) return;
+    if (!isConnected || isSubmitting) return;
+    pendingAutoSend.current = null;
+    chatInputRef.current?.submitSeed(pending.prompt);
+  }, [draftKey, inputValue, isConnected, isSubmitting]);
 
   const handleRetryConnection = async () => {
     setIsRetryingConnection(true);
@@ -647,11 +658,12 @@ export const WelcomeView = () => {
 
             <div className="mx-auto w-full max-w-2xl [&_textarea]:min-h-[80px] [&_textarea]:text-base">
               <ChatInput
-                key={connectionConfig.baseUrl}
+                key={draftKey}
+                ref={chatInputRef}
                 onSend={handleSend}
                 autoFocus$={autoFocus$}
                 value={inputValue}
-                onChange={setInputValue}
+                onChange={handleInputChange}
               />
             </div>
 
@@ -667,7 +679,7 @@ export const WelcomeView = () => {
                     variant="outline"
                     size="sm"
                     className="rounded-full border-border/70 bg-background/70 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
-                    onClick={() => setInputValue(suggestion)}
+                    onClick={() => handleInputChange(suggestion)}
                     disabled={isSubmitting}
                   >
                     {suggestion}
@@ -715,7 +727,7 @@ export const WelcomeView = () => {
                 <History className="mr-2 h-4 w-4" />
                 Show history
               </Button>
-              <ExamplesSection onExampleSelect={setInputValue} disabled={isSubmitting} />
+              <ExamplesSection onExampleSelect={handleInputChange} disabled={isSubmitting} />
             </div>
           </div>
         </div>

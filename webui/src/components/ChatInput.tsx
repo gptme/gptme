@@ -21,6 +21,8 @@ import {
   useRef,
   useId,
   useCallback,
+  useImperativeHandle,
+  type Ref,
   type FC,
   type Dispatch,
   type FormEvent,
@@ -90,7 +92,13 @@ export interface ChatOptions {
   topP?: number;
 }
 
+export interface ChatInputHandle {
+  /** Submit only if the composer still displays this host-provided seed. */
+  submitSeed: (expectedMessage: string) => void;
+}
+
 interface Props {
+  ref?: Ref<ChatInputHandle>;
   conversationId?: string;
   /** Server that owns the conversation; defaults to the primary server. */
   serverId?: string;
@@ -638,6 +646,7 @@ export const ChatInput: FC<Props> = ({
   onInterrupt,
   isReadOnly,
   defaultModel = '',
+  ref,
   autoFocus$,
   value,
   onChange,
@@ -1234,6 +1243,16 @@ export const ChatInput: FC<Props> = ({
       }
     }
   };
+
+  // Host auto-send uses exactly the same settings, attachments and draft cleanup
+  // as Enter. Never submit a seed that has since been edited or replaced.
+  useImperativeHandle(ref, () => ({
+    submitSeed: (expectedMessage) => {
+      if (message === expectedMessage && isConnected && !isReadOnly && !editMode) {
+        void submitMessage();
+      }
+    },
+  }));
 
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault();
