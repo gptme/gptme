@@ -161,3 +161,33 @@ def test_unavailable_process_cwd_does_not_hide_literal_secret(pane_tree, monkeyp
 
     monkeypatch.setattr(Path, "cwd", staticmethod(unavailable))
     assert blocked(ToolUse("tmux", [], "new-session cat ~/.ssh/id_rsa"))
+
+
+def test_new_session_checks_the_session_workspace(pane_tree, monkeypatch):
+    """``new-session`` starts in the session workspace, not the process cwd.
+
+    A server serves several conversations and chdir's the whole process for one
+    of them, so the process cwd names another conversation's directory.
+    """
+    from gptme.tools import shell
+
+    process, _ = pane_tree
+    session = process.parent / "session"
+    (session / "config").mkdir(parents=True)
+    (session / "config" / "client.pem").write_text("synthetic\n")
+    monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(session))
+    assert blocked(ToolUse("tmux", [], "new-session cat config/*"))
+
+
+def test_new_session_ignores_a_foreign_process_cwd(pane_tree, monkeypatch):
+    """A secret in the process cwd but not the session workspace is not a hit."""
+    from gptme.tools import shell
+
+    process, _ = pane_tree
+    session = process.parent / "session"
+    (session / "config").mkdir(parents=True)
+    (session / "config" / "notes.txt").write_text("ordinary\n")
+    (process / "config").mkdir()
+    (process / "config" / "client.pem").write_text("synthetic\n")
+    monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(session))
+    assert not blocked(ToolUse("tmux", [], "new-session cat config/*"))
