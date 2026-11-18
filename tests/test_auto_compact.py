@@ -1758,6 +1758,8 @@ def test_autocompact_summarize_stale_does_not_throttle(monkeypatch):
     ):
         mock_m = MagicMock()
         mock_m.model = "gpt-4"
+        mock_m.full = "openai/gpt-4"
+        mock_m.context_budget = None
         mock_m.context = 200_000
         mock_m.max_output = 8192
         mock_model.return_value = mock_m
@@ -3665,7 +3667,9 @@ def test_autocompact_hook_cooldown_not_set_on_early_exit(monkeypatch):
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.hook.get_default_model",
-        lambda: MagicMock(context=200_000, max_output=8192),
+        lambda: MagicMock(
+            context=200_000, max_output=8192, full="openai/gpt-4", context_budget=None
+        ),
     )
 
     _last_autocompact_attempt.pop(conv_key, None)
@@ -3704,7 +3708,11 @@ def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
 
     # Small-budget fake model: budget = min(0.9*3000, 3000-200-1000) = 1800.
     fake_model = SimpleNamespace(
-        model="gpt-4", context=3000, max_output=200, full="gpt-4"
+        model="gpt-4",
+        context=3000,
+        max_output=200,
+        full="openai/gpt-4",
+        context_budget=None,
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
@@ -3908,7 +3916,11 @@ def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
 
     monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
     fake_model = SimpleNamespace(
-        model="gpt-4", context=3000, max_output=200, full="gpt-4"
+        model="gpt-4",
+        context=3000,
+        max_output=200,
+        full="openai/gpt-4",
+        context_budget=None,
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
@@ -5280,6 +5292,7 @@ def test_autocompact_summarize_native_path_prepares_messages(monkeypatch):
         patch.object(hook_module, "trigger_hook", return_value=iter([])),
     ):
         mock_cfg = MagicMock()
+        mock_cfg.chat = None
         mock_cfg.get_env.return_value = None
         mock_get_config.return_value = mock_cfg
 

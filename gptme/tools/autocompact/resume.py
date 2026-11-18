@@ -999,7 +999,12 @@ def _apply_native_compaction(
     context = model_meta.context
     if isinstance(context, int) and context > 0:
         output_reserve = model_meta.max_output or 8192
-        budget = get_context_budget(context, max_output=output_reserve)
+        budget = get_context_budget(
+            context,
+            max_output=output_reserve,
+            model_id=model_meta.full,
+            model_context_budget=model_meta.context_budget,
+        )
         # The context budget already reserves normal model output. Reserve only
         # the compact request's summary allowance here; the final block is still
         # budget-checked. Size the tail before the request so omitted messages
@@ -1456,7 +1461,10 @@ def _resume_via_llm(
     fixed_parts = assemble_fixed_parts()
     if model_meta and isinstance(model_meta.context, int) and model_meta.context > 0:
         budget = get_context_budget(
-            model_meta.context, max_output=model_meta.max_output or 8192
+            model_meta.context,
+            max_output=model_meta.max_output or 8192,
+            model_id=model_meta.full,
+            model_context_budget=model_meta.context_budget,
         )
 
         # keep_head is positional, not budget-aware; if the extended prefix

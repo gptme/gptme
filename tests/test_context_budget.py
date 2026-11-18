@@ -1,6 +1,7 @@
 """Tests for the context budget computation (Phase 1 of #3812)."""
 
 import math
+from collections.abc import Iterator
 
 import pytest
 
@@ -16,6 +17,19 @@ from gptme.config import (
     set_config,
 )
 from gptme.util.context_budget import get_context_budget
+
+
+@pytest.fixture(autouse=True)
+def isolated_budget_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Budget expectations must not inherit the host's output or budget knobs."""
+    monkeypatch.delenv("GPTME_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("GPTME_CONTEXT_BUDGET", raising=False)
+    previous = get_config()
+    set_config(Config(user=UserConfig()))
+    try:
+        yield
+    finally:
+        set_config(previous)
 
 
 def test_default_budget_is_fraction_of_window():
@@ -122,6 +136,80 @@ def test_env_budget_zero_ignored(monkeypatch):
 def test_large_window_default_is_capped_at_256k():
     """Unvalidated long-window models compact before quality degrades."""
     assert get_context_budget(1_000_000) == 256_000
+
+
+def test_window_shaped_max_output_does_not_collapse_budget():
+    """A max_output advertised as most of the window is not a real reservation.
+
+    OpenRouter reports deepseek-v4.1-flash with max_completion_tokens 943,718 of
+    a 1,048,576 window. Reserving all of it left a ~104k budget and made
+    compaction fire every few tool calls.
+    """
+    assert (
+        get_context_budget(
+            1_048_576,
+            max_output=943_718,
+            model_id="openrouter/deepseek/deepseek-v4.1-flash-1017",
+        )
+        == 256_000
+    )
+
+
+@pytest.mark.parametrize("source", ["env", "user", "project", "chat"])
+@pytest.mark.parametrize("override", [None, "1.0", "500000"])
+def test_window_shaped_output_preserves_request_reservation(
+    monkeypatch, source, override
+):
+    """Explicit output limits constrain even explicit compaction budgets."""
+    from gptme.llm import _resolve_max_tokens
+
+    if override is not None:
+        monkeypatch.setenv("GPTME_CONTEXT_BUDGET", override)
+    previous = get_config()
+    cfg = Config(user=UserConfig())
+    if source == "env":
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "900000")
+    elif source == "user":
+        cfg.user.env["MAX_TOKENS"] = "900000"
+    elif source == "project":
+        cfg.project = ProjectConfig(env={"MAX_TOKENS": "900000"})
+    else:
+        cfg.chat = ChatConfig(max_tokens=900_000)
+        # The chat/CLI value takes precedence over provider env overrides.
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "16000")
+    try:
+        set_config(cfg)
+        model_id = "openrouter/deepseek/deepseek-v4.1-flash-1017"
+        outgoing = _resolve_max_tokens(
+            model_id, cfg.chat.max_tokens if cfg.chat else None
+        )
+        budget = get_context_budget(1_048_576, max_output=943_718, model_id=model_id)
+        assert outgoing == 900_000
+        assert budget == 147_576
+        assert budget + outgoing + 1000 <= 1_048_576
+    finally:
+        set_config(previous)
+
+
+def test_large_provider_default_reservation_is_not_reduced():
+    """Do not assume providers without a resolved limit omit max_tokens."""
+    assert (
+        get_context_budget(
+            200_000, max_output=150_000, model_id="anthropic/claude-sonnet-4-6"
+        )
+        == 49_000
+    )
+
+
+def test_large_reservation_without_model_metadata_is_not_reduced():
+    """A standalone caller's explicit reservation is not provider metadata."""
+    assert get_context_budget(200_000, max_output=150_000) == 49_000
+
+
+def test_realistic_max_output_is_still_reserved():
+    """A max_output of at most half the window keeps its full reservation."""
+    assert get_context_budget(200_000, max_output=64_000, headroom=1_000) == 135_000
+    assert get_context_budget(200_000, max_output=100_000, headroom=1_000) == 99_000
 
 
 def test_model_metadata_can_opt_out_of_large_window_cap():
