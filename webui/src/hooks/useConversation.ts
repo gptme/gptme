@@ -568,10 +568,14 @@ export function useConversation(conversationId: string, serverId?: string) {
                 fallbackDescription: error,
               });
 
-              const lastIndex = (messages$?.peek()?.length ?? 0) - 1;
-              const lastMessage$ = lastIndex >= 0 ? messages$?.[lastIndex] : undefined;
-              if (lastMessage$?.role.get() === 'user') {
-                const timestamp = lastMessage$.timestamp?.get();
+              // Transport errors share this callback but do not mean the
+              // generation was refused. The server may still be working.
+              if (title === 'Payment required' || title === 'Authentication failed') {
+                // The server persists a system error before emitting `error`.
+                const userMessage = [...(messages$?.peek() ?? [])]
+                  .reverse()
+                  .find((message) => message.role === 'user');
+                const timestamp = userMessage?.timestamp;
                 if (timestamp) {
                   setMessageStatus(conversationId, timestamp, 'failed', description);
                 }
@@ -803,10 +807,21 @@ export function useConversation(conversationId: string, serverId?: string) {
     const checkRetryTurn = () => {
       // step() always uses current history, not the message selected for Retry.
       // Never truncate newer turns or silently answer them with older settings.
-      if (
-        resumingSavedMessage &&
-        conversation$?.data.log.get().at(-1)?.timestamp !== userMessage.timestamp
-      ) {
+      const log = conversation$?.data.log.get() ?? [];
+      const index = log.findIndex((message) => message.timestamp === userMessage.timestamp);
+      // The persisted diagnostic for this refusal is not a newer turn. Keep
+      // it in history, but withhold Retry for any unrelated/newer activity.
+      const onlyRefusalDiagnostics =
+        index >= 0 &&
+        log
+          .slice(index + 1)
+          .every(
+            (message) =>
+              message.role === 'system' &&
+              Boolean(userMessage._error) &&
+              message.content === `Error: ${userMessage._error}`
+          );
+      if (resumingSavedMessage && !onlyRefusalDiagnostics) {
         throw new Error(
           'Conversation has moved on. Resend this prompt as a new message, or use Edit and regenerate to explicitly rerun the earlier turn.'
         );
@@ -841,6 +856,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       // positional-mutation guard.
       if (
         !requeueOnBusy &&
+        !resumingSavedMessage &&
         userMessage.timestamp &&
         (conversations$.get(conversationId)?.data.log.get() ?? []).some(
           (entry) => entry.timestamp !== userMessage.timestamp
@@ -1055,9 +1071,11 @@ export function useConversation(conversationId: string, serverId?: string) {
         current._retry.persistence === 'unknown'
       )
         return;
+      // Snapshot the refusal diagnostic before clearing the observable error.
+      const retryMessage = { ...current };
       setMessageStatus(conversationId, failedMessage.timestamp!, 'pending', '');
       await sendOrResumeMessage(
-        current,
+        retryMessage,
         current._retry.options,
         epoch,
         current._retry.persistence === 'saved',

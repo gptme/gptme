@@ -5,6 +5,7 @@ import { getClientForServer } from '@/stores/serverClients';
 import { conversations$, initConversation, setConnectionStatus } from '@/stores/conversations';
 import { useConversation } from '../useConversation';
 import { ApiClientError } from '@/utils/api';
+import type { Message } from '@/types/conversation';
 import { request } from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -49,6 +50,7 @@ describe('useConversation', () => {
     | {
         onConnected?: () => void;
         onMessageStart?: () => void;
+        onMessageAdded?: (message: Message) => void;
         onStepComplete?: () => void;
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
         onToolExecuting?: (id: string) => void;
@@ -1106,41 +1108,88 @@ describe('useConversation', () => {
     expect(oldOwnerClose).toHaveBeenCalledWith('shared-id');
   });
 
-  it('keeps a refused generation visible on the user message it belongs to', async () => {
+  it.each([false, true])(
+    'keeps a refusal retryable after a system error event (%s)',
+    async (systemError) => {
+      conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+      // The event stream is subscribed when a message starts a generation, so
+      // send once first; onError then covers the failure that arrives mid-turn.
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Hello' });
+      });
+      mockToast.mockClear();
+
+      // What the server forwards for an HTTP 402 from the LLM gateway: the
+      // provider string, with no hint about what the user should do next.
+      const providerError = 'Error code: 402 - Payment required';
+
+      expect(eventHandlers).toBeDefined();
+      act(() => {
+        // Keep the user identity distinct from the streaming placeholder's clock.
+        const log$ = conversations$.get('chat-placeholder')!.data.log;
+        log$[log$.get().length - 1].timestamp.set('2026-11-18T15:59:00Z');
+        eventHandlers!.onMessageStart!();
+        if (systemError) {
+          eventHandlers!.onMessageAdded!({
+            role: 'system',
+            content: `Error: ${providerError}`,
+            timestamp: '2026-11-18T16:00:00Z',
+          });
+        }
+        eventHandlers!.onError!(providerError);
+      });
+
+      const log = conversations$.get('chat-placeholder')!.data.log.get();
+      const last = log.find((message) => message.content === 'Hello')!;
+      // The failure stays attached to the message that triggered it, so it
+      // survives toast dismissal and a reload, instead of vanishing with the
+      // discarded empty assistant bubble.
+      expect(last.role).toBe('user');
+      expect(last._status).toBe('failed');
+      expect(last._error).toBe(providerError);
+
+      // The toast is classified rather than labelled a generic "Error".
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'destructive',
+          title: 'Payment required',
+          description: providerError,
+        })
+      );
+      await act(async () => {
+        await result.current.retryMessage(last);
+      });
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      expect(step).toHaveBeenCalledTimes(2);
+      expect(
+        conversations$
+          .get('chat-placeholder')!
+          .data.log.get()
+          .map((message) => message.content)
+      ).toEqual(log.map((message) => message.content));
+      expect(
+        conversations$
+          .get('chat-placeholder')!
+          .data.log.get()
+          .find((message) => message.content === 'Hello')?._status
+      ).toBe('sent');
+    }
+  );
+
+  it('does not mark a saved prompt failed when the event stream loses its connection', async () => {
     conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
     const { result } = renderHook(() => useConversation('chat-placeholder'));
-
-    // The event stream is subscribed when a message starts a generation, so
-    // send once first; onError then covers the failure that arrives mid-turn.
     await act(async () => {
-      await result.current.sendMessage({ message: 'Hello' });
+      await result.current.sendMessage({ message: 'Still generating' });
     });
-    mockToast.mockClear();
-
-    // What the server forwards for an HTTP 402 from the LLM gateway: the
-    // provider string, with no hint about what the user should do next.
-    const providerError = 'Error code: 402 - Payment required';
-
     act(() => {
-      eventHandlers?.onError?.(providerError);
+      eventHandlers!.onError!('Connection lost and max reconnects reached');
     });
-
-    const log = conversations$.get('chat-placeholder')!.data.log.get();
-    const last = log.at(-1)!;
-    // The failure stays attached to the message that triggered it, so it
-    // survives toast dismissal and a reload, instead of vanishing with the
-    // discarded empty assistant bubble.
-    expect(last.role).toBe('user');
-    expect(last._status).toBe('failed');
-    expect(last._error).toBe(providerError);
-
-    // The toast is classified rather than labelled a generic "Error".
-    expect(mockToast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: 'destructive',
-        title: 'Payment required',
-        description: providerError,
-      })
-    );
+    expect(conversations$.get('chat-placeholder')!.data.log.get().at(-1)).toMatchObject({
+      content: 'Still generating',
+      _status: 'sent',
+    });
   });
 });

@@ -1905,6 +1905,16 @@ export class ApiClient {
         try {
           await this.sendMessage(conversationId, attachedMessage);
           attachedMessage._status = 'sent';
+          attachedMessage._retry = {
+            persistence: 'saved',
+            options: {
+              model: options?.model,
+              stream: options?.stream,
+              maxTokens: options?.maxTokens,
+              temperature: options?.temperature,
+              topP: options?.topP,
+            },
+          };
           replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
           saved = true;
         } catch (error) {
@@ -1963,6 +1973,21 @@ export class ApiClient {
             reasoning_effort: options?.reasoningEffort,
             stream: options?.stream,
             workspace: requestWorkspace(options?.workspace),
+          },
+        });
+        // Only a confirmed save permits Retry without risking a duplicate POST.
+        replaceMessageByTimestamp(conversationId, message.timestamp!, {
+          ...message,
+          _status: 'sent',
+          _retry: {
+            persistence: 'saved',
+            options: {
+              model: options?.model,
+              stream: options?.stream,
+              maxTokens: options?.maxTokens,
+              temperature: options?.temperature,
+              topP: options?.topP,
+            },
           },
         });
       }
