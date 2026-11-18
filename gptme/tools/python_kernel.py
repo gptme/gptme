@@ -1201,25 +1201,54 @@ def _monotonic() -> float:
 
 
 # ---------------------------------------------------------------------------
-# Module-level backend singleton
+# Backends persist across request contexts, isolated by server conversation.
+# None retains the historical process-level backend for CLI callers.
 # ---------------------------------------------------------------------------
 
-_backend: KernelBackend | None = None
+_backends: dict[str | None, KernelBackend] = {}
+_backend_choices: dict[str, bool] = {}
+_backends_lock = threading.Lock()
 
 
 def get_backend() -> KernelBackend:
-    global _backend
-    if _backend is None:
-        _backend = KernelBackend()
-    return _backend
+    from ..hooks import current_conversation_id
+
+    conversation_id = current_conversation_id.get()
+    with _backends_lock:
+        backend = _backends.get(conversation_id)
+        if backend is None:
+            backend = KernelBackend()
+            _backends[conversation_id] = backend
+        return backend
+
+
+def get_backend_choice(conversation_id: str) -> bool | None:
+    """Return a server conversation's frozen backend choice, if it has run a cell."""
+    with _backends_lock:
+        return _backend_choices.get(conversation_id)
+
+
+def freeze_backend_choice(conversation_id: str, use_kernel: bool) -> bool:
+    """Keep the first cell's backend choice until conversation eviction."""
+    with _backends_lock:
+        return _backend_choices.setdefault(conversation_id, use_kernel)
+
+
+def detach_backend(conversation_id: str | None) -> KernelBackend | None:
+    """Detach a backend so its owner can shut it down outside lifecycle locks."""
+    with _backends_lock:
+        if conversation_id is not None:
+            _backend_choices.pop(conversation_id, None)
+        return _backends.pop(conversation_id, None)
 
 
 def reset_backend() -> None:
-    """Shut down and discard the current backend (for tests / clean shutdown)."""
-    global _backend
-    if _backend is not None:
+    """Shut down and discard this context's conversation backend (or CLI backend)."""
+    from ..hooks import current_conversation_id
+
+    backend = detach_backend(current_conversation_id.get())
+    if backend is not None:
         try:
-            _backend.shutdown()
+            backend.shutdown()
         except Exception:
             pass
-        _backend = None

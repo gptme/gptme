@@ -1030,6 +1030,7 @@ class SessionManager:
         lock, is not evicted.
         """
         from ..dirs import get_logs_dir
+        from ..tools.python_kernel import detach_backend
         from ..tools.todo import clear_conversation_todos
         from ..util.cost_tracker import CostTracker, session_id_for_logdir
 
@@ -1047,6 +1048,20 @@ class SessionManager:
             # Like cost windows, todo stores belong to the conversation, not
             # the removed session. Serialize eviction with create/attach_client.
             clear_conversation_todos(logdir)
+            # Detach while create/attach_client is excluded, but shut down the
+            # process and bridge outside the manager's lock. A reconnect can
+            # create a new backend without the old shutdown removing it.
+            backend = detach_backend(conversation_id)
+
+        if backend is not None:
+            try:
+                backend.shutdown()
+            except Exception:
+                logger.warning(
+                    "Failed to shut down Python kernel for %s",
+                    conversation_id,
+                    exc_info=True,
+                )
 
     @classmethod
     def remove_all_sessions_for_conversation(cls, conversation_id: str) -> None:

@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from ..constants import DECLINED_CONTENT
-from ..hooks import ConfirmAction, get_confirmation
+from ..hooks import ConfirmAction, current_conversation_id, get_confirmation
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.interrupt import (
@@ -95,6 +95,19 @@ _kernel_mode_cache_key: tuple[str, str | None] | None = None
 _kernel_mode_frozen = False
 
 
+def _project_kernel_available() -> bool:
+    """Probe project markers and the optional kernel dependencies."""
+    from .python_kernel import KernelBackend
+
+    has_venv = _detect_venv() is not None
+    is_uv = KernelBackend._is_uv_project()
+    available = all(
+        importlib.util.find_spec(name) is not None
+        for name in ("jupyter_client", "ipykernel")
+    )
+    return (has_venv or is_uv) and available
+
+
 def _should_use_kernel() -> bool:
     """Return True if cells should run in a separate Jupyter kernel process.
 
@@ -111,6 +124,12 @@ def _should_use_kernel() -> bool:
     if _IPYTHON_BACKEND == "inprocess":
         return False
 
+    if conversation_id := current_conversation_id.get():
+        from .python_kernel import get_backend_choice
+
+        choice = get_backend_choice(conversation_id)
+        return choice if choice is not None else _project_kernel_available()
+
     # auto mode: once a cell has run, keep the backend stable even if the
     # working directory later changes.
     if _kernel_mode_frozen:
@@ -122,17 +141,7 @@ def _should_use_kernel() -> bool:
     # uv-managed project (uv.lock / [tool.uv]).
     cache_key = (os.getcwd(), os.environ.get("VIRTUAL_ENV"))
     if _kernel_mode_cache is None or _kernel_mode_cache_key != cache_key:
-        from .python_kernel import KernelBackend
-
-        has_venv = _detect_venv() is not None
-        is_uv = KernelBackend._is_uv_project()
-        # Auto mode must not break installations without the optional extra.
-        # Both are needed for the host's default-kernel fallback as well.
-        available = all(
-            importlib.util.find_spec(name) is not None
-            for name in ("jupyter_client", "ipykernel")
-        )
-        _kernel_mode_cache = (has_venv or is_uv) and available
+        _kernel_mode_cache = _project_kernel_available()
         _kernel_mode_cache_key = cache_key
         if _kernel_mode_cache:
             logger.info("Auto-activating kernel backend: project environment detected")
@@ -144,7 +153,7 @@ def _should_use_kernel() -> bool:
 
 
 def _resolve_kernel_backend() -> bool:
-    """Return the backend for a cell and freeze the choice for the process.
+    """Return the backend for a cell and freeze the choice for its conversation.
 
     ``execute_python`` calls this instead of ``_should_use_kernel`` so that
     once the first cell runs, a later ``os.chdir`` cannot flip backends and
@@ -152,6 +161,10 @@ def _resolve_kernel_backend() -> bool:
     """
     global _kernel_mode_frozen
     use_kernel = _should_use_kernel()
+    if conversation_id := current_conversation_id.get():
+        from .python_kernel import freeze_backend_choice
+
+        return freeze_backend_choice(conversation_id, use_kernel)
     _kernel_mode_frozen = True
     return use_kernel
 
