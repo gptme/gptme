@@ -3790,6 +3790,52 @@ class TestWorkdir:
         assert isinstance(exec_calls[0], Path)
         assert exec_calls[0] == workspace_dir.resolve()
 
+    def _spawn_in_session(self, monkeypatch, tmp_path, session_ws, agent_id, **kw):
+        """Spawn from a server-style session whose workspace is not the process cwd."""
+        import contextvars
+        from pathlib import Path
+
+        from gptme.tools.shell import set_workspace_cwd
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir(exist_ok=True)
+        monkeypatch.chdir(elsewhere)  # as after another conversation's chdir
+
+        exec_calls: list[Path | None] = []
+
+        def run():
+            set_workspace_cwd(str(session_ws))
+            self._spawn_and_wait(monkeypatch, tmp_path, agent_id, exec_calls, **kw)
+
+        contextvars.copy_context().run(run)
+        return exec_calls
+
+    def test_workdir_none_uses_session_workspace(self, monkeypatch, tmp_path):
+        """workdir=None defaults to the conversation's workspace, not the process cwd."""
+        session_ws = tmp_path / "session"
+        session_ws.mkdir()
+
+        exec_calls = self._spawn_in_session(
+            monkeypatch, tmp_path, session_ws, "session-default", workdir=None
+        )
+
+        assert exec_calls == [session_ws.resolve()]
+
+    def test_relative_workdir_resolves_in_session_workspace(
+        self, monkeypatch, tmp_path
+    ):
+        """A relative workdir is anchored at the conversation's workspace."""
+        session_ws = tmp_path / "session"
+        (session_ws / "sub").mkdir(parents=True)
+        # Same name under the process cwd: resolving there would silently pick it.
+        (tmp_path / "elsewhere" / "sub").mkdir(parents=True)
+
+        exec_calls = self._spawn_in_session(
+            monkeypatch, tmp_path, session_ws, "session-relative", workdir="sub"
+        )
+
+        assert exec_calls == [(session_ws / "sub").resolve()]
+
     def test_workdir_validated_in_planner_mode(self, monkeypatch, tmp_path):
         """workdir is validated before the planner branch — a bad path raises."""
         import importlib
