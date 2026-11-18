@@ -114,7 +114,7 @@ from ..util.gh import (
     transform_github_url,
 )
 from ._url_safety import _validate_url_scheme
-from .base import ToolFunction, ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse, current_workspace
 
 _MAX_REDIRECT_HOPS = 10
 
@@ -238,8 +238,9 @@ def pdf_to_images(
     Auto-detects and uses the first available tool: pdftoppm, ImageMagick convert, or vips.
 
     Args:
-        url_or_path: URL or local path to PDF file
-        output_dir: Directory to save images (default: creates temp directory)
+        url_or_path: URL or local path to PDF file (relative to the session workspace)
+        output_dir: Directory to save images, relative to the session workspace
+                    (default: creates temp directory)
         pages: Optional tuple of (first_page, last_page) to convert (1-indexed).
                If None, converts all pages.
         dpi: Resolution for output images (default: 150)
@@ -259,12 +260,14 @@ def pdf_to_images(
     import atexit
     import tempfile
 
+    workspace = current_workspace()
+
     # Determine output directory
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="pdf_images_"))
         atexit.register(shutil.rmtree, str(output_dir), True)
     else:
-        output_dir = Path(output_dir)
+        output_dir = workspace / Path(output_dir).expanduser()
         output_dir.mkdir(parents=True, exist_ok=True)
 
     # Download PDF if URL. Case-insensitive http(s) only; local paths stay
@@ -287,7 +290,7 @@ def pdf_to_images(
         pdf_path = output_dir / "input.pdf"
         pdf_path.write_bytes(response.content)
     else:
-        pdf_path = Path(url_or_path).expanduser()
+        pdf_path = workspace / Path(url_or_path).expanduser()
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 

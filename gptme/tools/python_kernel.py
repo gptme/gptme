@@ -273,12 +273,19 @@ class BridgeServer:
                 try:
                     from gptme.message import Message
 
+                    from .base import current_workspace
+
                     # Helpers run in the host process: never change its global cwd
-                    # for work that can outlive an interrupted kernel cell.
+                    # for work that can outlive an interrupted kernel cell. They
+                    # resolve relative paths in the cell's session workspace, so
+                    # the kernel must still be in that directory.
                     with self._call_lock:
+                        kernel_cwd = call.get("cwd")
                         if (
                             fn_name != "_gptme_deliver_messages"
-                            and call.get("cwd", os.getcwd()) != os.getcwd()
+                            and kernel_cwd is not None
+                            and Path(kernel_cwd).resolve()
+                            != self.cell_context.run(current_workspace)
                         ):
                             raise RuntimeError(
                                 "Bridge helper working directory differs from the host; "
@@ -912,9 +919,13 @@ class KernelBackend:
         """Execute a code cell and return captured outputs; None disables timeout."""
         self._ensure_started()
 
+        from .base import current_workspace
+
         # A previous cell may itself have used %cd/os.chdir, so synchronize on
-        # every execution, not only when the host directory changes.
-        cwd = os.getcwd()
+        # every execution, not only when the host directory changes. Use the
+        # session workspace, not the process cwd: a server shares one process
+        # (and one cwd) across conversations.
+        cwd = str(current_workspace())
         self._exec_silent(
             f"import os as _gptme_os; _gptme_os.chdir({cwd!r})",
             timeout=5,
