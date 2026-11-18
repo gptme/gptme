@@ -118,7 +118,7 @@ class TestDocsLessonsParsing:
 
         lesson = git_lessons[0]
         assert lesson.category == "workflows"
-        assert "git" in lesson.metadata.keywords
+        assert "git commit" in lesson.metadata.keywords
 
 
 class TestDocsLessonsMatching:
