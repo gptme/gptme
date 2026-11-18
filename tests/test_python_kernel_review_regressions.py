@@ -93,6 +93,55 @@ def test_helpers_run_from_session_workspace(
     assert result.result_text == repr("helper ran")
 
 
+@pytest.mark.parametrize("relative_input", [True, False])
+@pytest.mark.parametrize("relative_output", [True, False])
+def test_pdf_helper_uses_session_workspace(
+    backend: KernelBackend,
+    session_workspace: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative_input: bool,
+    relative_output: bool,
+) -> None:
+    """PDF inputs and outputs must follow the cell, not another session's cwd."""
+    from gptme.tools import browser as browser_tool
+
+    own_pdf = session_workspace / "report.pdf"
+    other_pdf = tmp_path / "report.pdf"
+    other_pdf.write_bytes(b"another session's PDF")
+    output_dir = session_workspace / "images"
+
+    def convert(
+        pdf_path: Path,
+        output_prefix: Path,
+        pages: tuple[int, int] | None,
+        dpi: int,
+    ) -> list[Path]:
+        assert pdf_path.read_bytes() == b"this session's PDF"
+        image = output_prefix.with_name("page-1.png")
+        image.write_bytes(b"converted image")
+        return [image]
+
+    monkeypatch.setattr(browser_tool, "_has_pdftoppm", lambda: True)
+    monkeypatch.setattr(browser_tool, "_convert_with_pdftoppm", convert)
+    backend.register_bridge_function(browser_tool.pdf_to_images)
+    source = "report.pdf" if relative_input else str(own_pdf)
+    destination = "images" if relative_output else str(output_dir)
+    result = _in_session(
+        session_workspace,
+        lambda: backend.execute(
+            "from pathlib import Path\n"
+            "Path('report.pdf').write_bytes(b\"this session's PDF\")\n"
+            f"str(pdf_to_images({source!r}, output_dir={destination!r})[0])"
+        ),
+    )
+    assert result.error is None, result.error
+    assert result.result_text == repr(str(output_dir / "page-1.png"))
+    assert (output_dir / "page-1.png").read_bytes() == b"converted image"
+    assert other_pdf.read_bytes() == b"another session's PDF"
+    assert not (tmp_path / "images").exists()
+
+
 @pytest.mark.parametrize("operation", ["save", "load"])
 def test_browser_state_uses_session_workspace(
     backend: KernelBackend,
