@@ -37,9 +37,10 @@ import tempfile
 import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from logging import getLogger
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..constants import DECLINED_CONTENT
 from ..hooks import ConfirmAction, current_conversation_id, get_confirmation
@@ -77,6 +78,13 @@ logger = getLogger(__name__)
 
 # "auto" | "kernel" | "inprocess"
 _IPYTHON_BACKEND = os.environ.get("GPTME_IPYTHON_BACKEND", "auto").lower()
+
+# In-process backend state. CLI sessions share the process-global `_ipython`;
+# server conversations get one shell each, held in `_conversation_ipython` so
+# SESSION_END can drop it. `_ipython_var` is the context-local handle.
+_ipython_var: ContextVar[Any | None] = ContextVar("ipython_shell", default=None)
+_conversation_ipython: dict[str, Any] = {}
+_conv_ipython_lock = threading.Lock()
 
 # Cached result of auto-detection; None means not yet determined.
 _kernel_mode_cache: bool | None = None
@@ -490,37 +498,77 @@ def _setup_venv_paths(env_only: bool = False) -> None:
         logger.info("Added user venv site-packages to sys.path: %s", sp_resolved)
 
 
-def _get_ipython():
-    global _ipython
+def _new_ipython():
+    """Build a fresh in-process IPython shell with the registered functions."""
+    from IPython.core.displayhook import DisplayHook
     from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
 
-    if _ipython is None:
-        from IPython.core.displayhook import DisplayHook
+    class ResultDisplayHook(DisplayHook):
+        """Collect results without writing them; the caller renders them once."""
 
-        class ResultDisplayHook(DisplayHook):
-            """Collect results without writing them; the caller renders them once."""
+        def write_output_prompt(self) -> None:
+            pass
 
-            def write_output_prompt(self) -> None:
-                pass
+        def write_format_data(
+            self, format_dict: dict, md_dict: dict | None = None
+        ) -> None:
+            pass
 
-            def write_format_data(
-                self, format_dict: dict, md_dict: dict | None = None
-            ) -> None:
-                pass
+        def finish_displayhook(self) -> None:
+            pass
 
-            def finish_displayhook(self) -> None:
-                pass
+    _setup_venv_paths()
 
-        _setup_venv_paths()
+    # Disable colors in IPython to avoid ANSI escape codes in output
+    # Note: We set IPython's colors mode directly rather than using NO_COLOR
+    # globally, as that would affect other parts of the application (like Rich)
+    shell = InteractiveShell(displayhook_class=ResultDisplayHook)
+    shell.colors = "NoColor"
+    shell.push(registered_functions)
+    return shell
 
-        # Disable colors in IPython to avoid ANSI escape codes in output
-        # Note: We set IPython's colors mode directly rather than using NO_COLOR
-        # globally, as that would affect other parts of the application (like Rich)
-        _ipython = InteractiveShell(displayhook_class=ResultDisplayHook)
-        _ipython.colors = "NoColor"
-        _ipython.push(registered_functions)
 
-    return _ipython
+def _get_ipython():
+    """Return the in-process IPython shell for this context.
+
+    The server serves several conversations from one process. A single shared
+    ``InteractiveShell`` let a name defined in one conversation resolve in
+    another (gptme/gptme#4951), so each conversation gets its own shell. CLI
+    sessions have no conversation id and keep the process-global shell, which
+    is what ``chat()`` and the ``gptme`` REPL expect.
+
+    The working directory is still process-wide: ``os.chdir`` cannot be scoped
+    to a shell, so in-process cells that depend on a relative cwd are only
+    isolated in kernel mode.
+    """
+    from ..hooks import current_conversation_id  # avoid an import cycle
+
+    conversation_id = current_conversation_id.get()
+    if conversation_id is None:
+        global _ipython
+        if _ipython is None:
+            _ipython = _new_ipython()
+        return _ipython
+
+    shell = _ipython_var.get()
+    if shell is None:
+        with _conv_ipython_lock:
+            shell = _conversation_ipython.get(conversation_id)
+            if shell is None:
+                shell = _new_ipython()
+                _conversation_ipython[conversation_id] = shell
+        _ipython_var.set(shell)
+    return shell
+
+
+def reset_conversation_ipython(conversation_id: str) -> None:
+    """Drop a finished conversation's in-process shell.
+
+    Keeps a long-lived server from retaining one ``InteractiveShell`` (and
+    everything its namespace holds) per conversation that ever ran Python.
+    """
+    with _conv_ipython_lock:
+        _conversation_ipython.pop(conversation_id, None)
 
 
 def _open_spill_file(label: str) -> "PrivateOutputFile | None":
@@ -876,8 +924,10 @@ def execute_python(
     # Create an IPython instance if it doesn't exist yet
     _ipython = _get_ipython()
 
-    # Snapshot image files before execution so we can detect newly created plots
-    cwd = Path.cwd()
+    # Snapshot image files before execution so we can detect newly created plots.
+    # Use the session workspace: with several server conversations in one
+    # process the process cwd belongs to whichever conversation chdir'd last.
+    cwd = current_workspace()
     pre_images = _snapshot_images(cwd)
 
     # Capture and display output in real-time
