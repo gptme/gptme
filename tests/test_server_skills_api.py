@@ -66,3 +66,35 @@ def test_skills_endpoint_lists_skills_with_reputation(
     assert by_name["deploy-checklist"]["reputation"]["score"] is None
     assert by_name["deploy-checklist"]["reputation"]["band"] == "neutral"
     assert by_name["deploy-checklist"]["reputation"]["band_label"] == "Unproven"
+
+
+def test_default_reputation_index_path_follows_the_session_workspace(
+    tmp_path, monkeypatch
+) -> None:
+    """The default index must not live under whichever cwd the process has.
+
+    A server serves several conversations and ``os.chdir``s the whole process
+    for a conversation with one or no user messages, so ``Path.cwd()`` names
+    another conversation's workspace.
+    """
+    import contextvars
+
+    from gptme.server.skills_api import _default_reputation_index_path
+    from gptme.tools.shell import set_workspace_cwd
+
+    monkeypatch.delenv("GPTME_SKILL_REPUTATION_INDEX", raising=False)
+    workspace = tmp_path / "conversation"
+    workspace.mkdir()
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    monkeypatch.chdir(foreign)
+
+    ctx = contextvars.copy_context()
+    ctx.run(set_workspace_cwd, str(workspace))
+
+    path = ctx.run(_default_reputation_index_path)
+    assert path.is_relative_to(workspace)
+    assert not path.is_relative_to(foreign)
+
+    # Without a session workspace (CLI), the process cwd is the anchor.
+    assert _default_reputation_index_path().is_relative_to(foreign)

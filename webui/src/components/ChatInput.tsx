@@ -21,6 +21,8 @@ import {
   useRef,
   useId,
   useCallback,
+  useImperativeHandle,
+  type Ref,
   type FC,
   type Dispatch,
   type FormEvent,
@@ -90,7 +92,13 @@ export interface ChatOptions {
   topP?: number;
 }
 
+export interface ChatInputHandle {
+  /** Submit only if the composer still displays this host-provided seed. */
+  submitSeed: (expectedMessage: string) => void;
+}
+
 interface Props {
+  ref?: Ref<ChatInputHandle>;
   conversationId?: string;
   /** Server that owns the conversation; defaults to the primary server. */
   serverId?: string;
@@ -483,7 +491,7 @@ const SubmitButton: FC<{ isBusy: boolean; isDisabled: boolean; hasText: boolean 
           ? 'animate-[pulse_1s_ease-in-out_infinite] bg-red-600 px-3 text-white hover:bg-red-700'
           : showQueue
             ? 'bg-blue-600 px-3 text-white hover:bg-blue-700'
-            : 'w-7 bg-green-600 p-0 text-green-100'
+            : 'w-7 bg-primary p-0 text-primary-foreground hover:bg-primary/90'
       }`}
       disabled={!canSubmit}
       aria-label={showStop ? 'Stop generation' : showQueue ? 'Queue message' : 'Send message'}
@@ -638,6 +646,7 @@ export const ChatInput: FC<Props> = ({
   onInterrupt,
   isReadOnly,
   defaultModel = '',
+  ref,
   autoFocus$,
   value,
   onChange,
@@ -1234,6 +1243,16 @@ export const ChatInput: FC<Props> = ({
       }
     }
   };
+
+  // Host auto-send uses exactly the same settings, attachments and draft cleanup
+  // as Enter. Never submit a seed that has since been edited or replaced.
+  useImperativeHandle(ref, () => ({
+    submitSeed: (expectedMessage) => {
+      if (message === expectedMessage && isConnected && !isReadOnly && !editMode) {
+        void submitMessage();
+      }
+    },
+  }));
 
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault();
