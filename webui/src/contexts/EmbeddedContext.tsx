@@ -15,6 +15,7 @@ import {
   parseEmbeddedContextMessage,
   parseSeedPromptMessage,
   type EmbeddedMenuItem,
+  type SeedPrompt,
 } from '@/lib/embeddedContext';
 import { isEmbeddedMode } from '@/utils/viteEnv';
 
@@ -24,7 +25,7 @@ interface EmbeddedContextValue {
   parentOrigin: string | null;
   sendAction: (action: string, itemId?: string) => void;
   /** Returns the pending seed prompt and clears it (one-shot). */
-  consumeSeedPrompt: () => string | null;
+  consumeSeedPrompt: () => SeedPrompt | null;
 }
 
 const EmbeddedContext = createContext<EmbeddedContextValue>({
@@ -42,7 +43,7 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
   // Ref so the message handler closure always reads the latest confirmed origin
   const parentOriginRef = useRef<string | null>(null);
   // State so consumers re-render when the seed arrives (ref alone would miss late arrivals)
-  const [seedPrompt, setSeedPrompt] = useState<string | null>(null);
+  const [seedPrompt, setSeedPrompt] = useState<SeedPrompt | null>(null);
 
   useEffect(() => {
     if (!isEmbedded || typeof window === 'undefined') {
@@ -121,7 +122,7 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
     };
   }, [isEmbedded]);
 
-  const consumeSeedPrompt = useCallback((): string | null => {
+  const consumeSeedPrompt = useCallback((): SeedPrompt | null => {
     const prompt = seedPrompt;
     setSeedPrompt(null);
     return prompt;
