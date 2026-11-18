@@ -383,9 +383,8 @@ def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
     for verb, arguments in get_tmux_operations(tool_use) or []:
         directory: Path | None
         if verb == "new-session":
-            # new-session starts bash from the cwd of the shell that launched
-            # the tmux client — the session workspace — not the server's
-            # process cwd, which belongs to whichever conversation last chdir'd.
+            # new_session passes this workspace explicitly via tmux's -c option;
+            # the server process cwd may belong to a different conversation.
             from ..tools.base import current_workspace  # tools import hooks
 
             text = arguments
