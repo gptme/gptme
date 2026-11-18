@@ -182,3 +182,57 @@ def test_json_flag_prints_the_response():
         get.return_value = _resp(200, {"id": RUN, "status": "running"})
         res = _invoke(["status", RUN, "--json"])
     assert json.loads(res.output) == {"id": RUN, "status": "running"}
+
+
+def test_fetch_replaces_a_symlink_instead_of_writing_through_it(tmp_path):
+    victim = tmp_path / "victim"
+    victim.write_text("keep")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "patch").symlink_to(victim)
+    good = b"diff\n"
+    listing = {
+        "artifacts": [
+            {
+                "name": "patch",
+                "status": "available",
+                "url": "https://signed.example/p",
+                "sha256": hashlib.sha256(good).hexdigest(),
+            }
+        ]
+    }
+    with patch("requests.get") as get:
+        get.side_effect = [_resp(200, listing), _resp(200, content=good)]
+        res = _invoke(["fetch", RUN, "--out", str(out)])
+    assert res.exit_code == 0, res.output
+    assert victim.read_text() == "keep"
+    assert not (out / "patch").is_symlink()
+    assert (out / "patch").read_bytes() == good
+
+
+@pytest.mark.parametrize("sha", [None, "", "abc", 12])
+def test_fetch_refuses_artifacts_without_a_valid_checksum(tmp_path, sha):
+    listing = {
+        "artifacts": [
+            {
+                "name": "patch",
+                "status": "available",
+                "url": "https://signed.example/p",
+                "sha256": sha,
+            }
+        ]
+    }
+    with patch("requests.get") as get:
+        get.side_effect = [_resp(200, listing), _resp(200, content=b"x")]
+        res = _invoke(["fetch", RUN, "--out", str(tmp_path)])
+    assert res.exit_code == 1
+    assert "no valid sha256" in res.output
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("poll", ["-1", "0", "nan", "inf"])
+def test_bad_poll_is_rejected_before_a_run_is_created(poll):
+    with patch("requests.post") as post:
+        res = _invoke(["run", "p", "--wait", "--poll", poll])
+    assert res.exit_code == 2
+    post.assert_not_called()

@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import os
 import re
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -38,6 +41,7 @@ TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "expired"})
 
 _RUN_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _AUTH_HINTS = {
     "token_expired": "token expired: mint a new personal access token",
@@ -88,6 +92,19 @@ def _check_run_id(run_id: str) -> str:
 
 def _emit(data: dict[str, Any], as_json: bool, line: str) -> None:
     click.echo(json.dumps(data, indent=2) if as_json else line)
+
+
+def _write_replacing(dest: Path, content: bytes) -> None:
+    """Write via a temp file and rename, so an existing symlink at ``dest`` is
+    replaced rather than followed (a plain write would overwrite its target)."""
+    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".gptme-cloud-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        os.replace(tmp, dest)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 class _Client:
@@ -188,6 +205,9 @@ def run_cmd(
     """Start a run. With --wait, block until it reaches a terminal status."""
     if ref and not repo:
         raise click.UsageError("--ref needs --repo")
+    # Before create: a bad local option must not leave a billable run behind.
+    if not math.isfinite(poll_seconds) or poll_seconds <= 0:
+        raise click.UsageError("--poll must be a positive number of seconds")
     body: dict[str, Any] = {"prompt": prompt}
     if model:
         body["model"] = model
@@ -281,12 +301,16 @@ def fetch_cmd(ctx: click.Context, run_id: str, out: Path) -> None:
             click.echo(f"{name}: download failed ({resp.status_code})", err=True)
             problems += 1
             continue
-        digest = hashlib.sha256(resp.content).hexdigest()
-        if art.get("sha256") and digest != art["sha256"]:
+        expected = art.get("sha256")
+        if not isinstance(expected, str) or not _SHA256_RE.match(expected):
+            click.echo(f"{name}: no valid sha256 from server, not written", err=True)
+            problems += 1
+            continue
+        if hashlib.sha256(resp.content).hexdigest() != expected:
             click.echo(f"{name}: checksum mismatch, not written", err=True)
             problems += 1
             continue
-        (out / name).write_bytes(resp.content)
+        _write_replacing(out / name, resp.content)
         click.echo(f"{out / name} ({len(resp.content)} bytes)")
     if data.get("dirty"):
         click.echo("note: the agent left uncommitted changes", err=True)
