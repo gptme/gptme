@@ -656,6 +656,11 @@ class KernelBackend:
 
         project_python = self._find_project_python()
         extra_env: dict[str, str] = {}
+        virtual_env = os.environ.get("VIRTUAL_ENV")
+        if virtual_env and not os.path.isabs(virtual_env):
+            # uv --active must select the same environment we probed before
+            # changing the subprocess cwd to the session workspace.
+            extra_env = {**os.environ, "VIRTUAL_ENV": os.path.abspath(virtual_env)}
 
         self._km = KernelManager()
         # Snapshot the default launch command so a failed uv-based launch can

@@ -412,7 +412,9 @@ def _detect_venv(env_only: bool = False) -> Path | None:
     # Check VIRTUAL_ENV env var (set by `source .venv/bin/activate`)
     virtual_env = os.environ.get("VIRTUAL_ENV")
     if virtual_env:
-        venv_path = Path(virtual_env)
+        # Keep the explicit environment anchored to the host cwd even when a
+        # kernel subprocess starts in a different session workspace.
+        venv_path = Path(virtual_env).absolute()
         if venv_path.is_dir():
             return venv_path
 

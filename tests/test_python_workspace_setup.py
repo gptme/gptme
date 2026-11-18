@@ -1,7 +1,9 @@
 """Python setup must use the caller's workspace while the host cwd stays put."""
 
+import os
+import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -72,14 +74,59 @@ def test_sandbox_receives_session_workspace(directories: tuple[Path, Path]) -> N
     assert Path.cwd() == host
 
 
+@pytest.mark.parametrize("has_ipykernel", [True, False])
+def test_relative_active_venv_is_preserved_at_kernel_launch(
+    directories: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    has_ipykernel: bool,
+) -> None:
+    pytest.importorskip("jupyter_client")
+    host, workspace = directories
+    active = host / ".venv"
+    python = active / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    # A competing workspace environment must never replace the explicit one.
+    (workspace / ".venv").mkdir()
+    monkeypatch.setenv("VIRTUAL_ENV", ".venv")
+    manager = MagicMock()
+    manager.kernel_spec.argv = ["default-python", "-m", "ipykernel_launcher"]
+    with (
+        patch("jupyter_client.KernelManager", return_value=manager),
+        patch.object(
+            KernelBackend, "_has_ipykernel", return_value=has_ipykernel
+        ) as probe,
+        patch.object(KernelBackend, "_find_uv", return_value="/usr/bin/uv"),
+        patch.object(KernelBackend, "_exec_silent"),
+    ):
+        backend = KernelBackend()
+        try:
+            backend._ensure_started()
+            probe.assert_called_once_with(str(python))
+            kwargs = manager.start_kernel.call_args.kwargs
+            assert kwargs["cwd"] == str(workspace)
+            if has_ipykernel:
+                assert manager.kernel_spec.argv[0] == str(python)
+            else:
+                assert manager.kernel_spec.argv[:2] == ["/usr/bin/uv", "run"]
+                assert kwargs["env"]["VIRTUAL_ENV"] == str(active)
+            assert Path.cwd() == host
+        finally:
+            backend.shutdown()
+
+
+@pytest.mark.parametrize("relative_active_env", [False, True])
 def test_kernel_starts_in_session_workspace(
     directories: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
+    relative_active_env: bool,
 ) -> None:
     pytest.importorskip("jupyter_client")
     pytest.importorskip("ipykernel")
     monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
     host, workspace = directories
+    if relative_active_env:
+        monkeypatch.setenv("VIRTUAL_ENV", os.path.relpath(sys.prefix, host))
     backend = KernelBackend()
     try:
         backend._ensure_started()
