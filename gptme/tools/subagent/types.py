@@ -233,8 +233,15 @@ def set_subagent_result_if_absent(
             )
             if current is not None and current is not attempt:
                 registered = any(s is attempt for s in _subagents)
-                if not registered or current.parent_logdir == attempt.parent_logdir:
-                    return False  # Superseded by a continuation of this run.
+                if (
+                    not registered
+                    or current.parent_logdir == attempt.parent_logdir
+                    or _newer_own_run_exists(attempt)
+                ):
+                    # Superseded by a newer run of this conversation (a
+                    # continuation, or a relaunch under the same ID that a third
+                    # conversation's run now hides from the holder check).
+                    return False
                 # Another conversation's run holds the agent_id slot because both
                 # ran at once (gptme/gptme#4990). This attempt is not superseded:
                 # keep its outcome on the run, like any other non-holder.
@@ -254,6 +261,25 @@ def set_subagent_result_if_absent(
         return set_subagent_result_if_absent(agent_id, result, attempt=attempt)
     _persist_cached_outcome(agent_id)
     return True
+
+
+def _newer_own_run_exists(attempt: "Subagent") -> bool:
+    """Whether the same conversation launched ``attempt``'s ID again after it.
+
+    Caller must hold ``_subagents_lock``. Registration appends, so a registry
+    entry after ``attempt`` is newer; a demoted run is newer by ``started_at``.
+    """
+    idx = next(i for i, s in enumerate(_subagents) if s is attempt)
+    later = _subagents[idx + 1 :]
+    return any(
+        s.agent_id == attempt.agent_id and s.parent_logdir == attempt.parent_logdir
+        for s in later
+    ) or any(
+        s.agent_id == attempt.agent_id
+        and s.parent_logdir == attempt.parent_logdir
+        and s.started_at > attempt.started_at
+        for s in _shadowed_subagents
+    )
 
 
 def preserved_notice(preserved: str) -> str:
@@ -815,16 +841,22 @@ class Subagent:
                     (s for s in reversed(_subagents) if s.agent_id == self.agent_id),
                     None,
                 )
-                if (
+                if not (
                     holder is not None
                     and holder is not self
                     and holder.parent_logdir != self.parent_logdir
                 ):
-                    # Another conversation's concurrent run holds the agent_id
-                    # slot (gptme/gptme#4990); this run published nothing there.
-                    return None
-                with _subagent_results_lock:
-                    return _subagent_results.get(self.agent_id)
+                    with _subagent_results_lock:
+                        return _subagent_results.get(self.agent_id)
+        if not shadowed:
+            # Another conversation's concurrent run holds the agent_id slot
+            # (gptme/gptme#4990), and its launch cleared whatever this run had
+            # published there. Only this run's own persisted outcome (keyed by
+            # its generation) is its result: an earlier timeout or cancel must
+            # stay visible even while a stuck thread delays the demotion.
+            from .persistence import load_subagent_outcome
+
+            return load_subagent_outcome(self)
         # Shadowed: disk I/O outside the registry lock.
         if self.shadowed_outcome is None:
             # A surviving subprocess may publish its outcome after the scan.

@@ -168,13 +168,29 @@ def _owned_candidate(
     """Return ``(registry holder, owner's own run)`` for ``agent_id``.
 
     Caller must hold ``_subagents_lock``. The holder is the entry agent_id-keyed
-    lookups resolve to; the owner's run is its newest registry entry, else its
-    shadowed run.
+    lookups resolve to. With ``newest``, the owner's run is its newest run across
+    the registry and ``_shadowed_subagents``: a superseded registry entry must not
+    outrank a newer run that was demoted while another conversation held the ID.
+    Otherwise it is the owner's oldest registry entry, else its shadowed run.
     """
     seq = list(reversed(_subagents)) if newest else list(_subagents)
     same_id = [s for s in seq if s.agent_id == agent_id]
     holder = same_id[0] if same_id else None
     candidate = next((s for s in same_id if _owned(s, owner)), None)
+    if newest:
+        newer_shadowed = max(
+            (
+                s
+                for s in _shadowed_subagents
+                if s.agent_id == agent_id
+                and _owned(s, owner)
+                and (candidate is None or s.started_at > candidate.started_at)
+            ),
+            key=lambda s: s.started_at,
+            default=None,
+        )
+        if newer_shadowed is not None:
+            candidate = newer_shadowed
     if candidate is None:
         candidate = next(
             (
