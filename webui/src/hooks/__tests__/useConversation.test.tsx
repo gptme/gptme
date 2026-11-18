@@ -16,8 +16,10 @@ jest.mock('@/stores/serverClients', () => ({
   getClientForServer: jest.fn(),
 }));
 
+const mockToast = jest.fn();
+
 jest.mock('@/components/ui/use-toast', () => ({
-  useToast: () => ({ toast: jest.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }));
 
 jest.mock('@/utils/audio', () => ({
@@ -51,6 +53,7 @@ describe('useConversation', () => {
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
         onToolExecuting?: (id: string) => void;
         onReconnectState?: (state: { generating: boolean; pendingTools: any[] }) => void;
+        onError?: (error: string) => void;
       }
     | undefined;
   // A pooled client is a stable object for a server's lifetime (the pool keys
@@ -1101,5 +1104,43 @@ describe('useConversation', () => {
     expect(conversations$.get('shared-id')!.serverId.get()).toBe('server-b');
     expect(primaryClient.getConversation).toHaveBeenCalledWith('shared-id', { limit: 50 });
     expect(oldOwnerClose).toHaveBeenCalledWith('shared-id');
+  });
+
+  it('keeps a refused generation visible on the user message it belongs to', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    // The event stream is subscribed when a message starts a generation, so
+    // send once first; onError then covers the failure that arrives mid-turn.
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Hello' });
+    });
+    mockToast.mockClear();
+
+    // What the server forwards for an HTTP 402 from the LLM gateway: the
+    // provider string, with no hint about what the user should do next.
+    const providerError = 'Error code: 402 - Payment required';
+
+    act(() => {
+      eventHandlers?.onError?.(providerError);
+    });
+
+    const log = conversations$.get('chat-placeholder')!.data.log.get();
+    const last = log.at(-1)!;
+    // The failure stays attached to the message that triggered it, so it
+    // survives toast dismissal and a reload, instead of vanishing with the
+    // discarded empty assistant bubble.
+    expect(last.role).toBe('user');
+    expect(last._status).toBe('failed');
+    expect(last._error).toBe(providerError);
+
+    // The toast is classified rather than labelled a generic "Error".
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: 'destructive',
+        title: 'Payment required',
+        description: providerError,
+      })
+    );
   });
 });

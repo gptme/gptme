@@ -556,10 +556,31 @@ export function useConversation(conversationId: string, serverId?: string) {
                 }
               }
 
+              // Classify so a refusal the user must act on (HTTP 402 payment
+              // required, 401) is labelled as such instead of a generic
+              // "Error", and keep it visible after the toast is dismissed by
+              // attaching it to the user message that triggered the generation.
+              // ChatMessage renders `_error` inline with a Retry button, which
+              // is what makes a refused generation diagnosable after a reload
+              // of a hosted conversation.
+              const { title, description } = getApiErrorPresentation(error, {
+                fallbackTitle: 'Generation failed',
+                fallbackDescription: error,
+              });
+
+              const lastIndex = (messages$?.peek()?.length ?? 0) - 1;
+              const lastMessage$ = lastIndex >= 0 ? messages$?.[lastIndex] : undefined;
+              if (lastMessage$?.role.get() === 'user') {
+                const timestamp = lastMessage$.timestamp?.get();
+                if (timestamp) {
+                  setMessageStatus(conversationId, timestamp, 'failed', description);
+                }
+              }
+
               toast({
                 variant: 'destructive',
-                title: 'Error',
-                description: error,
+                title,
+                description,
               });
             },
             onConfigChanged: (config, changedFields) => {
