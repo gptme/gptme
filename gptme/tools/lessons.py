@@ -39,7 +39,7 @@ from ..lessons.selector import (
     refine_matches,
 )
 from ..message import Message
-from .base import ToolSpec
+from .base import ToolSpec, current_workspace
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -183,7 +183,7 @@ def _get_memory_lessons(workspace: Path | None) -> list[Lesson]:
         from ..memory import MemoryStore
         from ..memory.match import memory_lessons
 
-        key = (workspace or Path.cwd()).resolve()
+        key = (workspace or current_workspace()).resolve()
         store = MemoryStore.from_workspace(key)
         signature = _memory_signature([r.path for r in store.roots])
         cached = _memory_lessons_var.get()
@@ -562,13 +562,13 @@ def _auto_include_lessons(
 
             # Use first lesson directory for embedder (typically workspace lessons)
             # Embeddings stored in .gptme/embeddings/lessons/
-            embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
+            embeddings_dir = current_workspace() / ".gptme" / "embeddings" / "lessons"
 
             try:
                 embedder = LessonEmbedder(
                     lessons_dir=lesson_dirs[0]
                     if lesson_dirs
-                    else Path.cwd() / "lessons",
+                    else current_workspace() / "lessons",
                     embeddings_dir=embeddings_dir,
                 )
                 logger.info(

@@ -32,6 +32,17 @@ You can configure MCP in your :ref:`global-config` (``~/.config/gptme/config.tom
     url = "https://example.com/mcp"
     headers = { Authorization = "Bearer your-token" }
 
+    # Legacy SSE MCP server example (URL ends in /sse, so SSE is auto-detected)
+    [[mcp.servers]]
+    name = "sse-server"
+    enabled = true
+    url = "https://example.com/sse"
+
+HTTP servers use the streamable-HTTP transport by default. A URL whose path ends
+in ``/sse`` (the conventional FastMCP SSE endpoint) is connected over the legacy
+SSE transport instead. For an SSE endpoint at any other path, set
+``transport = "sse"`` explicitly; ``transport`` is ignored for stdio servers.
+
 The same ``[mcp]`` settings are supported in :ref:`project-config`
 (``gptme.toml`` in your workspace) and per-conversation configuration.
 For example, a project's ``gptme.toml`` can enable its own server:
@@ -96,6 +107,7 @@ Configuration Options
   - ``args``: List of command-line arguments (for stdio servers)
   - ``url``: HTTP endpoint URL (for HTTP servers)
   - ``headers``: HTTP headers dictionary (for HTTP servers)
+  - ``transport``: ``"sse"`` to force the legacy SSE transport for an HTTP server (auto-detected for URLs ending in ``/sse``); otherwise streamable HTTP is used
   - ``env``: Environment variables for the server
 
 Large tool results

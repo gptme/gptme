@@ -204,6 +204,35 @@ def test_prompt_systeminfo_uses_workspace(tmp_path):
     )
 
 
+def test_absolute_prompt_files_do_not_crash(tmp_path):
+    """Absolute [prompt].files entries are matched, not passed to Path.glob raw.
+
+    Path.glob raises NotImplementedError for absolute patterns, so an absolute
+    (or ``~``-expanded) entry used to crash prompt assembly. Inside the
+    workspace it is attached; outside it is skipped like any traversal.
+    """
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "SOUL.md").write_text("# Soul")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret data")
+    (workspace / "gptme.toml").write_text(
+        f"""
+[prompt]
+files = ["{workspace / "SOUL.md"}", "{outside / "secret.txt"}"]
+"""
+    )
+
+    msgs = list(prompt_workspace(workspace, include_user_context=False))
+    attached = [str(f) for msg in msgs for f in msg.files]
+
+    assert any(f.endswith("SOUL.md") for f in attached)
+    assert not any("secret.txt" in f for f in attached)
+
+
 def test_glob_path_traversal_protection(tmp_path):
     """Test that glob patterns cannot traverse outside the workspace.
 

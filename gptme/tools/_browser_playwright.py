@@ -32,6 +32,7 @@ from ._browser_thread import (
 )
 from ._computer_gate import sensitive_action_gate
 from ._url_safety import _validate_entry_url, _validate_page_url
+from .base import current_workspace
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -819,7 +820,9 @@ def _do_save_browser_state(browser: Browser, path: str) -> str:
             "No browser context is active. Call open_page(url) first to open a page "
             "and authenticate, then save the session state."
         )
-    resolved = Path(path).expanduser()
+    # Anchor at the session workspace without resolving the destination symlink:
+    # publication must replace that directory entry, not its referent.
+    resolved = current_workspace() / Path(path).expanduser()
     resolved.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".gptme-state-", dir=resolved.parent)
     try:
@@ -872,7 +875,7 @@ def _do_load_browser_state(browser: Browser | None, path: str) -> str:
     """Load a previously saved browser session state for use in the next open_page()."""
     global _session_owner
 
-    resolved = Path(path).expanduser()
+    resolved = current_workspace() / Path(path).expanduser()
     if not resolved.exists():
         raise FileNotFoundError(
             f"Browser state file not found: {resolved}\n"

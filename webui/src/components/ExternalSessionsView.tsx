@@ -170,7 +170,7 @@ export const ExternalSessionsView: FC = () => {
 
   const isProviderUnavailable = ApiClientError.isApiError(error) && error.status === 503;
 
-  if (isProviderUnavailable) {
+  if (isConnected && isProviderUnavailable) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <AlertCircle className="h-12 w-12 text-muted-foreground" />
@@ -188,7 +188,7 @@ export const ExternalSessionsView: FC = () => {
     );
   }
 
-  if (error) {
+  if (isConnected && error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <AlertCircle className="h-12 w-12 text-destructive" />
@@ -205,7 +205,9 @@ export const ExternalSessionsView: FC = () => {
   return (
     <div className="flex h-full">
       {/* List panel */}
-      <div className={`flex flex-col border-r ${selectedId ? 'w-80 flex-shrink-0' : 'flex-1'}`}>
+      <div
+        className={`flex flex-col border-r ${isConnected && selectedId ? 'w-80 flex-shrink-0' : 'flex-1'}`}
+      >
         {/* Header */}
         <div className="border-b px-4 py-3">
           <h1 className="text-base font-semibold">External Sessions</h1>
@@ -230,14 +232,16 @@ export const ExternalSessionsView: FC = () => {
 
         {/* Sessions list */}
         <div className="flex-1 overflow-y-auto p-2">
-          {isLoading ? (
+          {isConnected && isLoading ? (
             <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
               Loading sessions…
             </div>
-          ) : filtered.length === 0 ? (
+          ) : !isConnected || filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-sm text-muted-foreground">
               <Bot className="h-8 w-8" />
-              {search ? (
+              {!isConnected ? (
+                <p>Connect to a gptme server to view external sessions.</p>
+              ) : search ? (
                 <p>No sessions match &ldquo;{search}&rdquo;</p>
               ) : (
                 <>
@@ -274,16 +278,16 @@ export const ExternalSessionsView: FC = () => {
         </div>
 
         {/* Footer stats */}
-        {sessions.length > 0 && (
+        {isConnected && sessions.length > 0 && (
           <div className="border-t px-4 py-2 text-xs text-muted-foreground">
             {sessions.length} session{sessions.length !== 1 ? 's' : ''} · last 30 days
           </div>
         )}
       </div>
 
-      {/* Detail panel */}
+      {/* Keep detail state (including unsent steer drafts) across temporary disconnects. */}
       {selectedId && (
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden" hidden={!isConnected}>
           <SessionDetail
             key={selectedId}
             sessionId={selectedId}

@@ -240,6 +240,9 @@ def test_queued_cancellation_survives_restart_without_log(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lookup: str
 ) -> None:
     """Cancellation can finish before a queued worker creates its log."""
+    from gptme.logmanager import LogManager
+
+    monkeypatch.setattr(LogManager, "get_current_log", staticmethod(lambda: None))
     logdir = tmp_path / "subagent-worker-ab12"
     finish = threading.Event()
     thread = threading.Thread(target=finish.wait)

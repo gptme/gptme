@@ -55,7 +55,13 @@ def _native_run(
         compact_instructions=None,
         keep_recent_tokens=30,
         keep_head=keep_head,
-        model_meta=SimpleNamespace(model="gpt-4", context=10000, max_output=100),
+        model_meta=SimpleNamespace(
+            model="gpt-4",
+            context=10000,
+            max_output=100,
+            full="openai/gpt-4",
+            context_budget=None,
+        ),
         llm_unlocked=None,
     )
     while True:
@@ -161,7 +167,13 @@ def test_native_keeps_recent_tail_with_large_model_output_limit(
             compact_instructions=None,
             keep_recent_tokens=200,
             keep_head=0,
-            model_meta=SimpleNamespace(model="gpt-4", context=200000, max_output=64000),
+            model_meta=SimpleNamespace(
+                model="gpt-4",
+                context=200000,
+                max_output=64000,
+                full="openai/gpt-4",
+                context_budget=None,
+            ),
             llm_unlocked=None,
         )
     )
@@ -218,7 +230,13 @@ def test_oversized_catalog_keeps_recent_context(
     manager.write()
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume.get_default_model",
-        lambda: SimpleNamespace(model="gpt-4", context=10000, max_output=100),
+        lambda: SimpleNamespace(
+            model="gpt-4",
+            context=10000,
+            max_output=100,
+            full="openai/gpt-4",
+            context_budget=None,
+        ),
     )
     monkeypatch.setattr(
         "gptme.tools.autocompact.resume.get_context_budget",

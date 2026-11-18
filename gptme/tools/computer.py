@@ -111,7 +111,7 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, Literal, TypedDict
 
 from ._computer_gate import action_risk_level, sensitive_action_gate
-from .base import ToolFunction, ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse, current_workspace
 from .computer_transport import ComputerTransport, _resize_image, get_transport
 from .screenshot import screenshot
 from .vision import view_image
@@ -2441,7 +2441,8 @@ def start_recording(
     use it as a context manager.
 
     Args:
-        output: Destination path for the MP4 file.  Defaults to a timestamped
+        output: Destination path for the MP4 file, relative to the session
+            workspace. Absolute paths are supported. Defaults to a timestamped
             file in the system temp directory.
         fps: Frames per second (default 10 — suitable for UI demos; increase
             to 24+ for smooth game recordings).
@@ -2478,7 +2479,7 @@ def start_recording(
         os.close(fd)
         output_path = Path(tmp)
     else:
-        output_path = Path(output)
+        output_path = current_workspace() / Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     disp: str = display if display is not None else os.environ.get("DISPLAY", ":1")
@@ -2523,7 +2524,8 @@ def record_screen(
     Blocks for *duration* seconds.
 
     Args:
-        output: Destination path for the MP4 file.  Defaults to a timestamped
+        output: Destination path for the MP4 file, relative to the session
+            workspace. Absolute paths are supported. Defaults to a timestamped
             file in the system temp directory.
         duration: How many seconds to record (default 10).
         fps: Frames per second (default 10).

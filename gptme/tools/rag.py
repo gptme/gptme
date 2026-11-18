@@ -69,7 +69,7 @@ from ..config import RagConfig, get_project_config
 from ..dirs import get_data_dir, get_logs_dir, get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
-from .base import ToolFunction, ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse, current_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -467,7 +467,7 @@ def _rag_context_hook(
     workspace = kwargs.get("workspace")
 
     # Load config
-    config = get_project_config(Path.cwd())
+    config = get_project_config(current_workspace())
     rag_config = config.rag if config and config.rag else RagConfig()
 
     if not rag_config.enabled:

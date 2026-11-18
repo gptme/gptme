@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
+from ..base import current_workspace, resolve_in_workspace
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .control import append_control_op, discard_control_ops
@@ -597,8 +598,9 @@ def subagent(
 
             Only applies to thread-mode subagents; has no effect in subprocess
             or ACP modes.
-        workdir: Working directory for the subagent. Defaults to the current
-            working directory (``Path.cwd()``) when ``None``.
+        workdir: Working directory for the subagent. Defaults to the
+            conversation's workspace when ``None``; a relative path is
+            resolved against that workspace.
 
             Use this when you want the subagent to operate in a specific
             directory — for example, when a ``cd`` into a project with a
@@ -789,10 +791,12 @@ def subagent(
         model_name = current_model.full if current_model else None
 
     # Resolve explicit workdir once, shared by the planner and executor paths.
-    # When workdir is None each path falls back to Path.cwd() at spawn time.
+    # A relative workdir is anchored at the session workspace, not the process
+    # cwd (a server runs several conversations in one process). When workdir is
+    # None each path falls back to current_workspace() at spawn time.
     workdir_path: Path | None = None
     if workdir is not None:
-        workdir_path = Path(workdir).resolve()
+        workdir_path = resolve_in_workspace(Path(workdir))
         if not workdir_path.exists():
             raise ValueError(f"workdir does not exist: {workdir_path}")
         if not workdir_path.is_dir():
@@ -891,13 +895,13 @@ def subagent(
     name = f"subagent-{agent_id}"
     logdir = get_logdir(name + "-" + random_string(4))
 
-    # Resolve workspace: explicit workdir (validated above) > current working dir
+    # Resolve workspace: explicit workdir (validated above) > session workspace
     if workdir_path is not None:
         workspace = workdir_path
     else:
         # Get workspace, handling case where cwd was deleted (e.g., in tests)
         try:
-            workspace = Path.cwd()
+            workspace = current_workspace()
         except FileNotFoundError:
             # Fallback to logdir's parent if cwd doesn't exist
             workspace = logdir.parent
@@ -2011,7 +2015,7 @@ def subagent_continue(
     ) is not None:
         raise ValueError(blocker)
     try:
-        workspace = sa.workdir or Path.cwd()
+        workspace = sa.workdir or current_workspace()
     except FileNotFoundError:
         workspace = sa.logdir.parent
 
@@ -2400,8 +2404,19 @@ def subagent_list() -> list[dict]:
     - Interactive sessions: "what's running right now?"
     - Orchestrators deciding whether to spawn more agents
     - Debugging runaway subagent fans
+
+    Inside a conversation, only that conversation's subagents are listed (as
+    in ``subagent_snapshots``): the registry is rehydrated from every logdir on
+    the machine, so an unscoped list would show other conversations' runs.
+    Without a current conversation the whole registry is listed.
     """
     import time
+
+    from ...logmanager import LogManager  # fmt: skip
+
+    current_log = LogManager.get_current_log()
+    current_logdir = getattr(current_log, "logdir", None) if current_log else None
+    owner = Path(current_logdir).resolve() if current_logdir is not None else None
 
     _maybe_rehydrate_registry()
     now = time.time()
@@ -2417,6 +2432,8 @@ def subagent_list() -> list[dict]:
 
     result: list[dict[str, Any]] = []
     for sa in agents:
+        if owner is not None and sa.parent_logdir != owner:
+            continue
         status = sa.status().status
 
         # Estimate elapsed time from start time

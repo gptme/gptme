@@ -59,6 +59,7 @@ from .base import (
     ToolSpec,
     ToolUse,
     callable_signature,
+    current_workspace,
 )
 
 if TYPE_CHECKING:
@@ -120,7 +121,7 @@ def _should_use_kernel() -> bool:
     # Any of these signals is enough: a .venv / VIRTUAL_ENV (even without a
     # working Python inside — the kernel will fall through to uv run), or a
     # uv-managed project (uv.lock / [tool.uv]).
-    cache_key = (os.getcwd(), os.environ.get("VIRTUAL_ENV"))
+    cache_key = (str(current_workspace()), os.environ.get("VIRTUAL_ENV"))
     if _kernel_mode_cache is None or _kernel_mode_cache_key != cache_key:
         from .python_kernel import KernelBackend
 
@@ -402,22 +403,23 @@ def _detect_venv(env_only: bool = False) -> Path | None:
 
     Checks in order:
     1. VIRTUAL_ENV environment variable (set when a venv is activated)
-    2. .venv directory in the current working directory (skipped if env_only=True)
+    2. .venv directory in the session workspace (skipped if env_only=True)
 
     Args:
-        env_only: If True, only check VIRTUAL_ENV (skip cwd-based detection).
-                  Used during early init before os.chdir(workspace) has run.
+        env_only: If True, only check VIRTUAL_ENV (skip workspace detection).
+                  Used during early init before the workspace is selected.
     """
     # Check VIRTUAL_ENV env var (set by `source .venv/bin/activate`)
     virtual_env = os.environ.get("VIRTUAL_ENV")
     if virtual_env:
-        venv_path = Path(virtual_env)
+        # Keep the explicit environment anchored to the host cwd even when a
+        # kernel subprocess starts in a different session workspace.
+        venv_path = Path(virtual_env).absolute()
         if venv_path.is_dir():
             return venv_path
 
     if not env_only:
-        # Check for .venv in cwd (only valid after os.chdir(workspace))
-        cwd_venv = Path.cwd() / ".venv"
+        cwd_venv = current_workspace() / ".venv"
         if cwd_venv.is_dir():
             return cwd_venv
 
@@ -603,25 +605,27 @@ class TeeIO(io.StringIO):
         if not self._truncated:
             return value
         self.finish()
-        dropped = self._byte_count - self._buffered_bytes
         saved = f"; full output saved to {self._spill_path}" if self._spill_path else ""
-        marker = (
-            f"\n\n[... {dropped:,} bytes omitted "
-            f"({self._byte_count:,} total — capture limit reached, head only{saved}) ...]"
-        )
+        head = value.encode("utf-8", errors="surrogatepass")
         # The buffer never exceeds cap - marker reserve, so head + marker stays
         # within the cap and downstream _cap_output() will not truncate again.
         # A saved-path marker can outgrow the reserve: trim the head to fit.
-        excess = (
-            len(value.encode("utf-8", errors="surrogatepass"))
-            + len(marker.encode("utf-8", errors="surrogatepass"))
-            - _DEFAULT_MAX_OUTPUT_BYTES
-        )
-        if excess > 0:
-            value = _decode_slice(
-                value.encode("utf-8", errors="surrogatepass")[:-excess]
+        # Bytes trimmed from the head are omitted too, and counting them can
+        # lengthen the marker, so recompute until head + marker fits.
+        while True:
+            dropped = self._byte_count - len(head)
+            marker = (
+                f"\n\n[... {dropped:,} bytes omitted "
+                f"({self._byte_count:,} total — capture limit reached, head only{saved}) ...]"
             )
-        return value + marker
+            excess = (
+                len(head)
+                + len(marker.encode("utf-8", errors="surrogatepass"))
+                - _DEFAULT_MAX_OUTPUT_BYTES
+            )
+            if excess <= 0:
+                return head.decode("utf-8", errors="surrogatepass") + marker
+            head = _decode_slice(head[:-excess]).encode("utf-8", errors="surrogatepass")
 
 
 @contextmanager
@@ -801,7 +805,7 @@ def execute_python(
         sandbox_exec_wasmtime,
     )
 
-    sandbox_cfg = SandboxConfig.from_env(workspace=Path.cwd())
+    sandbox_cfg = SandboxConfig.from_env(workspace=current_workspace())
     if sandbox_cfg.backend in ("docker", "wasmtime"):
         ok, avail_msg = sandbox_cfg.check_available()
         if not ok:
@@ -838,7 +842,8 @@ def execute_python(
 
     # Kernel mode: execute in a separate Jupyter kernel process
     if _resolve_kernel_backend():
-        cwd = Path.cwd()
+        # The kernel runs cells in the session workspace (see KernelBackend.execute).
+        cwd = current_workspace()
         pre_images = _snapshot_images(cwd)
         msgs = list(_execute_python_kernel(code))
         post_images = _snapshot_images(cwd)

@@ -462,7 +462,7 @@ export const UnifiedSidebar: FC<Props> = ({
           {currentSection === 'tasks' && (
             <div>
               <div className="p-2">
-                {tasksError && onTasksRetry && (
+                {isConnected && tasksError && onTasksRetry && (
                   <Card className="mb-4 border-red-200 bg-red-50">
                     <CardContent className="p-3">
                       <p className="text-sm text-red-700">Failed to load tasks</p>
@@ -473,21 +473,26 @@ export const UnifiedSidebar: FC<Props> = ({
                   </Card>
                 )}
 
-                {!tasksLoading && !tasksError && tasks.length === 0 && (
+                {(!isConnected || (!tasksLoading && !tasksError && tasks.length === 0)) && (
                   <div className="py-8 text-center">
                     <GitBranch className="mx-auto mb-2 h-8 w-8 text-muted-foreground opacity-50" />
-                    <p className="text-sm text-muted-foreground">No tasks yet</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isConnected ? 'No tasks yet' : 'Connect to a gptme server to view tasks.'}
+                    </p>
                   </div>
                 )}
 
-                {sortedTasks.slice(0, 20).map((task) => (
-                  <TaskListItem
-                    key={task.id}
-                    task={task}
-                    isSelected={selectedTaskId === task.id}
-                    onClick={() => onSelectTask(task)}
-                  />
-                ))}
+                {isConnected &&
+                  sortedTasks
+                    .slice(0, 20)
+                    .map((task) => (
+                      <TaskListItem
+                        key={task.id}
+                        task={task}
+                        isSelected={selectedTaskId === task.id}
+                        onClick={() => onSelectTask(task)}
+                      />
+                    ))}
               </div>
             </div>
           )}

@@ -21,6 +21,8 @@ import {
   useRef,
   useId,
   useCallback,
+  useImperativeHandle,
+  type Ref,
   type FC,
   type Dispatch,
   type FormEvent,
@@ -90,7 +92,13 @@ export interface ChatOptions {
   topP?: number;
 }
 
+export interface ChatInputHandle {
+  /** Submit only if the composer still displays this host-provided seed. */
+  submitSeed: (expectedMessage: string) => void;
+}
+
 interface Props {
+  ref?: Ref<ChatInputHandle>;
   conversationId?: string;
   /** Server that owns the conversation; defaults to the primary server. */
   serverId?: string;
@@ -478,12 +486,12 @@ const SubmitButton: FC<{ isBusy: boolean; isDisabled: boolean; hasText: boolean 
   return (
     <Button
       type="submit"
-      className={`shrink-0 rounded-full p-1 transition-colors ${
+      className={`h-7 shrink-0 rounded-full text-xs transition-colors ${
         showStop
-          ? 'animate-[pulse_1s_ease-in-out_infinite] bg-red-600 p-3 hover:bg-red-700'
+          ? 'animate-[pulse_1s_ease-in-out_infinite] bg-red-600 px-3 text-white hover:bg-red-700'
           : showQueue
-            ? 'bg-blue-600 p-3 text-white hover:bg-blue-700'
-            : 'h-7 w-7 bg-green-600 text-green-100'
+            ? 'bg-blue-600 px-3 text-white hover:bg-blue-700'
+            : 'w-7 bg-primary p-0 text-primary-foreground hover:bg-primary/90'
       }`}
       disabled={!canSubmit}
       aria-label={showStop ? 'Stop generation' : showQueue ? 'Queue message' : 'Send message'}
@@ -638,6 +646,7 @@ export const ChatInput: FC<Props> = ({
   onInterrupt,
   isReadOnly,
   defaultModel = '',
+  ref,
   autoFocus$,
   value,
   onChange,
@@ -1235,6 +1244,16 @@ export const ChatInput: FC<Props> = ({
     }
   };
 
+  // Host auto-send uses exactly the same settings, attachments and draft cleanup
+  // as Enter. Never submit a seed that has since been edited or replaced.
+  useImperativeHandle(ref, () => ({
+    submitSeed: (expectedMessage) => {
+      if (message === expectedMessage && isConnected && !isReadOnly && !editMode) {
+        void submitMessage();
+      }
+    },
+  }));
+
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault();
     void submitMessage();
@@ -1433,7 +1452,7 @@ export const ChatInput: FC<Props> = ({
                   className={
                     editMode
                       ? 'max-h-[min(42vh,300px)] min-h-[60px] resize-none overflow-y-auto pb-12 sm:pb-8'
-                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto rounded-[1.2rem] pb-10 sm:pb-8'
+                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto rounded-[1.2rem] pb-9'
                   }
                   disabled={isDisabled}
                   autoFocus={editMode}
@@ -1488,7 +1507,7 @@ export const ChatInput: FC<Props> = ({
                   </div>
                 ) : (
                   /* Normal mode: full toolbar */
-                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-2">
+                  <div className="absolute bottom-1 left-1.5 right-1 flex items-center gap-2">
                     <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1 sm:gap-2">
                       <ModelBadge
                         model={effectiveModel}

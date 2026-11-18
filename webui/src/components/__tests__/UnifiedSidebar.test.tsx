@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom';
 import { observable } from '@legendapp/state';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { UnifiedSidebar } from '../UnifiedSidebar';
 
@@ -35,7 +36,10 @@ jest.mock('@/contexts/ApiContext', () => {
 
 const selectedConversationId$ = observable<string | null>(null);
 
-const renderTaskSidebar = (initialEntry = '/tasks') => {
+const renderTaskSidebar = (
+  initialEntry = '/tasks',
+  props: Partial<ComponentProps<typeof UnifiedSidebar>> = {}
+) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -51,6 +55,7 @@ const renderTaskSidebar = (initialEntry = '/tasks') => {
           tasks={[]}
           onSelectTask={jest.fn()}
           onCreateTask={jest.fn()}
+          {...props}
         />
       </MemoryRouter>
     </QueryClientProvider>
@@ -68,6 +73,52 @@ describe('UnifiedSidebar task creation', () => {
   beforeEach(() => {
     mockIsDemoMode.mockReturnValue(false);
   });
+
+  it('asks for a server connection instead of reporting no tasks while disconnected', () => {
+    const { isConnected$ } = jest.requireMock('@/contexts/ApiContext').useApi();
+    isConnected$.set(false);
+    try {
+      renderTaskSidebar();
+
+      expect(screen.getByText('Connect to a gptme server to view tasks.')).toBeInTheDocument();
+      expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+    } finally {
+      act(() => isConnected$.set(true));
+    }
+  });
+
+  it.each([false, true])(
+    'hides cached tasks and errors while disconnected (error=%s)',
+    (tasksError) => {
+      const { isConnected$ } = jest.requireMock('@/contexts/ApiContext').useApi();
+      isConnected$.set(false);
+      try {
+        renderTaskSidebar('/tasks', {
+          tasks: [
+            {
+              id: 'cached-task',
+              content: 'Cached task content',
+              created_at: '2026-11-17T12:00:00Z',
+              status: 'pending',
+              target_type: 'stdout',
+              conversation_ids: [],
+              metadata: {},
+              archived: false,
+            },
+          ],
+          tasksError,
+          onTasksRetry: jest.fn(),
+        });
+
+        expect(screen.getByText('Connect to a gptme server to view tasks.')).toBeInTheDocument();
+        expect(screen.queryByText('Cached task content')).not.toBeInTheDocument();
+        expect(screen.queryByText('Failed to load tasks')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+      } finally {
+        act(() => isConnected$.set(true));
+      }
+    }
+  );
 
   it('offers task creation with a live server', () => {
     renderTaskSidebar();

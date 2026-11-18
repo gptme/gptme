@@ -30,9 +30,9 @@ import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
+from .base import current_workspace
 from .shell_memory import Target as MemoryTarget
 from .shell_memory import group_alive, kill_group
 from .shell_memory import watch as watch_memory
@@ -273,12 +273,19 @@ class BridgeServer:
                 try:
                     from gptme.message import Message
 
+                    from .base import current_workspace
+
                     # Helpers run in the host process: never change its global cwd
-                    # for work that can outlive an interrupted kernel cell.
+                    # for work that can outlive an interrupted kernel cell. They
+                    # resolve relative paths in the cell's session workspace, so
+                    # the kernel must still be in that directory.
                     with self._call_lock:
+                        kernel_cwd = call.get("cwd")
                         if (
                             fn_name != "_gptme_deliver_messages"
-                            and call.get("cwd", os.getcwd()) != os.getcwd()
+                            and kernel_cwd is not None
+                            and Path(kernel_cwd).resolve()
+                            != self.cell_context.run(current_workspace)
                         ):
                             raise RuntimeError(
                                 "Bridge helper working directory differs from the host; "
@@ -550,7 +557,7 @@ class KernelBackend:
 
     @staticmethod
     def _is_uv_project() -> bool:
-        """Return True if the current directory looks like a uv-managed project.
+        """Return True if the session workspace looks like a uv-managed project.
 
         Requires an explicit uv marker — a ``uv.lock`` file or a ``[tool.uv]``
         section in ``pyproject.toml``. A plain pip project that merely has a
@@ -560,7 +567,7 @@ class KernelBackend:
         import tomlkit
         from tomlkit.exceptions import ParseError
 
-        cwd = Path.cwd()
+        cwd = current_workspace()
         if (cwd / "uv.lock").exists():
             return True
         pyproject = cwd / "pyproject.toml"
@@ -656,6 +663,11 @@ class KernelBackend:
 
         project_python = self._find_project_python()
         extra_env: dict[str, str] = {}
+        virtual_env = os.environ.get("VIRTUAL_ENV")
+        if virtual_env and not os.path.isabs(virtual_env):
+            # uv --active must select the same environment we probed before
+            # changing the subprocess cwd to the session workspace.
+            extra_env = {**os.environ, "VIRTUAL_ENV": os.path.abspath(virtual_env)}
 
         self._km = KernelManager()
         # Snapshot the default launch command so a failed uv-based launch can
@@ -705,7 +717,10 @@ class KernelBackend:
 
         # Pass env only when we actually want to override something; passing
         # None causes jupyter_client's provisioner to crash (it calls .get on it).
-        start_kwargs: dict = {"extra_arguments": []}
+        start_kwargs: dict = {
+            "extra_arguments": [],
+            "cwd": str(current_workspace()),
+        }
         if extra_env:
             start_kwargs["env"] = extra_env
         try:
@@ -912,9 +927,13 @@ class KernelBackend:
         """Execute a code cell and return captured outputs; None disables timeout."""
         self._ensure_started()
 
+        from .base import current_workspace
+
         # A previous cell may itself have used %cd/os.chdir, so synchronize on
-        # every execution, not only when the host directory changes.
-        cwd = os.getcwd()
+        # every execution, not only when the host directory changes. Use the
+        # session workspace, not the process cwd: a server shares one process
+        # (and one cwd) across conversations.
+        cwd = str(current_workspace())
         self._exec_silent(
             f"import os as _gptme_os; _gptme_os.chdir({cwd!r})",
             timeout=5,

@@ -13,3 +13,7 @@ Commands for creating, running, and managing persistent autonomous agents. See
 .. click:: gptme.cli.cmd_service:cli
    :prog: gptme-service
    :nested: full
+
+.. click:: gptme.cli.cmd_cloud:main
+   :prog: gptme-cloud
+   :nested: full

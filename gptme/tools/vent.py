@@ -38,15 +38,15 @@ import os
 import re
 from contextvars import ContextVar
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..hooks import HookType
 from ..message import Message
-from .base import Parameter, ToolSpec
+from .base import Parameter, ToolSpec, current_workspace
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 
     from ..logmanager import LogManager
 
@@ -142,7 +142,7 @@ def execute_vent(
 
     entry: dict[str, str] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "workspace": str(Path.cwd()),
+        "workspace": str(current_workspace()),
         "message": message,
         "harness": "gptme",
     }

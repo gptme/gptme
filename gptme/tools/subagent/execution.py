@@ -41,7 +41,7 @@ from .._allowlist import (
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
-from ..base import ToolFormat, ToolSpec
+from ..base import ToolFormat, ToolSpec, current_workspace
 from .concurrency import get_slot_sem
 from .hooks import _remember_progress, notify_completion, notify_progress
 from .persistence import persist_subagent_meta
@@ -1695,7 +1695,7 @@ def _run_planner(
         context_window: Limit workspace context messages passed to executor subagents.
             None = no limit; 0 = minimal context (no workspace files); N > 0 = at most N.
         workdir: Pre-resolved working directory for all executor subagents. When
-            None, each executor falls back to Path.cwd() at spawn time.
+            None, each executor falls back to current_workspace() at spawn time.
     """
     from gptme.cli.main import get_logdir
 
@@ -1747,13 +1747,13 @@ def _run_planner(
                 f"isolated={resolved_isolated}"
             )
 
-        # Explicit workdir > current working directory. Capture before spawning
+        # Explicit workdir > session workspace. Capture before spawning
         # to avoid FileNotFoundError if cwd is deleted (e.g., tmpdir cleanup in tests)
         if workdir is not None:
             workspace = workdir
         else:
             try:
-                workspace = Path.cwd()
+                workspace = current_workspace()
             except FileNotFoundError:
                 workspace = logdir.parent
 
