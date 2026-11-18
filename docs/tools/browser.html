@@ -1307,8 +1307,9 @@ localStorage from login survive. <code class="docutils literal notranslate"><spa
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>url_or_path</strong> – URL or local path to PDF file</p></li>
-<li><p><strong>output_dir</strong> – Directory to save images (default: creates temp directory)</p></li>
+<li><p><strong>url_or_path</strong> – URL or local path to PDF file (relative to the session workspace)</p></li>
+<li><p><strong>output_dir</strong> – Directory to save images, relative to the session workspace
+(default: creates temp directory)</p></li>
 <li><p><strong>pages</strong> – Optional tuple of (first_page, last_page) to convert (1-indexed).
 If None, converts all pages.</p></li>
 <li><p><strong>dpi</strong> – Resolution for output images (default: 150)</p></li>

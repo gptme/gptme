@@ -1512,7 +1512,8 @@ Blocks for <em>duration</em> seconds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>output</strong> – Destination path for the MP4 file.  Defaults to a timestamped
+<li><p><strong>output</strong> – Destination path for the MP4 file, relative to the session
+workspace. Absolute paths are supported. Defaults to a timestamped
 file in the system temp directory.</p></li>
 <li><p><strong>duration</strong> – How many seconds to record (default 10).</p></li>
 <li><p><strong>fps</strong> – Frames per second (default 10).</p></li>
@@ -1543,7 +1544,8 @@ use it as a context manager.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>output</strong> – Destination path for the MP4 file.  Defaults to a timestamped
+<li><p><strong>output</strong> – Destination path for the MP4 file, relative to the session
+workspace. Absolute paths are supported. Defaults to a timestamped
 file in the system temp directory.</p></li>
 <li><p><strong>fps</strong> – Frames per second (default 10 — suitable for UI demos; increase
 to 24+ for smooth game recordings).</p></li>
