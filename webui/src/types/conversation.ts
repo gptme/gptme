@@ -34,6 +34,8 @@ export interface Message {
   _retry?: {
     /** Persisted system diagnostics belonging to attempts of this prompt. */
     diagnostics?: string[];
+    /** Exact same-turn history at refusal; Retry must not include newer activity. */
+    continuation?: Pick<Message, 'role' | 'content' | 'timestamp'>[];
     persistence: 'saved' | 'rejected' | 'unknown';
     options: {
       model?: string;

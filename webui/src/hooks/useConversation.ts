@@ -75,12 +75,39 @@ export function useConversation(conversationId: string, serverId?: string) {
   const generationChainRef = useRef<Promise<void> | null>(null);
   // Deferred step: set when post-persistence 409 retries exhaust; fired by onStepComplete.
   const pendingStepRef = useRef<(() => Promise<void>) | null>(null);
-  const generationPromptRef = useRef<string | undefined>(undefined);
   const loadingOlderMessagesRef = useRef(false);
   const isLoadingOlderMessages$ = useObservable(false);
   const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
   // Bumped by retryLoad() to re-run the load+connect effect after a failure.
   const [retryNonce, setRetryNonce] = useState(0);
+
+  // Share ownership with the retained subscription, not the hook that sends.
+  // Keep an active turn's owner during 409 backoff. When idle, publish the
+  // candidate before awaiting HTTP: SSE can report an early refusal first.
+  const stepForPrompt = useCallback(
+    async (
+      timestamp: string | undefined,
+      model?: string,
+      stream?: boolean,
+      branch = 'main',
+      maxTokens?: number,
+      temperature?: number,
+      topP?: number
+    ) => {
+      const previous = conversation$?.generationPrompt.peek();
+      if (!previous) conversation$?.generationPrompt.set(timestamp);
+      try {
+        await api.step(conversationId, model, stream, branch, maxTokens, temperature, topP);
+        conversation$?.generationPrompt.set(timestamp);
+      } catch (error) {
+        if (conversation$?.generationPrompt.peek() === timestamp) {
+          conversation$?.generationPrompt.set(previous);
+        }
+        throw error;
+      }
+    },
+    [api, conversation$, conversationId]
+  );
 
   // Initialize conversation in store if needed
   useEffect(() => {
@@ -386,6 +413,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               }, 100);
             },
             onStepComplete: () => {
+              conversation$?.generationPrompt.set(undefined);
               // step_complete fires after session.generating=False on the server,
               // so it's safe to clear generating immediately — no need to guess.
               // Cancel the 100ms fallback timer from onMessageComplete if still pending;
@@ -574,15 +602,21 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (title === 'Payment required' || title === 'Authentication failed') {
                 // The server persists a system error before emitting `error`.
                 const log = messages$?.peek() ?? [];
-                const index = generationPromptRef.current
-                  ? log.findIndex((message) => message.timestamp === generationPromptRef.current)
-                  : -1;
+                const owner = conversation$?.generationPrompt.peek();
+                const index = owner ? log.findIndex((message) => message.timestamp === owner) : -1;
                 const userMessage = log[index];
                 const timestamp = userMessage?.timestamp;
                 if (timestamp) {
                   if (userMessage._retry) {
                     messages$![index]._retry.set({
                       ...userMessage._retry,
+                      // Snapshot only the active turn. A newer queued user prompt
+                      // must never become part of an earlier prompt's Retry.
+                      continuation: log.slice(index + 1).some((message) => message.role === 'user')
+                        ? undefined
+                        : log
+                            .slice(index + 1)
+                            .map(({ role, content, timestamp }) => ({ role, content, timestamp })),
                       diagnostics: [
                         ...(userMessage._retry.diagnostics ?? []),
                         `Error: ${description}`,
@@ -620,7 +654,6 @@ export function useConversation(conversationId: string, serverId?: string) {
               const log = conversation$?.data.log.get() ?? [];
               const index = log.length - 1;
               const prompt = log[index];
-              generationPromptRef.current = prompt?.role === 'user' ? prompt.timestamp : undefined;
               if (prompt?._retry) {
                 conversation$!.data.log[index]._retry.options.set({
                   ...prompt._retry.options,
@@ -634,21 +667,19 @@ export function useConversation(conversationId: string, serverId?: string) {
               // The handshake snapshot precedes this request. Keep Stop available
               // while step() starts, before the first generation_started event.
               setGenerating(conversationId, true);
-              api
-                .step(
-                  conversationId,
-                  undefined,
-                  initialStepStream ?? true,
-                  'main',
-                  conversation$?.maxTokens?.get(),
-                  conversation$?.temperature?.get(),
-                  conversation$?.topP?.get()
-                )
-                .catch((error) => {
-                  console.error('[useConversation] Error triggering initial step:', error);
-                  setGenerating(conversationId, false);
-                  toastStepStartError(toast, error);
-                });
+              stepForPrompt(
+                prompt?.role === 'user' ? prompt.timestamp : undefined,
+                undefined,
+                initialStepStream ?? true,
+                'main',
+                conversation$?.maxTokens?.get(),
+                conversation$?.temperature?.get(),
+                conversation$?.topP?.get()
+              ).catch((error) => {
+                console.error('[useConversation] Error triggering initial step:', error);
+                setGenerating(conversationId, false);
+                toastStepStartError(toast, error);
+              });
             },
             onConnectionState: (state) => {
               switch (state.status) {
@@ -722,7 +753,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         setConnected(conversationId, false);
       }
     };
-  }, [conversationId, isConnected, api, conversation$, toast, retryNonce]);
+  }, [conversationId, isConnected, api, conversation$, toast, retryNonce, stepForPrompt]);
 
   // A new user-initiated generation supersedes any prior Stop. Without this,
   // onMessageStart treats the next edit/rerun/regenerate as part of the
@@ -845,7 +876,14 @@ export function useConversation(conversationId: string, serverId?: string) {
               message.role === 'system' &&
               (userMessage._retry?.diagnostics ?? []).includes(message.content)
           );
-      if (resumingSavedMessage && !onlyRefusalDiagnostics) {
+      const continuation = userMessage._retry?.continuation;
+      const sameRefusedTurn =
+        index >= 0 &&
+        continuation !== undefined &&
+        JSON.stringify(
+          log.slice(index + 1).map(({ role, content, timestamp }) => ({ role, content, timestamp }))
+        ) === JSON.stringify(continuation);
+      if (resumingSavedMessage && !onlyRefusalDiagnostics && !sameRefusedTurn) {
         throw new Error(
           'Conversation has moved on. Resend this prompt as a new message, or use Edit and regenerate to explicitly rerun the earlier turn.'
         );
@@ -916,9 +954,8 @@ export function useConversation(conversationId: string, serverId?: string) {
       for (let attempt = 0; ; attempt++) {
         try {
           checkRetryTurn();
-          generationPromptRef.current = userMessage.timestamp;
-          await api.step(
-            conversationId,
+          await stepForPrompt(
+            userMessage.timestamp,
             options?.model,
             options?.stream,
             'main',
@@ -947,8 +984,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 toast({ variant: 'destructive', title: 'Retry withheld', description });
                 return Promise.resolve();
               }
-              return api.step(
-                conversationId,
+              return stepForPrompt(
+                userMessage.timestamp,
                 options?.model,
                 options?.stream,
                 'main',

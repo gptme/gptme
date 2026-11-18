@@ -47,6 +47,8 @@ export interface ConversationState {
   // replacement, while a second split-view instance sees the shared value and
   // does not restart the live stream.
   streamClientGeneration?: number | null;
+  // Prompt owning the accepted step, shared with every split-view subscriber.
+  generationPrompt?: string;
   connectionStatus: ConversationConnectionStatus;
   reconnectAttempt: number | null;
   reconnectMaxAttempts: number | null;
