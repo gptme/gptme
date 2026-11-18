@@ -238,6 +238,9 @@ describe('ChatInput', () => {
 
     const sendButton = screen.getByRole('button', { name: 'Send message' });
     expect(sendButton).toBeDisabled();
+    // Theme token, not a hardcoded green: embedders (gptme.ai) restyle it via --primary.
+    expect(sendButton).toHaveClass('bg-primary', 'text-primary-foreground');
+    expect(sendButton.className).not.toMatch(/\b(?:bg|text)-green-\d/);
 
     fireEvent.change(input, { target: { value: 'ship the refresh' } });
     expect(sendButton).toBeEnabled();
