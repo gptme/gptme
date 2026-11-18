@@ -1864,8 +1864,9 @@ the task prompt alone doesn’t provide enough context.</p>
 <p>Only applies to thread-mode subagents; has no effect in subprocess
 or ACP modes.</p>
 </p></li>
-<li><p><strong>workdir</strong> – <p>Working directory for the subagent. Defaults to the current
-working directory (<code class="docutils literal notranslate"><span class="pre">Path.cwd()</span></code>) when <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<li><p><strong>workdir</strong> – <p>Working directory for the subagent. Defaults to the
+conversation’s workspace when <code class="docutils literal notranslate"><span class="pre">None</span></code>; a relative path is
+resolved against that workspace.</p>
 <p>Use this when you want the subagent to operate in a specific
 directory — for example, when a <code class="docutils literal notranslate"><span class="pre">cd</span></code> into a project with a
 <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> triggers workspace detection and you want the
