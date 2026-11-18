@@ -124,6 +124,22 @@ def test_large_window_default_is_capped_at_256k():
     assert get_context_budget(1_000_000) == 256_000
 
 
+def test_window_shaped_max_output_does_not_collapse_budget():
+    """A max_output advertised as most of the window is not a real reservation.
+
+    OpenRouter reports deepseek-v4.1-flash with max_completion_tokens 943,718 of
+    a 1,048,576 window. Reserving all of it left a ~104k budget and made
+    compaction fire every few tool calls.
+    """
+    assert get_context_budget(1_048_576, max_output=943_718) == 256_000
+
+
+def test_realistic_max_output_is_still_reserved():
+    """A max_output of at most half the window keeps its full reservation."""
+    assert get_context_budget(200_000, max_output=64_000, headroom=1_000) == 135_000
+    assert get_context_budget(200_000, max_output=100_000, headroom=1_000) == 99_000
+
+
 def test_model_metadata_can_opt_out_of_large_window_cap():
     """Validated near-window models retain the safe fraction-based budget."""
     assert (

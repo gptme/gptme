@@ -62,6 +62,15 @@ def get_context_budget(
     Returns:
         Token count at which compaction should be triggered.
     """
+    # Some providers advertise max_output as (nearly) the whole window, meaning
+    # "output may use whatever the prompt leaves", not a reservation. OpenRouter
+    # lists deepseek-v4.1-flash with max_completion_tokens 943,718 of a
+    # 1,048,576 window; reserving all of it left a ~104k ceiling, so a large
+    # system prompt put every post-compaction conversation back at the trigger
+    # and compaction fired every few tool calls. Requests omit max_tokens unless
+    # the user sets one, so bound the reservation for window-shaped values.
+    if max_output > model_context // 2:
+        max_output = min(max_output, max(_DEFAULT_MAX_OUTPUT, model_context // 8))
     safe_ceiling = model_context - max_output - headroom
     if safe_ceiling <= 0:
         # Clamp instead of raising so env/config overrides still resolve on
