@@ -1495,6 +1495,37 @@ class TestOwnerScopedIdLookup:
             for gate in (gate_a1, gate_a2, gate_b):
                 gate.set()
 
+    def test_listings_show_demoted_relaunch_over_older_registered_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A1 and A2 in conversation A, then B, all `worker`; A2 finishes first.
+
+        A2 is demoted because B holds the ID, while A1 stays registered. The
+        older A1 must not hide A2's completed run from A's listings.
+        """
+        from gptme.tools.subagent.api import subagent_list, subagent_snapshots
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        a1, gate_a1 = self._live_run(tmp_path, "a1", parent_a, 100.0)
+        a2, gate_a2 = self._live_run(tmp_path, "a2", parent_a, 150.0)
+        _, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(a2, gate_a2)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "A2 done"), attempt=a2
+            )
+            assert a2.shadowed and not a1.shadowed
+            snaps = {s.run_id: s.status for s in subagent_snapshots(parent_a)}
+            assert snaps[str(a2.logdir)] == "success"
+            assert snaps[str(a1.logdir)] == "running"
+            as_conversation(parent_a)
+            statuses = sorted(e["status"] for e in subagent_list())
+            assert statuses == ["running", "success"]
+        finally:
+            for gate in (gate_a1, gate_a2, gate_b):
+                gate.set()
+
     def test_live_run_never_reads_concurrent_holders_result(
         self, tmp_path: Path, monkeypatch
     ):

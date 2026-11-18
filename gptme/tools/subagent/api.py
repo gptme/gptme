@@ -203,6 +203,28 @@ def _owned_candidate(
     return holder, candidate
 
 
+def _listable_shadowed(registered: list[Subagent]) -> list[Subagent]:
+    """Shadowed runs that listings show beside ``registered``.
+
+    Caller must hold ``_subagents_lock``. A shadowed run is hidden only by a
+    newer registry run of the same conversation and ID. An older registry run
+    must not hide it: a relaunch demoted while another conversation holds the
+    ID is that conversation's current run (gptme/gptme#4990).
+    """
+    newest_registered: dict[tuple[Path | None, str], float] = {}
+    for s in registered:
+        key = (s.parent_logdir, s.agent_id)
+        newest_registered[key] = max(
+            newest_registered.get(key, s.started_at), s.started_at
+        )
+    return [
+        s
+        for s in _shadowed_subagents
+        if s.started_at
+        > newest_registered.get((s.parent_logdir, s.agent_id), float("-inf"))
+    ]
+
+
 def _take_over_agent_id(
     candidate: Subagent, owner: Path, *, control: bool
 ) -> Subagent | None:
@@ -2439,12 +2461,7 @@ def subagent_list() -> list[dict]:
     with _subagents_lock:
         # copy under lock, then iterate outside
         agents = list(_subagents)
-        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
-        agents += [
-            s
-            for s in _shadowed_subagents
-            if (s.parent_logdir, s.agent_id) not in known_owners
-        ]
+        agents += _listable_shadowed(agents)
 
     result: list[dict[str, Any]] = []
     for sa in agents:
@@ -2515,13 +2532,7 @@ def subagent_snapshots(
     with _subagents_lock:
         agents = list(_subagents)
         # Runs whose agent_id another conversation holds (see _shadowed_subagents).
-        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
-        shadowed = [
-            s
-            for s in _shadowed_subagents
-            if s.parent_logdir == owner
-            and (s.parent_logdir, s.agent_id) not in known_owners
-        ]
+        shadowed = [s for s in _listable_shadowed(agents) if s.parent_logdir == owner]
     newest: dict[str, Subagent] = {}
     for sa in agents:
         newest[sa.agent_id] = sa  # append-only: last entry is the newest run
