@@ -119,6 +119,7 @@ def _lesson_search_dirs(
     """Existing lesson dirs, resolved so differently spelled aliases collapse."""
     from ..config import get_config, get_project_config
     from ..lessons.index import LessonIndex
+    from ..tools.base import current_workspace
 
     dirs: list[Path] = []
     if include_default:
@@ -128,7 +129,7 @@ def _lesson_search_dirs(
             # quiet: a "Using project configuration" log line would land in
             # --format json output whenever the host process has a stdout
             # logging handler installed.
-            config.project = get_project_config(Path.cwd(), quiet=True)
+            config.project = get_project_config(current_workspace(), quiet=True)
         try:
             dirs.extend(LessonIndex._default_dirs())
         finally:
