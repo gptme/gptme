@@ -44,6 +44,9 @@ export const WelcomeView = () => {
   const [inputValue, setInputValue] = useComposerDraft(composerDraftKey(connectionConfig));
   const [hostedLoopbackReachable, setHostedLoopbackReachable] = useState(false);
   const seedConsumedRef = useRef(false);
+  // Set when the host marked the seed as already submitted (auto-send). Fires
+  // once the server is connected; until then the text stays pre-filled.
+  const [pendingAutoSend, setPendingAutoSend] = useState<string | null>(null);
   const mountedRef = useRef(false);
   useEffect(() => {
     mountedRef.current = true;
@@ -63,11 +66,15 @@ export const WelcomeView = () => {
   // WelcomeView instance (e.g. after navigating away and back).
   useEffect(() => {
     const seed = consumeSeedPrompt();
-    if (seed && !seedConsumedRef.current) {
-      seedConsumedRef.current = true;
-      setInputValue((current) => current || seed);
+    if (!seed || seedConsumedRef.current) return;
+    seedConsumedRef.current = true;
+    // A seed never clobbers a restored draft or text the user already typed.
+    if (inputValue) return;
+    setInputValue(seed.prompt);
+    if (seed.autoSend) {
+      setPendingAutoSend(seed.prompt);
     }
-  }, [consumeSeedPrompt, setInputValue]);
+  }, [consumeSeedPrompt, inputValue, setInputValue]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
@@ -167,6 +174,23 @@ export const WelcomeView = () => {
       if (isCurrent()) setIsSubmitting(false);
     }
   };
+
+  // Auto-send a seed the host flagged as already submitted — gptme.ai's landing
+  // hero forwards the prompt a visitor typed before signing in, so they should
+  // not have to press Enter a second time. Waits for a connection so the send
+  // is not dropped while an instance is still starting; until then the text is
+  // pre-filled and an ordinary Enter works.
+  //
+  // handleSend is deliberately not a dependency: it is recreated on every
+  // render, so listing it would re-run this effect each render. The pending
+  // value is cleared before the send, so the send still happens exactly once.
+  useEffect(() => {
+    if (!pendingAutoSend || !isConnected || isSubmitting) return;
+    const prompt = pendingAutoSend;
+    setPendingAutoSend(null);
+    void handleSend(prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoSend, isConnected, isSubmitting]);
 
   const handleRetryConnection = async () => {
     setIsRetryingConnection(true);

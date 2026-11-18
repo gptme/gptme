@@ -10,6 +10,7 @@ import { composerDraftKey } from '@/utils/composerDraft';
 const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
+const mockCreateConversation = jest.fn(async () => 'conversation-1');
 const mockFetch = jest.fn(() => new Promise(() => {}));
 const isConnected$ = observable(true);
 const isAutoConnecting$ = observable(false);
@@ -42,7 +43,7 @@ jest.mock('react-router-dom', () => {
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     api: {
-      createConversationWithPlaceholder: jest.fn(),
+      createConversationWithPlaceholder: mockCreateConversation,
       authHeader: null,
       lastConnectionResult$,
       compatibilityWarning$,
@@ -103,10 +104,10 @@ const ToggleableWelcome = () => {
 // same-window handler in EmbeddedContext relies on to accept the message —
 // dispatch the MessageEvent directly with source set, matching what browsers
 // actually deliver for same-window postMessage.
-const postSeed = (prompt: string) => {
+const postSeed = (prompt: string, autoSend = false) => {
   window.dispatchEvent(
     new MessageEvent('message', {
-      data: { type: 'gptme-host:seed-prompt', payload: { prompt } },
+      data: { type: 'gptme-host:seed-prompt', payload: { prompt, autoSend } },
       origin: window.location.origin,
       source: window,
     })
@@ -123,6 +124,7 @@ describe('WelcomeView seed-prompt delivery', () => {
     mockConnect.mockReset();
     mockNavigate.mockClear();
     mockInvalidateQueries.mockClear();
+    mockCreateConversation.mockClear();
     Object.defineProperty(window, 'fetch', { writable: true, value: mockFetch });
   });
 
@@ -192,5 +194,104 @@ describe('WelcomeView seed-prompt delivery', () => {
     // the dropped seed reappear.
     fireEvent.click(screen.getByRole('button', { name: 'clear-input' }));
     expect(screen.getByTestId('chat-input')).toHaveTextContent('');
+  });
+
+  it('sends a seed the host marked autoSend instead of waiting for Enter', async () => {
+    render(
+      <EmbeddedContextProvider>
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      </EmbeddedContextProvider>
+    );
+
+    await act(async () => {
+      postSeed('what is gptme?', true);
+    });
+
+    await waitFor(() => {
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+    });
+    expect(mockCreateConversation).toHaveBeenCalledWith(
+      'what is gptme?',
+      expect.objectContaining({ workspace: '.' })
+    );
+    expect(mockNavigate).toHaveBeenCalledWith('/chat/conversation-1');
+  });
+
+  it('keeps a plain seed pre-filled (no auto-send) without host opt-in', async () => {
+    render(
+      <EmbeddedContextProvider>
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      </EmbeddedContextProvider>
+    );
+
+    await act(async () => {
+      postSeed('tell me about gptme');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-input')).toHaveTextContent('tell me about gptme');
+    });
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-send an autoSend seed that would clobber an existing draft', async () => {
+    localStorage.setItem(
+      composerDraftKey({ baseUrl: 'http://localhost:5700', authToken: null, useAuthToken: false }),
+      'my unsent draft'
+    );
+
+    render(
+      <EmbeddedContextProvider>
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      </EmbeddedContextProvider>
+    );
+
+    await act(async () => {
+      postSeed('what is gptme?', true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-input')).toHaveTextContent('my unsent draft');
+    });
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  it('holds an autoSend seed until the server connects', async () => {
+    isConnected$.set(false);
+
+    render(
+      <EmbeddedContextProvider>
+        <SettingsProvider>
+          <WelcomeView />
+        </SettingsProvider>
+      </EmbeddedContextProvider>
+    );
+
+    await act(async () => {
+      postSeed('what is gptme?', true);
+    });
+
+    // Pre-filled but not sent while disconnected.
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-input')).toHaveTextContent('what is gptme?');
+    });
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+
+    await act(async () => {
+      isConnected$.set(true);
+    });
+
+    await waitFor(() => {
+      expect(mockCreateConversation).toHaveBeenCalledWith(
+        'what is gptme?',
+        expect.objectContaining({ workspace: '.' })
+      );
+    });
   });
 });

@@ -119,7 +119,25 @@ describe('EmbeddedContext helpers', () => {
           type: 'gptme-host:seed-prompt',
           payload: { prompt: 'tell me about gptme' },
         })
-      ).toBe('tell me about gptme');
+      ).toEqual({ prompt: 'tell me about gptme', autoSend: false });
+    });
+
+    it('carries the opt-in autoSend flag', () => {
+      expect(
+        parseSeedPromptMessage({
+          type: 'gptme-host:seed-prompt',
+          payload: { prompt: 'what is gptme?', autoSend: true },
+        })
+      ).toEqual({ prompt: 'what is gptme?', autoSend: true });
+    });
+
+    it('treats a non-boolean autoSend as absent instead of sending', () => {
+      expect(
+        parseSeedPromptMessage({
+          type: 'gptme-host:seed-prompt',
+          payload: { prompt: 'hi', autoSend: 'yes' },
+        })
+      ).toBeNull();
     });
 
     it('returns null for wrong message type', () => {

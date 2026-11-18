@@ -56,8 +56,19 @@ const seedPromptMessageSchema = z.object({
   type: z.literal('gptme-host:seed-prompt'),
   payload: z.object({
     prompt: z.string().min(1),
+    // Opt-in auto-send. Hosts that only want to pre-fill the composer (the
+    // default) omit it; a host forwarding a prompt the user already submitted
+    // (e.g. gptme.ai's landing hero) sets it so the seed is sent instead of
+    // waiting for a second Enter press.
+    autoSend: z.boolean().optional(),
   }),
 });
+
+export interface SeedPrompt {
+  prompt: string;
+  /** True when the host asked for the prompt to be sent, not just pre-filled. */
+  autoSend: boolean;
+}
 
 export type EmbeddedMenuItem = z.infer<typeof embeddedMenuItemSchema>;
 
@@ -78,9 +89,15 @@ export function parseEmbeddedContextMessage(data: unknown): EmbeddedMenuItem[] |
   return parsed.success ? parsed.data.payload.menuItems : null;
 }
 
-export function parseSeedPromptMessage(data: unknown): string | null {
+export function parseSeedPromptMessage(data: unknown): SeedPrompt | null {
   const parsed = seedPromptMessageSchema.safeParse(data);
-  return parsed.success ? parsed.data.payload.prompt : null;
+  if (!parsed.success) {
+    return null;
+  }
+  return {
+    prompt: parsed.data.payload.prompt,
+    autoSend: parsed.data.payload.autoSend === true,
+  };
 }
 
 export function isEmbeddedContextEventAllowed(
