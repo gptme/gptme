@@ -98,6 +98,8 @@ def test_relative_active_venv_is_preserved_at_kernel_launch(
         ) as probe,
         patch.object(KernelBackend, "_find_uv", return_value="/usr/bin/uv"),
         patch.object(KernelBackend, "_exec_silent"),
+        # A mock process group cannot exit and would keep the guard alive.
+        patch.object(KernelBackend, "_watch_memory"),
     ):
         backend = KernelBackend()
         try:
