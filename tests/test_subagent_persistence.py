@@ -1498,6 +1498,7 @@ class TestOwnerScopedIdLookup:
         from gptme.tools.subagent.types import (
             _subagent_results,
             set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
         )
 
         parent_a, _, _, _, _ = self._setup(tmp_path, monkeypatch)
@@ -1510,6 +1511,13 @@ class TestOwnerScopedIdLookup:
             )
             assert not old.shadowed
             assert "worker" not in _subagent_results
+            # Nor may the older run's preserved-work notice reach the newer slot.
+            self._finish(new, new_gate)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "new"), attempt=new
+            )
+            update_subagent_result_with_branch("worker", "keep-old", attempt=old)
+            assert _subagent_results["worker"].result == "new"
         finally:
             old_gate.set()
             new_gate.set()

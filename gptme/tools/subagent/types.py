@@ -322,12 +322,12 @@ def update_subagent_result_with_branch(
                         (s for s in reversed(_subagents) if s.agent_id == agent_id),
                         None,
                     )
-                    if (
-                        target is not None
-                        and target is not attempt
-                        and target.parent_logdir != attempt.parent_logdir
-                    ):
-                        return  # The slot belongs to another conversation's run.
+                    if target is not None and target is not attempt:
+                        # The slot belongs to another run: a newer run of this
+                        # conversation (as set_subagent_result_if_absent refuses
+                        # it) or another conversation's run. Neither gets this
+                        # attempt's preserved-work notice.
+                        return
                     with _subagent_results_lock:
                         own = amend(_subagent_results.get(agent_id))
                         if own is None:
