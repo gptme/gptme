@@ -661,6 +661,13 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-service-init">init</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud">gptme-cloud</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-cancel">cancel</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-fetch">fetch</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-run">run</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-status">status</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -1150,6 +1157,203 @@ This does NOT delete the workspace directory.</p>
 
 </section>
 </section>
+<section id="gptme-cloud">
+<h2>gptme-cloud<a class="headerlink" href="#gptme-cloud" title="Link to this heading">#</a></h2>
+<p>Run prompts in gptme.ai ephemeral sandboxes.</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-cloud<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-token">
+<span class="sig-name descname"><span class="pre">--token</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;token&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-token" title="Link to this definition">#</a></dt>
+<dd><p>gptme.ai PAT.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-url">
+<span class="sig-name descname"><span class="pre">--url</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;url&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-url" title="Link to this definition">#</a></dt>
+<dd><p>Control-plane base URL.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">``https://fleet.gptme.ai``</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<dl class="std envvar" id="gptme-cloud-token-gptme-cloud-token">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_CLOUD_TOKEN</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-cloud-token"><code class="xref std std-option docutils literal notranslate"><span class="pre">--token</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="std envvar" id="gptme-cloud-url-gptme-cloud-url">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_CLOUD_URL</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-cloud-url"><code class="xref std std-option docutils literal notranslate"><span class="pre">--url</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<section id="gptme-cloud-cancel">
+<h3>cancel<a class="headerlink" href="#gptme-cloud-cancel" title="Link to this heading">#</a></h3>
+<p>Cancel a run.</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-cloud<span class="w"> </span>cancel<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RUN_ID
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-cancel-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-cancel-json" title="Link to this definition">#</a></dt>
+<dd><p>Print JSON.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-cancel-arg-RUN_ID">
+<span class="sig-name descname"><span class="pre">RUN_ID</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-cancel-arg-RUN_ID" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-cloud-fetch">
+<h3>fetch<a class="headerlink" href="#gptme-cloud-fetch" title="Link to this heading">#</a></h3>
+<p>Download a run’s artifacts (patch, final message) and verify checksums.</p>
+<p>Withheld artifacts (for example a diff that held a secret) are listed with
+their reason and never written. The command exits non-zero if a requested
+artifact is expired, unavailable or fails its checksum.</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-cloud<span class="w"> </span>fetch<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RUN_ID
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-fetch-out">
+<span class="sig-name descname"><span class="pre">--out</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;out&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-fetch-out" title="Link to this definition">#</a></dt>
+<dd><p>Directory to write artifacts into.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">PosixPath('.')</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-fetch-arg-RUN_ID">
+<span class="sig-name descname"><span class="pre">RUN_ID</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-fetch-arg-RUN_ID" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-cloud-run">
+<h3>run<a class="headerlink" href="#gptme-cloud-run" title="Link to this heading">#</a></h3>
+<p>Start a run. With –wait, block until it reaches a terminal status.</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-cloud<span class="w"> </span>run<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>PROMPT
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-repo">
+<span class="sig-name descname"><span class="pre">--repo</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;repo&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-repo" title="Link to this definition">#</a></dt>
+<dd><p>GitHub repo to clone, <a class="github reference external" href="https://github.com">github</a>/&lt;owner&gt;/&lt;repo&gt;.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-ref">
+<span class="sig-name descname"><span class="pre">--ref</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;ref&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-ref" title="Link to this definition">#</a></dt>
+<dd><p>Git ref to check out (default: the repo’s default).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-model">
+<span class="sig-name descname"><span class="pre">--model</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;model&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-model" title="Link to this definition">#</a></dt>
+<dd><p>Model id (default: the platform default).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-ttl">
+<span class="sig-name descname"><span class="pre">--ttl</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;ttl_seconds&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-ttl" title="Link to this definition">#</a></dt>
+<dd><p>Hard wall-clock limit, seconds.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-budget">
+<span class="sig-name descname"><span class="pre">--budget</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;credit_budget&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-budget" title="Link to this definition">#</a></dt>
+<dd><p>Credit budget for the run.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-max-turns">
+<span class="sig-name descname"><span class="pre">--max-turns</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;max_turns&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-max-turns" title="Link to this definition">#</a></dt>
+<dd><p>Maximum assistant turns.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-idempotency-key">
+<span class="sig-name descname"><span class="pre">--idempotency-key</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;idempotency_key&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-idempotency-key" title="Link to this definition">#</a></dt>
+<dd><p>Retry-safe key; the same key returns the same run. Default: random.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-wait">
+<span class="sig-name descname"><span class="pre">--wait</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-wait" title="Link to this definition">#</a></dt>
+<dd><p>Poll until the run finishes.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-poll">
+<span class="sig-name descname"><span class="pre">--poll</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;poll_seconds&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-poll" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">5.0</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-json" title="Link to this definition">#</a></dt>
+<dd><p>Print JSON.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-run-arg-PROMPT">
+<span class="sig-name descname"><span class="pre">PROMPT</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-run-arg-PROMPT" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-cloud-status">
+<h3>status<a class="headerlink" href="#gptme-cloud-status" title="Link to this heading">#</a></h3>
+<p>Show a run’s status.</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-cloud<span class="w"> </span>status<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RUN_ID
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-status-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-status-json" title="Link to this definition">#</a></dt>
+<dd><p>Print JSON.</p>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-cloud-status-arg-RUN_ID">
+<span class="sig-name descname"><span class="pre">RUN_ID</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-cloud-status-arg-RUN_ID" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+</section>
 </section>
 
 
@@ -1216,6 +1420,13 @@ This does NOT delete the workspace directory.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-service">gptme-service</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-service-init">init</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud">gptme-cloud</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-cancel">cancel</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-fetch">fetch</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-run">run</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-cloud-status">status</a></li>
 </ul>
 </li>
 </ul>

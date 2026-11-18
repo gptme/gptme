@@ -678,6 +678,7 @@ itself; the others cover setup, utilities, agents, and evaluation. Every tool ac
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme-agent</span></code> — create and manage autonomous agents; see <a class="reference internal" href="agents.html"><span class="doc">Agents</span></a>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gptme-service</span></code> — scaffold a persistent headless agent as a systemd or launchd service.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme-cloud</span></code> — run a prompt in a gptme.ai ephemeral sandbox and fetch the patch.</p></li>
 </ul>
 <p><strong>Setup and diagnostics</strong> (<a class="reference internal" href="cli/setup.html"><span class="doc">reference</span></a>)</p>
 <ul class="simple">
@@ -709,7 +710,7 @@ itself; the others cover setup, utilities, agents, and evaluation. Every tool ac
 <li><p><a class="reference internal" href="cli/gptme-server.html"><span class="doc">gptme-server</span></a> — web UI and REST API server</p></li>
 <li><p><a class="reference internal" href="cli/gptme-tui.html"><span class="doc">gptme-tui</span></a> — terminal UI</p></li>
 <li><p><a class="reference internal" href="cli/gptme-util.html"><span class="doc">Recovering chat message content</span></a> — utilities (chats, models, memory, tools, …)</p></li>
-<li><p><a class="reference internal" href="cli/agents.html"><span class="doc">Agents</span></a> — <code class="docutils literal notranslate"><span class="pre">gptme-agent</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme-service</span></code></p></li>
+<li><p><a class="reference internal" href="cli/agents.html"><span class="doc">Agents</span></a> — <code class="docutils literal notranslate"><span class="pre">gptme-agent</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme-service</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme-cloud</span></code></p></li>
 <li><p><a class="reference internal" href="cli/gptme-mcp-server.html"><span class="doc">gptme-mcp-server</span></a> — expose gptme tools over MCP</p></li>
 <li><p><a class="reference internal" href="cli/setup.html"><span class="doc">Setup and Diagnostics</span></a> — onboarding, auth, init, tutorial, doctor</p></li>
 <li><p><a class="reference internal" href="cli/sessions.html"><span class="doc">Sessions</span></a> — status, resume, checkpoint, stats</p></li>
@@ -740,6 +741,7 @@ inside a session, and <a class="reference internal" href="config.html"><span cla
     "gptme-mcp-server": "cli/gptme-mcp-server.html",
     "gptme-agent": "cli/agents.html",
     "gptme-service": "cli/agents.html",
+    "gptme-cloud": "cli/agents.html",
     "gptme-onboard": "cli/setup.html",
     "gptme-auth": "cli/setup.html",
     "gptme-init": "cli/setup.html",
