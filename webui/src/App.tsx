@@ -82,6 +82,7 @@ const App: FC = () => {
                         <Route path={appRoutes.taskDetails} element={<Tasks />} />
                         <Route path={appRoutes.skills} element={<Skills />} />
                         <Route path={appRoutes.agents} element={<Agents />} />
+                        <Route path={appRoutes.agentOverview} element={<Agents />} />
                         <Route path={appRoutes.workspaces} element={<Workspaces />} />
                         <Route path={appRoutes.history} element={<History />} />
                         <Route path={appRoutes.externalSessions} element={<ExternalSessions />} />

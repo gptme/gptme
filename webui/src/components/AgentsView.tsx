@@ -5,10 +5,10 @@ import { extractAgentsFromConversations } from '@/utils/workspaceUtils';
 import { formatDistanceToNow } from 'date-fns';
 import type { ConversationSummary } from '@/types/conversation';
 import { useApi } from '@/contexts/ApiContext';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { isDemoMode } from '@/utils/connectionConfig';
-import { appRoute } from '@/utils/routes';
-import { selectedAgent$ } from '@/stores/sidebar';
+import { agentRoute } from '@/utils/routes';
+import { serverRegistry$ } from '@/stores/servers';
 import CreateAgentDialog, { type CreateAgentRequest } from './CreateAgentDialog';
 import type { FC } from 'react';
 
@@ -19,18 +19,10 @@ interface AgentsViewProps {
 export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
   const { api, connectionConfig } = useApi();
   const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
-  const navigate = useNavigate();
+
   const agents = useMemo(() => extractAgentsFromConversations(conversations), [conversations]);
   const demoMode = isDemoMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-
-  const handleAgentClick = (agentName: string) => {
-    const agent = agents.find((a) => a.name === agentName);
-    if (agent) {
-      selectedAgent$.set(agent);
-      navigate(appRoute('/chat'));
-    }
-  };
 
   const handleAgentCreated = async (agentData: CreateAgentRequest) => {
     try {
@@ -79,40 +71,51 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
-              <button
-                key={agent.path}
+              <div
+                key={JSON.stringify([agent.serverId, agent.path])}
                 className="group flex flex-col rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
-                onClick={() => handleAgentClick(agent.name)}
               >
-                <div className="mb-3 flex items-center gap-3">
-                  {agent.hasAvatar && agent.path ? (
-                    <img
-                      src={`${baseUrl}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
-                      alt={agent.name}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10">
-                      <Bot className="h-5 w-5 text-blue-500" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate font-medium">{agent.name}</h3>
-                    {agent.description && (
-                      <p className="truncate text-xs text-muted-foreground">{agent.description}</p>
+                <Link
+                  to={agentRoute(agent)}
+                  aria-label={`Overview for ${agent.name} on ${agent.serverName || agent.serverId || 'Demo'}`}
+                  className="flex flex-1 flex-col"
+                >
+                  <div className="mb-3 flex items-center gap-3">
+                    {agent.hasAvatar && agent.path ? (
+                      <img
+                        src={`${(agent.serverId ? serverRegistry$.get().servers.find((server) => server.id === agent.serverId)?.baseUrl || '' : baseUrl).replace(/\/+$/, '')}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
+                        alt={agent.name}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10">
+                        <Bot className="h-5 w-5 text-blue-500" />
+                      </div>
                     )}
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-medium">{agent.name}</h3>
+                      {agent.serverName && (
+                        <p className="truncate text-xs text-muted-foreground">{agent.serverName}</p>
+                      )}
+                      {agent.description && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {agent.description}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <MessageSquare className="h-3 w-3" />
-                    {agent.conversationCount} conversation
-                    {agent.conversationCount !== 1 ? 's' : ''}
-                  </span>
-                  <span>{formatDistanceToNow(new Date(agent.lastUsed), { addSuffix: true })}</span>
-                </div>
-
+                  <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3" />
+                      {agent.conversationCount} conversation
+                      {agent.conversationCount !== 1 ? 's' : ''}
+                    </span>
+                    <span>
+                      {formatDistanceToNow(new Date(agent.lastUsed), { addSuffix: true })}
+                    </span>
+                  </div>
+                </Link>
                 {agent.urls?.dashboard && /^https?:\/\//i.test(agent.urls.dashboard) && (
                   <a
                     href={agent.urls.dashboard}
@@ -125,7 +128,7 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
                     Dashboard
                   </a>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}

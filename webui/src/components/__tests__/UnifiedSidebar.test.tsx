@@ -5,6 +5,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { UnifiedSidebar } from '../UnifiedSidebar';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 jest.mock('@/utils/connectionConfig', () => ({
   isDemoMode: jest.fn(() => false),
@@ -47,16 +48,18 @@ const renderTaskSidebar = (
   const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <UnifiedSidebar
-          conversations={[]}
-          selectedConversationId$={selectedConversationId$}
-          onSelectConversation={jest.fn()}
-          fetchNextPage={jest.fn()}
-          tasks={[]}
-          onSelectTask={jest.fn()}
-          onCreateTask={jest.fn()}
-          {...props}
-        />
+        <TooltipProvider>
+          <UnifiedSidebar
+            conversations={[]}
+            selectedConversationId$={selectedConversationId$}
+            onSelectConversation={jest.fn()}
+            fetchNextPage={jest.fn()}
+            tasks={[]}
+            onSelectTask={jest.fn()}
+            onCreateTask={jest.fn()}
+            {...props}
+          />
+        </TooltipProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -172,5 +175,42 @@ describe('UnifiedSidebar external sessions capability gate', () => {
     renderTaskSidebar('/chat');
 
     await waitFor(() => expect(mockGetExternalSessions).toHaveBeenCalledWith(7));
+  });
+});
+
+describe('UnifiedSidebar agent deep links', () => {
+  it('filters by exact server and path even when names and conversation IDs collide', async () => {
+    const { queryClient } = renderTaskSidebar('/chat?agentPath=%2Fagents%2Fbob&server=two', {
+      conversations: [
+        {
+          id: 'shared',
+          name: 'Wanted conversation',
+          modified: 100,
+          agent_name: 'Bob',
+          agent_path: '/agents/bob',
+          serverId: 'two',
+        },
+        {
+          id: 'shared',
+          name: 'Wrong server',
+          modified: 100,
+          agent_name: 'Bob',
+          agent_path: '/agents/bob',
+          serverId: 'one',
+        },
+        {
+          id: 'other',
+          name: 'Wrong path',
+          modified: 100,
+          agent_name: 'Bob',
+          agent_path: '/other/bob',
+          serverId: 'two',
+        },
+      ],
+    });
+    await waitForServerInfo(queryClient);
+    expect(screen.getByText('Wanted conversation')).toBeInTheDocument();
+    expect(screen.queryByText('Wrong server')).not.toBeInTheDocument();
+    expect(screen.queryByText('Wrong path')).not.toBeInTheDocument();
   });
 });

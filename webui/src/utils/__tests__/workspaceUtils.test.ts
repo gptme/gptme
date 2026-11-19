@@ -1,4 +1,4 @@
-import { isAgentWorkspace } from '../workspaceUtils';
+import { extractAgentsFromConversations, isAgentWorkspace } from '../workspaceUtils';
 
 describe('isAgentWorkspace', () => {
   it('returns false for undefined without throwing', () => {
@@ -19,5 +19,38 @@ describe('isAgentWorkspace', () => {
 
   it('returns false for regular workspace paths', () => {
     expect(isAgentWorkspace('/home/user/my-project')).toBe(false);
+  });
+});
+
+describe('agent identity', () => {
+  it('keeps identical names and paths on different servers separate', () => {
+    const agents = extractAgentsFromConversations([
+      {
+        id: 'a',
+        name: 'First',
+        modified: 1,
+        agent_name: 'Bob',
+        agent_path: '/agents/bob',
+        serverId: 'one',
+      },
+      {
+        id: 'b',
+        name: 'Second',
+        modified: 2,
+        agent_name: 'Bob',
+        agent_path: '/agents/bob',
+        serverId: 'two',
+      },
+      {
+        id: 'c',
+        name: 'Third',
+        modified: 3,
+        agent_name: 'Bob',
+        agent_path: '/other/bob',
+        serverId: 'one',
+      },
+    ]);
+    expect(agents).toHaveLength(3);
+    expect(agents.map((agent) => agent.conversationCount)).toEqual([1, 1, 1]);
   });
 });

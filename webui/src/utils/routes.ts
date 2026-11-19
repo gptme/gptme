@@ -1,3 +1,19 @@
+import type { Agent } from './workspaceUtils';
+
+export function agentRoute(agent: Pick<Agent, 'path' | 'serverId'>): string {
+  const params = new URLSearchParams(currentSearchParams());
+  params.set('path', agent.path);
+  if (agent.serverId) params.set('server', agent.serverId);
+  return `/agents/overview?${params}`;
+}
+
+export function agentConversationsRoute(agent: Pick<Agent, 'path' | 'serverId'>): string {
+  const params = new URLSearchParams(currentSearchParams());
+  params.set('agentPath', agent.path);
+  if (agent.serverId) params.set('server', agent.serverId);
+  return `/chat?${params}`;
+}
+
 export function appRoute(path: string): string {
   const search = currentSearchParams();
   return `${path}${search ? `?${search}` : ''}`;

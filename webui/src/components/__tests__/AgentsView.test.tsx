@@ -59,6 +59,34 @@ describe('AgentsView', () => {
     expect(screen.getByText('Agent creation requires a live gptme server.')).toBeInTheDocument();
   });
 
+  it('links same-named cards to their own server and path without changing chat filters', () => {
+    mockExtractAgents.mockReturnValue([
+      {
+        name: 'Bob',
+        path: '/agents/bob',
+        serverId: 'one',
+        lastUsed: new Date().toISOString(),
+        conversationCount: 1,
+      },
+      {
+        name: 'Bob',
+        path: '/agents/bob',
+        serverId: 'two',
+        lastUsed: new Date().toISOString(),
+        conversationCount: 1,
+      },
+    ]);
+    renderAgentsView();
+    expect(screen.getByRole('link', { name: 'Overview for Bob on one' })).toHaveAttribute(
+      'href',
+      '/agents/overview?path=%2Fagents%2Fbob&server=one'
+    );
+    expect(screen.getByRole('link', { name: 'Overview for Bob on two' })).toHaveAttribute(
+      'href',
+      '/agents/overview?path=%2Fagents%2Fbob&server=two'
+    );
+  });
+
   describe('memoization', () => {
     it('does not re-extract agents on re-render with stable conversations reference', () => {
       const conversations: ConversationSummary[] = [];

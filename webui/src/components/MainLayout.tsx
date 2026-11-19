@@ -15,6 +15,8 @@ import { SettingsModal } from '@/components/SettingsModal';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { UnifiedSidebar } from '@/components/UnifiedSidebar';
 import { AgentsView } from '@/components/AgentsView';
+import { AgentOverview } from '@/components/AgentOverview';
+import { appRoutes } from '@/appRoutes';
 import { WorkspacesView } from '@/components/WorkspacesView';
 import { useToast } from '@/components/ui/use-toast';
 import { setDocumentTitle } from '@/utils/title';
@@ -504,6 +506,16 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   // Render main content based on current section
   const renderMainContent = () => {
     if (currentSection === 'agents') {
+      if (location.pathname === appRoutes.agentOverview) {
+        return (
+          <AgentOverview
+            conversations={allConversations}
+            isLoading={isLoading || isFetching}
+            hasMore={hasNextPage}
+            onLoadMore={() => void fetchNextPage()}
+          />
+        );
+      }
       return <AgentsView conversations={allConversations} />;
     }
 
