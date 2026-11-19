@@ -34,6 +34,10 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.queryByTestId('ok')).not.toBeInTheDocument();
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('gptme-last-render-error')!)).toMatchObject({
+      name: 'Error',
+      message: 'Test render error',
+    });
     expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
   });
 
