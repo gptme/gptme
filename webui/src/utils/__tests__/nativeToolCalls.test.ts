@@ -13,6 +13,11 @@ describe('native tool transcripts', () => {
     expect(getToolSummary(parsed[1])).toBe('gptme');
   });
 
+  it('holds partial headers while streaming, but not ordinary annotations', () => {
+    expect(renderNativeToolCalls('Reply.\n@shell(call_123456', true)).toBe('Reply.');
+    expect(renderNativeToolCalls('@note: {"important":true}')).toBe('@note: {"important":true}');
+  });
+
   it('ignores examples in markdown fences', () => {
     const example = '```text\n@shell(call_1): {"command":"not executed"}\n```';
     expect(nativeToolCalls(example)).toEqual([]);

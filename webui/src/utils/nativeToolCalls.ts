@@ -11,7 +11,7 @@ export interface NativeToolCall {
 /** Native transcript syntax, excluding literal examples inside fenced blocks. */
 export function nativeToolCalls(content: string): NativeToolCall[] {
   const fences = scanMarkdownFences(content).filter((fence) => fence.depth === 0);
-  const header = /^@([\w.-]+)(?:\([^\n)]*\))?:[ \t]*(?=\{)/gm;
+  const header = /^@([\w.-]+)\([^\n)]+\):[ \t]*(?=\{)/gm;
   const calls: NativeToolCall[] = [];
   let match: RegExpExecArray | null;
   while ((match = header.exec(content))) {
@@ -49,7 +49,12 @@ export function nativeToolCalls(content: string): NativeToolCall[] {
 }
 
 /** Render-only conversion. Never alter the stored transcript or executed args. */
-export function renderNativeToolCalls(content: string): string {
+export function renderNativeToolCalls(content: string, streaming = false): string {
+  if (streaming) {
+    // The backend can flush a header before its opening JSON brace arrives.
+    // Hold this suffix out of prose instead of flashing a long call ID.
+    content = content.replace(/(?:^|\n)@[\w.-]+(?:\([^\n)]*(?:\):?[ \t]*)?)?$/, '');
+  }
   let output = '';
   let offset = 0;
   for (const call of nativeToolCalls(content)) {

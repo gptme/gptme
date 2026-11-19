@@ -236,14 +236,18 @@ const ChatMessageComponent: FC<Props> = ({
       parser$.set(ObservableHint.opaque(newParser));
 
       // Write existing content to the new parser (handles re-mount after edit mode)
-      const existingContent = renderNativeToolCalls(message$.content.peek() || '');
+      const message = message$.peek();
+      if (!message) return;
+      const existingContent = renderNativeToolCalls(
+        message$.content.peek() || '',
+        'isComplete' in message && !message.isComplete
+      );
       if (existingContent) {
         previousContent$.set('');
         // Preprocess to widen outer fences for nested code blocks (gptme convention)
         // before feeding to smd, which doesn't understand ```lang = opener nesting.
         const { processedContent } = processNestedCodeBlocks(existingContent);
         smd.parser_write(newParser, processedContent);
-        const message = message$.peek();
         if (!('isComplete' in message) || message.isComplete) {
           smd.parser_end(newParser);
           renderer$.set(null);
@@ -259,8 +263,13 @@ const ChatMessageComponent: FC<Props> = ({
   // Send any new content to the parser
   const previousContent$ = useObservable('');
   useObserveEffect(message$.content, ({ value }) => {
+    const message = message$.peek();
+    if (!message) return;
     const previousContent = previousContent$.get();
-    const content = renderNativeToolCalls(value || '');
+    const content = renderNativeToolCalls(
+      value || '',
+      'isComplete' in message && !message.isComplete
+    );
 
     // If content was replaced (not appended), reinitialize the parser
     if (content && !content.startsWith(previousContent) && previousContent.length > 0) {
@@ -279,7 +288,6 @@ const ChatMessageComponent: FC<Props> = ({
         // Preprocess nested code blocks before feeding to smd
         const { processedContent } = processNestedCodeBlocks(content);
         smd.parser_write(newParser, processedContent);
-        const message = message$.peek();
         if (!('isComplete' in message) || message.isComplete) {
           smd.parser_end(newParser);
           renderer$.set(null);

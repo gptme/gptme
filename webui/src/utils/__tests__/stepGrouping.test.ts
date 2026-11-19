@@ -8,6 +8,25 @@ function msg(role: Message['role'], content = ''): Message {
 describe('buildStepRoles', () => {
   const neverHidden = () => false;
 
+  it('keeps mixed native and fenced steps in source order and ignores payload examples', () => {
+    const content =
+      '@shell(call_1): {"command":"first"}\n```save next.py\nsecond\n```\n@save(call_2): {"path":"last.py","content":"```shell\\necho example\\n```"}';
+    const roles = buildStepRoles(
+      [
+        msg('user', 'go'),
+        msg('assistant', content),
+        msg('system', 'saved'),
+        msg('assistant', 'done'),
+      ],
+      neverHidden
+    );
+    const start = roles.get(1);
+    expect(start?.type).toBe('group-start');
+    if (start?.type === 'group-start') {
+      expect(start.steps?.map((step) => step.tool)).toEqual(['shell', 'save', 'save']);
+    }
+  });
+
   it('returns empty map for no messages', () => {
     expect(buildStepRoles([], neverHidden).size).toBe(0);
   });

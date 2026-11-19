@@ -63,7 +63,7 @@ test('streamed reply keeps its DOM when the server supplies the final timestamp'
   page,
 }) => {
   await openTurn(page);
-  await appendMessage(page, 'assistant', 'A stable reply');
+  await appendMessage(page, 'assistant', 'A stable reply\n');
   const reply = page.locator('[data-message-index="1"]');
   await expect(reply).toContainText('A stable reply');
   const original = await reply.elementHandle();
@@ -595,7 +595,7 @@ test('rendered result preview stays inside a bounded pane', async ({ page }, tes
 
 test('native tool payload streams collapsed without losing the preceding reply tail', async ({
   page,
-}) => {
+}, testInfo) => {
   await page.goto('/?demo=1');
   await page.getByText('Introduction to gptme').click();
   await page.evaluate(async (id) => {
@@ -629,5 +629,5 @@ test('native tool payload streams collapsed without losing the preceding reply t
   await details.locator('summary').click();
   await expect(details).toContainText('echo hello');
   await expect(message).toContainText('The complete reply tail.');
-  await page.screenshot({ path: 'test-results/native-tool-stream.png' });
+  await page.screenshot({ path: testInfo.outputPath('native-tool-stream.png') });
 });

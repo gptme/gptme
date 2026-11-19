@@ -1,4 +1,5 @@
 import type { Message } from '@/types/conversation';
+import { nativeToolCalls } from './nativeToolCalls';
 import { isKnownTool, parseToolCalls, getToolSummary } from './toolCallParser';
 
 /** Detail about a single tool call within a step group */
@@ -62,11 +63,13 @@ function detectTool(content: string): string | null {
  * Returns the tool name, a short arg for display, and a content snippet.
  */
 function extractToolSteps(content: string): ToolStepDetail[] {
-  const steps: ToolStepDetail[] = [];
+  const steps: (ToolStepDetail & { position: number })[] = [];
+  const native = nativeToolCalls(content);
   const regex = /```(\w+)(?:\s+([^\n]*))?\n([\s\S]*?)```/g;
 
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
+    if (native.some((call) => match!.index >= call.start && match!.index < call.end)) continue;
     const tool = match[1];
     if (!isKnownTool(tool)) continue;
     const inlineArg = (match[2] || '').trim();
@@ -99,13 +102,17 @@ function extractToolSteps(content: string): ToolStepDetail[] {
       snippet = snippet.split('\n')[0].substring(0, 27) + '...';
     }
 
-    steps.push({ tool, arg, snippet });
+    steps.push({ tool, arg, snippet, position: match.index });
   }
 
-  for (const call of parseToolCalls(content).filter((call) => call.kwargs)) {
-    steps.push({ tool: call.tool, arg: getToolSummary(call), snippet: '' });
+  for (const span of native) {
+    for (const call of parseToolCalls(content.slice(span.start, span.end))) {
+      steps.push({ tool: call.tool, arg: getToolSummary(call), snippet: '', position: span.start });
+    }
   }
-  return steps;
+  return steps
+    .sort((a, b) => a.position - b.position)
+    .map(({ position: _position, ...step }) => step);
 }
 
 /**
