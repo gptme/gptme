@@ -198,7 +198,9 @@ export function getApiErrorPresentation(
   if (title !== 'Payment required' && title !== 'Authentication failed') {
     // Require an HTTP/provider status label, not a port or subprocess exit code.
     // Plain reason phrases are accepted only at the start of the error text.
-    const status = message.match(/\b(?:error code|http(?: status)?)\s*:?\s*(401|402)\b/i)?.[1];
+    const status = message
+      .trim()
+      .match(/^(?:error:\s*)?(?:error code|http(?: status)?)\s*:?\s*(401|402)\b/i)?.[1];
     if (status === '402' || /^(?:error:\s*)?payment required\b/i.test(message.trim())) {
       title = 'Payment required';
     } else if (status === '401' || /^(?:error:\s*)?unauthori[sz]ed\b/i.test(message.trim())) {

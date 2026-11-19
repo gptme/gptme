@@ -102,7 +102,10 @@ export function useConversation(conversationId: string, serverId?: string) {
         await api.step(conversationId, model, stream, branch, maxTokens, temperature, topP);
         // Completion, refusal or Stop may arrive before this HTTP response.
         // An acknowledgment must not resurrect ownership released by that event.
-        if (conversation$?.generationRevision.peek() === revision) {
+        if (
+          conversation$?.generationRevision.peek() === revision &&
+          conversation$?.pendingGenerationPrompt.peek() === timestamp
+        ) {
           conversation$?.generationPrompt.set(timestamp);
         }
       } catch (error) {
@@ -670,10 +673,13 @@ export function useConversation(conversationId: string, serverId?: string) {
                   }
                   setMessageStatus(conversationId, timestamp, 'failed', description);
                 }
-                conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
-                conversation$?.generationPrompt.set(undefined);
-                conversation$?.pendingGenerationPrompt.set(undefined);
               }
+              // A disconnected stream cannot retain a reliable active owner.
+              // Release it without marking the saved prompt refused, and prevent
+              // an in-flight HTTP acknowledgment from restoring stale ownership.
+              conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+              conversation$?.generationPrompt.set(undefined);
+              conversation$?.pendingGenerationPrompt.set(undefined);
 
               toast({
                 variant: 'destructive',

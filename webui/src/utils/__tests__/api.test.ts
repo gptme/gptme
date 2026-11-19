@@ -1467,6 +1467,9 @@ describe('getApiErrorPresentation', () => {
 
   it.each([
     'Error: subprocess exited with code 402',
+    'Error: python exited with error code 402 - Payment required',
+    'Build failed, subprocess returned error code 402',
+    'Tool stderr mentioned HTTP status 401 - invalid token',
     'Error: port 401 in use',
     'Tool output: unauthorized file access',
     'The log mentioned payment required yesterday',

@@ -1773,6 +1773,54 @@ describe('useConversation', () => {
     expect(editMessageApi).not.toHaveBeenCalled();
   });
 
+  it('does not resurrect a superseded step owner after the newer HTTP acknowledgment', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const first = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const second = renderHook(() => useConversation('chat-placeholder'));
+    let acknowledgeOld!: () => void;
+    step.mockImplementationOnce(() => new Promise<void>((resolve) => (acknowledgeOld = resolve)));
+    let oldSend!: Promise<void>;
+    await act(async () => {
+      oldSend = first.result.current.sendMessage({ message: 'Superseded step' });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await act(async () => {
+      await second.result.current.sendMessage({ message: 'Accepted newer step' });
+    });
+    await act(async () => {
+      acknowledgeOld();
+      await oldSend;
+    });
+    act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+    const log = conv$.data.log.get();
+    expect(log.find((message) => message.content === 'Superseded step')?._status).toBe('sent');
+    expect(log.find((message) => message.content === 'Accepted newer step')?._status).toBe(
+      'failed'
+    );
+  });
+
+  it('does not blame a disconnected turn for the next prompt early refusal', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Disconnected turn' });
+    });
+    act(() => eventHandlers!.onError!('Connection lost and max reconnects reached'));
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    step.mockImplementationOnce(async () => {
+      eventHandlers!.onError!('Error code: 402 - Payment required');
+    });
+    await act(async () => {
+      await result.current.sendMessage({ message: 'New refused turn' });
+    });
+    const log = conv$.data.log.get();
+    expect(log.find((message) => message.content === 'Disconnected turn')?._status).toBe('sent');
+    expect(log.find((message) => message.content === 'New refused turn')?._status).toBe('failed');
+  });
+
   it('does not mark a saved prompt failed when the event stream loses its connection', async () => {
     conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
     const { result } = renderHook(() => useConversation('chat-placeholder'));
