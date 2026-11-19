@@ -17,6 +17,7 @@ import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
 import { processNestedCodeBlocks } from '@/utils/markdownUtils';
+import { renderNativeToolCalls } from '@/utils/nativeToolCalls';
 import {
   Clipboard,
   Check,
@@ -235,7 +236,7 @@ const ChatMessageComponent: FC<Props> = ({
       parser$.set(ObservableHint.opaque(newParser));
 
       // Write existing content to the new parser (handles re-mount after edit mode)
-      const existingContent = message$.content.peek();
+      const existingContent = renderNativeToolCalls(message$.content.peek() || '');
       if (existingContent) {
         previousContent$.set('');
         // Preprocess to widen outer fences for nested code blocks (gptme convention)
@@ -259,7 +260,7 @@ const ChatMessageComponent: FC<Props> = ({
   const previousContent$ = useObservable('');
   useObserveEffect(message$.content, ({ value }) => {
     const previousContent = previousContent$.get();
-    const content = value || '';
+    const content = renderNativeToolCalls(value || '');
 
     // If content was replaced (not appended), reinitialize the parser
     if (content && !content.startsWith(previousContent) && previousContent.length > 0) {

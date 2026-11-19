@@ -592,3 +592,42 @@ test('rendered result preview stays inside a bounded pane', async ({ page }, tes
   }
   expect(await pane.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
 });
+
+test('native tool payload streams collapsed without losing the preceding reply tail', async ({
+  page,
+}) => {
+  await page.goto('/?demo=1');
+  await page.getByText('Introduction to gptme').click();
+  await page.evaluate(async (id) => {
+    const { replaceLog } = await import('/src/stores/conversations.ts');
+    replaceLog(id, [
+      { role: 'user', content: 'Inspect this.' },
+      {
+        role: 'assistant',
+        content: 'The complete reply tail.\n@shell(call_1): {"command":"echo',
+        isComplete: false,
+      },
+    ]);
+  }, conversationId);
+  const message = page.locator('[data-message-index="1"]');
+  await expect(message).toContainText('The complete reply tail.');
+  await expect(message).not.toContainText('@shell(call_1)');
+  const details = message.locator('details');
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open', '');
+  await page.evaluate(async (id) => {
+    const { conversations$ } = await import('/src/stores/conversations.ts');
+    conversations$
+      .get(id)
+      .data.log[1].content.set(
+        'The complete reply tail.\n@shell(call_1): {"command":"echo hello"}'
+      );
+    conversations$.get(id).data.log[1].isComplete.set(true);
+  }, conversationId);
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open', '');
+  await details.locator('summary').click();
+  await expect(details).toContainText('echo hello');
+  await expect(message).toContainText('The complete reply tail.');
+  await page.screenshot({ path: 'test-results/native-tool-stream.png' });
+});

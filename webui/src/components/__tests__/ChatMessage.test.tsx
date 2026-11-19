@@ -78,6 +78,24 @@ describe('ChatMessage', () => {
     );
   });
 
+  it('renders native calls collapsed from the first argument and streams their payload', async () => {
+    const message$ = observable<StreamingMessage>({
+      role: 'assistant',
+      content: 'Inspecting.\n@shell(call_1): {"command":"echo',
+      isComplete: false,
+    });
+    const view = renderWithProviders(
+      <ChatMessage message$={message$} conversationId={testConversationId} />
+    );
+    expect(view.container).not.toHaveTextContent('@shell(call_1)');
+    const details = view.container.querySelector('details');
+    expect(details).not.toHaveAttribute('open');
+    act(() => message$.content.set('Inspecting.\n@shell(call_1): {"command":"echo hello"}'));
+    act(() => message$.isComplete.set(true));
+    await waitFor(() => expect(view.container).toHaveTextContent('echo hello'));
+    expect(view.container.querySelector('details')).not.toHaveAttribute('open');
+  });
+
   it('keeps the edit draft open when saving is blocked, then closes after success', async () => {
     const onEdit = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const message$ = observable<Message>({ role: 'user', content: 'original' });

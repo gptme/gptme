@@ -1,5 +1,5 @@
 import type { Message } from '@/types/conversation';
-import { parseToolCalls } from './toolCallParser';
+import { parseToolCalls, getToolSummary } from './toolCallParser';
 
 export interface ToolCall {
   tool: string;
@@ -58,7 +58,7 @@ function parseExecutedToolCalls(messages: Message[]): ToolCall[] {
         continue;
       }
       const args = call.args ?? [];
-      const content = call.content || args[0] || '';
+      const content = call.content || args[0] || (call.kwargs ? getToolSummary(call) : '');
       calls.push({
         tool: call.tool.toLowerCase(),
         args,

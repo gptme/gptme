@@ -2,6 +2,7 @@ import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import { highlightCode } from './highlightUtils';
 import { scanMarkdownFences } from './markdownFences';
+import { renderNativeToolCalls } from './nativeToolCalls';
 
 // Create custom renderer
 const renderer = new marked.Renderer();
@@ -111,7 +112,7 @@ export function transformThinkingTags(content: string) {
 }
 
 export function parseMarkdownContent(content: string) {
-  const processedContent = transformThinkingTags(content);
+  const processedContent = transformThinkingTags(renderNativeToolCalls(content));
   const { processedContent: transformedContent, langtags } =
     processNestedCodeBlocks(processedContent);
 

@@ -1,5 +1,5 @@
 import type { Message } from '@/types/conversation';
-import { isKnownTool } from './toolCallParser';
+import { isKnownTool, parseToolCalls, getToolSummary } from './toolCallParser';
 
 /** Detail about a single tool call within a step group */
 export interface ToolStepDetail {
@@ -102,6 +102,9 @@ function extractToolSteps(content: string): ToolStepDetail[] {
     steps.push({ tool, arg, snippet });
   }
 
+  for (const call of parseToolCalls(content).filter((call) => call.kwargs)) {
+    steps.push({ tool: call.tool, arg: getToolSummary(call), snippet: '' });
+  }
   return steps;
 }
 
