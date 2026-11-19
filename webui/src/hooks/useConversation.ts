@@ -94,6 +94,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       temperature?: number,
       topP?: number
     ) => {
+      conversation$?.disconnectedGenerationPrompt.set(undefined);
       const previous = conversation$?.generationPrompt.peek();
       const revision = conversation$?.generationRevision.peek();
       conversation$?.pendingGenerationPrompt.set(timestamp);
@@ -453,6 +454,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               // A step can end at a manual-confirmation pause. The next model
               // call belongs to the same prompt and starts without stepForPrompt.
               if (!conversation$?.pendingTool.peek() && !conversation$?.executingTool.peek()) {
+                conversation$?.disconnectedGenerationPrompt.set(undefined);
                 conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
                 const pending = conversation$?.pendingGenerationPrompt.peek();
                 const owner = conversation$?.generationPrompt.peek();
@@ -587,6 +589,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
+              conversation$?.disconnectedGenerationPrompt.set(undefined);
               conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
               conversation$?.generationPrompt.set(undefined);
               conversation$?.pendingGenerationPrompt.set(undefined);
@@ -674,9 +677,17 @@ export function useConversation(conversationId: string, serverId?: string) {
                   setMessageStatus(conversationId, timestamp, 'failed', description);
                 }
               }
-              // A disconnected stream cannot retain a reliable active owner.
-              // Release it without marking the saved prompt refused, and prevent
-              // an in-flight HTTP acknowledgment from restoring stale ownership.
+              // Keep a recovery candidate separate from active ownership. Only a
+              // reconnect handshake reporting an active turn may restore it; a new
+              // send/Stop invalidates it. Repeated connection errors retain it.
+              const refused = title === 'Payment required' || title === 'Authentication failed';
+              conversation$?.disconnectedGenerationPrompt.set(
+                refused
+                  ? undefined
+                  : (conversation$?.generationPrompt.peek() ??
+                      conversation$?.disconnectedGenerationPrompt.peek())
+              );
+              // Prevent late HTTP acknowledgments from restoring active ownership.
               conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
               conversation$?.generationPrompt.set(undefined);
               conversation$?.pendingGenerationPrompt.set(undefined);
@@ -763,6 +774,21 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onReconnectState: (state) => {
+              const recovery = conversation$?.disconnectedGenerationPrompt.peek();
+              const log = conversation$?.data.log.peek() ?? [];
+              const index = log.findIndex((message) => message.timestamp === recovery);
+              if (
+                !stopRequestedRef.current &&
+                (state.generating || state.pendingTools.length > 0) &&
+                !conversation$?.generationPrompt.peek() &&
+                !conversation$?.pendingGenerationPrompt.peek() &&
+                index >= 0 &&
+                log[index]._retry?.persistence === 'saved' &&
+                !log.slice(index + 1).some((message) => message.role === 'user')
+              ) {
+                conversation$?.generationPrompt.set(recovery);
+              }
+              conversation$?.disconnectedGenerationPrompt.set(undefined);
               setGenerating(conversationId, state.generating);
               setPendingTool(conversationId, null, null);
               // Restore first pending tool (if any)
@@ -1175,6 +1201,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     // without a session id yet. The API interrupt is best-effort and no-ops
     // until a session exists.
     stopRequestedRef.current = true;
+    conversation$?.disconnectedGenerationPrompt.set(undefined);
     conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
     conversation$?.generationPrompt.set(undefined);
     conversation$?.pendingGenerationPrompt.set(undefined);
@@ -1371,6 +1398,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         const revision = conv$.generationRevision.peek();
         const rerunOwner = prepareHistoryGeneration();
         try {
+          conv$.disconnectedGenerationPrompt.set(undefined);
           conv$.generationPrompt.set(rerunOwner);
           await api.rerunTools(conversationId);
           if (generationIsStale(epoch)) {

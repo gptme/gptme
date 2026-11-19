@@ -49,6 +49,14 @@ describe('useConversation', () => {
   let eventHandlers:
     | {
         onConnected?: () => void;
+        onReconnectState?: (state: {
+          generating: boolean;
+          pendingTools: {
+            tool_id: string;
+            tooluse: { tool: string; content: string };
+            auto_confirm: boolean;
+          }[];
+        }) => void;
         onMessageStart?: () => void;
         onMessageAdded?: (message: Message) => void;
         onStepComplete?: () => void;
@@ -1799,6 +1807,127 @@ describe('useConversation', () => {
     expect(log.find((message) => message.content === 'Accepted newer step')?._status).toBe(
       'failed'
     );
+  });
+
+  it.each(['confirm', 'skip'] as const)(
+    'restores inline Retry when a reconnected tool is %s',
+    async (action) => {
+      const conv$ = conversations$.get('chat-placeholder')!;
+      conv$.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Reconnect this turn' });
+      });
+      const prompt = conv$.data.log.get().at(-1)!;
+      act(() => {
+        eventHandlers!.onMessageAdded!({
+          role: 'assistant',
+          content: 'Tool call',
+          timestamp: 'tool-call',
+        });
+        eventHandlers!.onToolPending!('tool-1', { tool: 'shell', content: 'pwd' }, false);
+        eventHandlers!.onStepComplete!();
+        eventHandlers!.onError!('Connection lost and max reconnects reached');
+        // Repeated connection failures must not discard the recovery candidate.
+        eventHandlers!.onError!('Connection lost and max reconnects reached');
+        eventHandlers!.onConnected!();
+        eventHandlers!.onReconnectState!({
+          generating: false,
+          pendingTools: [
+            {
+              tool_id: 'tool-1',
+              tooluse: { tool: 'shell', content: 'pwd' },
+              auto_confirm: false,
+            },
+          ],
+        });
+      });
+      (primaryClient.confirmTool as jest.Mock).mockImplementationOnce(async () => {
+        if (action === 'confirm') {
+          eventHandlers!.onToolExecuting!('tool-1');
+          eventHandlers!.onToolComplete!('tool-1', 10, true);
+        }
+        eventHandlers!.onMessageAdded!({
+          role: 'system',
+          content: 'Error: Error code: 402 - Payment required',
+          timestamp: 'refusal',
+        });
+        eventHandlers!.onError!('Error code: 402 - Payment required');
+      });
+      await act(async () => {
+        await result.current.confirmTool(action);
+      });
+      const failed = conv$.data.log
+        .get()
+        .find((message) => message.timestamp === prompt.timestamp)!;
+      expect(failed._status).toBe('failed');
+      await act(async () => {
+        await result.current.retryMessage(failed);
+      });
+      expect(step).toHaveBeenCalledTimes(2);
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      expect(editMessageApi).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['stop', 'server interruption', 'idle reconnect', 'newer prompt'])(
+    'does not recover a disconnected owner after %s',
+    async (supersededBy) => {
+      const conv$ = conversations$.get('chat-placeholder')!;
+      conv$.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Disconnected turn' });
+      });
+      act(() => eventHandlers!.onError!('Connection lost and max reconnects reached'));
+      if (supersededBy === 'stop') {
+        await act(async () => {
+          await result.current.interruptGeneration();
+        });
+      } else if (supersededBy === 'server interruption') {
+        act(() => eventHandlers!.onInterrupted!());
+      } else if (supersededBy === 'idle reconnect') {
+        act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        await act(async () => {
+          await result.current.sendMessage({ message: 'Newer turn' });
+        });
+      }
+      act(() => {
+        eventHandlers!.onReconnectState!({ generating: true, pendingTools: [] });
+        eventHandlers!.onError!('Error code: 402 - Payment required');
+      });
+      expect(
+        conv$.data.log.get().find((message) => message.content === 'Disconnected turn')?._status
+      ).toBe('sent');
+      if (supersededBy === 'newer prompt') {
+        expect(
+          conv$.data.log.get().find((message) => message.content === 'Newer turn')?._status
+        ).toBe('failed');
+      }
+    }
+  );
+
+  it('restores ownership for a still-generating turn after reconnect', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Still active on server' });
+    });
+    act(() => {
+      eventHandlers!.onError!('Connection lost and max reconnects reached');
+      eventHandlers!.onReconnectState!({ generating: true, pendingTools: [] });
+      eventHandlers!.onError!('Error code: 401 - Unauthorized');
+    });
+    const failed = conv$.data.log.get().at(-1)!;
+    expect(failed._status).toBe('failed');
+    await act(async () => {
+      await result.current.retryMessage(failed);
+    });
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(sendMessageApi).toHaveBeenCalledTimes(1);
   });
 
   it('does not blame a disconnected turn for the next prompt early refusal', async () => {

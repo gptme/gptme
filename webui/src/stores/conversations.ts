@@ -49,6 +49,9 @@ export interface ConversationState {
   streamClientGeneration?: number | null;
   // Prompt owning the accepted step, shared with every split-view subscriber.
   generationPrompt?: string;
+  // Disconnected owner, inactive until the server confirms a running/paused turn.
+  // Kept separately so a new send cannot inherit a stale owner.
+  disconnectedGenerationPrompt?: string;
   // Candidate awaiting HTTP acceptance; a delayed prior completion transfers
   // ownership here without resurrecting a request that itself completed.
   pendingGenerationPrompt?: string;

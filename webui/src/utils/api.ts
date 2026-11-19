@@ -1388,6 +1388,8 @@ export class ApiClient {
             callbacks.onConnectionState?.({ status: 'connected' });
             // Apply the snapshot before onConnected can start new local work;
             // the server captured it before any step requested by that callback.
+            // Report idle handshakes too, so consumers can discard disconnected
+            // turn recovery rather than retaining it for a later unrelated turn.
             if (callbacks.onReconnectState) {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
