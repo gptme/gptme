@@ -681,6 +681,10 @@ class ChatConfig(BaseModel):
 
     name: str | None = Field(None, description="Conversation name")
     model: str | None = Field(None, description="Default model")
+    reasoning_effort: str | None = Field(
+        None,
+        description="Conversation effort override; empty string restores inheritance",
+    )
     tools: list[str] | None = Field(None, description="Enabled tools")
     workspace: str | None = Field(None, description="Workspace path")
     watch_autowake: bool = Field(

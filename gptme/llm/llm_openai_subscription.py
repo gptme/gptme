@@ -521,12 +521,7 @@ def _codex_model_and_effort(
     from ..config import get_config
 
     config = get_config()
-    reasoning_level = (
-        config.env_overrides.get("THINKING_EFFORT")
-        or (config.chat.reasoning_effort if config.chat else None)
-        or reasoning_level
-        or "medium"
-    )
+    reasoning_level = config.get_env("THINKING_EFFORT") or reasoning_level or "medium"
     return base_model, reasoning_level
 
 

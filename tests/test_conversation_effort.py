@@ -403,3 +403,60 @@ def test_invalid_branch_does_not_save_effort(client):
         ]
         == "low"
     )
+
+
+def test_subscription_default_inherits_environment(monkeypatch):
+    from gptme.llm.llm_openai_subscription import _codex_model_and_effort
+
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    set_config(Config(chat=ChatConfig(reasoning_effort="")))
+    assert _codex_model_and_effort("gpt-6.1-sol") == ("gpt-6.1-sol", "high")
+    monkeypatch.delenv("GPTME_THINKING_EFFORT")
+    set_config(Config(chat=ChatConfig(env={"THINKING_EFFORT": "low"})))
+    assert _codex_model_and_effort("gpt-6.1-sol") == ("gpt-6.1-sol", "low")
+
+
+def test_effort_is_documented_in_config_schema():
+    from gptme.server.openapi_docs import ChatConfig as SchemaChatConfig
+
+    assert "reasoning_effort" in SchemaChatConfig.model_json_schema()["properties"]
+
+
+def test_unknown_provider_returns_structured_effort_validation_error(client):
+    cid = "effort-unknown-provider"
+    response = client.put(
+        f"/api/v2/conversations/{cid}",
+        json={
+            "prompt": "test",
+            "config": {
+                "chat": {
+                    "model": "unknown/foo",
+                    "reasoning_effort": "high",
+                }
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert response.get_json()["error"]
+
+    response = client.put(f"/api/v2/conversations/{cid}", json={"prompt": "test"})
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    response = client.post(
+        f"/api/v2/conversations/{cid}/step",
+        json={
+            "session_id": sid,
+            "model": "unknown/foo",
+            "reasoning_effort": "high",
+        },
+    )
+    assert response.status_code == 400
+    assert response.get_json()["error"]
+    response = client.patch(
+        f"/api/v2/conversations/{cid}/config",
+        json={
+            "chat": {"model": "unknown/foo", "reasoning_effort": "high"},
+        },
+    )
+    assert response.status_code == 400
+    assert response.get_json()["error"]
