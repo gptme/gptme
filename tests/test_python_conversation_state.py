@@ -118,3 +118,44 @@ def test_conversation_kernel_cleanup_respects_live_owners(
     finally:
         for context in (a, b):
             context.run(reset_backend)
+
+
+@pytest.mark.parametrize("generating", [False, True])
+def test_idle_cleanup_preserves_executing_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generating: bool
+) -> None:
+    from collections import defaultdict
+    from datetime import datetime, timedelta, timezone
+
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    monkeypatch.setattr(SessionManager, "_sessions", {})
+    monkeypatch.setattr(SessionManager, "_conversation_sessions", defaultdict(set))
+    monkeypatch.setattr(SessionManager, "_active_commands", set())
+    monkeypatch.setattr("gptme.server.session_models.trigger_hook", lambda *a, **kw: [])
+    conversation_id = str(tmp_path / "executing-python")
+    context = _context(conversation_id)
+    session = SessionManager.create_session(conversation_id)
+    old = datetime.now(tz=timezone.utc) - timedelta(hours=2)
+    session.last_activity = old
+    session.generating = generating
+    session.generating_since = old if generating else None
+    session._executing_tools.add("python-cell")
+    try:
+        backend = context.run(get_backend)
+        with patch.object(backend, "shutdown", wraps=backend.shutdown) as shutdown:
+            SessionManager.clean_inactive_sessions()
+            assert SessionManager.get_session(session.id) is session
+            assert session.generating is generating
+            assert context.run(get_backend) is backend
+            shutdown.assert_not_called()
+
+            session._executing_tools.clear()
+            session.generating = False
+            SessionManager.clean_inactive_sessions()
+            assert SessionManager.get_session(session.id) is None
+            shutdown.assert_called_once()
+            assert context.run(get_backend) is not backend
+    finally:
+        context.run(reset_backend)
