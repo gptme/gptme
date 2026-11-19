@@ -1836,7 +1836,7 @@ export class ApiClient {
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
-      ...(options?.pendingFiles?.length ? { _status: 'pending' as const } : {}),
+      _status: 'pending',
     };
 
     // Create placeholder conversation in store immediately.

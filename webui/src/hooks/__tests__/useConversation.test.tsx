@@ -1287,6 +1287,131 @@ describe('useConversation', () => {
     }
   );
 
+  it('keeps a newly accepted prompt after the previous completion arrives during HTTP', async () => {
+    conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Old turn' });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    step.mockImplementationOnce(async () => {
+      eventHandlers!.onStepComplete!();
+    });
+    await act(async () => {
+      await result.current.sendMessage({ message: 'New turn' });
+    });
+    act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+    const log = conversations$.get('chat-placeholder')!.data.log.get();
+    expect(log.find((m) => m.content === 'Old turn')?._status).toBe('sent');
+    expect(log.find((m) => m.content === 'New turn')?._status).toBe('failed');
+  });
+
+  it('does not retain a rejected candidate when the previous completion races a 409', async () => {
+    conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Old turn' });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    jest.useFakeTimers();
+    try {
+      step.mockImplementationOnce(async () => {
+        eventHandlers!.onStepComplete!();
+        throw new ApiClientError('Busy', 409);
+      });
+      let sending!: Promise<void>;
+      await act(async () => {
+        sending = result.current.sendMessage({ message: 'Busy candidate' });
+      });
+      act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+      expect(conversations$.get('chat-placeholder')!.data.log.get().at(-1)?._status).toBe('sent');
+      await act(async () => {
+        await jest.runAllTimersAsync();
+        await sending;
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('releases a skipped tool turn before its confirmation HTTP response', async () => {
+    conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Skip turn' });
+    });
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false));
+    (primaryClient.confirmTool as jest.Mock).mockImplementationOnce(async () => {
+      eventHandlers!.onStepComplete!();
+    });
+    await act(async () => {
+      await result.current.confirmTool('skip');
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    step.mockImplementationOnce(async () => {
+      eventHandlers!.onError!('Error code: 402 - Payment required');
+    });
+    await act(async () => {
+      await result.current.sendMessage({ message: 'After skip' });
+    });
+    const log = conversations$.get('chat-placeholder')!.data.log.get();
+    expect(log.find((m) => m.content === 'Skip turn')?._status).toBe('sent');
+    expect(log.find((m) => m.content === 'After skip')?._status).toBe('failed');
+  });
+
+  it('keeps Retry when initial HTTP refusal precedes its SSE diagnostic', async () => {
+    const log$ = conversations$.get('chat-placeholder')!.data.log;
+    log$[0]._retry.set({ persistence: 'saved', options: { stream: false } });
+    step.mockRejectedValueOnce(new ApiClientError('Error code: 402 - Payment required', 500));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      eventHandlers!.onConnected!();
+    });
+    act(() => {
+      eventHandlers!.onMessageAdded!({
+        role: 'system',
+        content: 'Error: Error code: 402 - Payment required',
+        timestamp: 'delayed-error',
+      });
+      eventHandlers!.onError!('Error code: 402 - Payment required');
+    });
+    await act(async () => {
+      await result.current.retryMessage(log$[0].get());
+    });
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(sendMessageApi).not.toHaveBeenCalled();
+  });
+
+  it.each(['edit', 'rerun', 'regenerate'])('owns refusals from %s generation', async (action) => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const prompt = conv$.data.log.get()[0];
+    conv$.data.log.set([
+      prompt,
+      { role: 'assistant', content: 'Old answer', timestamp: 'old-answer' },
+    ]);
+    editMessageApi.mockResolvedValue({ log: [prompt], branches: {} });
+    rerunTools.mockRejectedValueOnce(new Error('no tools'));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      if (action === 'edit') await result.current.editMessage(0, prompt.content, true);
+      else if (action === 'rerun') await result.current.rerunFromMessage(0);
+      else await result.current.regenerateMessage(1);
+    });
+    act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+    expect(conv$.data.log.get()[0]._status).toBe('failed');
+    await act(async () => {
+      await result.current.retryMessage(conv$.data.log.get()[0]);
+    });
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(sendMessageApi).not.toHaveBeenCalled();
+  });
+
   it('attributes an early SSE refusal before the step HTTP response', async () => {
     conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
     const { result } = renderHook(() => useConversation('chat-placeholder'));

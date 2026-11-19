@@ -96,6 +96,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     ) => {
       const previous = conversation$?.generationPrompt.peek();
       const revision = conversation$?.generationRevision.peek();
+      conversation$?.pendingGenerationPrompt.set(timestamp);
       if (!previous) conversation$?.generationPrompt.set(timestamp);
       try {
         await api.step(conversationId, model, stream, branch, maxTokens, temperature, topP);
@@ -105,13 +106,38 @@ export function useConversation(conversationId: string, serverId?: string) {
           conversation$?.generationPrompt.set(timestamp);
         }
       } catch (error) {
-        if (
-          conversation$?.generationRevision.peek() === revision &&
-          conversation$?.generationPrompt.peek() === timestamp
-        ) {
-          conversation$?.generationPrompt.set(previous);
+        const { title, description } = getApiErrorPresentation(error);
+        if (timestamp && (title === 'Payment required' || title === 'Authentication failed')) {
+          const log$ = conversation$?.data.log;
+          const index = log$?.peek().findIndex((message) => message.timestamp === timestamp) ?? -1;
+          const retry = index >= 0 ? log$?.[index]._retry.peek() : undefined;
+          if (retry && log$) {
+            log$[index]._retry.set({
+              ...retry,
+              diagnostics: [...(retry.diagnostics ?? []), `Error: ${description}`],
+              continuation: log$
+                .peek()
+                .slice(index + 1)
+                .some((message) => message.role === 'user')
+                ? undefined
+                : log$
+                    .peek()
+                    .slice(index + 1)
+                    .map(({ role, content, timestamp }) => ({ role, content, timestamp })),
+            });
+          }
+          setMessageStatus(conversationId, timestamp, 'failed', description);
+        }
+        if (conversation$?.generationPrompt.peek() === timestamp) {
+          conversation$?.generationPrompt.set(
+            conversation$?.generationRevision.peek() === revision ? previous : undefined
+          );
         }
         throw error;
+      } finally {
+        if (conversation$?.pendingGenerationPrompt.peek() === timestamp) {
+          conversation$?.pendingGenerationPrompt.set(undefined);
+        }
       }
     },
     [api, conversation$, conversationId]
@@ -425,7 +451,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               // call belongs to the same prompt and starts without stepForPrompt.
               if (!conversation$?.pendingTool.peek() && !conversation$?.executingTool.peek()) {
                 conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
-                conversation$?.generationPrompt.set(undefined);
+                const pending = conversation$?.pendingGenerationPrompt.peek();
+                const owner = conversation$?.generationPrompt.peek();
+                conversation$?.generationPrompt.set(pending !== owner ? pending : undefined);
               }
               // step_complete fires after session.generating=False on the server,
               // so it's safe to clear generating immediately — no need to guess.
@@ -558,6 +586,7 @@ export function useConversation(conversationId: string, serverId?: string) {
             onInterrupted: () => {
               conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
               conversation$?.generationPrompt.set(undefined);
+              conversation$?.pendingGenerationPrompt.set(undefined);
               setGenerating(conversationId, false);
               setPendingTool(conversationId, null, null);
               setExecutingTool(conversationId, null, null);
@@ -605,8 +634,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               // "Error", and keep it visible after the toast is dismissed by
               // attaching it to the user message that triggered the generation.
               // ChatMessage renders `_error` inline with a Retry button, which
-              // is what makes a refused generation diagnosable after a reload
-              // of a hosted conversation.
+              // keeps the refusal diagnosable after the transient toast closes.
               const { title, description } = getApiErrorPresentation(error, {
                 fallbackTitle: 'Generation failed',
                 fallbackDescription: error,
@@ -642,6 +670,7 @@ export function useConversation(conversationId: string, serverId?: string) {
                 }
                 conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
                 conversation$?.generationPrompt.set(undefined);
+                conversation$?.pendingGenerationPrompt.set(undefined);
               }
 
               toast({
@@ -901,12 +930,22 @@ export function useConversation(conversationId: string, serverId?: string) {
               (userMessage._retry?.diagnostics ?? []).includes(message.content)
           );
       const continuation = userMessage._retry?.continuation;
+      const trailing = log.slice(index + 1);
       const sameRefusedTurn =
         index >= 0 &&
         continuation !== undefined &&
         JSON.stringify(
-          log.slice(index + 1).map(({ role, content, timestamp }) => ({ role, content, timestamp }))
-        ) === JSON.stringify(continuation);
+          trailing
+            .slice(0, continuation.length)
+            .map(({ role, content, timestamp }) => ({ role, content, timestamp }))
+        ) === JSON.stringify(continuation) &&
+        trailing
+          .slice(continuation.length)
+          .every(
+            (message) =>
+              message.role === 'system' &&
+              (userMessage._retry?.diagnostics ?? []).includes(message.content)
+          );
       if (resumingSavedMessage && !onlyRefusalDiagnostics && !sameRefusedTurn) {
         throw new Error(
           'Conversation has moved on. Resend this prompt as a new message, or use Edit and regenerate to explicitly rerun the earlier turn.'
@@ -1070,6 +1109,9 @@ export function useConversation(conversationId: string, serverId?: string) {
       return;
     }
 
+    // Skip has no tool_executing event. Release the pending marker before the
+    // request: the resumed model call can complete before its HTTP response.
+    if (action === 'skip') setPendingTool(conversationId, null, null);
     const confirmedToolId = pendingTool.id;
     const confirmOnce = async (): Promise<void> => {
       try {
@@ -1120,6 +1162,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     stopRequestedRef.current = true;
     conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
     conversation$?.generationPrompt.set(undefined);
+    conversation$?.pendingGenerationPrompt.set(undefined);
     clearInitialStepState(conversationId);
     setGenerating(conversationId, false);
 
@@ -1195,6 +1238,32 @@ export function useConversation(conversationId: string, serverId?: string) {
     return true;
   };
 
+  const prepareHistoryGeneration = () => {
+    const log$ = conversation$?.data.log;
+    const log = log$?.peek() ?? [];
+    let index = log.length - 1;
+    while (index >= 0 && log[index].role !== 'user') index--;
+    const prompt = log[index];
+    if (prompt && log$) {
+      log$[index]._retry.set({
+        persistence: 'saved',
+        options: { stream: true, maxTokens, temperature, topP },
+      });
+    }
+    return prompt?.timestamp;
+  };
+
+  const stepFromHistory = () =>
+    stepForPrompt(
+      prepareHistoryGeneration(),
+      undefined,
+      true,
+      'main',
+      maxTokens,
+      temperature,
+      topP
+    );
+
   const editMessage = async (
     index: number,
     content: string,
@@ -1226,7 +1295,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         // the edit request was in flight, or a newer action superseded it.
         if (truncate) {
           if (epoch === undefined || generationIsStale(epoch)) return;
-          await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+          await stepFromHistory();
         }
       } catch (error) {
         console.error('Error editing message:', error);
@@ -1284,6 +1353,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         // Auto-confirm tools can start executing on the server before this
         // request returns, so a Stop that lands in-flight may interrupt nothing.
         try {
+          conversation$?.generationPrompt.set(prepareHistoryGeneration());
           await api.rerunTools(conversationId);
           if (generationIsStale(epoch)) {
             setGenerating(conversationId, false);
@@ -1297,7 +1367,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         } catch {
           // No tools found — fall back to step() (regenerate)
           if (generationIsStale(epoch)) return;
-          await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+          await stepFromHistory();
         }
       } catch (error) {
         console.error('Error re-running from message:', error);
@@ -1323,7 +1393,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           updateBranches(conversationId, result.branches);
         }
         if (generationIsStale(epoch)) return;
-        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+        await stepFromHistory();
       } catch (error) {
         console.error('Error regenerating message:', error);
         const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';

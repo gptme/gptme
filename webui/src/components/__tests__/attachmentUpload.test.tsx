@@ -682,6 +682,40 @@ it.each([false, true])(
   }
 );
 
+it.each(['edit', 'delete'])(
+  'withholds %s while text creation acknowledgment is pending',
+  async (action) => {
+    const { renderHook } = await import('@testing-library/react');
+    let finishCreation!: () => void;
+    jest.spyOn(mockClient, 'createConversation').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishCreation = () => resolve({} as any);
+        })
+    );
+    jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+    const edit = jest.spyOn(mockClient, 'editMessage').mockResolvedValue({ log: [] } as any);
+    const remove = jest.spyOn(mockClient, 'deleteMessage').mockResolvedValue({ log: [] } as any);
+    const id = await mockClient.createConversationWithPlaceholder('Pending text');
+    const { result } = renderHook(() => useConversation(id));
+    await act(async () => {
+      await result.current.interruptGeneration();
+      if (action === 'edit') await result.current.editMessage(0, 'Changed');
+      else await result.current.deleteMessage(0);
+    });
+    expect(edit).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    await act(async () => {
+      finishCreation();
+      await mockClient.waitForConversationCreation(id);
+    });
+    expect(conversations$.get(id)!.data.log.get()[0]).toMatchObject({
+      content: 'Pending text',
+      _status: 'sent',
+    });
+  }
+);
+
 it('clears the unsent placeholder log after new-chat upload rejection', async () => {
   const create = jest.spyOn(mockClient, 'createConversation');
   jest.spyOn(mockClient, 'uploadFiles').mockRejectedValue(new ApiClientError('Too large', 413));
