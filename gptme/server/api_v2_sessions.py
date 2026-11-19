@@ -497,6 +497,14 @@ def api_conversation_step(conversation_id: str):
         if not effective_model:
             default = get_default_model()
             effective_model = default.full if default else None
+        if not effective_model:
+            effective_model = Config.from_workspace(
+                workspace=chat_config.workspace
+            ).get_env("MODEL")
+        if not effective_model and not (use_acp or session.use_acp):
+            return flask.jsonify(
+                {"error": "No model specified and no default model set"}
+            ), 400
         if effective_model:
             from ..llm.models.effort import validate_reasoning_effort
 

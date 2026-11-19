@@ -460,3 +460,33 @@ def test_unknown_provider_returns_structured_effort_validation_error(client):
     )
     assert response.status_code == 400
     assert response.get_json()["error"]
+
+
+def test_step_without_any_model_does_not_persist_effort(client, monkeypatch):
+    from unittest.mock import patch
+
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    monkeypatch.delenv("MODEL", raising=False)
+    cid = "effort-no-model"
+    response = client.put(f"/api/v2/conversations/{cid}", json={"prompt": "test"})
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    with (
+        patch("gptme.server.api_v2_sessions.get_default_model", return_value=None),
+        patch(
+            "gptme.server.api_v2_sessions.Config.from_workspace", return_value=Config()
+        ),
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{cid}/step",
+            json={
+                "session_id": sid,
+                "reasoning_effort": "high",
+            },
+        )
+    assert response.status_code == 400
+    assert (
+        not client.get(f"/api/v2/conversations/{cid}/config")
+        .get_json()["chat"]
+        .get("reasoning_effort")
+    )
