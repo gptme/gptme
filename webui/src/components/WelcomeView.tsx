@@ -167,8 +167,11 @@ export const WelcomeView = () => {
       // The placeholder's initial step starts after the chat view subscribes.
       if (isCurrent()) navigate(chatRoute(conversationId));
 
-      // Invalidate conversations query to refresh the list (async, don't block)
-      queryClient.invalidateQueries({
+      // Text-only creation returns a placeholder before the server PUT finishes.
+      // Navigate first, but don't refetch the sidebar until the new chat exists.
+      // Keep this running after unmount: navigating away must not skip refresh.
+      await api.waitForConversationCreation(conversationId);
+      void queryClient.invalidateQueries({
         queryKey: conversationsQueryKey(connectionConfig.baseUrl),
       });
     } catch (error) {
