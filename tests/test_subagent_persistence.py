@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -1525,6 +1526,90 @@ class TestOwnerScopedIdLookup:
         finally:
             for gate in (gate_a1, gate_a2, gate_b):
                 gate.set()
+
+    def test_listings_hide_older_demoted_run_behind_newer_demoted_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A1 and A2 both finish while a run of conversation B holds `worker`.
+
+        A1 is demoted while B1 holds the ID; A relaunches as A2, B relaunches as
+        B2, and A2 is demoted too. A2 supersedes A1, so A's listings show A2
+        only, as they would if A2 were registered.
+        """
+        from gptme.tools.subagent.api import subagent_snapshots
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        a1, gate_a1 = self._live_run(tmp_path, "a1", parent_a, 100.0)
+        _, gate_b1 = self._live_run(tmp_path, "b1", parent_b, 200.0)
+        gates = [gate_a1, gate_b1]
+        try:
+            self._finish(a1, gate_a1)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "A1 done"), attempt=a1
+            )
+            a2, gate_a2 = self._live_run(tmp_path, "a2", parent_a, 300.0)
+            _, gate_b2 = self._live_run(tmp_path, "b2", parent_b, 400.0)
+            gates += [gate_a2, gate_b2]
+            self._finish(a2, gate_a2)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "A2 done"), attempt=a2
+            )
+            assert a1.shadowed and a2.shadowed
+            run_ids = {s.run_id for s in subagent_snapshots(parent_a)}
+            assert str(a2.logdir) in run_ids
+            assert str(a1.logdir) not in run_ids
+        finally:
+            for gate in gates:
+                gate.set()
+
+    def test_subprocess_launch_failure_stays_on_its_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A's subprocess fails to start after B launched the same ID.
+
+        The failure is A's outcome; B's run keeps the shared slot untouched.
+        """
+        from gptme.tools.subagent import api
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr(api, "notify_completion", lambda *a, **k: None)
+        proceed = threading.Event()
+
+        def launch(**kwargs):
+            assert proceed.wait(5)
+            raise RuntimeError("spawn failed")
+
+        monkeypatch.setattr(api._exec, "_run_subagent_subprocess", launch)
+        as_conversation(parent_a)
+        api.subagent("worker", "A task", use_subprocess=True)
+        with _subagents_lock:
+            sa_a = next(
+                s
+                for s in reversed(_subagents)
+                if s.agent_id == "worker" and s.parent_logdir == parent_a
+            )
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, time.time())
+        try:
+            proceed.set()
+            assert sa_a.thread is not None
+            sa_a.thread.join(5)
+            assert not sa_a.is_running()
+            with _subagent_results_lock:
+                assert "worker" not in _subagent_results
+            assert sa_b.status().status == "running"
+            result = sa_a.status()
+            assert result.status == "failure"
+            assert "spawn failed" in str(result.result)
+        finally:
+            proceed.set()
+            gate_b.set()
 
     def test_live_run_never_reads_concurrent_holders_result(
         self, tmp_path: Path, monkeypatch

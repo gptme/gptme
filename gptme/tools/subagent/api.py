@@ -207,10 +207,14 @@ def _listable_shadowed(registered: list[Subagent]) -> list[Subagent]:
     """Shadowed runs that listings show beside ``registered``.
 
     Caller must hold ``_subagents_lock``. A shadowed run is hidden only by a
-    newer registry run of the same conversation and ID. An older registry run
-    must not hide it: a relaunch demoted while another conversation holds the
-    ID is that conversation's current run (gptme/gptme#4990).
+    newer run of the same conversation and ID, registered or shadowed. An older
+    registry run must not hide it: a relaunch demoted while another conversation
+    holds the ID is that conversation's current run (gptme/gptme#4990).
     """
+    newest: dict[tuple[Path | None, str], float] = {}
+    for s in [*registered, *_shadowed_subagents]:
+        key = (s.parent_logdir, s.agent_id)
+        newest[key] = max(newest.get(key, s.started_at), s.started_at)
     newest_registered: dict[tuple[Path | None, str], float] = {}
     for s in registered:
         key = (s.parent_logdir, s.agent_id)
@@ -220,7 +224,8 @@ def _listable_shadowed(registered: list[Subagent]) -> list[Subagent]:
     return [
         s
         for s in _shadowed_subagents
-        if s.started_at
+        if s.started_at == newest[(s.parent_logdir, s.agent_id)]
+        and s.started_at
         > newest_registered.get((s.parent_logdir, s.agent_id), float("-inf"))
     ]
 
@@ -1277,8 +1282,10 @@ def subagent(
                 logger.error(
                     f"Subagent {agent_id} subprocess failed: {e}", exc_info=True
                 )
+                # attempt=sa: another conversation may hold this ID by now
+                # (gptme/gptme#4990); the failure must stay on this run.
                 if set_subagent_result_if_absent(
-                    agent_id, ReturnType("failure", str(e))
+                    agent_id, ReturnType("failure", str(e)), attempt=sa
                 ):
                     notify_completion(
                         agent_id,
