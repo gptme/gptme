@@ -11,6 +11,7 @@ import {
   Trash2,
   Columns2,
   Star,
+  Wrench,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -369,9 +370,9 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                   )}
                   {convPendingTool && (
                     <Tooltip>
-                      <TooltipTrigger>
+                      <TooltipTrigger aria-label={`Pending tool: ${convPendingTool.tooluse.tool}`}>
                         <span className="flex items-center">
-                          <span className="text-lg">⚙️</span>
+                          <Wrench className="h-3 w-3 text-yellow-500" aria-hidden="true" />
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>Pending tool: {convPendingTool.tooluse.tool}</TooltipContent>
