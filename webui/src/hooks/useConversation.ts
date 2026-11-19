@@ -581,6 +581,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
               const initialStepStream = conversation$?.initialStepStream?.get();
               clearInitialStepState(conversationId);
+              // The handshake snapshot precedes this request. Keep Stop available
+              // while step() starts, before the first generation_started event.
+              setGenerating(conversationId, true);
               api
                 .step(
                   conversationId,

@@ -559,6 +559,27 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')?.chatConfig.peek()).toBeUndefined();
   });
 
+  it('keeps Stop available when an idle handshake starts the initial step', async () => {
+    conversations$.get('chat-placeholder')?.isGenerating.set(true);
+    // Hold the request open to expose the interval before generation_started.
+    step.mockReturnValueOnce(new Promise(() => {}));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+
+    act(() => {
+      eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] });
+      eventHandlers!.onConnected!();
+    });
+
+    expect(step).toHaveBeenCalledTimes(1);
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(true);
+    await act(async () => {
+      await result.current.interruptGeneration();
+    });
+    expect(conversations$.get('chat-placeholder')?.isGenerating.get()).toBe(false);
+    expect(interruptGenerationApi).toHaveBeenCalledWith('chat-placeholder');
+  });
+
   it('clears placeholder initial-step state after subscription connects', async () => {
     renderHook(() => useConversation('chat-placeholder'));
 

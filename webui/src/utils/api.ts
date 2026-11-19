@@ -1367,14 +1367,15 @@ export class ApiClient {
             }
             // Notify that connection is established
             callbacks.onConnectionState?.({ status: 'connected' });
-            callbacks.onConnected?.();
-            // Restore state on reconnect (pending tools, generating flag)
+            // Apply the snapshot before onConnected can start new local work;
+            // the server captured it before any step requested by that callback.
             if (callbacks.onReconnectState) {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
                 pendingTools: data.pending_tools ?? [],
               });
             }
+            callbacks.onConnected?.();
             break;
 
           case 'conversation_edited':
