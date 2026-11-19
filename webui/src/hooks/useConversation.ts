@@ -470,11 +470,9 @@ export function useConversation(conversationId: string, serverId?: string) {
                     console.warn('Failed to show tool confirmation notification:', error);
                   }
                 );
-              } else {
-                api.confirmTool(conversationId, toolId, 'confirm').catch((error) => {
-                  console.error('[useConversation] Error auto-confirming tool:', error);
-                });
               }
+              // Auto-confirm tools are already scheduled by the server. Sending
+              // another approval from every viewer races that execution.
             },
             onToolExecuting: (toolId) => {
               // Get the pending tool to move it to executing state
@@ -620,9 +618,8 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onReconnectState: (state) => {
-              if (state.generating) {
-                setGenerating(conversationId, true);
-              }
+              setGenerating(conversationId, state.generating);
+              setPendingTool(conversationId, null, null);
               // Restore first pending tool (if any)
               if (state.pendingTools.length > 0) {
                 if (state.pendingTools.length > 1) {
@@ -944,45 +941,34 @@ export function useConversation(conversationId: string, serverId?: string) {
       return;
     }
 
-    const confirmWithRetry = async (attempt: number): Promise<void> => {
+    const confirmedToolId = pendingTool.id;
+    const confirmOnce = async (): Promise<void> => {
       try {
-        await api.confirmTool(conversationId, pendingTool.id, action, options);
-        // Only clear pending tool state for 'skip' action
-        // For 'confirm', 'edit', and 'auto', let onToolExecuting handle the transition
-        if (action === 'skip') {
+        const alreadyHandled = await api.confirmTool(
+          conversationId,
+          confirmedToolId,
+          action,
+          options
+        );
+        // Normally onToolExecuting owns the transition. A duplicate may arrive
+        // after completion, with no new event forthcoming; clear only that ID.
+        if (
+          (action === 'skip' || alreadyHandled) &&
+          conversation$?.pendingTool.get()?.id === confirmedToolId
+        ) {
           setPendingTool(conversationId, null, null);
         }
       } catch (error) {
-        console.error(`Error confirming tool (attempt ${attempt}):`, error);
-
-        // Check if it's a 404 error (either "Tool not found" or "Session ID not found")
-        // Session ID may not be available yet during initial SSE connection
-        // ApiClientError has status property, not in message string
-        const is404Error =
-          ApiClientError.isApiError(error) &&
-          error.status === 404 &&
-          (error.message.includes('Tool not found') ||
-            error.message.includes('Session ID not found'));
-
-        if (is404Error && attempt < 3) {
-          console.log(`Retrying tool confirmation in 500ms (attempt ${attempt + 1}/3)`);
-          // Small delay to let any server-side initialization complete
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          return confirmWithRetry(attempt + 1);
-        }
+        console.error('Error confirming tool:', error);
 
         // Clear pending tool state on final failure, but only for actions that won't execute
-        if (action === 'skip') {
+        if (action === 'skip' && conversation$?.pendingTool.get()?.id === confirmedToolId) {
           setPendingTool(conversationId, null, null);
         }
 
-        const fallbackDescription =
-          attempt > 1
-            ? `Failed to confirm tool after ${attempt} attempts`
-            : 'Failed to confirm tool';
         const { title, description } = getApiErrorPresentation(error, {
           fallbackTitle: 'Error',
-          fallbackDescription,
+          fallbackDescription: 'Failed to confirm tool',
         });
         toast({
           variant: 'destructive',
@@ -994,7 +980,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       }
     };
 
-    await confirmWithRetry(1);
+    await confirmOnce();
   };
 
   const interruptGeneration = async () => {

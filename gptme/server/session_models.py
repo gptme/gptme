@@ -157,6 +157,9 @@ class ConversationSession(BaseSession):
     # results. Used to prevent the continuation step from starting before all
     # concurrent tool threads have finished writing.
     _executing_tools: set[str] = field(default_factory=set)
+    # Bounded, conversation-local approval receipts. Guard with conversation_lock;
+    # duplicates must not schedule another worker or masquerade as missing tools.
+    handled_tools: dict[str, None] = field(default_factory=dict)
     auto_confirm_count: int = 0
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)
@@ -228,6 +231,12 @@ class ConversationSession(BaseSession):
     # At ~200 bytes/event, 10K events ≈ 2MB. We trim to keep_last when exceeded.
     _MAX_EVENTS = 10_000
     _KEEP_EVENTS = 1_000
+
+    def remember_handled_tool(self, tool_id: str) -> None:
+        """Retain recent approvals, including server-scheduled auto-confirm tools."""
+        self.handled_tools[tool_id] = None
+        if len(self.handled_tools) > 256:
+            self.handled_tools.pop(next(iter(self.handled_tools)))
 
     def track_skill_turn(
         self, logdir: Path, branch: str, messages: list[Message]

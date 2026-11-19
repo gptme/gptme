@@ -40,6 +40,7 @@ describe('useConversation', () => {
   const interruptGenerationApi = jest.fn().mockResolvedValue(undefined);
   const editMessageApi = jest.fn();
   const rerunTools = jest.fn().mockResolvedValue(undefined);
+  const confirmToolApi = jest.fn().mockResolvedValue(undefined);
   const closeEventStream = jest.fn();
   const getChatConfig = jest.fn().mockResolvedValue(null);
   let eventHandlers:
@@ -47,6 +48,9 @@ describe('useConversation', () => {
         onConnected?: () => void;
         onMessageStart?: () => void;
         onStepComplete?: () => void;
+        onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
+        onToolExecuting?: (id: string) => void;
+        onReconnectState?: (state: { generating: boolean; pendingTools: any[] }) => void;
       }
     | undefined;
   // A pooled client is a stable object for a server's lifetime (the pool keys
@@ -61,6 +65,7 @@ describe('useConversation', () => {
     interruptGeneration: interruptGenerationApi,
     editMessage: editMessageApi,
     rerunTools,
+    confirmTool: confirmToolApi,
     closeEventStream,
     getConversation: jest.fn(),
     reconcileLateUploadOrder: jest.fn().mockResolvedValue(undefined),
@@ -80,6 +85,7 @@ describe('useConversation', () => {
     interruptGenerationApi.mockReset().mockResolvedValue(undefined);
     editMessageApi.mockReset().mockResolvedValue({ log: [], branches: {} });
     rerunTools.mockReset().mockResolvedValue(undefined);
+    confirmToolApi.mockReset().mockResolvedValue(undefined);
     closeEventStream.mockClear();
     getChatConfig.mockReset().mockResolvedValue(null);
 
@@ -112,6 +118,59 @@ describe('useConversation', () => {
   afterEach(() => {
     eventHandlers = undefined;
     jest.clearAllMocks();
+  });
+
+  it('leaves auto-confirm scheduling to the server and clears pending on execution', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => {
+      eventHandlers!.onToolPending!('auto-tool', { tool: 'shell', content: 'echo ok' }, true);
+    });
+    expect(confirmToolApi).not.toHaveBeenCalled();
+    act(() => eventHandlers!.onToolExecuting!('auto-tool'));
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    expect(conversations$.get('chat-placeholder')!.executingTool.get()?.id).toBe('auto-tool');
+  });
+
+  it('clears stale pending approval when reconnect reports no pending tools', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => {
+      eventHandlers!.onToolPending!('done-tool', { tool: 'shell', content: 'echo ok' }, false);
+      eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] });
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+  });
+
+  it('clears a duplicate approval without clearing a newer pending tool', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('done', { tool: 'shell' }, false));
+    confirmToolApi.mockResolvedValue(true);
+    await act(async () => {
+      await result.current.confirmTool('confirm');
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    act(() => eventHandlers!.onToolPending!('old', { tool: 'shell' }, false));
+    confirmToolApi.mockImplementationOnce(async () => {
+      eventHandlers!.onToolPending!('new', { tool: 'shell' }, false);
+      return true;
+    });
+    await act(async () => {
+      await result.current.confirmTool('confirm');
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('new');
+  });
+
+  it('reports a genuine missing approval without blind retries', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('missing', { tool: 'shell' }, false));
+    confirmToolApi.mockRejectedValue(new ApiClientError('Tool not found: missing', 404));
+    await act(async () => {
+      await expect(result.current.confirmTool('confirm')).rejects.toThrow('Tool not found');
+    });
+    expect(confirmToolApi).toHaveBeenCalledTimes(1);
   });
 
   it('retries generation without reposting a saved user message', async () => {

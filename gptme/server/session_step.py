@@ -1718,6 +1718,7 @@ def start_tool_execution(
                 with SessionManager.conversation_lock(conversation_id):
                     tool_exec = session.pending_tools.pop(current_tool_id, None)
                     if tool_exec is not None:
+                        session.remember_handled_tool(current_tool_id)
                         session._executing_tools.add(current_tool_id)
                 if tool_exec is None:
                     logger.warning(
