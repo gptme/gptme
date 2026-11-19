@@ -582,6 +582,7 @@ const QueuedMessageBadge: FC<{
   onEdit: (text: string) => void;
   onEditingChange: (editing: boolean) => void;
   onRetry?: () => void;
+  retryLabel?: string;
   missingFiles?: string[];
   onRestore?: () => void;
   sending?: boolean;
@@ -593,6 +594,7 @@ const QueuedMessageBadge: FC<{
   onEdit,
   onEditingChange,
   onRetry,
+  retryLabel,
   missingFiles,
   onRestore,
   sending,
@@ -686,7 +688,7 @@ const QueuedMessageBadge: FC<{
       {sending && <span>Sending…</span>}
       {onRetry && !sending && (
         <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
-          Retry upload
+          {retryLabel ?? 'Retry send'}
         </Button>
       )}
     </Badge>
@@ -1523,6 +1525,7 @@ export const ChatInput: FC<Props> = ({
                     : undefined
                 }
                 missingFiles={msg.missingFiles}
+                retryLabel={msg.options.pendingFiles?.length ? 'Retry upload' : 'Retry send'}
                 onEditingChange={(editing) => {
                   setEditingQueuedMessage(editing);
                   if (!editing) wasBusy.current = true;

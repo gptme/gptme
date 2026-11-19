@@ -23,7 +23,12 @@ function readQueue(key: string): QueuedMessage[] {
           !!item.options &&
           typeof item.options === 'object'
       )
-      .map((item) => ({ ...item, id: item.id || crypto.randomUUID(), sending: false }));
+      .map((item) => ({
+        ...item,
+        id: item.id || crypto.randomUUID(),
+        sending: false,
+        uploadFailed: true,
+      }));
   } catch {
     return [];
   }
