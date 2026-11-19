@@ -242,3 +242,296 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
   expect(renderedOrder).toEqual(['0', '1', '2', '3', '4', '5']);
   await page.screenshot({ path: testInfo.outputPath('expanded-turn.png') });
 });
+
+// Progressive disclosure must bound outer scroll growth (gptme/gptme#5023).
+// The same two-step shell turn is rendered with tiny and with huge synthetic
+// outputs; hidden payload must not inflate the default or group-expanded view,
+// and opening one output must grow the conversation by a bounded pane, not by
+// its whole payload. Direct geometry on the real scroll viewport decides
+// pass/fail, sampled on every animation frame through each click.
+type DisclosureMetrics = {
+  scrollHeight: number;
+  clientHeight: number;
+  scrollTop: number;
+  virtualExtent: number;
+  docOverflowX: number;
+  openOutputs: number;
+  outputBlocks: number;
+};
+
+type DisclosureStage = DisclosureMetrics & { stage: string; peakScrollHeight: number };
+
+const LARGE_OUTPUT_LINES = 4000;
+
+function syntheticOutput(size: 'short' | 'large'): string {
+  // Three lines: outputs of ≤2 lines render inline rather than as a block.
+  if (size === 'short') return 'README.md\nsrc/main.py\nDone';
+  const lines = Array.from(
+    { length: LARGE_OUTPUT_LINES },
+    (_, i) => `line ${i}: ${'lorem ipsum '.repeat(4)}`
+  );
+  // A long unbroken line must not widen the document at narrow widths.
+  lines.splice(10, 0, 'x'.repeat(5000));
+  return lines.join('\n');
+}
+
+async function renderDisclosureTurn(page: Page, size: 'short' | 'large') {
+  const output = syntheticOutput(size);
+  await page.evaluate(
+    async ({ id, output }) => {
+      const { replaceLog } = await import('/src/stores/conversations.ts');
+      const step = (command: string, n: number) => [
+        {
+          role: 'assistant' as const,
+          content: `Let me look around.\n\n\`\`\`shell\n${command}\n\`\`\``,
+          timestamp: `2026-01-01T00:00:0${n}Z`,
+        },
+        {
+          role: 'system' as const,
+          content: `Ran command: \`${command}\`\n\n\`\`\`stdout\n${output}\n\`\`\``,
+          timestamp: `2026-01-01T00:00:0${n + 1}Z`,
+        },
+      ];
+      replaceLog(id, [
+        { role: 'user', content: 'Inspect the repo.', timestamp: '2026-01-01T00:00:00Z' },
+        ...step('find . -type f', 1),
+        ...step('cat README.md', 3),
+        {
+          role: 'assistant',
+          content: 'Both commands finished; the repository looks healthy.',
+          timestamp: '2026-01-01T00:00:05Z',
+        },
+      ]);
+    },
+    { id: conversationId, output }
+  );
+  await expect(page.locator('[data-message-index="5"]')).toContainText('looks healthy');
+  await expect(page.getByRole('button', { name: /2 steps/ })).toBeVisible();
+  await settle(page);
+}
+
+/** Wait until the viewport's scroll extent is unchanged for several frames. */
+async function settle(page: Page) {
+  await page.evaluate(async () => {
+    const viewport = document.querySelector('[data-testid="message-scroll-viewport"]')!;
+    let last = -1;
+    let stable = 0;
+    for (let i = 0; i < 120 && stable < 6; i++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      stable = viewport.scrollHeight === last ? stable + 1 : 0;
+      last = viewport.scrollHeight;
+    }
+  });
+}
+
+async function readDisclosureMetrics(page: Page): Promise<DisclosureMetrics> {
+  return page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>(
+      '[data-testid="message-scroll-viewport"]'
+    )!;
+    const extent = viewport.querySelector<HTMLElement>(':scope > div[style*="position: relative"]');
+    const outputs = [...viewport.querySelectorAll<HTMLDetailsElement>('.chat-message details')];
+    return {
+      scrollHeight: viewport.scrollHeight,
+      clientHeight: viewport.clientHeight,
+      scrollTop: viewport.scrollTop,
+      virtualExtent: extent?.getBoundingClientRect().height ?? -1,
+      docOverflowX: document.documentElement.scrollWidth - window.innerWidth,
+      openOutputs: outputs.filter((details) => details.open).length,
+      outputBlocks: outputs.length,
+    };
+  });
+}
+
+/**
+ * Run one disclosure click while sampling scrollHeight every frame, then wait
+ * for the virtualizer to settle. The peak catches a transient blow-up that a
+ * settled-state assertion would miss.
+ */
+async function disclosureStep(
+  page: Page,
+  stage: string,
+  action: () => Promise<void>
+): Promise<DisclosureStage> {
+  await page.evaluate(() => {
+    const viewport = document.querySelector('[data-testid="message-scroll-viewport"]')!;
+    const state = { peak: viewport.scrollHeight, running: true, samples: 0 };
+    const sample = () => {
+      state.peak = Math.max(state.peak, viewport.scrollHeight);
+      state.samples++;
+      if (state.running) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    Object.assign(window, { disclosurePeak: state });
+  });
+  await action();
+  // Park the pointer: hovering a message legitimately reveals its action bar,
+  // which would otherwise be misread as disclosure growth.
+  await page.mouse.move(0, 0);
+  await settle(page);
+  const { peak, samples } = await page.evaluate(() => {
+    const state = (
+      window as unknown as { disclosurePeak: { peak: number; running: boolean; samples: number } }
+    ).disclosurePeak;
+    state.running = false;
+    return state;
+  });
+  expect(samples, `${stage}: frame sampler must observe the transition`).toBeGreaterThan(3);
+  return { stage, ...(await readDisclosureMetrics(page)), peakScrollHeight: peak };
+}
+
+/** Click through default → group → one output → collapse output → collapse group. */
+async function runDisclosureSequence(page: Page): Promise<DisclosureStage[]> {
+  const stages: DisclosureStage[] = [];
+  stages.push(await disclosureStep(page, 'default', async () => {}));
+  const group = page.getByRole('button', { name: /2 steps/ });
+  stages.push(await disclosureStep(page, 'group-expanded', () => group.click()));
+  await expect(page.locator('[data-message-index]')).toHaveCount(6);
+  // Open the first command's output (message 2), keep the reading anchor.
+  const summary = page.locator('[data-message-index="2"] details > summary').first();
+  await summary.scrollIntoViewIfNeeded();
+  const anchorBefore = (await summary.boundingBox())!.y;
+  stages.push(await disclosureStep(page, 'output-open', () => summary.click()));
+  const anchorAfter = (await summary.boundingBox())!.y;
+  expect(Math.abs(anchorAfter - anchorBefore), 'opened summary must stay put').toBeLessThanOrEqual(
+    2
+  );
+  stages.push(await disclosureStep(page, 'output-closed', () => summary.click()));
+  stages.push(await disclosureStep(page, 'group-collapsed', () => group.click()));
+  return stages;
+}
+
+/**
+ * The scroll-growth oracle. Budgets are fixture-specific and declared up front:
+ * - hidden payload may add at most HIDDEN_SLACK px versus the tiny-output turn
+ *   in the default and group-expanded views (summaries, not payload);
+ * - one opened output may grow the viewport by at most one viewport height,
+ *   even though the large payload is ~LARGE_OUTPUT_LINES lines;
+ * - opening one output never opens its siblings;
+ * - collapsing restores the compact height;
+ * - nothing widens the document horizontally.
+ */
+const HIDDEN_SLACK = 4;
+function scrollBudgetViolations(short: DisclosureStage[], large: DisclosureStage[]): string[] {
+  const violations: string[] = [];
+  const at = (stages: DisclosureStage[], stage: string) => stages.find((s) => s.stage === stage)!;
+  for (const stage of ['default', 'group-expanded', 'group-collapsed']) {
+    const growth = at(large, stage).peakScrollHeight - at(short, stage).peakScrollHeight;
+    if (growth > HIDDEN_SLACK) {
+      violations.push(`${stage}: hidden payload inflated scroll extent by ${growth}px`);
+    }
+  }
+  for (const [label, stages] of [
+    ['short', short],
+    ['large', large],
+  ] as const) {
+    const grouped = at(stages, 'group-expanded');
+    const open = at(stages, 'output-open');
+    const growth = Math.max(open.scrollHeight, open.peakScrollHeight) - grouped.scrollHeight;
+    if (growth > open.clientHeight) {
+      violations.push(
+        `${label} output-open: grew ${growth}px, budget ${open.clientHeight}px (one viewport)`
+      );
+    }
+    if (open.openOutputs !== grouped.openOutputs + 1) {
+      violations.push(
+        `${label} output-open: ${open.openOutputs} open outputs, expected ${grouped.openOutputs + 1}`
+      );
+    }
+    for (const [restored, before] of [
+      ['output-closed', 'group-expanded'],
+      ['group-collapsed', 'default'],
+    ] as const) {
+      const delta = Math.abs(at(stages, restored).scrollHeight - at(stages, before).scrollHeight);
+      if (delta > HIDDEN_SLACK) {
+        violations.push(`${label} ${restored}: did not restore ${before} height (Δ${delta}px)`);
+      }
+    }
+    for (const stage of stages) {
+      if (stage.docOverflowX > 1) {
+        violations.push(`${label} ${stage.stage}: document overflows by ${stage.docOverflowX}px`);
+      }
+      // The virtualizer's content extent must exist and fit the scroll extent.
+      if (stage.virtualExtent <= 0 || stage.virtualExtent > stage.scrollHeight) {
+        violations.push(`${label} ${stage.stage}: virtualizer extent ${stage.virtualExtent}px`);
+      }
+    }
+  }
+  return violations;
+}
+
+for (const viewport of [
+  { name: 'desktop', width: 1280, height: 800 },
+  { name: 'narrow', width: 390, height: 844 },
+]) {
+  test(`opening tool output keeps scroll growth bounded (${viewport.name})`, async ({
+    page,
+  }, testInfo) => {
+    // Open via the desktop sidebar, then resize: the narrow layout hides it.
+    await openTurn(page);
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await renderDisclosureTurn(page, 'short');
+    const short = await runDisclosureSequence(page);
+    await renderDisclosureTurn(page, 'large');
+    const large = await runDisclosureSequence(page);
+    await testInfo.attach('disclosure-metrics', {
+      body: JSON.stringify({ outputLines: LARGE_OUTPUT_LINES, short, large }, null, 2),
+      contentType: 'application/json',
+    });
+    // The expanded group must actually hide a large payload behind closed blocks.
+    expect(large[1]).toMatchObject({ stage: 'group-expanded', openOutputs: 0 });
+    expect(large[1].outputBlocks).toBeGreaterThanOrEqual(2);
+    expect(scrollBudgetViolations(short, large)).toEqual([]);
+
+    // The full output stays reachable inside the bounded pane.
+    const group = page.getByRole('button', { name: /2 steps/ });
+    await group.click();
+    const summary = page.locator('[data-message-index="2"] details > summary').first();
+    await summary.click();
+    const pane = page.locator('[data-message-index="2"] details[open] pre').first();
+    const pane$ = await pane.evaluate(
+      (pre, lastLine) => ({
+        scrollable: pre.scrollHeight > pre.clientHeight,
+        overflowY: getComputedStyle(pre).overflowY,
+        hasLastLine: pre.textContent!.includes(lastLine),
+      }),
+      `line ${LARGE_OUTPUT_LINES - 1}:`
+    );
+    expect(pane$).toEqual({ scrollable: true, overflowY: 'auto', hasLastLine: true });
+    await page.screenshot({ path: testInfo.outputPath(`output-open-${viewport.name}.png`) });
+
+    // Negative control: unbound the pane (as before #5023) and auto-expand
+    // every output. The same oracle must report both regressions.
+    await summary.click();
+    await group.click();
+    await settle(page);
+    await page.addStyleTag({
+      content: '.chat-message details.tool-block pre { max-height: none !important; }',
+    });
+    const unbounded = await runDisclosureSequence(page);
+    const unboundedViolations = scrollBudgetViolations(short, unbounded);
+    expect(unboundedViolations.some((v) => v.startsWith('large output-open: grew'))).toBe(true);
+
+    await page.getByRole('button', { name: /2 steps/ }).click();
+    await settle(page);
+    const autoExpanded = await disclosureStep(page, 'group-expanded', () =>
+      page.evaluate(() => {
+        document
+          .querySelectorAll<HTMLDetailsElement>('.chat-message details')
+          .forEach((details) => (details.open = true));
+      })
+    );
+    const autoExpandedRun = large.map((stage) =>
+      stage.stage === 'group-expanded' ? autoExpanded : stage
+    );
+    expect(
+      scrollBudgetViolations(short, autoExpandedRun).some((v) =>
+        v.startsWith('group-expanded: hidden payload inflated')
+      )
+    ).toBe(true);
+    await testInfo.attach('negative-controls', {
+      body: JSON.stringify({ unbounded, unboundedViolations, autoExpanded }, null, 2),
+      contentType: 'application/json',
+    });
+  });
+}

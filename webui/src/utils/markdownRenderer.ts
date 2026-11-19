@@ -282,10 +282,17 @@ export function customRenderer(
           // inspection/review, so collapse them by default. Agent code examples
           // (```python, ```sh, file content, …) stay open. blocksDefaultOpen is
           // an override that force-expands everything.
-          if (!blocksDefaultOpen && collapsesByDefault(value)) {
+          if (collapsesByDefault(value)) {
             const details = data.summary.parentElement;
             if (details?.tagName === 'DETAILS') {
-              details.removeAttribute('open');
+              // Tool blocks get a bounded, internally scrollable body (see
+              // index.css) so opening one large output can't grow the
+              // conversation by its entire payload (gptme/gptme#5023). This
+              // applies even when blocksDefaultOpen force-expands them.
+              details.classList.add('tool-block');
+              if (!blocksDefaultOpen) {
+                details.removeAttribute('open');
+              }
             }
           }
         }
