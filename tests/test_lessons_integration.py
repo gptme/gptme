@@ -119,6 +119,12 @@ class TestDocsLessonsParsing:
         lesson = git_lessons[0]
         assert lesson.category == "workflows"
         assert "git commit" in lesson.metadata.keywords
+        # The keywords are intentionally specific command phrases: a bare "git"
+        # matched every message that merely mentioned git and competed with
+        # more specific lessons (see gptme/gptme#4997).
+        assert "git" not in lesson.metadata.keywords, (
+            "git lesson should not carry the broad bare 'git' keyword"
+        )
 
 
 class TestDocsLessonsMatching:
@@ -149,6 +155,16 @@ class TestDocsLessonsMatching:
         # Should match shell lesson
         shell_matches = [m for m in matches if "shell" in m.lesson.title.lower()]
         assert len(shell_matches) > 0, "Shell lesson should match"
+
+    def test_keyword_matching_git_command_phrase(self, docs_lesson_index):
+        """The narrowed git keywords still match concrete git command messages."""
+        matcher = LessonMatcher()
+        context = MatchContext(message="How should I write a git commit message?")
+
+        matches = matcher.match(docs_lesson_index.lessons, context)
+
+        git_matches = [m for m in matches if "git" in m.lesson.title.lower()]
+        assert len(git_matches) > 0, "Git lesson should match on 'git commit'"
 
     def test_tool_matching_patch(self, docs_lesson_index):
         """Test tool-based matching for patch lesson."""
