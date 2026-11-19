@@ -77,6 +77,29 @@ function CreatedConversation({ id }: { id: string }) {
   useConversation(id);
   return null;
 }
+it('marks failed text-only creation as unconfirmed instead of permanently pending', async () => {
+  let rejectCreation!: (error: Error) => void;
+  jest.spyOn(mockClient, 'createConversation').mockReturnValueOnce(
+    new Promise((_resolve, reject) => {
+      rejectCreation = reject;
+    })
+  );
+  const id = await mockClient.createConversationWithPlaceholder('Unconfirmed initial prompt');
+  const state = conversations$.get(id)!;
+  expect(state.data.log.get()[0]._status).toBe('pending');
+  await act(async () => {
+    rejectCreation(new ApiClientError('Creation failed', 500));
+    await Promise.resolve();
+  });
+  expect(state.data.log.get()[0]).toMatchObject({
+    _status: 'failed',
+    _error: 'Creation failed',
+    _retry: { persistence: 'unknown' },
+  });
+  expect(state.needsInitialStep.get()).toBe(false);
+  expect(state.isGenerating.get()).toBe(false);
+});
+
 function NewComposer() {
   const [id, setId] = useState('');
   return (

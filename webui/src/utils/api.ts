@@ -2003,6 +2003,26 @@ export class ApiClient {
     // UnhandledPromiseRejection and the map entry is cleaned up.
     serverCreation.catch((error) => {
       console.warn('[ApiClient] Background server creation failed (no subscriber):', error);
+      if (!options?.pendingFiles?.length) {
+        stopPlaceholderGeneration(conversationId, message.timestamp!);
+        replaceMessageByTimestamp(conversationId, message.timestamp!, {
+          ...message,
+          _status: 'failed',
+          _error: getApiErrorPresentation(error).description,
+          // Creation may have reached the server. Never replay an unconfirmed
+          // initial prompt; refresh history before allowing positional edits.
+          _retry: {
+            persistence: 'unknown',
+            options: {
+              model: options?.model,
+              stream: options?.stream,
+              maxTokens: options?.maxTokens,
+              temperature: options?.temperature,
+              topP: options?.topP,
+            },
+          },
+        });
+      }
       this.pendingServerCreations.delete(conversationId);
     });
 
