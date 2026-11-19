@@ -1136,6 +1136,70 @@ class TestExecuteGh:
         assert "--jq/--limit" in messages[0].content
         assert "saved to" not in messages[0].content
 
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_failure_saves_truncated_streams(self, mock_run, tmp_path):
+        """A failed call saves each stream whose head the inline tail dropped."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        pad = "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+        big_err = "ERR-BEGIN\n" + pad + "\nERR-END"
+        big_out = "OUT-BEGIN\n" + pad + "\nOUT-END"
+        mock_run.return_value = MagicMock(stdout=big_out, stderr=big_err, returncode=1)
+        manager = MagicMock(logdir=tmp_path)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+            messages = list(_passthrough_gh(["api", "repos/o/r/issues"], None))
+        assert len(messages) == 1
+        content = messages[0].content
+        assert content.startswith("Error (exit 1)")
+        # The tails, where the failure usually is, stay inline; the heads do not.
+        assert "ERR-END" in content and "OUT-END" in content
+        assert "ERR-BEGIN" not in content and "OUT-BEGIN" not in content
+        saved = sorted((tmp_path / "tool-outputs" / "gh").glob("*.txt"))
+        assert len(saved) == 2
+        by_stream = {
+            ("stderr" if "ERR-BEGIN" in p.read_text() else "stdout"): p for p in saved
+        }
+        assert big_err in by_stream["stderr"].read_text()
+        assert big_out in by_stream["stdout"].read_text()
+        assert f"full stderr saved to {by_stream['stderr']}" in content
+        assert f"full stdout saved to {by_stream['stdout']}" in content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_failure_small_stream_not_saved(self, mock_run, tmp_path):
+        """Only a truncated stream is saved; a short one stays inline only."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        big_err = "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+        mock_run.return_value = MagicMock(
+            stdout="partial results", stderr=big_err, returncode=2
+        )
+        manager = MagicMock(logdir=tmp_path)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+            messages = list(_passthrough_gh(["issue", "list"], None))
+        content = messages[0].content
+        assert content.startswith("Error (exit 2)")
+        assert "stdout:\npartial results" in content
+        saved = list((tmp_path / "tool-outputs" / "gh").glob("*.txt"))
+        assert len(saved) == 1
+        assert saved[0].read_text().count("x") >= len(big_err)
+        assert "full stderr saved to" in content
+        assert "full stdout saved to" not in content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_failure_without_logdir_keeps_tail(self, mock_run):
+        """Without a conversation directory a failure keeps the plain tail marker."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        big_err = "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100) + "FAILURE_AT_END"
+        mock_run.return_value = MagicMock(stdout="", stderr=big_err, returncode=1)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+            messages = list(_passthrough_gh(["issue", "list"], None))
+        content = messages[0].content
+        assert content.startswith("Error (exit 1)")
+        assert "FAILURE_AT_END" in content
+        assert "chars omitted]" in content
+        assert "saved to" not in content
+
     @patch("gptme.tools.gh._handle_pr_status")
     def test_command_kwarg_dispatches_native_handler(self, mock_status):
         """A structured `command` kwarg is split and dispatched natively.
