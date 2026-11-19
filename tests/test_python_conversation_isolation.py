@@ -127,6 +127,71 @@ def test_python_tool_owns_its_session_cleanup(tmp_path: Path) -> None:
         list(hook(manager))
 
 
+@pytest.mark.parametrize("live_state", ["session", "command", "idle"])
+def test_server_cleanup_rechecks_conversation_liveness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, live_state: str
+) -> None:
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    # Model the gap between removal of the last session and delivery of its
+    # SESSION_END hook: a reconnect or command may now own the same shell.
+    monkeypatch.setattr(
+        SessionManager,
+        "_conversation_sessions",
+        {"conv-a": {"replacement"}} if live_state == "session" else {},
+    )
+    monkeypatch.setattr(
+        SessionManager,
+        "_active_commands",
+        {"conv-a"} if live_state == "command" else set(),
+    )
+    first = _shell("conv-a")
+    first.push({"reconnect_marker": "kept"})
+    manager = LogManager.load(tmp_path / "conv-a", create=True)
+    list(python_tool._session_end_ipython_cleanup(manager, server_managed=True))
+    SessionManager._evict_idle_conversation_state("conv-a", manager.logdir)
+
+    if live_state == "idle":
+        assert "conv-a" not in python_tool._conversation_ipython
+        assert first.history_manager is None
+    else:
+        assert _shell("conv-a") is first
+        assert first.user_ns["reconnect_marker"] == "kept"
+
+
+def test_server_cleanup_closes_detached_shell_outside_manager_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    monkeypatch.setattr(SessionManager, "_conversation_sessions", {})
+    monkeypatch.setattr(SessionManager, "_active_commands", set())
+    first = _shell("conv-a")
+    close_shell = python_tool.close_conversation_ipython
+    replacements = []
+
+    def reconnect_then_close(shell: Any) -> None:
+        # A reconnect may create state during slow teardown. Prove that teardown
+        # released the manager lock and no longer owns the registry entry.
+        assert SessionManager._lock.acquire(blocking=False)
+        try:
+            replacement = _shell("conv-a")
+            replacement.push({"reconnect_marker": "kept"})
+            replacements.append(replacement)
+        finally:
+            SessionManager._lock.release()
+        close_shell(shell)
+
+    monkeypatch.setattr(python_tool, "close_conversation_ipython", reconnect_then_close)
+    SessionManager._evict_idle_conversation_state("conv-a", tmp_path / "conv-a")
+    assert first.history_manager is None
+    assert replacements[0] is not first
+    assert _shell("conv-a") is replacements[0]
+    assert replacements[0].user_ns["reconnect_marker"] == "kept"
+
+
 @pytest.mark.parametrize("kernel", [False, True])
 def test_plot_snapshot_matches_execution_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kernel: bool

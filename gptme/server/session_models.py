@@ -1038,6 +1038,10 @@ class SessionManager:
         lock, is not evicted.
         """
         from ..dirs import get_logs_dir
+        from ..tools.python import (
+            close_conversation_ipython,
+            detach_conversation_ipython,
+        )
         from ..tools.python_kernel import detach_backend
         from ..tools.todo import clear_conversation_todos
         from ..util.cost_tracker import CostTracker, session_id_for_logdir
@@ -1060,6 +1064,19 @@ class SessionManager:
             # process and bridge outside the manager's lock. A reconnect can
             # create a new backend without the old shutdown removing it.
             backend = detach_backend(conversation_id)
+            shell = detach_conversation_ipython(conversation_id)
+
+        # Closing IPython can join a history writer. Keep that outside _lock,
+        # and close only the detached object, never a reconnect's replacement.
+        if shell is not None:
+            try:
+                close_conversation_ipython(shell)
+            except Exception:
+                logger.warning(
+                    "Failed to close in-process Python shell for %s",
+                    conversation_id,
+                    exc_info=True,
+                )
 
         if backend is not None:
             try:

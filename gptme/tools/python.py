@@ -572,8 +572,17 @@ def reset_conversation_ipython(conversation_id: str) -> None:
     Keeps a long-lived server from retaining one ``InteractiveShell`` (and
     everything its namespace holds) per conversation that ever ran Python.
     """
+    close_conversation_ipython(detach_conversation_ipython(conversation_id))
+
+
+def detach_conversation_ipython(conversation_id: str) -> Any:
+    """Detach state while the caller excludes new server sessions."""
     with _conv_ipython_lock:
-        shell = _conversation_ipython.pop(conversation_id, None)
+        return _conversation_ipython.pop(conversation_id, None)
+
+
+def close_conversation_ipython(shell: Any) -> None:
+    """Close an already detached shell without touching its replacement."""
     if shell is not None:
         # Older IPython versions end the history session but do not stop its
         # saving thread or close its database. Keep the manager before shell
@@ -595,7 +604,9 @@ def _session_end_ipython_cleanup(
     manager: "LogManager", **kwargs
 ) -> Generator[Message | StopPropagation, None, None]:
     """Release Python state even when the shell tool is not loaded."""
-    if manager.logdir:
+    # Server cleanup is serialized with reconnects by SessionManager; a delayed
+    # SESSION_END hook must not clear a replacement session's live namespace.
+    if manager.logdir and not kwargs.get("server_managed"):
         reset_conversation_ipython(manager.logdir.name)
     yield from ()
 
