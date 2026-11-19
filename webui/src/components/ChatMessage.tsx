@@ -242,9 +242,12 @@ const ChatMessageComponent: FC<Props> = ({
         // before feeding to smd, which doesn't understand ```lang = opener nesting.
         const { processedContent } = processNestedCodeBlocks(existingContent);
         smd.parser_write(newParser, processedContent);
-        smd.parser_end(newParser);
-        renderer$.set(null);
-        parser$.set(null);
+        const message = message$.peek();
+        if (!('isComplete' in message) || message.isComplete) {
+          smd.parser_end(newParser);
+          renderer$.set(null);
+          parser$.set(null);
+        }
         previousContent$.set(existingContent);
       }
     },
@@ -275,9 +278,12 @@ const ChatMessageComponent: FC<Props> = ({
         // Preprocess nested code blocks before feeding to smd
         const { processedContent } = processNestedCodeBlocks(content);
         smd.parser_write(newParser, processedContent);
-        smd.parser_end(newParser);
-        renderer$.set(null);
-        parser$.set(null);
+        const message = message$.peek();
+        if (!('isComplete' in message) || message.isComplete) {
+          smd.parser_end(newParser);
+          renderer$.set(null);
+          parser$.set(null);
+        }
         previousContent$.set(content);
       }
       return;

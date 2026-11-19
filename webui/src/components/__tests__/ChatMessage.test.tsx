@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatMessage, isSystemErrorContent, isSystemSuccessContent } from '../ChatMessage';
 import { MessageAvatar } from '../MessageAvatar';
 import '@testing-library/jest-dom';
-import type { Message, MessageRole } from '@/types/conversation';
+import type { Message, MessageRole, StreamingMessage } from '@/types/conversation';
 import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 
@@ -61,6 +61,22 @@ describe('ChatMessage', () => {
   const renderWithProviders = (component: React.ReactElement) => {
     return render(<SettingsProvider>{component}</SettingsProvider>);
   };
+
+  it('continues rendering tokens when mounted with an already-streaming prefix', async () => {
+    const message$ = observable<StreamingMessage>({
+      role: 'assistant',
+      content: 'A partial reply',
+      isComplete: false,
+    });
+    const view = renderWithProviders(
+      <ChatMessage message$={message$} conversationId={testConversationId} />
+    );
+    act(() => message$.content.set('A partial reply with its final tokens.'));
+    act(() => message$.isComplete.set(true));
+    await waitFor(() =>
+      expect(view.container).toHaveTextContent('A partial reply with its final tokens.')
+    );
+  });
 
   it('keeps the edit draft open when saving is blocked, then closes after success', async () => {
     const onEdit = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
