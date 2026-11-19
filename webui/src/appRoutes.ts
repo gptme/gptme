@@ -25,6 +25,7 @@ export const cloudflareSpaRedirectRules = [
   `${appRoutes.skills} / 200`,
   `${appRoutes.agents} / 200`,
   `${appRoutes.agentOverview} / 200`,
+  `${appRoutes.agentOverview}/ / 200`,
   `${appRoutes.workspaces} / 200`,
   `${appRoutes.history} / 200`,
   `${appRoutes.externalSessions} / 200`,

@@ -16,6 +16,16 @@ describe('Cloudflare Pages redirect rules', () => {
     expect(rules.some((rule) => rule.startsWith('/api'))).toBe(false);
   });
 
+  it('rewrites both agent overview URL variants on the hosted deployment', () => {
+    const redirectsPath = path.resolve(__dirname, '../../../public/_redirects');
+    const rules = fs.readFileSync(redirectsPath, 'utf8').split('\n');
+
+    for (const route of ['/agents/overview', '/agents/overview/']) {
+      expect(rules).toContain(`${route} / 200`);
+      expect(cloudflareSpaRedirectRules).toContain(`${route} / 200`);
+    }
+  });
+
   it('ships a dedicated 404 page for non-SPA misses', () => {
     const notFoundPath = path.resolve(__dirname, '../../../public/404.html');
     const notFoundPage = fs.readFileSync(notFoundPath, 'utf8');
