@@ -1039,6 +1039,24 @@ describe('ApiClient event stream reconnection', () => {
     client.closeEventStream('conv-1');
   });
 
+  it('forwards the authoritative reconnect prompt identity', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const onReconnectState = jest.fn();
+    await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onReconnectState });
+    MockEventSource.instances[0].emitMessage({
+      type: 'connected',
+      session_id: 'session-1',
+      generating: true,
+      latest_user_timestamp: '2026-11-19T23:00:00+00:00',
+    });
+    expect(onReconnectState).toHaveBeenCalledWith({
+      generating: true,
+      latestUserTimestamp: '2026-11-19T23:00:00+00:00',
+      pendingTools: [],
+    });
+    client.closeEventStream('conv-1');
+  });
+
   // gptme-cloud#1063 follow-up: a tab left open through an outage exhausted its
   // reconnect budget, never got a session id, and every later send failed with
   // "Session ID not found for conversation" until a manual reload.

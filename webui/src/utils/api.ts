@@ -1095,6 +1095,7 @@ export class ApiClient {
       onConnectionState?: (state: EventStreamConnectionState) => void;
       onReconnectState?: (state: {
         generating: boolean;
+        latestUserTimestamp?: string;
         pendingTools: Array<{
           tool_id: string;
           tooluse: ToolUse;
@@ -1393,6 +1394,7 @@ export class ApiClient {
             if (callbacks.onReconnectState) {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
+                latestUserTimestamp: data.latest_user_timestamp ?? undefined,
                 pendingTools: data.pending_tools ?? [],
               });
             }

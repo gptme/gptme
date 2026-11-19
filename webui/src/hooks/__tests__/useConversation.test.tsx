@@ -51,6 +51,7 @@ describe('useConversation', () => {
         onConnected?: () => void;
         onReconnectState?: (state: {
           generating: boolean;
+          latestUserTimestamp?: string;
           pendingTools: {
             tool_id: string;
             tooluse: { tool: string; content: string };
@@ -62,7 +63,6 @@ describe('useConversation', () => {
         onStepComplete?: () => void;
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
         onToolExecuting?: (id: string) => void;
-        onReconnectState?: (state: { generating: boolean; pendingTools: any[] }) => void;
         onInterrupted?: () => void;
         onToolComplete?: (id: string, duration: number, success: boolean) => void;
         onError?: (error: string) => void;
@@ -1809,6 +1809,36 @@ describe('useConversation', () => {
     );
   });
 
+  it.each(['newer peer prompt', 'missing server identity'])(
+    'does not restore an old owner after reconnect with %s',
+    async (scenario) => {
+      const conv$ = conversations$.get('chat-placeholder')!;
+      conv$.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Old browser turn' });
+      });
+      act(() => {
+        eventHandlers!.onError!('Connection lost and max reconnects reached');
+        // The browser missed the completed old turn and a peer's new prompt.
+        eventHandlers!.onReconnectState!({
+          generating: true,
+          latestUserTimestamp:
+            scenario === 'newer peer prompt'
+              ? new Date(Date.now() + 1000).toISOString()
+              : undefined,
+          pendingTools: [],
+        });
+        eventHandlers!.onError!('Error code: 402 - Payment required');
+      });
+      const prompt = conv$.data.log.get().at(-1)!;
+      expect(prompt._status).toBe('sent');
+      expect(prompt._error).toBeFalsy();
+      expect(conv$.generationPrompt.peek()).toBeUndefined();
+      expect(step).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it.each(['confirm', 'skip'] as const)(
     'restores inline Retry when a reconnected tool is %s',
     async (action) => {
@@ -1833,6 +1863,7 @@ describe('useConversation', () => {
         eventHandlers!.onConnected!();
         eventHandlers!.onReconnectState!({
           generating: false,
+          latestUserTimestamp: prompt.timestamp,
           pendingTools: [
             {
               tool_id: 'tool-1',
@@ -1918,7 +1949,11 @@ describe('useConversation', () => {
     });
     act(() => {
       eventHandlers!.onError!('Connection lost and max reconnects reached');
-      eventHandlers!.onReconnectState!({ generating: true, pendingTools: [] });
+      eventHandlers!.onReconnectState!({
+        generating: true,
+        latestUserTimestamp: conv$.data.log.peek().at(-1)!.timestamp,
+        pendingTools: [],
+      });
       eventHandlers!.onError!('Error code: 401 - Unauthorized');
     });
     const failed = conv$.data.log.get().at(-1)!;

@@ -783,6 +783,11 @@ export function useConversation(conversationId: string, serverId?: string) {
                 !conversation$?.generationPrompt.peek() &&
                 !conversation$?.pendingGenerationPrompt.peek() &&
                 index >= 0 &&
+                // Local history can miss a newer peer prompt during an outage.
+                // Older servers without turn identity cannot safely recover it.
+                !!state.latestUserTimestamp &&
+                !!recovery &&
+                new Date(state.latestUserTimestamp).getTime() === new Date(recovery).getTime() &&
                 log[index]._retry?.persistence === 'saved' &&
                 !log.slice(index + 1).some((message) => message.role === 'user')
               ) {
