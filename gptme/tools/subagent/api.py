@@ -1039,12 +1039,16 @@ def subagent(
                 f"Subagent {agent_id}: 'reasoning_effort' is not supported in ACP mode (ignored)"
             )
 
+        # The run this thread executes. Agent IDs are only unique within one
+        # conversation, so a lookup by agent_id can find another conversation's
+        # concurrent run (gptme/gptme#4990).
+        _own_acp_run: list[Subagent] = []
+
         def _save_acp_session_id(client: Any) -> None:
             session_id = getattr(client, "last_session_id", None)
             if not isinstance(session_id, str):
                 return
-            with _subagents_lock:
-                sa_ref = next((s for s in _subagents if s.agent_id == agent_id), None)
+            sa_ref = _own_acp_run[0] if _own_acp_run else None
             if sa_ref is not None:
                 object.__setattr__(sa_ref, "acp_session_id", session_id)
                 persist_subagent_meta(sa_ref)
@@ -1056,16 +1060,10 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
-                with _subagent_results_lock:
-                    cancelled = agent_id in _subagent_results
-                if cancelled:
+                own_run = _own_acp_run[0]
+                if own_run._cached_result() is not None:
                     logger.info(f"Skipping cancelled queued ACP subagent {agent_id}")
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
-                    if sa:
-                        _exec._cleanup_isolation(sa)
+                    _exec._cleanup_isolation(own_run)
                     return
 
                 import asyncio
@@ -1126,13 +1124,11 @@ def subagent(
                 try:
                     status, summary = asyncio.run(_acp_run())
 
-                    with _subagents_lock:
-                        sa_ref = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
-                    usage = sa_ref._read_usage() if sa_ref is not None else {}
+                    usage = own_run._read_usage()
                     result = ReturnType(status, summary, **usage)
-                    if not set_subagent_result_if_absent(agent_id, result):
+                    if not set_subagent_result_if_absent(
+                        agent_id, result, attempt=own_run
+                    ):
                         return
                     notify_completion(
                         agent_id,
@@ -1144,7 +1140,7 @@ def subagent(
                 except Exception as e:
                     logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
                     if not set_subagent_result_if_absent(
-                        agent_id, ReturnType("failure", str(e))
+                        agent_id, ReturnType("failure", str(e)), attempt=own_run
                     ):
                         return
                     notify_completion(
@@ -1155,21 +1151,17 @@ def subagent(
                         parent_branch=parent_branch,
                     )
                 finally:
-                    with _subagents_lock:
-                        sa_ref = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
+                    # ACP always caches a result above before reaching this
+                    # cleanup, so patch the already-stored result with any
+                    # preserved branch (mirrors the thread-mode fallback).
+                    preserved_branch = _exec._cleanup_isolation(own_run)
+                    if preserved_branch:
+                        update_subagent_result_with_branch(
+                            agent_id,
+                            preserved_branch,
+                            has_output_schema=bool(own_run.output_schema),
+                            attempt=own_run,
                         )
-                    if sa_ref:
-                        # ACP always caches a result above before reaching this
-                        # cleanup, so patch the already-stored result with any
-                        # preserved branch (mirrors the thread-mode fallback).
-                        preserved_branch = _exec._cleanup_isolation(sa_ref)
-                        if preserved_branch:
-                            update_subagent_result_with_branch(
-                                agent_id,
-                                preserved_branch,
-                                has_output_schema=bool(sa_ref.output_schema),
-                            )
             finally:
                 release_thread()
                 _sem.release()
@@ -1204,8 +1196,8 @@ def subagent(
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
         )
-        # Append sa before starting the thread so the finally block can find it
-        # (avoids race condition where fast completion can't locate sa in _subagents)
+        _own_acp_run.append(sa)
+        # Append sa before starting the thread so listings see it immediately.
         with _subagents_lock:
             _subagents.append(sa)
             with _subagent_results_lock:

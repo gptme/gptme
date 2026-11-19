@@ -1937,6 +1937,72 @@ class TestSubagentContinue:
         with _subagent_results_lock:
             assert _subagent_results[sa.agent_id].status == "failure"
 
+    def test_acp_run_keeps_its_session_and_outcome_when_another_conversation_runs_id(
+        self, tmp_path, monkeypatch
+    ):
+        """gptme/gptme#4990: ACP must bind its own run, not the first same-ID entry."""
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(subagent_execution, "_cleanup_isolation", lambda sa: None)
+
+        class FailingAcpClient:
+            def __init__(self, *args, **kwargs):
+                self.last_session_id = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def run(self, prompt, cwd=None):
+                self.last_session_id = "session-own"
+                raise RuntimeError("own run failed")
+
+        import gptme.acp.client as acp_client
+
+        monkeypatch.setattr(acp_client, "GptmeAcpClient", FailingAcpClient)
+
+        # Another conversation's concurrent run of the same ID, registered first,
+        # so an agent_id lookup would find it before ours.
+        other_thread = MagicMock(spec=threading.Thread)
+        other_thread.is_alive.return_value = True
+        other = Subagent(
+            agent_id="shared-acp",
+            prompt="other task",
+            thread=other_thread,
+            logdir=tmp_path / "other-log",
+            model=None,
+            parent_logdir=tmp_path / "other-conversation",
+        )
+        with _subagents_lock:
+            _subagents.append(other)
+
+        try:
+            subagent("shared-acp", "task", use_acp=True)
+            with _subagents_lock:
+                own = next(
+                    s
+                    for s in _subagents
+                    if s.agent_id == "shared-acp" and s is not other
+                )
+            assert own.thread is not None
+            own.thread.join(timeout=1)
+            assert not own.thread.is_alive()
+
+            assert own.acp_session_id == "session-own"
+            assert other.acp_session_id is None
+            own_result = own._cached_result()
+            assert own_result is not None
+            assert own_result.status == "failure"
+            assert "own run failed" in str(own_result.result)
+        finally:
+            other_thread.is_alive.return_value = False
+
     def test_rejects_running_agent(self, tmp_path):
         from gptme.tools.subagent.api import subagent_continue
 
