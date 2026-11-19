@@ -137,6 +137,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   // Sidebar state
   const leftVisible = use$(leftSidebarVisible$);
+  const leftCollapsed = use$(leftSidebarCollapsed$);
   const rightVisible = use$(rightSidebarVisible$);
   const rightActiveTab = use$(rightSidebarActiveTab$);
   // Reactive read: the chat section is rendered by renderMainContent(), a plain
@@ -428,13 +429,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       setLeftPanelRef(null);
       setRightPanelRef(null);
     };
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (!isMobile) {
-      // Expand sidebar by default
-      leftPanelRef.current?.expand();
-    }
   }, [isMobile]);
 
   // Handle navigating a split pane to a different conversation
@@ -745,10 +739,14 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
       <ResizablePanelGroup direction="horizontal" className="h-full">
         <ResizablePanel
+          id="conversations"
+          order={1}
           ref={leftPanelRef}
-          defaultSize={20}
-          minSize={15}
-          maxSize={30}
+          // PanelGroup recalculates defaults when the right panel mounts/unmounts.
+          // Preserve the user's collapsed preference through that recalculation.
+          defaultSize={leftCollapsed ? 0 : 25}
+          minSize={22.5}
+          maxSize={40}
           collapsible
           collapsedSize={0}
           onCollapse={() => {
@@ -788,7 +786,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={60} minSize={30} className="overflow-hidden">
+        <ResizablePanel
+          id="chat"
+          order={2}
+          defaultSize={60}
+          minSize={30}
+          className="overflow-hidden"
+        >
           <main role="main" aria-label="Chat content" className="h-full overflow-hidden">
             {renderMainContent()}
           </main>
@@ -806,6 +810,8 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                 <>
                   <ResizableHandle />
                   <ResizablePanel
+                    id="chat-details"
+                    order={3}
                     ref={rightPanelRef}
                     defaultSize={25}
                     minSize={15}
