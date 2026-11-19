@@ -47,6 +47,7 @@ jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     api: {
       createConversationWithPlaceholder: jest.fn(),
+      waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
       authHeader: null,
       lastConnectionResult$,
       compatibilityWarning$,

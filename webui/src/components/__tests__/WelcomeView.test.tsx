@@ -11,6 +11,7 @@ const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
 const mockCreateConversation = jest.fn();
+const mockWaitForConversationCreation = jest.fn();
 const mockSendFailure = jest.fn();
 const mockFilesUploaded = jest.fn();
 const mockFetch = jest.fn();
@@ -78,6 +79,7 @@ jest.mock('@/contexts/ApiContext', () => {
     useApi: () => ({
       api: {
         createConversationWithPlaceholder: mockCreateConversation,
+        waitForConversationCreation: mockWaitForConversationCreation,
         authHeader: null,
         lastConnectionResult$,
         compatibilityWarning$,
@@ -132,6 +134,9 @@ jest.mock('@/stores/servers', () => {
 jest.mock('../ChatInput', () => ({
   ChatInput: ({ onSend }: { onSend: (message: string, options: unknown) => Promise<void> }) => (
     <div data-testid="chat-input">
+      <button onClick={() => void onSend('text draft', {}).catch(mockSendFailure)}>
+        Send text fixture
+      </button>
       <button
         onClick={() =>
           void onSend('attachment draft', {
@@ -172,6 +177,7 @@ describe('WelcomeView', () => {
     settingsModal$.set({ open: false, category: 'appearance' });
     mockConnect.mockReset();
     mockCreateConversation.mockReset();
+    mockWaitForConversationCreation.mockReset().mockResolvedValue(undefined);
     mockSendFailure.mockReset();
     mockFilesUploaded.mockReset();
     mockNavigate.mockClear();
@@ -191,6 +197,53 @@ describe('WelcomeView', () => {
       writable: true,
       value: mockFetch,
     });
+  });
+
+  it('navigates immediately but refreshes the sidebar only after server creation, even after unmount', async () => {
+    let finishCreation!: () => void;
+    mockCreateConversation.mockResolvedValue('new-placeholder');
+    mockWaitForConversationCreation.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCreation = resolve;
+      })
+    );
+    const { unmount } = render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send text fixture' }));
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('new-placeholder'))
+    );
+    expect(mockWaitForConversationCreation).toHaveBeenCalledWith('new-placeholder');
+    expect(mockInvalidateQueries).not.toHaveBeenCalled();
+    unmount();
+    // A later server switch must not redirect this refresh to another server.
+    mockBaseUrl = 'http://other-server:5700';
+    await act(async () => {
+      finishCreation();
+    });
+    expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['conversations', 'http://localhost:5700'],
+    });
+  });
+
+  it('does not refresh the sidebar when background server creation fails', async () => {
+    const failure = new Error('Server creation failed');
+    mockCreateConversation.mockResolvedValue('failed-placeholder');
+    mockWaitForConversationCreation.mockRejectedValue(failure);
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send text fixture' }));
+    });
+    expect(mockSendFailure).toHaveBeenCalledWith(failure);
+    expect(mockInvalidateQueries).not.toHaveBeenCalled();
   });
 
   it('propagates attachment failure without navigating and forwards the upload handoff', async () => {
