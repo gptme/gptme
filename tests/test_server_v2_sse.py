@@ -18,15 +18,20 @@ def test_event_stream(event_listener, wait_for_event, auth_headers):
     port = event_listener["port"]
     conversation_id = event_listener["conversation_id"]
 
+    # Subscribe before publishing: the stream starts after its connected snapshot,
+    # so messages posted before that handshake need not be replayed as events.
+    assert wait_for_event(event_listener, "connected")
+
     # Send a message to trigger an event
-    requests.post(
+    resp = requests.post(
         f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
         json={"role": "user", "content": "Test message"},
         headers=auth_headers,
     )
 
-    # Wait for events
-    assert wait_for_event(event_listener, "connected")
+    assert resp.status_code == 200
+
+    # Wait for the event published after the subscription was established.
     assert wait_for_event(event_listener, "message_added")
 
     # Verify message content
