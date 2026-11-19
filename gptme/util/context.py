@@ -631,7 +631,10 @@ def _include_paths(
 
     Args:
         msg: Message to process
-        workspace: If provided, paths will be stored relative to this directory
+        workspace: Retained for caller compatibility. Local references resolve
+            against the active session workspace; deferred attachments are stored
+            as absolute paths so later readers do not depend on the process cwd
+            or the workspace supplied to them. Symlink names are preserved.
         pre_confirmed_urls: URLs already confirmed by the caller (e.g. via a TUI
             dialog).  When provided, the interactive-mode prompt is bypassed and
             only these URLs are fetched.  Pass an empty list to skip all URLs
@@ -777,13 +780,8 @@ def _include_paths(
         # _resource_to_codeblock returned None (binary file unrepresentable as text)
         file = _parse_prompt_files(word)
         if file:
-            # Store path relative to workspace if provided
-            file = file.expanduser()
-            if workspace and not file.is_absolute():
-                try:
-                    file = file.absolute().relative_to(workspace)
-                except ValueError:
-                    file = file.absolute()
+            # _parse_prompt_files anchors local paths to the session workspace.
+            # Keep that absolute path for readers outside the originating session.
             logger.debug(f"auto-attaching file: {file}")
             files.append(file)
 

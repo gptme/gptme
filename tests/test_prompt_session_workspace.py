@@ -79,6 +79,28 @@ def test_explicit_name_in_host_directory_is_not_a_session_reference(workspaces):
     )
 
 
+@pytest.mark.parametrize("storage_workspace", [None, ".", "session", "other"])
+def test_deferred_attachment_path_is_independent_of_storage_workspace(
+    workspaces, monkeypatch, storage_workspace
+):
+    a, b, host = workspaces
+    monkeypatch.setenv("GPTME_FRESH", "1")
+    workspace = {
+        None: None,
+        ".": Path("."),
+        "session": a,
+        "other": b,
+    }[storage_workspace]
+
+    message = in_workspace(
+        a, include_paths, Message("user", "read @note.txt"), workspace
+    )
+
+    assert message.files == [a / "note.txt"]
+    assert message.files[0].read_text() == "WORKSPACE-A"
+    assert Path.cwd() == host
+
+
 @pytest.mark.parametrize("fresh", [False, True])
 def test_symlink_attachment_keeps_reference_file_type(
     workspaces, monkeypatch, fresh, requires_symlinks
