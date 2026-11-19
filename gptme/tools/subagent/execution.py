@@ -778,6 +778,20 @@ def _create_subagent_thread(
         # SESSION_END handles normal completion; failures need the same cleanup.
         shell.close_conversation_shell(logdir.name)
         reset_background_jobs(logdir.name, all_conversations=False)
+        # Thread children do not pass through server session eviction, so reclaim
+        # their Python kernel and bridge explicitly, never the caller's backend.
+        from ..python_kernel import detach_backend
+
+        backend = detach_backend(logdir.name)
+        if backend is not None:
+            try:
+                backend.shutdown()
+            except Exception:
+                logger.warning(
+                    "Failed to shut down Python kernel for %s",
+                    logdir.name,
+                    exc_info=True,
+                )
         # Drain any steer messages that arrived after the last STEP_PRE fired but
         # before chat() returned. These were not deliverable mid-turn; warn so
         # the orchestrator knows the guidance was not seen.

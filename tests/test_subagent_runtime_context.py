@@ -143,3 +143,62 @@ def test_concurrent_children_use_distinct_runtimes(
         assert (workspace / "answer.txt").read_text().strip() == workspace.name
     assert parent_shell.process.poll() is None
     assert all(child.process.poll() is not None for child in seen)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_child_kernel_shutdown_preserves_parent(
+    tmp_path, monkeypatch, child_runner, parent_runtime, fails
+):
+    """Real child kernels and bridges must exit, including when chat raises."""
+    import sys
+
+    pytest.importorskip("jupyter_client")
+    pytest.importorskip("ipykernel")
+    from gptme.tools import python_kernel
+
+    parent, _, _ = parent_runtime
+    workspace = tmp_path / "kernel-child"
+    workspace.mkdir()
+    logdir = tmp_path / "kernel-child-conversation"
+    monkeypatch.setattr(
+        python_kernel.KernelBackend,
+        "_find_project_python",
+        staticmethod(lambda: sys.executable),
+    )
+    parent_backend = parent.run(python_kernel.get_backend)
+    seen = []
+
+    def chat(*args, **kwargs):
+        assert current_conversation_id.get() == logdir.name
+        python_kernel.freeze_backend_choice(logdir.name, True)
+        backend = python_kernel.get_backend()
+        seen.append(backend)
+        assert backend is not parent_backend
+        result = backend.execute("6 * 7")
+        assert result.error is None, result.error
+        assert result.result_text == "42"
+        assert backend.is_alive()
+        if fails:
+            raise RuntimeError("child failed")
+
+    monkeypatch.setattr(import_module("gptme.chat"), "chat", chat)
+    try:
+        assert parent.run(parent_backend.execute, "parent_value = 17").error is None
+        if fails:
+            with pytest.raises(RuntimeError, match="child failed"):
+                parent.copy().run(child_runner, workspace, logdir)
+        else:
+            parent.copy().run(child_runner, workspace, logdir)
+
+        assert not seen[0].is_alive()
+        assert seen[0]._bridge._thread is None
+        assert logdir.name not in python_kernel._backends
+        assert python_kernel.get_backend_choice(logdir.name) is None
+        assert parent.run(python_kernel.get_backend) is parent_backend
+        assert parent.run(parent_backend.execute, "parent_value").result_text == "17"
+    finally:
+        # Also reclaim the deliberately leaked backend during the RED test run.
+        for conversation_id in (logdir.name, "parent"):
+            backend = python_kernel.detach_backend(conversation_id)
+            if backend is not None:
+                backend.shutdown()
