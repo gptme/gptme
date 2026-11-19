@@ -943,9 +943,14 @@ class ShellSession:
         self._foreground_capture = capture
         self._capture_chars = 0
         result: tuple[int | None, str, str] | None = None
+        error_text: str | None = None
         try:
             result = self._run_commands(code, output=output, timeout=timeout)
             return result
+        except BaseException as exc:
+            # Finalization seals the capture before a promoted worker publishes.
+            error_text = str(exc)
+            raise
         finally:
             self._foreground_capture = None
             if capture is not None:
@@ -958,6 +963,7 @@ class ShellSession:
                         )
                         complete_adopted_job(
                             capture,
+                            error_text=error_text,
                             partial_reason=(
                                 "foreground_error"
                                 if result is None

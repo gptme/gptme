@@ -928,6 +928,54 @@ def test_kill_promoted_job_during_recovery_prevents_later_commands(
     assert job.is_output_complete()
 
 
+@pytest.mark.parametrize("budget_spill", [False, True])
+def test_promoted_worker_error_survives_capture_finalization(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, budget_spill: bool
+) -> None:
+    import json
+
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    gate = tmp_path / "release"
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.2")
+
+    def fail_recovery() -> None:
+        raise RuntimeError("synthetic shell recovery failure")
+
+    monkeypatch.setattr(shell, "_init", fail_recovery)
+    prefix = "yes 'output line' | head -n 12000; " if budget_spill else ""
+    messages = list(
+        execute_shell_impl(
+            prefix + f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.02; done; "
+            "printf 'BEFORE-ERROR\\n'; exit 0",
+            logdir=tmp_path,
+            timeout=10,
+        )
+    )
+    try:
+        assert "Promoted" in messages[-1].content
+        job = list_background_jobs()[0]
+    finally:
+        gate.touch()
+    completions = _wait_for_completion(10)
+    assert len(completions) == 1
+    assert "exit code -1" in completions[0].content
+    assert "synthetic shell recovery failure" in completions[0].content
+    assert job.stderr_log_path is not None
+    assert job.stderr_log_path.read_text() == "synthetic shell recovery failure"
+    assert job.log_path is not None
+    assert job.log_path.read_text().count("BEFORE-ERROR") == 1
+    assert job.receipt_path is not None
+    receipt = json.loads(job.receipt_path.read_text())
+    assert receipt["exit_code"] == -1
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_error" in receipt["partial_reasons"]
+    before = (job.stderr_log_path.read_bytes(), job.receipt_path.read_bytes())
+    assert not list(background_job_completion_hook([], False))
+    list(execute_output_command(str(job.id)))
+    assert (job.stderr_log_path.read_bytes(), job.receipt_path.read_bytes()) == before
+
+
 def test_promoted_byte_cap_receipt_is_partial(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
