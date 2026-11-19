@@ -579,6 +579,12 @@ def enrich_messages_with_context(
     return msgs
 
 
+def _prompt_file_path(prompt: str) -> Path:
+    """Anchor a prompt path without replacing a symlink's file-type suffix."""
+    path = Path(prompt).expanduser()
+    return path if path.is_absolute() else current_workspace() / path
+
+
 def include_paths(
     msg: Message,
     workspace: Path | None = None,
@@ -625,7 +631,10 @@ def _include_paths(
 
     Args:
         msg: Message to process
-        workspace: If provided, paths will be stored relative to this directory
+        workspace: Retained for caller compatibility. Local references resolve
+            against the active session workspace; deferred attachments are stored
+            as absolute paths so later readers do not depend on the process cwd
+            or the workspace supplied to them. Symlink names are preserved.
         pre_confirmed_urls: URLs already confirmed by the caller (e.g. via a TUI
             dialog).  When provided, the interactive-mode prompt is bypassed and
             only these URLs are fetched.  Pass an empty list to skip all URLs
@@ -710,7 +719,7 @@ def _include_paths(
                 skipped_paths.append(word)
                 continue
             try:
-                f = Path(word).expanduser()
+                f = _prompt_file_path(word)
                 # An explicit @ reference with spaces names one resource.
                 # Compatibility-mode implicit commands such as `./main.py --help`
                 # still scan words; quoted URL prose stays on the consent path.
@@ -771,13 +780,8 @@ def _include_paths(
         # _resource_to_codeblock returned None (binary file unrepresentable as text)
         file = _parse_prompt_files(word)
         if file:
-            # Store path relative to workspace if provided
-            file = file.expanduser()
-            if workspace and not file.is_absolute():
-                try:
-                    file = file.absolute().relative_to(workspace)
-                except ValueError:
-                    file = file.absolute()
+            # _parse_prompt_files anchors local paths to the session workspace.
+            # Keep that absolute path for readers outside the originating session.
             logger.debug(f"auto-attaching file: {file}")
             files.append(file)
 
@@ -868,7 +872,7 @@ def _legacy_command_phrase(word: str) -> bool:
         if any(token.startswith(p) for p in ("/", "~/", "./")) or "/" in token:
             return True
         try:
-            if Path(token).expanduser().exists():
+            if _prompt_file_path(token).exists():
                 return True
         except OSError:
             continue
@@ -916,7 +920,7 @@ def _iter_discovered_paths(
     cwd_entries: set[str] = set()
     cwd_files: set[str] = set()  # regular files only
     if auto_include:
-        for f in Path.cwd().iterdir():
+        for f in current_workspace().iterdir():
             cwd_entries.add(f.name)
             try:
                 if f.is_file():
@@ -950,7 +954,7 @@ def _iter_discovered_paths(
             # Extensionless names such as @Makefile and @src are intentional;
             # nonexistent social handles remain prose. No cwd listing needed.
             try:
-                return Path(w).exists()
+                return _prompt_file_path(w).exists()
             except OSError:
                 return False
 
@@ -1256,7 +1260,7 @@ def _resource_to_codeblock(
 
     try:
         # check if prompt is a path, if so, replace it with the contents of that file
-        f = Path(prompt).expanduser()
+        f = _prompt_file_path(prompt)
         if f.exists() and f.is_file():
             file_content = _check_content_size(_read_text_capped(f), str(f))
             return md_codeblock(prompt, file_content)
@@ -1280,7 +1284,7 @@ def _resource_to_codeblock(
     except UnicodeDecodeError:
         # Binary file — return metadata instead of contents
         # Skip visual formats (images, PDF) already handled via msg.files
-        f = Path(prompt).expanduser()
+        f = _prompt_file_path(prompt)
         if f.suffix[1:].lower() not in ("png", "jpg", "jpeg", "gif", "webp", "pdf"):
             return _binary_file_metadata(f, prompt)
         return None
@@ -1295,7 +1299,7 @@ def _resource_to_codeblock(
     urls = []
     for word in words:
         try:
-            f = Path(word).expanduser()
+            f = _prompt_file_path(word)
             if f.exists() and f.is_file():
                 paths.append(word)
                 continue
@@ -1372,7 +1376,7 @@ def _parse_prompt_files(prompt: str) -> Path | None:
     Files added here will either be included inline (legacy mode) or in fresh context (fresh context mode).
     """
     try:
-        p = Path(prompt).expanduser()
+        p = _prompt_file_path(prompt)
         if not (p.exists() and p.is_file()):
             return None
 
