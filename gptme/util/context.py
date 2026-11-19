@@ -872,7 +872,7 @@ def _legacy_command_phrase(word: str) -> bool:
         if any(token.startswith(p) for p in ("/", "~/", "./")) or "/" in token:
             return True
         try:
-            if Path(token).expanduser().exists():
+            if _prompt_file_path(token).exists():
                 return True
         except OSError:
             continue

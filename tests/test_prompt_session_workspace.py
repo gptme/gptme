@@ -119,3 +119,13 @@ def test_symlink_attachment_keeps_reference_file_type(
         assert message.files[0].read_text() == "SYMLINKED-TEXT"
     else:
         assert "SYMLINKED-TEXT" in message.content
+
+
+def test_legacy_bare_command_phrase_uses_session_workspace(workspaces, monkeypatch):
+    a, _, host = workspaces
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1")
+    message = in_workspace(
+        a, include_paths, Message("user", "read `note.txt --output=./build`"), a
+    )
+    assert "WORKSPACE-A" in message.content
+    assert Path.cwd() == host
