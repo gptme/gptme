@@ -535,3 +535,47 @@ for (const viewport of [
     });
   });
 }
+
+test('rendered result preview stays inside a bounded pane', async ({ page }, testInfo) => {
+  // `result` blocks render through TabbedCodeBlock; its Markdown Preview tab is
+  // a div, not a pre, so it needs the same bound as raw output.
+  await openTurn(page);
+  const items = Array.from({ length: 2000 }, (_, i) => `- finding ${i}: all good`).join('\n');
+  await page.evaluate(
+    async ({ id, items }) => {
+      const { replaceLog } = await import('/src/stores/conversations.ts');
+      replaceLog(id, [
+        { role: 'user', content: 'Summarize.', timestamp: '2026-01-01T00:00:00Z' },
+        {
+          role: 'system',
+          content: `Report:\n\n\`\`\`result\n# Report\n\n${items}\n\`\`\``,
+          timestamp: '2026-01-01T00:00:01Z',
+        },
+      ]);
+    },
+    { id: conversationId, items }
+  );
+  await page.getByRole('button', { name: /1 step/ }).click();
+  const summary = page.locator('[data-message-index="1"] details > summary').first();
+  await expect(summary).toBeVisible();
+  await settle(page);
+  const closed = await readDisclosureMetrics(page);
+  const opened = await disclosureStep(page, 'output-open', () => summary.click());
+  const previewTab = page.locator('[data-message-index="1"]').getByRole('button', {
+    name: /Preview/,
+  });
+  const preview = await disclosureStep(page, 'preview', () => previewTab.click());
+  const pane = page.locator('[data-message-index="1"] .preview-content');
+  await expect(pane).toContainText('finding 1999');
+  await testInfo.attach('result-preview-metrics', {
+    body: JSON.stringify({ closed, opened, preview }, null, 2),
+    contentType: 'application/json',
+  });
+  for (const stage of [opened, preview]) {
+    expect(
+      Math.max(stage.scrollHeight, stage.peakScrollHeight) - closed.scrollHeight,
+      `${stage.stage} growth`
+    ).toBeLessThanOrEqual(stage.clientHeight);
+  }
+  expect(await pane.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+});
