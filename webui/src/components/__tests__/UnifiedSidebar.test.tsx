@@ -146,6 +146,24 @@ describe('Chats header search and tooltips', () => {
   });
 
   it.each([
+    ['Alt+F', { key: 'f', altKey: true }],
+    ['slash', { key: '/' }],
+  ])('selects the existing filter with %s after dismissing search', async (_label, shortcut) => {
+    const user = userEvent.setup();
+    renderTaskSidebar('/chat?search=alpha');
+    const input = screen.getByRole('textbox', { name: 'Search conversations' }) as HTMLInputElement;
+    await user.click(input);
+    input.setSelectionRange(5, 5);
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Search conversations' })).toHaveFocus();
+    expect(input).toBeVisible();
+    fireEvent.keyDown(window, shortcut);
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(5);
+  });
+
+  it.each([
     ['Search conversations', 'Search conversations (/ or Alt+F); command palette: Cmd+K / Ctrl+K'],
     ['Import conversation JSON', 'Import conversation JSON'],
     ['New conversation', 'New conversation'],
