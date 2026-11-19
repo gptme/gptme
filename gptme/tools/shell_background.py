@@ -220,6 +220,9 @@ class BackgroundJob:
     # Conversation logdir captured at registration; full output of a job whose
     # displayed output is truncated is written under it.
     log_dir: Path | None = field(default=None, repr=False)
+    # Foreground captures have an identity before (and without) a job ID.
+    capture_id: str | None = field(default=None, repr=False)
+    _capture_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     log_path: Path | None = field(default=None, repr=False)
     stderr_log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
@@ -340,7 +343,7 @@ class BackgroundJob:
             self._spool_quota_refused = True
             self._note_partial("conversation_quota")
             return
-        base = f"job-{self.id}-{int(self.start_time)}"
+        base = self.capture_id or f"job-{self.id}-{int(self.start_time)}"
         stdout_spool: PrivateOutputFile | None = None
         try:
             stdout_spool = open_private_output_file(
@@ -849,7 +852,8 @@ class BackgroundJob:
         if not isinstance(exit_code, int):
             exit_code = None
         receipt = {
-            "job_id": self.id,
+            "job_id": self.id or None,
+            "capture_id": self.capture_id,
             "capture_origin": self._capture_origin,
             "byte_count_basis": "sanitized_utf8_representation",
             "capture_state": capture_state,
@@ -881,7 +885,7 @@ class BackgroundJob:
             self.log_dir
             / TOOL_OUTPUTS_DIRNAME
             / "shell-jobs"
-            / f"job-{self.id}-{int(self.start_time)}.receipt.json"
+            / f"{self.capture_id or f'job-{self.id}-{int(self.start_time)}'}.receipt.json"
         )
         try:
             # Temp-file + exclusive publish so readers never see an empty final name.
@@ -1421,8 +1425,10 @@ def format_job_output(
             text = f"...(truncated, showing last {limit} of {len(text)} chars)...\n{text[-limit:]}"
         blocks.append(md_codeblock(name, text))
     if truncated or job.log_path is not None:
-        log_path = _write_job_log(
-            job, *job.get_output(), final=False, complete=complete
+        log_path = (
+            job.log_path
+            if job._spool_from_reader
+            else _write_job_log(job, *job.get_output(), final=False, complete=complete)
         )
         dropped = job._stdout_buffer_start + job._stderr_buffer_start
         if job._spool_from_reader:
@@ -1430,6 +1436,8 @@ def format_job_output(
                 label = "Partial output (capture omitted data)"
             elif job._spool_pending_stdout or job._spool_pending_stderr:
                 label = "Partial output (incomplete line pending sanitation)"
+            elif not job._capture_finished.is_set():
+                label = "Live output (capture still running)"
             else:
                 label = "Full output"
             paths = [f"stdout: `{log_path}`"] if log_path is not None else []
@@ -1525,6 +1533,7 @@ def register_background_job(
     kill_callback: Callable[[], None] | None = None,
     close_callback: Callable[[], None] | None = None,
     output_callback: Callable[[], tuple[str, str]] | None = None,
+    capture: BackgroundJob | None = None,
 ) -> BackgroundJob:
     """Register an already-running command without starting an output reader."""
     conversation_id = _current_conversation_id()
@@ -1540,6 +1549,17 @@ def register_background_job(
             _output_callback=output_callback,
             log_dir=_current_log_dir(),
         )
+        if capture is not None:
+            # Transfer the already-running capture, not its bytes or feeder.
+            with capture._capture_lock:
+                capture.id = job.id
+                capture.process = process
+                capture._kill_callback = kill_callback
+                capture._close_callback = close_callback
+                capture._output_callback = (
+                    None if capture._spool_from_reader else output_callback
+                )
+                job = capture
         _jobs_for(conversation_id)[job.id] = job
     return job
 
@@ -1569,9 +1589,12 @@ def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> Non
 
 
 def adopt_foreground_capture(
-    job: BackgroundJob, segments: list[tuple[list[str], list[str]]] | None
+    job: BackgroundJob,
+    segments: list[tuple[list[str], list[str]]] | None,
+    *,
+    origin: str = "foreground_promotion",
 ) -> bool:
-    """Make a promoted job follow its foreground command's capture.
+    """Make a job or budget-spilled call follow its foreground capture.
 
     ``segments`` are the promoted shell's append-only chunk lists.  From this
     boundary the job owns a launch-time spool like a direct job: everything
@@ -1582,9 +1605,18 @@ def adopt_foreground_capture(
     Returns ``False`` (job unchanged, RAM-only callback path) when there is
     no conversation logdir, no capture to follow, or the spool cannot open.
     """
-    if segments is None or job.log_dir is None:
+    with job._capture_lock:
+        return _adopt_foreground_capture_locked(job, segments, origin)
+
+
+def _adopt_foreground_capture_locked(
+    job: BackgroundJob, segments: list[tuple[list[str], list[str]]] | None, origin: str
+) -> bool:
+    if job._spool_from_reader:
+        return True
+    if job._capture_finished.is_set() or segments is None or job.log_dir is None:
         return False
-    job._capture_origin = "foreground_promotion"
+    job._capture_origin = origin
     job._open_spools(adopted=True)
     if not job._spool_from_reader:
         job._capture_origin = "launch"
@@ -1607,13 +1639,18 @@ def complete_adopted_job(
     *,
     error_text: str | None = None,
     partial_reason: str | None = None,
+    notify: bool = True,
 ) -> None:
-    """Finish an adopted capture and publish one completion.
+    """Finish an adopted capture and optionally publish one completion.
 
     Call after the foreground worker returned, so the chunk lists are final.
     ``error_text`` is the worker's failure, which never reached those lists.
     ``partial_reason`` records loss upstream of the spool (e.g. the byte cap).
     """
+    if job._capture_finished.is_set():
+        if notify:
+            _notify_completion(job)
+        return
     if partial_reason:
         job._note_partial(partial_reason)
     job._adopt_stop.set()
@@ -1631,7 +1668,8 @@ def complete_adopted_job(
     job._finalize_spools()
     with _job_log_lock:
         job._capture_finished.set()
-    _notify_completion(job)
+    if notify:
+        _notify_completion(job)
 
 
 def start_background_job(
