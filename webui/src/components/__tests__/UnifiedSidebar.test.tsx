@@ -105,6 +105,16 @@ describe('Chats header search and tooltips', () => {
     expect(input).toHaveFocus();
   });
 
+  it('does not unmount a URL-loaded search while deleting its last character', async () => {
+    const user = userEvent.setup();
+    renderTaskSidebar('/chat?search=a');
+    const input = screen.getByRole('textbox', { name: 'Search conversations' });
+    await user.click(input);
+    await user.keyboard('{Backspace}');
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('');
+  });
+
   it('keeps the unavailable import action discoverable while disconnected', async () => {
     const { isConnected$ } = jest.requireMock('@/contexts/ApiContext').useApi();
     isConnected$.set(false);

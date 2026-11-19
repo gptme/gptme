@@ -570,6 +570,7 @@ export const ConversationList: FC<Props> = ({
               <Input
                 ref={filterInputRef}
                 value={filterQuery}
+                onFocus={() => onSearchOpenChange?.(true)}
                 onChange={(e) => handleFilterChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
