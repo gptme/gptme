@@ -618,8 +618,8 @@ def _handle_pr_merge(
         yield Message("system", f"Error: {result['message']}")
 
 
-def _save_oversized_stdout(stdout: str, command_info: str):
-    """Save oversized pass-through stdout under the conversation's tool-outputs.
+def _save_oversized_output(text: str, command_info: str):
+    """Save oversized pass-through output under the conversation's tool-outputs.
 
     Returns the saved path, or None without a conversation directory or when
     saving fails: the omission notice must still be delivered either way.
@@ -631,7 +631,7 @@ def _save_oversized_stdout(stdout: str, command_info: str):
         manager = LogManager.get_current_log()
         if manager and manager.logdir:
             _, saved_path = save_large_output(
-                content=stdout,
+                content=text,
                 logdir=manager.logdir,
                 output_type="gh",
                 command_info=command_info,
@@ -640,6 +640,21 @@ def _save_oversized_stdout(stdout: str, command_info: str):
     except Exception as e:  # best-effort; the omission notice still applies
         logger.warning("Could not save full gh output: %s", e)
     return None
+
+
+def _failure_stream_preview(
+    text: str, max_chars: int, stream: str, cmd: list[str]
+) -> str:
+    """Tail-truncate a failed pass-through stream, saving it first if it is cut.
+
+    The omission marker names the saved file when one was written; without a
+    conversation directory, or if saving fails, it stays a plain count.
+    """
+    if len(text) <= max_chars:
+        return text
+    saved_path = _save_oversized_output(text, f"{shlex.join(cmd)} ({stream})")
+    hint = f"full {stream} saved to {saved_path}" if saved_path is not None else ""
+    return _truncate_log_tail(text, max_chars, hint)
 
 
 def _passthrough_gh(
@@ -665,9 +680,14 @@ def _passthrough_gh(
             cmd, capture_output=True, text=True, timeout=60, check=False
         )
         max_chars = DEFAULT_LOG_MAX_TOKENS * 4
-        output = _truncate_log_tail((result.stdout or "").strip(), max_chars)
-        stderr = _truncate_log_tail((result.stderr or "").strip(), max_chars)
+        stdout_text = (result.stdout or "").strip()
+        stderr_text = (result.stderr or "").strip()
         if result.returncode != 0:
+            # A failure keeps only each stream's tail inline. Save a stream whose
+            # head was dropped and name the file in its omission marker, so the
+            # earlier output stays readable without re-running the command.
+            stderr = _failure_stream_preview(stderr_text, max_chars, "stderr", cmd)
+            output = _failure_stream_preview(stdout_text, max_chars, "stdout", cmd)
             details = []
             if stderr:
                 details.append(f"stderr:\n{stderr}")
@@ -677,10 +697,8 @@ def _passthrough_gh(
             if details:
                 msg += "\n\n" + "\n\n".join(details)
             yield Message("system", msg)
-        elif len((result.stdout or "").strip()) > max_chars:
-            saved_path = _save_oversized_stdout(
-                (result.stdout or "").strip(), shlex.join(cmd)
-            )
+        elif len(stdout_text) > max_chars:
+            saved_path = _save_oversized_output(stdout_text, shlex.join(cmd))
             if saved_path is not None:
                 where = (
                     f"The full output was saved to {saved_path}; read it "
@@ -697,8 +715,8 @@ def _passthrough_gh(
                 f"and was omitted. {where}Do not repeat a mutating command: its "
                 "changes have already been applied.",
             )
-        elif output:
-            yield Message("system", output)
+        elif stdout_text:
+            yield Message("system", stdout_text)
         else:
             yield Message("system", "(no output)")
     except subprocess.TimeoutExpired:
