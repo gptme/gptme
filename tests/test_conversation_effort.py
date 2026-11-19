@@ -417,6 +417,7 @@ def test_subscription_default_inherits_environment(monkeypatch):
 
 
 def test_effort_is_documented_in_config_schema():
+    pytest.importorskip("flask", reason="flask not installed; install -E server")
     from gptme.server.openapi_docs import ChatConfig as SchemaChatConfig
 
     assert "reasoning_effort" in SchemaChatConfig.model_json_schema()["properties"]
