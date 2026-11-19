@@ -104,8 +104,15 @@ for (const theme of ['light', 'dark'] as const) {
       contentType: 'image/png',
     });
 
-    // Reload proves the overview does not depend on selectedAgent$ in memory.
-    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Load more conversations', exact: true })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Use this server to load older history' })
+    ).toBeVisible();
+
+    // A trailing slash and a full reload must resolve the same overview.
+    await page.goto('/agents/overview/?path=%2Fagents%2Fbuilder&server=two');
     await expect(page.getByText('Server: Remote', { exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'View conversations' }).click();
     await expect(page).toHaveURL(/\/chat\?agentPath=%2Fagents%2Fbuilder&server=two$/);

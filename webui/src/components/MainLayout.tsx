@@ -27,7 +27,7 @@ import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQ
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
 import { useApi } from '@/contexts/ApiContext';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
-import { serverRegistry$ } from '@/stores/servers';
+import { serverRegistry$, setActiveServer } from '@/stores/servers';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { shouldShowDemoContent } from '@/utils/connectionConfig';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
@@ -506,13 +506,20 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   // Render main content based on current section
   const renderMainContent = () => {
     if (currentSection === 'agents') {
-      if (location.pathname === appRoutes.agentOverview) {
+      if (location.pathname.replace(/\/+$/, '') === appRoutes.agentOverview) {
         return (
           <AgentOverview
             conversations={allConversations}
             isLoading={isLoading || isFetching}
-            hasMore={hasNextPage}
+            hasMore={serverParam === registry.activeServerId && hasNextPage}
             onLoadMore={() => void fetchNextPage()}
+            onActivateServer={
+              serverParam &&
+              serverParam !== registry.activeServerId &&
+              registry.servers.some((server) => server.id === serverParam)
+                ? () => setActiveServer(serverParam)
+                : undefined
+            }
           />
         );
       }

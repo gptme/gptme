@@ -13,9 +13,16 @@ interface Props {
   isLoading?: boolean;
   hasMore?: boolean;
   onLoadMore?: () => void;
+  onActivateServer?: () => void;
 }
 
-export const AgentOverview: FC<Props> = ({ conversations, isLoading, hasMore, onLoadMore }) => {
+export const AgentOverview: FC<Props> = ({
+  conversations,
+  isLoading,
+  hasMore,
+  onLoadMore,
+  onActivateServer,
+}) => {
   const [params] = useSearchParams();
   const path = params.get('path');
   const serverId = params.get('server') || undefined;
@@ -166,6 +173,16 @@ export const AgentOverview: FC<Props> = ({ conversations, isLoading, hasMore, on
               </p>
             </section>
           </>
+        )}
+        {onActivateServer && (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Older history requires selecting this agent’s server as the active connection.
+            </p>
+            <Button variant="outline" onClick={onActivateServer}>
+              Use this server to load older history
+            </Button>
+          </div>
         )}
         {hasMore && (
           <Button variant="outline" disabled={isLoading} onClick={onLoadMore}>
