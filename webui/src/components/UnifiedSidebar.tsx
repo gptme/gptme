@@ -8,6 +8,7 @@ import {
   XCircle,
   RefreshCw,
   GitBranch,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
@@ -28,7 +29,7 @@ import { toast } from 'sonner';
 import type { ChangeEvent, FC } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 
 // Simplified task display component for sidebar
@@ -141,6 +142,16 @@ export const UnifiedSidebar: FC<Props> = ({
   const isConnected = use$(isConnected$);
   const queryClient = useQueryClient();
   const importInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+  const handleSearchOpenChange = useCallback((open: boolean) => {
+    setSearchOpen(open);
+    if (!open) searchButtonRef.current?.focus();
+  }, []);
   const demoMode = isDemoMode();
 
   // Navigation state - agents/workspaces show chat sidebar content
@@ -333,25 +344,63 @@ export const UnifiedSidebar: FC<Props> = ({
             </TooltipProvider>
           )}
           <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => importInputRef.current?.click()}
-            aria-label="Import conversation JSON"
-            disabled={!isConnected}
-          >
-            <Upload className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={handleNewConversation}
-            aria-label="New conversation"
-          >
-            <PenSquare className="h-4 w-4" />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  ref={searchButtonRef}
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    setSearchOpen(true);
+                    searchInputRef.current?.focus();
+                  }}
+                  aria-label="Search conversations"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="pointer-events-none max-w-64">
+                Search conversations (/ or Alt+F); command palette: Cmd+K / Ctrl+K
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 aria-disabled:opacity-50"
+                  onClick={() => {
+                    if (isConnected) importInputRef.current?.click();
+                  }}
+                  aria-label="Import conversation JSON"
+                  aria-disabled={!isConnected}
+                >
+                  <Upload className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="pointer-events-none">
+                {isConnected ? 'Import conversation JSON' : 'Connect to import conversation JSON'}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={handleNewConversation}
+                  aria-label="New conversation"
+                >
+                  <PenSquare className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="pointer-events-none">
+                New conversation
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       )}
       {/* Tasks Section Header */}
@@ -441,6 +490,9 @@ export const UnifiedSidebar: FC<Props> = ({
           {currentSection === 'chat' && (
             <ConversationList
               conversations={filteredConversations}
+              searchOpen={searchOpen}
+              onSearchOpenChange={handleSearchOpenChange}
+              searchInputRef={searchInputRef}
               selectedId$={selectedConversationId$}
               onSelect={onSelectConversation}
               isLoading={conversationsLoading}

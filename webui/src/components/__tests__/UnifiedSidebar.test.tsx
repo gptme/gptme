@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom';
 import { observable } from '@legendapp/state';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { UnifiedSidebar } from '../UnifiedSidebar';
@@ -62,6 +63,94 @@ const renderTaskSidebar = (
   );
   return { ...result, queryClient };
 };
+
+describe('Chats header search and tooltips', () => {
+  beforeEach(() => {
+    mockIsDemoMode.mockReturnValue(false);
+    mockGetServerInfo.mockResolvedValue({});
+  });
+
+  it('opens and focuses search with one click, even with no conversations', async () => {
+    const user = userEvent.setup();
+    renderTaskSidebar('/chat');
+    expect(screen.queryByRole('textbox', { name: 'Search conversations' })).not.toBeInTheDocument();
+    const search = screen.getByRole('button', { name: 'Search conversations' });
+    await user.click(search);
+    const input = screen.getByRole('textbox', { name: 'Search conversations' });
+    expect(input).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('textbox', { name: 'Search conversations' })).not.toBeInTheDocument();
+    expect(search).toHaveFocus();
+  });
+
+  it('keeps an active URL filter visible instead of hiding it', async () => {
+    const user = userEvent.setup();
+    renderTaskSidebar('/chat?search=alpha');
+    const input = screen.getByRole('textbox', { name: 'Search conversations' });
+    expect(input).toHaveValue('alpha');
+    await user.click(input);
+    await user.keyboard('{Escape}');
+    expect(input).toBeVisible();
+    expect(input).toHaveValue('alpha');
+  });
+
+  it('keeps the cleared search focused after dismissing an active filter', async () => {
+    const user = userEvent.setup();
+    renderTaskSidebar('/chat?search=alpha');
+    const input = screen.getByRole('textbox', { name: 'Search conversations' });
+    await user.click(input);
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Clear conversation search' }));
+    expect(input).toHaveValue('');
+    expect(input).toHaveFocus();
+  });
+
+  it('keeps the unavailable import action discoverable while disconnected', async () => {
+    const { isConnected$ } = jest.requireMock('@/contexts/ApiContext').useApi();
+    isConnected$.set(false);
+    try {
+      const user = userEvent.setup();
+      const { container } = renderTaskSidebar('/chat');
+      const fileInput = container.querySelector('input[type="file"]')!;
+      const click = jest.spyOn(fileInput as HTMLInputElement, 'click');
+      const button = screen.getByRole('button', { name: 'Import conversation JSON' });
+      act(() => button.focus());
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(
+        'Connect to import conversation JSON'
+      );
+      await user.keyboard('{Enter}');
+      expect(click).not.toHaveBeenCalled();
+    } finally {
+      act(() => isConnected$.set(true));
+    }
+  });
+
+  it('opens the disclosed search with the existing Alt+F and slash shortcuts', () => {
+    renderTaskSidebar('/chat');
+    fireEvent.keyDown(window, { key: 'f', altKey: true });
+    const input = screen.getByRole('textbox', { name: 'Search conversations' });
+    expect(input).toHaveFocus();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByRole('textbox', { name: 'Search conversations' })).toHaveFocus();
+  });
+
+  it.each([
+    ['Search conversations', 'Search conversations (/ or Alt+F); command palette: Cmd+K / Ctrl+K'],
+    ['Import conversation JSON', 'Import conversation JSON'],
+    ['New conversation', 'New conversation'],
+  ])('shows a tooltip on keyboard focus and hover for %s', async (label, tooltip) => {
+    const user = userEvent.setup();
+    renderTaskSidebar('/chat');
+    const button = screen.getByRole('button', { name: label });
+    act(() => button.focus());
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(tooltip);
+    await user.keyboard('{Escape}');
+    act(() => button.blur());
+    await user.hover(button);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(tooltip);
+  });
+});
 
 const SERVER_INFO_KEY = ['server-info', 'demo://offline'];
 
