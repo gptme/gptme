@@ -303,3 +303,73 @@ def test_real_step_applies_effort_and_records_metadata(client, monkeypatch, with
         assert all(
             m.metadata and m.metadata["reasoning_effort"] == "high" for m in replies
         )
+
+
+def test_concurrent_api_workers_keep_effort_isolated(client, monkeypatch):
+    """Two real server workers overlap at the provider boundary."""
+    import time
+
+    from gptme.logmanager import LogManager
+    from gptme.server.session_models import SessionManager
+
+    both_ready = Barrier(2)
+    calls = {}
+
+    def provider_request(messages, model, tools=None, **kwargs):
+        both_ready.wait(timeout=5)
+        level = extra_body("openai", get_model(model))["reasoning_effort"]
+        calls[next(m.content for m in messages if m.role == "user")] = level
+        return "ok", {"reasoning_effort": level}
+
+    monkeypatch.setattr("gptme.server.session_step._chat_complete", provider_request)
+    monkeypatch.setattr(
+        "gptme.server.session_step._try_auto_name_and_notify", lambda *a, **kw: None
+    )
+    sessions = []
+    for level in ("low", "high"):
+        cid = f"effort-concurrent-{level}"
+        response = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={
+                "prompt": "test",
+                "config": {
+                    "chat": {"model": "openai/o3", "tools": [], "stream": False},
+                },
+            },
+        )
+        assert response.status_code == 200
+        sid = response.get_json()["session_id"]
+        sessions.append((cid, sid, level))
+        assert (
+            client.post(
+                f"/api/v2/conversations/{cid}", json={"role": "user", "content": level}
+            ).status_code
+            == 200
+        )
+    app = client.application
+
+    def send_step(item):
+        cid, sid, level = item
+        with app.test_client() as worker_client:
+            response = worker_client.post(
+                f"/api/v2/conversations/{cid}/step",
+                json={"session_id": sid, "reasoning_effort": level, "stream": False},
+            )
+            assert response.status_code == 200, response.get_json()
+
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(send_step, sessions))
+    for cid, sid, level in sessions:
+        session = SessionManager.get_session(sid)
+        assert session is not None
+        deadline = time.monotonic() + 6
+        while session.generating and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not session.generating
+        reply = next(
+            m
+            for m in LogManager.load(cid, lock=False).log.messages
+            if m.role == "assistant"
+        )
+        assert reply.metadata and reply.metadata["reasoning_effort"] == level
+    assert calls == {"low": "low", "high": "high"}
