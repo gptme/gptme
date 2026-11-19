@@ -11,16 +11,19 @@ export function useAgents(enabled = true): {
 } {
   const { data: infiniteData, isLoading, error } = useConversationsInfiniteQuery(enabled);
 
-  const activeServerId = use$(serverRegistry$.activeServerId);
+  const registry = use$(serverRegistry$);
+  const activeServerId = registry.activeServerId;
+  const serverName = registry.servers.find((server) => server.id === activeServerId)?.name;
   const agents = useMemo(() => {
     const conversationSummaries = infiniteData?.pages?.flatMap((page) => page.conversations) || [];
     return extractAgentsFromConversations(
       conversationSummaries.map((conversation) => ({
         ...conversation,
         serverId: activeServerId,
+        serverName,
       }))
     );
-  }, [infiniteData, activeServerId]);
+  }, [infiniteData, activeServerId, serverName]);
 
   return { agents, isLoading, error };
 }

@@ -71,7 +71,7 @@ describe('AgentOverview', () => {
     expect(screen.getByRole('heading', { name: 'Bob' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Remote conversation/ })).toHaveAttribute(
       'href',
-      '/chat/shared?server=remote'
+      '/chat/shared?server=remote&agentPath=%2Fagents%2Fbob'
     );
     expect(screen.queryByText('Local conversation')).not.toBeInTheDocument();
     expect(screen.queryByText('Different workspace')).not.toBeInTheDocument();

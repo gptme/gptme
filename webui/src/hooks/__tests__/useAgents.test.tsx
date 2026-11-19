@@ -18,10 +18,19 @@ jest.mock('@/hooks/useConversationsInfiniteQuery', () => ({
 }));
 jest.mock('@/stores/servers', () => {
   const { observable } = jest.requireActual('@legendapp/state');
-  return { serverRegistry$: observable({ activeServerId: 'primary' }) };
+  return {
+    serverRegistry$: observable({
+      activeServerId: 'primary',
+      servers: [{ id: 'primary', name: 'Local' }],
+    }),
+  };
 });
 
 it('tags agents from the primary-only API query with its owning server', () => {
   const { result } = renderHook(() => useAgents());
-  expect(result.current.agents[0]).toMatchObject({ path: '/agents/bob', serverId: 'primary' });
+  expect(result.current.agents[0]).toMatchObject({
+    path: '/agents/bob',
+    serverId: 'primary',
+    serverName: 'Local',
+  });
 });

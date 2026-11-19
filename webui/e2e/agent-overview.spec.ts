@@ -92,7 +92,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByText('Server: Remote', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: /Remote planning/ })).toHaveAttribute(
       'href',
-      '/chat/shared?server=two'
+      '/chat/shared?server=two&agentPath=%2Fagents%2Fbuilder'
     );
     await expect(page.getByRole('heading', { name: 'Recent conversations' })).toBeVisible();
     await page.screenshot({

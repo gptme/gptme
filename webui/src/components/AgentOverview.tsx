@@ -45,6 +45,7 @@ export const AgentOverview: FC<Props> = ({
   const conversationUrl = (id: string) => {
     const query = new URLSearchParams(new URL(appRoute('/'), window.location.origin).search);
     if (serverId) query.set('server', serverId);
+    if (path) query.set('agentPath', path);
     return chatRoute(id, query.toString());
   };
   const server = serverRegistry$.get().servers.find((item) => item.id === serverId);

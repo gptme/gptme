@@ -24,6 +24,11 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
   const demoMode = isDemoMode();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
+  const avatarBaseUrl = (serverId?: string) =>
+    serverId
+      ? serverRegistry$.get().servers.find((server) => server.id === serverId)?.baseUrl
+      : baseUrl;
+
   const handleAgentCreated = async (agentData: CreateAgentRequest) => {
     try {
       return await api.createAgent(agentData);
@@ -81,9 +86,9 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
                   className="flex flex-1 flex-col"
                 >
                   <div className="mb-3 flex items-center gap-3">
-                    {agent.hasAvatar && agent.path ? (
+                    {agent.hasAvatar && agent.path && avatarBaseUrl(agent.serverId) ? (
                       <img
-                        src={`${(agent.serverId ? serverRegistry$.get().servers.find((server) => server.id === agent.serverId)?.baseUrl || '' : baseUrl).replace(/\/+$/, '')}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
+                        src={`${avatarBaseUrl(agent.serverId)!.replace(/\/+$/, '')}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
                         alt={agent.name}
                         className="h-10 w-10 rounded-full object-cover"
                       />
