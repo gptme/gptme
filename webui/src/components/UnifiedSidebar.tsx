@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { matchesAgent } from '@/utils/workspaceUtils';
-import { serverRegistry$ } from '@/stores/servers';
+
 import type { ConversationSummary } from '@/types/conversation';
 import type { Task } from '@/types/task';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -142,7 +142,7 @@ export const UnifiedSidebar: FC<Props> = ({
   const [searchParams, setSearchParams] = useSearchParams();
   const routeAgentPath = searchParams.get('agentPath');
   const routeAgentServer = searchParams.get('server') || undefined;
-  const activeServerId = use$(serverRegistry$.activeServerId);
+
   const { api, connectionConfig, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
   const queryClient = useQueryClient();
@@ -206,20 +206,13 @@ export const UnifiedSidebar: FC<Props> = ({
       filtered = filtered.filter((conv) =>
         matchesAgent(conv, {
           path: selectedAgent.path,
-          serverId: selectedAgent.serverId ?? activeServerId,
+          serverId: selectedAgent.serverId,
         })
       );
     }
 
     return filtered;
-  }, [
-    conversations,
-    selectedWorkspace,
-    selectedAgent,
-    routeAgentPath,
-    routeAgentServer,
-    activeServerId,
-  ]);
+  }, [conversations, selectedWorkspace, selectedAgent, routeAgentPath, routeAgentServer]);
 
   // Filter and sort tasks
   const sortedTasks = useMemo(() => {
