@@ -43,7 +43,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..constants import DECLINED_CONTENT
-from ..hooks import ConfirmAction, StopPropagation, current_conversation_id, get_confirmation
+from ..hooks import (
+    ConfirmAction,
+    StopPropagation,
+    current_conversation_id,
+    get_confirmation,
+)
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.interrupt import (
