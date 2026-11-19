@@ -2006,6 +2006,15 @@ def start_tool_execution(
                             session.generating_since = None
                     raise
         except Exception as e:
+            # An approval reserves dispatch before this worker starts. Startup
+            # can fail before pop() claims the tool; then the still-pending call
+            # must remain approvable (or skippable) after the problem is fixed.
+            with SessionManager.conversation_lock(conversation_id):
+                if (
+                    tool_id in session.pending_tools
+                    and tool_id not in session._executing_tools
+                ):
+                    session.handled_tools.pop(tool_id, None)
             with session.step_lock:
                 if session.step_seq == my_seq:
                     session.finish_skill_turn("failed", error_type=type(e).__name__)

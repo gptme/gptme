@@ -958,6 +958,22 @@ describe('ApiClient event stream reconnection', () => {
     jest.restoreAllMocks();
   });
 
+  it('delivers an empty idle reconnect snapshot to clear stale approvals', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = { ...createSseCallbacks(), onReconnectState: jest.fn() };
+    await client.subscribeToEvents('conv-1', callbacks);
+    MockEventSource.instances[0].emitMessage({
+      type: 'connected',
+      session_id: 'session-1',
+      generating: false,
+      pending_tools: [],
+    });
+    expect(callbacks.onReconnectState).toHaveBeenCalledWith({
+      generating: false,
+      pendingTools: [],
+    });
+  });
+
   it('reports reconnect state and reuses the session id after a transient drop', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();

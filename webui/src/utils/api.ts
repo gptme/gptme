@@ -1369,7 +1369,7 @@ export class ApiClient {
             callbacks.onConnectionState?.({ status: 'connected' });
             callbacks.onConnected?.();
             // Restore state on reconnect (pending tools, generating flag)
-            if (callbacks.onReconnectState && (data.pending_tools?.length || data.generating)) {
+            if (callbacks.onReconnectState) {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
                 pendingTools: data.pending_tools ?? [],

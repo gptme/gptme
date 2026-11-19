@@ -250,3 +250,29 @@ def test_reconnect_does_not_lose_execution_during_connected_snapshot(client, app
         assert event == {"type": "tool_executing", "tool_id": tool_id}
     finally:
         response.close()
+
+
+def test_worker_startup_failure_releases_approval_receipt(client, approval):
+    from gptme.config import ChatConfig
+    from gptme.server.session_step import start_tool_execution
+
+    conversation_id, owner, viewer, tool_id = approval
+    owner.remember_handled_tool(tool_id)
+    # Run the thread body synchronously to inspect the expected startup error
+    # without leaking an unhandled-thread warning into the suite.
+    with (
+        patch(
+            "gptme.server.session_step.prepare_execution_environment",
+            side_effect=RuntimeError("startup"),
+        ),
+        patch(
+            "gptme.server.session_step.threading.Thread.start",
+            lambda thread: thread.run(),
+        ),
+        pytest.raises(RuntimeError, match="startup"),
+    ):
+        start_tool_execution(
+            conversation_id, owner, tool_id, None, "local/test", ChatConfig()
+        )
+    assert tool_id in owner.pending_tools
+    assert tool_id not in owner.handled_tools
