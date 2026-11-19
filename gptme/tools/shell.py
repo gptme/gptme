@@ -969,6 +969,8 @@ class ShellSession:
                                 if result is None
                                 else "foreground_byte_cap"
                                 if result[0] == -125
+                                else "foreground_timeout"
+                                if result[0] == -124
                                 else None
                             ),
                             notify=False,

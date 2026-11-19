@@ -1260,7 +1260,10 @@ def test_foreground_budget_capture_timeout_preserves_partial_output(
     assert streams[0].read_text().startswith("BEGIN\n")
     receipts = list(tmp_path.glob("tool-outputs/shell-jobs/*.json"))
     assert len(receipts) == 1
-    assert json.loads(receipts[0].read_text())["exit_code"] == -124
+    receipt = json.loads(receipts[0].read_text())
+    assert receipt["exit_code"] == -124
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_timeout" in receipt["partial_reasons"]
     assert not list_background_jobs()
 
 
