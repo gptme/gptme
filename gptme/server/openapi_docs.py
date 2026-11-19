@@ -526,6 +526,10 @@ class SessionResponse(BaseModel):
 class StepRequest(BaseModel):
     """Request to take a step in conversation."""
 
+    reasoning_effort: str | None = Field(
+        None,
+        description="Conversation effort override; empty string restores inheritance. Omit to keep the saved setting.",
+    )
     session_id: str = Field(..., description="Session ID")
     model: str | None = Field(None, description="Model to use")
     stream: bool = Field(True, description="Enable streaming")

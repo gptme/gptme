@@ -124,6 +124,7 @@ describe('useConversation', () => {
       maxTokens: 123,
       temperature: 0.4,
       topP: 0.8,
+      reasoningEffort: 'high',
       files: ['attached.txt'],
     };
     await act(async () => {
@@ -143,7 +144,8 @@ describe('useConversation', () => {
       'main',
       123,
       0.4,
-      0.8
+      0.8,
+      'high'
     );
     expect(
       conversations$
@@ -259,7 +261,8 @@ describe('useConversation', () => {
       'main',
       50,
       0,
-      1
+      1,
+      undefined
     );
   });
 

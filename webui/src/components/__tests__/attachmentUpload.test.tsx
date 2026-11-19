@@ -548,7 +548,8 @@ it('preserves captured generation options through rejected upload and retry', as
     'main',
     123,
     0.4,
-    0.8
+    0.8,
+    undefined
   );
   expect(conversations$.get('upload-existing')!.data.log.get().at(-1)?.files).toEqual([
     'attachments/previous.txt',
@@ -625,6 +626,7 @@ it('hands a new-chat rejected POST to existing message Retry without uploading a
     'test/model',
     false,
     'main',
+    undefined,
     undefined,
     undefined,
     undefined

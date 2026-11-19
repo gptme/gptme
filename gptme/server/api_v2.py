@@ -1839,6 +1839,12 @@ def api_conversation_put(conversation_id: str):
     config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
+        if request_config.model:
+            from ..llm.models.effort import validate_reasoning_effort
+
+            validate_reasoning_effort(
+                get_model(request_config.model), request_config.reasoning_effort
+            )
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -2684,6 +2690,8 @@ def api_models():
     If proxy is configured, only returns proxy-supported models.
     """
 
+    from ..llm.models.effort import reasoning_effort_levels
+
     config = Config()
 
     # Check if proxy is configured
@@ -2731,6 +2739,7 @@ def api_models():
                 "supports_streaming": model.supports_streaming,
                 "supports_vision": model.supports_vision,
                 "supports_reasoning": model.supports_reasoning,
+                "reasoning_effort_levels": reasoning_effort_levels(model),
                 "price_input": model.price_input,
                 "price_output": model.price_output,
                 "deprecated": model.deprecated,
@@ -3132,7 +3141,14 @@ def api_conversation_config_patch(conversation_id: str):
                     ), 400
 
         try:
-            chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+            chat_config = ChatConfig.load_or_create(logdir, request_config)
+            if chat_config.model:
+                from ..llm.models.effort import validate_reasoning_effort
+
+                validate_reasoning_effort(
+                    get_model(chat_config.model), chat_config.reasoning_effort
+                )
+            chat_config.save()
         except ValueError as exc:
             return flask.jsonify({"error": str(exc)}), 400
         config = Config.from_workspace(workspace=chat_config.workspace)

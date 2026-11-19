@@ -186,12 +186,18 @@ class Config:
 
         Checks both ``GPTME_<KEY>`` and ``<KEY>`` forms for environment variables,
         with the prefixed form taking precedence. Config file lookups always use
-        the bare (unprefixed) key.
+        the bare (unprefixed) key. An explicit chat.reasoning_effort beats the
+        process default for THINKING_EFFORT, below runtime env_overrides only.
         """
         prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
         bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
         return (
             self.env_overrides.get(bare)
+            or (
+                self.chat and self.chat.reasoning_effort
+                if bare == "THINKING_EFFORT"
+                else None
+            )
             or os.environ.get(prefixed)
             or os.environ.get(bare)
             or (self.chat and self.chat.env.get(bare))

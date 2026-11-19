@@ -177,6 +177,7 @@ export interface ChatConfig {
   chat: {
     name: string | null;
     model: string | null;
+    reasoning_effort?: string | null;
     tools: string[] | null;
     tool_format: ToolFormat | null;
     stream: boolean;

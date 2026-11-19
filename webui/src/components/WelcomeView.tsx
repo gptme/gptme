@@ -153,6 +153,7 @@ export const WelcomeView = () => {
       // mounted until upload and message persistence finish.
       const conversationId = await api.createConversationWithPlaceholder(message, {
         model: options?.model,
+        reasoningEffort: options?.reasoningEffort,
         stream: options?.stream,
         workspace: options?.workspace || '.',
         pendingFiles: options?.pendingFiles,

@@ -77,6 +77,8 @@ import {
 
 export interface ChatOptions {
   model?: string;
+  /** Empty string restores server inheritance; omitted keeps the conversation setting. */
+  reasoningEffort?: string;
   stream?: boolean;
   workspace?: string;
   files?: string[];
@@ -728,6 +730,20 @@ export const ChatInput: FC<Props> = ({
     ? selectedModel
     : conversationModel || defaultModel || apiDefaultModel || fallbackModel;
 
+  const [effortDraft, setEffortDraft] = useComposerDraft(
+    storageKey ? `${storageKey}-effort` : null,
+    JSON.stringify([serverId ?? null, conversationId ?? null])
+  );
+  const effortLevels =
+    modelInfos.find((m) => m.id === effectiveModel)?.reasoning_effort_levels || [];
+  const requestedEffort = effortDraft
+    ? effortDraft === 'default'
+      ? ''
+      : effortDraft
+    : chatConfig?.chat.reasoning_effort || '';
+  const effortIncompatible = !!requestedEffort && !effortLevels.includes(requestedEffort);
+  const reasoningEffort = effortIncompatible ? '' : requestedEffort;
+
   // Update selectedModel when conversation config changes, but only if no explicit selection
   useEffect(() => {
     if (!hasExplicitModelSelection) {
@@ -1135,6 +1151,7 @@ export const ChatInput: FC<Props> = ({
             text: message,
             options: {
               model: hasExplicitModelSelection ? effectiveModel : undefined,
+              reasoningEffort,
               stream: streamingEnabled,
               workspace: selectedWorkspace || undefined,
               files: uploadedPaths,
@@ -1169,6 +1186,7 @@ export const ChatInput: FC<Props> = ({
       const sentMessage = message;
       const sentOptions = {
         model: hasExplicitModelSelection ? effectiveModel : undefined,
+        reasoningEffort,
         stream: streamingEnabled,
         workspace: selectedWorkspace || undefined,
         files: uploadedPaths,
@@ -1519,6 +1537,37 @@ export const ChatInput: FC<Props> = ({
                         isDisabled={isDisabled}
                         isLoading={isChatConfigLoading}
                       />
+                      <Select
+                        value={reasoningEffort || 'default'}
+                        onValueChange={setEffortDraft}
+                        disabled={isDisabled || isChatConfigLoading || effortLevels.length === 0}
+                      >
+                        <SelectTrigger
+                          aria-label="Reasoning effort"
+                          title={
+                            effortIncompatible
+                              ? `${requestedEffort} is unsupported by this model. Using Default (inherit).`
+                              : 'Reasoning effort. Default inherits server configuration.'
+                          }
+                          className="h-5 w-auto shrink-0 gap-1 border-0 px-1.5 text-[10px] text-muted-foreground shadow-none"
+                        >
+                          <span>Effort:</span>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default</SelectItem>
+                          {effortLevels.map((level) => (
+                            <SelectItem key={level} value={level}>
+                              {level}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {effortIncompatible && (
+                        <span role="status" className="shrink-0 text-[10px] text-muted-foreground">
+                          {requestedEffort} unsupported; using Default
+                        </span>
+                      )}
                       {/* File attach button */}
                       <Button
                         type="button"

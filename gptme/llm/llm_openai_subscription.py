@@ -511,14 +511,22 @@ def _codex_model_and_effort(
 
     ``gpt-5.6-sol`` and ``gpt-5.6-sol:medium`` both become
     ``("gpt-5.6-sol", "medium")``. An explicit suffix (``:high``) wins over
-    the default. Used by both the request body and the routing ``session_id``
+    the default; a context-local or explicit conversation effort wins over both.
+    Used by both the request body and the routing ``session_id``
     so equivalent spellings keep cache affinity.
     """
     base_model = model.split(":")[0] if ":" in model else model
     if ":" in model:
         reasoning_level = model.split(":")[1]
-    if reasoning_level is None:
-        reasoning_level = "medium"
+    from ..config import get_config
+
+    config = get_config()
+    reasoning_level = (
+        config.env_overrides.get("THINKING_EFFORT")
+        or (config.chat.reasoning_effort if config.chat else None)
+        or reasoning_level
+        or "medium"
+    )
     return base_model, reasoning_level
 
 
