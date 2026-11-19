@@ -130,14 +130,14 @@ def test_reply_persisted_before_tools_run(
             INTERRUPT_CONTENT,
         ]
     else:
-        # The completed reply replaced the early copy; it was not appended twice.
+        # The completed copy was skipped; the original reply stayed unchanged.
         assert [m.content for m in reloaded][:3] == [
             "work",
             reply.content,
             "Ran command",
         ]
         assert [m.role for m in reloaded].count("assistant") == 1
-        assert (reloaded[1].metadata or {})["timings"]["tool_ms"] == 7.0
+        assert reloaded[1].to_dict() == reply.to_dict()
 
 
 def test_resume_closes_tool_call_left_by_hard_kill(tmp_path: Path) -> None:

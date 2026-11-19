@@ -278,14 +278,16 @@ def _read_jsonl(path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
-def test_step_persister_writes_reply_before_tools_and_patches_timings(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_step_persister_writes_reply_once_before_tools(
+    monkeypatch, tmp_path, output_format, capsys
 ):
-    """A live reader of conversation.jsonl must see the in-flight tool call,
-    and the completed reply must replace (not duplicate) that early copy."""
+    """A live reader sees the running call; completion only appends results,
+    preserving the saved reply byte-for-byte, including generation timings."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
 
-    from gptme.logmanager import LogManager
+    from gptme.logmanager import LogManager, eventlog
+    from gptme.message import get_output_format, set_output_format
     from gptme.tools import init_tools
 
     init_tools(allowlist=["shell"])
@@ -295,42 +297,62 @@ def test_step_persister_writes_reply_before_tools_and_patches_timings(
     manager.append(Message("user", "run something", quiet=True))
     logfile = manager.logfile
 
-    mock_meta: MessageMetadata = {"model": "mock/model"}
+    mock_meta: MessageMetadata = {
+        "model": "mock/model",
+        "timings": {"gen_ms": 50.0, "ttft_ms": 10.0},
+    }
     mock_response = Message("assistant", "```shell\nsleep 300\n```", metadata=mock_meta)
     seen_during_tool: list[dict] = []
+    saved_prefix: list[bytes] = []
 
     def fake_execute_msg(
         msg, log, workspace=None, tool_timings=None, on_tool_execution=None
     ):
         # What a TUI child view reading the transcript sees mid-tool.
         seen_during_tool.extend(_read_jsonl(logfile))
+        saved_prefix.append(logfile.read_bytes())
         assert tool_timings is not None
         tool_timings["shell"] = 1234.0
         yield Message("system", "Ran command: sleep 300", quiet=True)
 
     persister = chat_module.StepPersister(manager)
-    with (
-        patch.object(chat_module, "reply", return_value=mock_response),
-        patch.object(chat_module, "execute_msg", fake_execute_msg),
-    ):
-        for msg in chat_module.step(
-            manager.log,
-            stream=False,
-            on_before_tool_execution=persister.before_tools,
-            logdir=manager.logdir,
+    previous_format = get_output_format()
+    capsys.readouterr()
+    try:
+        set_output_format(output_format)
+        with (
+            patch.object(chat_module, "reply", return_value=mock_response),
+            patch.object(chat_module, "execute_msg", fake_execute_msg),
         ):
-            persister.append(msg)
+            for msg in chat_module.step(
+                manager.log,
+                stream=False,
+                on_before_tool_execution=persister.before_tools,
+                logdir=manager.logdir,
+            ):
+                persister.append(msg)
+    finally:
+        set_output_format(previous_format)
+
+    output = capsys.readouterr().out
+    if output_format == "json":
+        events = [json.loads(line) for line in output.splitlines() if line]
+        assert len(events) == 1
+        assert events[0]["role"] == "assistant"
+        assert events[0]["metadata"]["timings"] == mock_meta["timings"]
 
     assert [m["role"] for m in seen_during_tool] == ["user", "assistant"]
     assert "sleep 300" in seen_during_tool[-1]["content"]
 
     on_disk = _read_jsonl(logfile)
     assert [m["role"] for m in on_disk] == ["user", "assistant", "system"]
-    timings = on_disk[1]["metadata"]["timings"]
-    assert timings["tool_ms"] == 1234.0
-    assert timings["tool_ms_by_name"] == {"shell": 1234.0}
+    assert logfile.read_bytes().startswith(saved_prefix[0])
+    assert on_disk[1] == seen_during_tool[1]
+    assert on_disk[1]["metadata"]["timings"] == {"gen_ms": 50.0, "ttft_ms": 10.0}
     assert [m.role for m in manager.log] == ["user", "assistant", "system"]
-    assert (manager.log[1].metadata or {})["timings"]["tool_ms"] == 1234.0
+    assert (manager.log[1].metadata or {})["timings"] == mock_meta["timings"]
+    recovered = eventlog.recover_messages(manager.logdir)
+    assert recovered == on_disk
 
 
 def test_step_persister_keeps_reply_when_tools_are_interrupted(monkeypatch, tmp_path):
@@ -399,8 +421,7 @@ def test_step_persister_without_tools_appends_once(monkeypatch, tmp_path):
 def test_step_persister_compaction_does_not_duplicate_history(
     monkeypatch, tmp_path, branch
 ):
-    """A view may summarize away the running reply, but the full history
-    must retain exactly one copy with the final timings."""
+    """Compaction must not reintroduce or mutate the saved reply in any history."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
     from gptme.logmanager import LogManager
 
@@ -423,33 +444,10 @@ def test_step_persister_compaction_does_not_duplicate_history(
     for history in (manager.full_log, manager._branches[branch]):
         replies = [m for m in history if m.role == "assistant"]
         assert len(replies) == 1
-        assert (replies[0].metadata or {})["timings"]["tool_ms"] == 5.0
+        assert replies[0].to_dict() == early.to_dict()
     manager.switch_to_master()
     assert sum(m.role == "assistant" for m in manager.log) == 1
     reloaded = LogManager.load("test-persister-compaction", branch=branch, lock=False)
-    assert sum(m.role == "assistant" for m in reloaded.full_log) == 1
-
-
-def test_replace_message_updates_view_and_branch(monkeypatch, tmp_path):
-    """replace_message() reaches every copy append() wrote, including the
-    branch history behind a compacted view."""
-    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
-
-    from gptme.logmanager import LogManager
-
-    manager = LogManager.load("test-replace-message", create=True, lock=False)
-    manager.append(Message("user", "hi", quiet=True))
-    manager.create_view("compacted", [Message("system", "summary", quiet=True)])
-    manager.switch_view("compacted")
-    manager.append(Message("assistant", "reply", quiet=True))
-    early = manager.log[-1]
-
-    timed = early.replace(metadata={"timings": {"tool_ms": 5.0}})
-    assert manager.replace_message(early, timed)
-    assert manager.log[-1] is timed
-    branch_msgs = manager._branches[manager.current_branch].messages
-    assert branch_msgs[-1] is timed
-    assert not manager.replace_message(early, timed)
-
-    reloaded = LogManager.load("test-replace-message", lock=False)
-    assert (reloaded.log[-1].metadata or {})["timings"]["tool_ms"] == 5.0
+    replies = [m for m in reloaded.full_log if m.role == "assistant"]
+    assert len(replies) == 1
+    assert replies[0].to_dict() == early.to_dict()

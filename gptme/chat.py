@@ -1541,8 +1541,10 @@ class StepPersister:
     step record entirely.
 
     Pass :meth:`before_tools` as ``step(on_before_tool_execution=...)`` and
-    :meth:`append` every message ``step()`` yields: the completed reply then
-    replaces the early copy (adding its tool timings) instead of appearing twice.
+    :meth:`append` every message ``step()`` yields. The reply is saved once,
+    with generation timings only; the completed copy is not appended or used
+    to rewrite history. Tool results are appended normally. Buffered consumers
+    of ``step()`` still receive the completed reply with tool timings.
     """
 
     def __init__(self, manager: LogManager) -> None:
@@ -1551,7 +1553,7 @@ class StepPersister:
 
     def before_tools(self, msg: Message) -> None:
         self.manager.append(msg)
-        self._early = self.manager.log[-1]
+        self._early = msg
 
     def append(self, msg: Message) -> None:
         early = self._early
@@ -1561,11 +1563,9 @@ class StepPersister:
             and msg.timestamp == early.timestamp
         ):
             self._early = None
-            # Patch surviving copies even if a tool compacted the early reply
-            # out of the active view. Re-appending would duplicate the call in
-            # the backing branch and lossless archive.
-            if self.manager.replace_message(early, msg):
-                return
+            # Already saved before execution. Do not rewrite it for timings,
+            # or reintroduce it if a tool compacted it out of the active view.
+            return
         self.manager.append(msg)
 
 
@@ -1662,10 +1662,10 @@ def step(
             # assistant message *before* it is yielded. The yielded message is
             # therefore only available once all tools in this step complete.
             # Callers whose log is observed live, or must survive an interrupt
-            # mid-tool, persist the reply from on_before_tool_execution and
-            # replace it with the timed copy afterwards (see StepPersister);
-            # the server path persists immediately and patches timings in via
-            # _attach_tool_timings().
+            # mid-tool, persist the reply once from on_before_tool_execution
+            # and skip the completed copy (see StepPersister). Only buffered
+            # consumers receive tool timings on the reply; adding persistent
+            # timing updates would need an explicit append-only event contract.
             # Notify caller before tool execution so UIs can update state
             # (e.g. clear stream preview, show "running tool" indicator)
             # before a potentially long-running tool blocks the thread.

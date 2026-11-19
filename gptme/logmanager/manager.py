@@ -739,51 +739,6 @@ class LogManager:
         if not msg.quiet:
             print_msg(msg, oneline=False)
 
-    def replace_message(self, old: Message, new: Message) -> bool:
-        """Replace a message previously added by :meth:`append` and rewrite the log.
-
-        ``old`` is matched by identity (the object found in ``self.log``, e.g.
-        ``manager.log[-1]`` right after the append), and replaced in every log
-        that :meth:`append` wrote it to: the current branch or view, the branch
-        behind a view, and the lossless recall archive. Meant for metadata that
-        is only known after a message has been persisted (such as tool timings),
-        so, like the server's tool-timing patch, it rewrites the transcript but
-        does not record a full-snapshot edit event.
-
-        A compacted view may have dropped ``old`` while the backing branch or
-        lossless archive still retains it. Patch those surviving copies without
-        adding it back to the view. Returns False if no current history has it.
-        """
-
-        def swapped(log: Log) -> Log | None:
-            for i in range(len(log.messages) - 1, -1, -1):
-                if log.messages[i] is old:
-                    messages = list(log.messages)
-                    messages[i] = new
-                    return log.replace(messages=messages)
-            return None
-
-        new = self._store_message_files(new)
-        changed = False
-        if current := swapped(self.log):
-            self.log = current
-            changed = True
-        if self.current_view and self.current_view in self._views:
-            if branch := swapped(self._branches[self.current_branch]):
-                self._branches[self.current_branch] = branch
-                changed = True
-        if self._lossless_log is not None and self.current_branch == "main":
-            if lossless := swapped(self._lossless_log):
-                self._lossless_log = lossless
-                changed = True
-        elif self.current_branch in self._branch_lossless_logs:
-            if lossless := swapped(self._branch_lossless_logs[self.current_branch]):
-                self._branch_lossless_logs[self.current_branch] = lossless
-                changed = True
-        if changed:
-            self.write()
-        return changed
-
     def _store_message_files(
         self, msg: Message, *, preserve_existing: bool = False
     ) -> Message:
