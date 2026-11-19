@@ -4,7 +4,25 @@ import { observable } from '@legendapp/state';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 export const leftSidebarVisible$ = observable(false);
-export const leftSidebarCollapsed$ = observable(false);
+const LEFT_COLLAPSED_KEY = 'gptme-conversations-collapsed';
+
+function readLeftCollapsed(): boolean {
+  try {
+    return localStorage.getItem(LEFT_COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+// Desktop preference is separate from the mobile sheet's transient visibility.
+export const leftSidebarCollapsed$ = observable(readLeftCollapsed());
+leftSidebarCollapsed$.onChange(({ value }) => {
+  try {
+    localStorage.setItem(LEFT_COLLAPSED_KEY, String(value));
+  } catch {
+    // Keep the layout usable when storage is unavailable.
+  }
+});
 export const rightSidebarVisible$ = observable(true);
 export const rightSidebarCollapsed$ = observable(false);
 export const rightSidebarActiveTab$ = observable<RightSidebarPanelId | null>(null);
