@@ -79,6 +79,8 @@ import {
 } from '@/components/ui/select';
 
 export interface ChatOptions {
+  /** Queue acknowledgement: a resolved generation call is not proof of persistence. */
+  onPersistenceOutcome?: (saved: boolean) => void;
   model?: string;
   /** Empty string restores server inheritance; omitted keeps the conversation setting. */
   reasoningEffort?: string;
@@ -662,6 +664,7 @@ const QueuedMessageBadge: FC<{
         onClick={() => {
           setText(editDraft ?? message);
           setEditing(true);
+          onDraftChange(editDraft ?? message);
           onEditingChange(true);
         }}
       >
@@ -1101,22 +1104,47 @@ export const ChatInput: FC<Props> = ({
     if (wasBusy.current && !isBusy && !editingQueuedMessage && messageQueue.length > 0) {
       if (!onSend || queueSendInFlight.current) return;
       const nextMessage = messageQueue[0];
-      if (nextMessage.uploadFailed || nextMessage.editDraft !== undefined) return;
+      if (nextMessage.uploadFailed || nextMessage.editDraft !== undefined || nextMessage.sending)
+        return;
       console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
       // Retain the item durably until the send resolves. On reload, an
       // interrupted send requires an explicit retry (never an automatic duplicate).
+      if (
+        !setMessageQueue((prev) => [
+          { ...nextMessage, uploadFailed: true, sending: true },
+          ...prev.slice(1),
+        ])
+      ) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not save queued message',
+          description:
+            'Browser storage is full. Your queued prompt is retained; free storage before retrying.',
+        });
+        return;
+      }
       queueSendInFlight.current = true;
-      setMessageQueue((prev) => [
-        { ...nextMessage, uploadFailed: true, sending: true },
-        ...prev.slice(1),
-      ]);
       const owner = conversationEpoch.current;
       const send = async () => {
         try {
-          await onSend(nextMessage.text, nextMessage.options);
-          setMessageQueue((prev) => prev.filter((item) => item.id !== nextMessage.id));
+          let persisted: boolean | undefined;
+          await onSend(nextMessage.text, {
+            ...nextMessage.options,
+            onPersistenceOutcome: (saved) => {
+              persisted = saved;
+            },
+          });
+          if (persisted === false) {
+            setMessageQueue((prev) =>
+              prev.map((item) =>
+                item.id === nextMessage.id ? { ...item, sending: false, uploadFailed: true } : item
+              )
+            );
+          } else {
+            setMessageQueue((prev) => prev.filter((item) => item.id !== nextMessage.id));
+          }
         } catch (error: unknown) {
           // The scoped setter restores failed work to its original draft even
           // when the user switched away while the request was pending.
@@ -1230,7 +1258,7 @@ export const ChatInput: FC<Props> = ({
         });
         // Capture options at queue time to preserve user's intent
         try {
-          setMessageQueue((prev) => [
+          const saved = setMessageQueue((prev) => [
             ...prev,
             {
               text: message,
@@ -1247,6 +1275,7 @@ export const ChatInput: FC<Props> = ({
               },
             },
           ]);
+          if (!saved) throw new Error('Queue storage unavailable');
         } catch {
           toast({
             variant: 'destructive',
@@ -1504,7 +1533,7 @@ export const ChatInput: FC<Props> = ({
                 editDraft={msg.editDraft}
                 onDraftChange={(editDraft) =>
                   setMessageQueue((prev) =>
-                    prev.map((item, i) => (i === index ? { ...item, editDraft } : item))
+                    prev.map((item) => (item.id === msg.id ? { ...item, editDraft } : item))
                   )
                 }
                 onRestore={
@@ -1519,6 +1548,14 @@ export const ChatInput: FC<Props> = ({
                           return;
                         }
                         setMessage(msg.editDraft ?? msg.text);
+                        setHasExplicitModelSelection(!!msg.options.model);
+                        if (msg.options.model) setSelectedModel(msg.options.model);
+                        setStreamingEnabled(msg.options.stream ?? true);
+                        setMaxTokens(msg.options.maxTokens);
+                        setTemperature(msg.options.temperature);
+                        setTopP(msg.options.topP);
+                        if (msg.options.workspace) setSelectedWorkspace(msg.options.workspace);
+                        setAttachedFiles(createAttachedFiles(msg.options.files));
                         setMessageQueue((prev) => prev.filter((_, i) => i !== index));
                         textareaRef.current?.focus();
                       }
@@ -1532,7 +1569,7 @@ export const ChatInput: FC<Props> = ({
                 }}
                 onEdit={(text) =>
                   setMessageQueue((prev) =>
-                    prev.map((item, i) => (i === index ? { ...item, text } : item))
+                    prev.map((item) => (item.id === msg.id ? { ...item, text } : item))
                   )
                 }
                 onClear={() => {

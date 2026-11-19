@@ -839,6 +839,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           console.warn('[useConversation] Failed to reconcile retried message order:', error);
         }
       }
+      options?.onPersistenceOutcome?.(true);
       setRetryState('saved');
       setMessageStatus(conversationId, userMessage.timestamp!, 'sent', '');
       // Keep settings even when the step fails or waits for server-idle.
@@ -902,6 +903,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         }
       }
     } catch (error) {
+      options?.onPersistenceOutcome?.(messageSent);
       console.error('Error sending message:', error);
       // 409 before the message was persisted: remove the optimistic copy and
       // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.

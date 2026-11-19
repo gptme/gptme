@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef, type SetStateAction } from 'react';
+import { useCallback, useSyncExternalStore, type SetStateAction } from 'react';
 import type { ChatOptions } from '@/components/ChatInput';
 
 export interface QueuedMessage {
@@ -10,6 +10,12 @@ export interface QueuedMessage {
   uploadFailed?: boolean;
   missingFiles?: string[];
 }
+
+const queues = new Map<string, QueuedMessage[]>();
+const listeners = new Set<() => void>();
+const empty: QueuedMessage[] = [];
+const newId = () =>
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function readQueue(key: string): QueuedMessage[] {
   try {
@@ -25,7 +31,7 @@ function readQueue(key: string): QueuedMessage[] {
       )
       .map((item) => ({
         ...item,
-        id: item.id || crypto.randomUUID(),
+        id: item.id || newId(),
         sending: false,
         uploadFailed: true,
       }));
@@ -36,20 +42,35 @@ function readQueue(key: string): QueuedMessage[] {
 
 /** Persist before releasing the composer; keep File objects in memory only. */
 export function useMessageQueue(key: string | null) {
-  const queues = useRef<Record<string, QueuedMessage[]>>({});
-  const [, refresh] = useReducer((n: number) => n + 1, 0);
-  if (key && !queues.current[key]) queues.current[key] = readQueue(key);
+  const snapshot = useCallback(() => {
+    if (!key) return empty;
+    if (!queues.has(key)) queues.set(key, readQueue(key));
+    return queues.get(key)!;
+  }, [key]);
+  const subscribe = useCallback((listener: () => void) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) queues.clear();
+    };
+  }, []);
+  const items = useSyncExternalStore(subscribe, snapshot, snapshot);
 
   const setQueue = useCallback(
     (update: SetStateAction<QueuedMessage[]>) => {
-      if (!key) return;
-      const previous = queues.current[key] ?? [];
+      if (!key) return false;
+      const previous = queues.get(key) ?? [];
       const next = (typeof update === 'function' ? update(previous) : update).map((item) => ({
         ...item,
-        id: item.id || crypto.randomUUID(),
+        id: item.id || newId(),
       }));
       const serializable = next.map(({ options, ...item }) => {
-        const { pendingFiles, onFilesUploaded: _callback, ...savedOptions } = options;
+        const {
+          pendingFiles,
+          onFilesUploaded: _callback,
+          onPersistenceOutcome: _outcome,
+          ...savedOptions
+        } = options;
         const missingFiles = pendingFiles?.length
           ? pendingFiles.map((file) => file.name)
           : item.missingFiles;
@@ -59,15 +80,18 @@ export function useMessageQueue(key: string | null) {
           ...(missingFiles?.length ? { missingFiles, uploadFailed: true } : {}),
         };
       });
-      // Storage errors propagate to the caller: do not clear a draft that we
-      // couldn't durably enqueue. Keep the previous in-memory queue on failure.
-      if (serializable.length) localStorage.setItem(`${key}:queue`, JSON.stringify(serializable));
-      else localStorage.removeItem(`${key}:queue`);
-      queues.current[key] = next;
-      refresh();
+      try {
+        if (serializable.length) localStorage.setItem(`${key}:queue`, JSON.stringify(serializable));
+        else localStorage.removeItem(`${key}:queue`);
+      } catch {
+        return false;
+      }
+      queues.set(key, next);
+      listeners.forEach((listener) => listener());
+      return true;
     },
     [key]
   );
 
-  return [key ? queues.current[key] : [], setQueue] as const;
+  return [items, setQueue] as const;
 }

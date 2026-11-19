@@ -37,11 +37,19 @@ describe('durable message queue', () => {
     const write = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('full', 'QuotaExceededError');
     });
-    expect(() =>
-      act(() => state.result.current[1]([{ text: 'draft survives', options: {} }]))
-    ).toThrow('full');
+    expect(state.result.current[1]([{ text: 'draft survives', options: {} }])).toBe(false);
     expect(state.result.current[0]).toEqual([]);
     write.mockRestore();
+  });
+
+  it('shares updates between split-pane composers', () => {
+    const first = renderHook(() => useMessageQueue('split'));
+    const second = renderHook(() => useMessageQueue('split'));
+    act(() => first.result.current[1]((prev) => [...prev, { text: 'first', options: {} }]));
+    act(() => second.result.current[1]((prev) => [...prev, { text: 'second', options: {} }]));
+    expect(first.result.current[0].map((item) => item.text)).toEqual(['first', 'second']);
+    expect(second.result.current[0]).toEqual(first.result.current[0]);
+    expect(JSON.parse(localStorage.getItem('split:queue')!)).toHaveLength(2);
   });
 
   it('keeps async callbacks scoped to their original owner', () => {

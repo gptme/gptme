@@ -272,6 +272,20 @@ describe('ChatInput', () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('replacement', expect.any(Object)));
   });
 
+  it('retains a queued prompt when production send resolves with a rejected persistence outcome', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome(false);
+    });
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'rejected prompt' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Queued: rejected prompt')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry send' })).toBeInTheDocument();
+  });
+
   it('labels the composer and disables empty sends', async () => {
     const autoFocus$ = observable(false);
     const onSend = jest.fn();
