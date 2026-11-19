@@ -373,3 +373,33 @@ def test_concurrent_api_workers_keep_effort_isolated(client, monkeypatch):
         )
         assert reply.metadata and reply.metadata["reasoning_effort"] == level
     assert calls == {"low": "low", "high": "high"}
+
+
+def test_invalid_branch_does_not_save_effort(client):
+    cid = "effort-invalid-branch"
+    response = client.put(
+        f"/api/v2/conversations/{cid}",
+        json={
+            "prompt": "test",
+            "config": {
+                "chat": {"model": "openai/o3", "reasoning_effort": "low"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    response = client.post(
+        f"/api/v2/conversations/{cid}/step",
+        json={
+            "session_id": sid,
+            "branch": "../bad",
+            "reasoning_effort": "high",
+        },
+    )
+    assert response.status_code == 400
+    assert (
+        client.get(f"/api/v2/conversations/{cid}/config").get_json()["chat"][
+            "reasoning_effort"
+        ]
+        == "low"
+    )

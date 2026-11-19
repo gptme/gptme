@@ -466,6 +466,10 @@ def api_conversation_step(conversation_id: str):
             400,
         )
 
+    branch = req_json.get("branch", "main")
+    if error := _validate_branch(branch):
+        return error
+
     # Reserve generation and capture config in the same critical section as
     # config PATCH. A PATCH completed before this acquisition must affect the
     # worker; one arriving afterward sees generating=True and returns 409.
@@ -545,10 +549,6 @@ def api_conversation_step(conversation_id: str):
     # permanently stuck in "generating" state.
     _step_dispatched = False
     try:
-        # Get the branch and model
-        branch = req_json.get("branch", "main")
-        if error := _validate_branch(branch):
-            return error
         default_model = get_default_model()
 
         # Explicit model/effort changes were saved together under the reservation lock.

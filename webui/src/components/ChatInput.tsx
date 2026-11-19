@@ -734,14 +734,17 @@ export const ChatInput: FC<Props> = ({
     storageKey ? `${storageKey}-effort` : null,
     JSON.stringify([serverId ?? null, conversationId ?? null])
   );
-  const effortLevels =
-    modelInfos.find((m) => m.id === effectiveModel)?.reasoning_effort_levels || [];
+  const modelEffortLevels = modelInfos.find(
+    (m) => m.id === effectiveModel
+  )?.reasoning_effort_levels;
+  const effortLevels = modelEffortLevels || [];
   const requestedEffort = effortDraft
     ? effortDraft === 'default'
       ? ''
       : effortDraft
     : chatConfig?.chat.reasoning_effort || '';
-  const effortIncompatible = !!requestedEffort && !effortLevels.includes(requestedEffort);
+  const effortIncompatible =
+    modelEffortLevels !== undefined && !!requestedEffort && !effortLevels.includes(requestedEffort);
   const reasoningEffort = effortIncompatible ? '' : requestedEffort;
 
   // Update selectedModel when conversation config changes, but only if no explicit selection
@@ -1556,6 +1559,9 @@ export const ChatInput: FC<Props> = ({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="default">Default</SelectItem>
+                          {modelEffortLevels === undefined && requestedEffort && (
+                            <SelectItem value={requestedEffort}>{requestedEffort}</SelectItem>
+                          )}
                           {effortLevels.map((level) => (
                             <SelectItem key={level} value={level}>
                               {level}
