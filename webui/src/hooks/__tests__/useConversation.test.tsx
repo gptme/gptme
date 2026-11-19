@@ -1362,6 +1362,78 @@ describe('useConversation', () => {
     expect(log.find((m) => m.content === 'After skip')?._status).toBe('failed');
   });
 
+  it('keeps the queue busy while Skip reserves its continuation', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false));
+    let finish!: () => void;
+    (primaryClient.confirmTool as jest.Mock).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    // Same busy predicate as ChatInput: clearing pendingTool must not flush its queue.
+    expect(conv$.pendingTool.get()).toBeNull();
+    expect(
+      conv$.isGenerating.get() || !!conv$.executingTool.get() || !!conv$.pendingTool.get()
+    ).toBe(true);
+    act(() => eventHandlers!.onStepComplete!());
+    expect(conv$.isGenerating.get()).toBe(false);
+    await act(async () => {
+      finish();
+      await skipping;
+    });
+    expect(conv$.isGenerating.get()).toBe(false);
+  });
+
+  it('releases the Skip reservation when confirmation fails', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false));
+    (primaryClient.confirmTool as jest.Mock).mockRejectedValueOnce(new ApiClientError('Busy', 409));
+    await act(async () => {
+      await expect(result.current.confirmTool('skip')).rejects.toThrow('Busy');
+    });
+    expect(conv$.isGenerating.get()).toBe(false);
+  });
+
+  it('releases failed rerun ownership before the next early refusal', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const prompt = conv$.data.log.get()[0];
+    conv$.data.log.set([
+      prompt,
+      { role: 'assistant', content: 'Old answer', timestamp: 'old-answer' },
+    ]);
+    rerunTools.mockRejectedValueOnce(new Error('No tool uses found'));
+    step.mockRejectedValueOnce(new ApiClientError('Step failed', 500));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    await act(async () => {
+      await result.current.rerunFromMessage(1);
+    });
+    expect(conv$.generationPrompt.get()).toBeUndefined();
+    step.mockImplementationOnce(async () => {
+      eventHandlers!.onError!('Error code: 402 - Payment required');
+    });
+    await act(async () => {
+      await result.current.sendMessage({ message: 'After failed rerun' });
+    });
+    expect(conv$.data.log.get()[0]._status).not.toBe('failed');
+    expect(conv$.data.log.get().at(-1)).toMatchObject({
+      content: 'After failed rerun',
+      _status: 'failed',
+    });
+  });
+
   it('keeps Retry when initial HTTP refusal precedes its SSE diagnostic', async () => {
     const log$ = conversations$.get('chat-placeholder')!.data.log;
     log$[0]._retry.set({ persistence: 'saved', options: { stream: false } });
@@ -1426,7 +1498,10 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')!.data.log.get().at(-1)).toMatchObject({
       content: 'Early refusal',
       _status: 'failed',
-      _retry: { continuation: [] },
+      _retry: {
+        continuation: [],
+        diagnostics: ['Error: Error code: 402 - Payment required'],
+      },
     });
   });
 

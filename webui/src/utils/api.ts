@@ -196,9 +196,12 @@ export function getApiErrorPresentation(
   // explicit payment/authentication status or inspecting fallback prose.
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   if (title !== 'Payment required' && title !== 'Authentication failed') {
-    if (/\b402\b/.test(message) || /payment required/i.test(message)) {
+    // Require an HTTP/provider status label, not a port or subprocess exit code.
+    // Plain reason phrases are accepted only at the start of the error text.
+    const status = message.match(/\b(?:error code|http(?: status)?)\s*:?\s*(401|402)\b/i)?.[1];
+    if (status === '402' || /^(?:error:\s*)?payment required\b/i.test(message.trim())) {
       title = 'Payment required';
-    } else if (/\b401\b/.test(message) || /unauthori[sz]ed/i.test(message)) {
+    } else if (status === '401' || /^(?:error:\s*)?unauthori[sz]ed\b/i.test(message.trim())) {
       title = 'Authentication failed';
     }
   }

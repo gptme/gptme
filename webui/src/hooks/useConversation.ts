@@ -114,7 +114,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           if (retry && log$) {
             log$[index]._retry.set({
               ...retry,
-              diagnostics: [...(retry.diagnostics ?? []), `Error: ${description}`],
+              diagnostics: [...new Set([...(retry.diagnostics ?? []), `Error: ${description}`])],
               continuation: log$
                 .peek()
                 .slice(index + 1)
@@ -661,8 +661,10 @@ export function useConversation(conversationId: string, serverId?: string) {
                             .slice(index + 1)
                             .map(({ role, content, timestamp }) => ({ role, content, timestamp })),
                       diagnostics: [
-                        ...(userMessage._retry.diagnostics ?? []),
-                        `Error: ${description}`,
+                        ...new Set([
+                          ...(userMessage._retry.diagnostics ?? []),
+                          `Error: ${description}`,
+                        ]),
                       ],
                     });
                   }
@@ -1109,9 +1111,13 @@ export function useConversation(conversationId: string, serverId?: string) {
       return;
     }
 
-    // Skip has no tool_executing event. Release the pending marker before the
-    // request: the resumed model call can complete before its HTTP response.
-    if (action === 'skip') setPendingTool(conversationId, null, null);
+    // Skip has no tool_executing event. Reserve the continuation before clearing
+    // pendingTool so ChatInput cannot flush its queue in the HTTP/SSE gap.
+    // Completion/error events release isGenerating, even before HTTP returns.
+    if (action === 'skip') {
+      setGenerating(conversationId, true);
+      setPendingTool(conversationId, null, null);
+    }
     const confirmedToolId = pendingTool.id;
     const confirmOnce = async (): Promise<void> => {
       try {
@@ -1132,9 +1138,12 @@ export function useConversation(conversationId: string, serverId?: string) {
       } catch (error) {
         console.error('Error confirming tool:', error);
 
-        // Clear pending tool state on final failure, but only for actions that won't execute
-        if (action === 'skip' && conversation$?.pendingTool.get()?.id === confirmedToolId) {
-          setPendingTool(conversationId, null, null);
+        // A rejected Skip never started its continuation; release its reservation.
+        if (action === 'skip') {
+          setGenerating(conversationId, false);
+          if (conversation$?.pendingTool.get()?.id === confirmedToolId) {
+            setPendingTool(conversationId, null, null);
+          }
         }
 
         const { title, description } = getApiErrorPresentation(error, {
@@ -1352,8 +1361,11 @@ export function useConversation(conversationId: string, serverId?: string) {
         // This parses tool uses and sets them as pending, without calling the LLM.
         // Auto-confirm tools can start executing on the server before this
         // request returns, so a Stop that lands in-flight may interrupt nothing.
+        const previousOwner = conv$.generationPrompt.peek();
+        const revision = conv$.generationRevision.peek();
+        const rerunOwner = prepareHistoryGeneration();
         try {
-          conversation$?.generationPrompt.set(prepareHistoryGeneration());
+          conv$.generationPrompt.set(rerunOwner);
           await api.rerunTools(conversationId);
           if (generationIsStale(epoch)) {
             setGenerating(conversationId, false);
@@ -1365,6 +1377,14 @@ export function useConversation(conversationId: string, serverId?: string) {
             return;
           }
         } catch {
+          // Undo the speculative rerun owner before stepForPrompt captures its
+          // rollback state. Never restore an owner released by a terminal event.
+          if (
+            conv$.generationRevision.peek() === revision &&
+            conv$.generationPrompt.peek() === rerunOwner
+          ) {
+            conv$.generationPrompt.set(previousOwner);
+          }
           // No tools found — fall back to step() (regenerate)
           if (generationIsStale(epoch)) return;
           await stepFromHistory();

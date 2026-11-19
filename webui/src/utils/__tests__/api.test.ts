@@ -1465,6 +1465,26 @@ describe('getApiErrorPresentation', () => {
     }
   });
 
+  it.each([
+    'Error: subprocess exited with code 402',
+    'Error: port 401 in use',
+    'Tool output: unauthorized file access',
+    'The log mentioned payment required yesterday',
+  ])('does not classify unrelated diagnostic text as a refusal: %s', (message) => {
+    for (const error of [message, new Error(message), new ApiClientError(message, 500)]) {
+      expect(getApiErrorPresentation(error)).toEqual({ title: 'Error', description: message });
+    }
+  });
+
+  it.each([
+    ['Error: Payment required', 'Payment required'],
+    ['Unauthorized', 'Authentication failed'],
+    ['HTTP 402: credit balance exhausted', 'Payment required'],
+    ['HTTP status 401 - invalid token', 'Authentication failed'],
+  ])('recognizes explicit refusal text: %s', (message, title) => {
+    expect(getApiErrorPresentation(message)).toEqual({ title, description: message });
+  });
+
   it('keeps an explicit auth status ahead of provider-like message text', () => {
     expect(getApiErrorPresentation(new ApiClientError('Unauthorized request 402', 401))).toEqual({
       title: 'Authentication failed',
