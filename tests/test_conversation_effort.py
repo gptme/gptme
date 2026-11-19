@@ -405,15 +405,16 @@ def test_invalid_branch_does_not_save_effort(client):
     )
 
 
-def test_subscription_default_inherits_environment(monkeypatch):
+@pytest.mark.parametrize("inherited", ["high", "HIGH", " high "])
+def test_subscription_default_inherits_environment(monkeypatch, inherited):
     from gptme.llm.llm_openai_subscription import _codex_model_and_effort
 
-    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", inherited)
     set_config(Config(chat=ChatConfig(reasoning_effort="")))
     assert _codex_model_and_effort("gpt-6.1-sol") == ("gpt-6.1-sol", "high")
     monkeypatch.delenv("GPTME_THINKING_EFFORT")
-    set_config(Config(chat=ChatConfig(env={"THINKING_EFFORT": "low"})))
-    assert _codex_model_and_effort("gpt-6.1-sol") == ("gpt-6.1-sol", "low")
+    set_config(Config(chat=ChatConfig(env={"THINKING_EFFORT": inherited})))
+    assert _codex_model_and_effort("gpt-6.1-sol") == ("gpt-6.1-sol", "high")
 
 
 def test_effort_is_documented_in_config_schema():

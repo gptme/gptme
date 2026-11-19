@@ -522,7 +522,7 @@ def _codex_model_and_effort(
 
     config = get_config()
     reasoning_level = config.get_env("THINKING_EFFORT") or reasoning_level or "medium"
-    return base_model, reasoning_level
+    return base_model, reasoning_level.strip().lower()
 
 
 CODEX_INSTRUCTIONS_TRUNCATION_MARKER = (
