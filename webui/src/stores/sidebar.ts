@@ -69,7 +69,7 @@ export const toggleLeftSidebarCollapsed = () => {
       leftPanelRef.collapse();
     } else {
       // Expanding: set to normal size
-      leftPanelRef.resize(20);
+      leftPanelRef.expand();
     }
   }
 };

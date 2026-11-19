@@ -744,9 +744,9 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
           ref={leftPanelRef}
           // PanelGroup recalculates defaults when the right panel mounts/unmounts.
           // Preserve the user's collapsed preference through that recalculation.
-          defaultSize={leftCollapsed ? 0 : 20}
-          minSize={15}
-          maxSize={30}
+          defaultSize={leftCollapsed ? 0 : 25}
+          minSize={22.5}
+          maxSize={40}
           collapsible
           collapsedSize={0}
           onCollapse={() => {
