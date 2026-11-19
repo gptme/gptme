@@ -9,6 +9,8 @@ for (const theme of ['light', 'dark'] as const) {
     const search = page.getByRole('button', { name: 'Search conversations', exact: true });
     const input = list.getByRole('textbox', { name: 'Search conversations' });
     await expect(input).not.toBeVisible();
+    const initialCount = await list.getByTestId('conversation-title').count();
+    expect(initialCount).toBeGreaterThan(1);
     await search.focus();
     await expect(page.getByRole('tooltip')).toContainText('Cmd+K / Ctrl+K');
     await page.keyboard.press('Enter');
@@ -26,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape');
     await expect(input).not.toBeVisible();
     await expect(search).toBeFocused();
-    await expect(list.getByTestId('conversation-title')).not.toHaveCount(1);
+    await expect(list.getByTestId('conversation-title')).toHaveCount(initialCount);
     await page.keyboard.press('Control+k');
     const palette = page.getByPlaceholder('Type a command or search conversations...');
     await expect(palette).toBeFocused();
