@@ -26,6 +26,7 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    current_workspace,
 )
 
 logger = logging.getLogger(__name__)
@@ -204,6 +205,10 @@ def flock(lock):
 # as can happen in tests, causing flakiness
 @flock(_new_session_lock)
 def new_session(command: str) -> Message:
+    # Match the directory used by the new-session guardrail, independently of
+    # the process cwd or an already-running tmux server's default directory.
+    # tmux expands -c as a format; double literal hashes before parsing argv.
+    directory = _escape_tmux_semicolon(str(current_workspace()).replace("#", "##"))
     # Retry loop to handle race conditions where session already exists
     max_retries = 5
     session_id = ""
@@ -218,7 +223,16 @@ def new_session(command: str) -> Message:
         # Add attempt offset to avoid collision on retry
         session_id = f"gptme_{_max_session_id + 1 + attempt}"
         try:
-            cmd = ["tmux", "new-session", "-d", "-s", session_id, "bash"]
+            cmd = [
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session_id,
+                "-c",
+                directory,
+                "bash",
+            ]
             _run_tmux_command(cmd)
             break  # Success, exit retry loop
         except subprocess.TimeoutExpired:

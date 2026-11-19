@@ -383,11 +383,13 @@ def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
     for verb, arguments in get_tmux_operations(tool_use) or []:
         directory: Path | None
         if verb == "new-session":
-            # new_session starts bash from the tmux client's process cwd,
-            # not the hook's conversation workspace.
+            # new_session passes this workspace explicitly via tmux's -c option;
+            # the server process cwd may belong to a different conversation.
+            from ..tools.base import current_workspace  # tools import hooks
+
             text = arguments
             try:
-                directory = Path.cwd()
+                directory = current_workspace()
             except OSError:
                 directory = None
         elif verb == "send-keys":
