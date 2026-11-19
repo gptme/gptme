@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { use$ } from '@legendapp/state/react';
 import { Bot, ExternalLink, Plus, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { extractAgentsFromConversations } from '@/utils/workspaceUtils';
@@ -18,6 +19,7 @@ interface AgentsViewProps {
 
 export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
   const { api, connectionConfig } = useApi();
+  const creationServerId = use$(serverRegistry$.activeServerId) ?? undefined;
   const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
 
   const agents = useMemo(() => extractAgentsFromConversations(conversations), [conversations]);
@@ -141,6 +143,7 @@ export const AgentsView: FC<AgentsViewProps> = ({ conversations }) => {
 
       {!demoMode && (
         <CreateAgentDialog
+          serverId={creationServerId}
           open={showCreateDialog}
           onOpenChange={setShowCreateDialog}
           onAgentCreated={handleAgentCreated}

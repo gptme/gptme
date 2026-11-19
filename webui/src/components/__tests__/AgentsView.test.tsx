@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { AgentsView } from '../AgentsView';
 import type { ConversationSummary } from '@/types/conversation';
+import { serverRegistry$ } from '@/stores/servers';
 
 const mockIsDemoMode = jest.fn(() => false);
 const mockExtractAgents = jest.fn();
@@ -20,7 +21,9 @@ jest.mock('@/contexts/ApiContext', () => ({
 
 jest.mock('../CreateAgentDialog', () => ({
   __esModule: true,
-  default: () => <div data-testid="create-agent-dialog" />,
+  default: ({ serverId }: { serverId?: string }) => (
+    <div data-testid="create-agent-dialog" data-server-id={serverId} />
+  ),
 }));
 
 jest.mock('@/utils/workspaceUtils', () => {
@@ -49,6 +52,20 @@ describe('AgentsView', () => {
     renderAgentsView();
 
     expect(screen.getAllByRole('button', { name: 'Create Agent' })).toHaveLength(2);
+  });
+
+  it('passes the active server to agent creation', () => {
+    const previousId = serverRegistry$.activeServerId.get();
+    serverRegistry$.activeServerId.set('creation-server');
+    try {
+      renderAgentsView();
+      expect(screen.getByTestId('create-agent-dialog')).toHaveAttribute(
+        'data-server-id',
+        'creation-server'
+      );
+    } finally {
+      act(() => serverRegistry$.activeServerId.set(previousId));
+    }
   });
 
   it('does not offer an unsupported create action in offline demo mode', () => {

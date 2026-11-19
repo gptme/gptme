@@ -47,12 +47,13 @@ export interface CreateAgentResponse {
 }
 
 interface Props {
+  serverId: string | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAgentCreated: (agent: CreateAgentRequest) => Promise<CreateAgentResponse>;
 }
 
-const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) => {
+const CreateAgentDialog: FC<Props> = ({ serverId, open, onOpenChange, onAgentCreated }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const navigate = useNavigate();
@@ -98,6 +99,7 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
       selectedAgent$.set({
         name: data.name,
         path: response.agent_path,
+        serverId,
         description: `Agent: ${data.name}`,
         hasAvatar: false,
         conversationCount: 0,
@@ -106,7 +108,9 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
 
       // Navigate and force a refresh if needed
       const conversationId = response.initial_conversation_id;
-      navigate(chatRoute(conversationId));
+      const params = new URLSearchParams();
+      if (serverId) params.set('server', serverId);
+      navigate(chatRoute(conversationId, params.toString()));
     } catch (error) {
       console.error('Error creating agent:', error);
 
