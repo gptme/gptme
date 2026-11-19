@@ -227,6 +227,51 @@ describe('ChatInput', () => {
     }
   );
 
+  it('persists queued text through remount and supports non-destructive edit/cancel', () => {
+    const onSend = jest.fn();
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'long original prompt' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    first.unmount();
+    render(<ChatInput {...props} />);
+    expect(screen.getByText('Queued: long original prompt')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'changed prompt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel editing' }));
+    expect(screen.getByText('Queued: long original prompt')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'saved prompt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    expect(screen.getByText('Queued: saved prompt')).toBeInTheDocument();
+    expect(onSend).not.toHaveBeenCalled();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear queued message' }));
+    expect(screen.getByText('Queued: saved prompt')).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it('does not flush a queued message while its edit is open', async () => {
+    const onSend = jest.fn().mockResolvedValue(undefined);
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'original' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'replacement' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('replacement', expect.any(Object)));
+  });
+
   it('labels the composer and disables empty sends', async () => {
     const autoFocus$ = observable(false);
     const onSend = jest.fn();
