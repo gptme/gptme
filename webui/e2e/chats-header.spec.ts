@@ -53,6 +53,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape');
     await newChat.blur();
     await page.mouse.move(900, 600);
+    // Let dismissed tooltip exit animations finish before testing a fresh hover.
+    await expect(page.getByRole('tooltip', { includeHidden: true })).toHaveCount(0);
     await search.hover();
     await expect(page.getByRole('tooltip', { name: /command palette/ })).toBeVisible();
     await page.screenshot({ path: `test-results/chats-header-${theme}-compact.png` });
