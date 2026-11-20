@@ -479,6 +479,9 @@ def _bound_browser_result(result: str, command_info: str) -> str:
 
     The full text is saved under the conversation's ``tool-outputs/`` when a
     conversation directory is active, and the omission marker names the file.
+
+    ``limit`` counts retained source characters, not total length: the marker
+    (and saved path) are appended on top so recovery stays possible at any limit.
     """
     limit = _browser_max_output_chars()
     if len(result) <= limit:

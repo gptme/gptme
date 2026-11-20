@@ -47,6 +47,13 @@ screenshots, and PDF-to-image paths are unchanged. This is a presentation
 bound plus post-materialization spill, not a streaming spool; Playwright
 still materializes the page first.
 
+The limit counts retained source characters (`limit // 2` head plus the rest as
+tail), not total response length: the omission marker and saved-file path are
+appended on top, so the returned text exceeds the limit by the marker length.
+This is deliberate. A total-length cap would subtract the marker from the
+content budget, and at a small configured limit the marker would crowd out the
+content and the recovery path. The MCP bound below uses the same rule.
+
 **Request:** [gptme/gptme#4663](https://github.com/gptme/gptme/issues/4663).
 
 **Source inventory:** `15f20e44c96acdd035da81213b9e9f5bb54ac98d` (2026-10-30).
