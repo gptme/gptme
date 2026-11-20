@@ -559,7 +559,6 @@ class BackgroundJob:
             # Transformed to an empty representation (e.g. only ANSI escapes).
             raw.accepted += write_raw
             return
-        persist_attr = "_spool_persist_stdout" if is_stdout else "_spool_persist_stderr"
         chars_attr = (
             "_stdout_spool_original_chars"
             if is_stdout
@@ -567,7 +566,9 @@ class BackgroundJob:
         )
         sanitized_bytes = sanitized.encode("utf-8", "surrogateescape")
         content_bytes = self._commit_spool_bytes(is_stdout, sanitized_bytes)
-        if getattr(self, persist_attr):
+        # Decide from the return value: the writer thread can clear the persist
+        # flag (write error) right after a full enqueue, which is not a cut.
+        if content_bytes == len(sanitized_bytes):
             # Full commit: all of to_write was accepted.
             setattr(self, chars_attr, getattr(self, chars_attr) + len(to_write))
             raw.accepted += write_raw

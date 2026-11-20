@@ -707,6 +707,29 @@ def test_raw_counts_attribute_sanitation_window_drop(tmp_path) -> None:
         stream.close()
 
 
+def test_raw_full_enqueue_stays_accepted_when_writer_fails_concurrently(
+    tmp_path, monkeypatch
+) -> None:
+    """A writer-thread failure after a full enqueue is not a quota cut."""
+    job = BackgroundJob(1, "synthetic", Mock(), 0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "race.live")
+    job._stdout_spool = stream
+
+    def enqueue_then_writer_fails(is_stdout: bool, data: bytes) -> int:
+        job._spool_persist_stdout = False  # as _spool_writer_loop does on OSError
+        return len(data)
+
+    monkeypatch.setattr(job, "_commit_spool_bytes", enqueue_then_writer_fails)
+    try:
+        # ANSI removal shrinks the representation below the raw size.
+        chunk = b"\x1b[31mred text\x1b[0m\n"
+        job._append_output(1, 1, chunk)
+        assert job._stdout_raw.accepted == len(chunk)
+        assert job._stdout_raw.discarded == 0
+    finally:
+        stream.close()
+
+
 def test_raw_pending_holds_unfinished_line_until_eof(tmp_path) -> None:
     job = BackgroundJob(1, "synthetic", Mock(), 0)
     stream = open_private_output_file(tmp_path, "shell-jobs", "pending.live")
