@@ -698,7 +698,16 @@ it.each([false, true])(
       await result.current.retryMessage(failed);
     });
     expect(mockClient.step).toHaveBeenCalledTimes(1);
-    expect(mockClient.step).toHaveBeenCalledWith(id, options.model, false, 'main', 64, 0.4, 0.8);
+    expect(mockClient.step).toHaveBeenCalledWith(
+      id,
+      options.model,
+      false,
+      'main',
+      64,
+      0.4,
+      0.8,
+      undefined
+    );
     expect(post).toHaveBeenCalledTimes(withFiles ? 1 : 0);
     expect(upload).toHaveBeenCalledTimes(withFiles ? 1 : 0);
     expect(conversations$.get(id)!.data.log.get()).toHaveLength(1);

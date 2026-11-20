@@ -617,6 +617,7 @@ describe('useConversation', () => {
       'main',
       undefined,
       undefined,
+      undefined,
       undefined
     );
     expect(conversations$.get('chat-placeholder')?.needsInitialStep.get()).toBe(false);
@@ -707,7 +708,16 @@ describe('useConversation', () => {
       await Promise.resolve();
     });
 
-    expect(step).toHaveBeenCalledWith('chat-placeholder', undefined, false, 'main', 64, 0.2, 0.8);
+    expect(step).toHaveBeenCalledWith(
+      'chat-placeholder',
+      undefined,
+      false,
+      'main',
+      64,
+      0.2,
+      0.8,
+      undefined
+    );
   });
 
   it('honors Stop before the SSE session exists by cancelling the pending initial step', async () => {
