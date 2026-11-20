@@ -68,6 +68,25 @@ describe('toolCallParser', () => {
       expect(summary).toBe('unknown');
     });
 
+    it('summarizes url/input kwargs used by MCP tools', () => {
+      expect(
+        getToolSummary({
+          tool: 'goldfish.navigate',
+          args: null,
+          content: null,
+          kwargs: { url: 'https://gptme.org' },
+        })
+      ).toBe('https://gptme.org');
+      expect(
+        getToolSummary({
+          tool: 'goldfish.search',
+          args: null,
+          content: null,
+          kwargs: { input: 'native tools' },
+        })
+      ).toBe('native tools');
+    });
+
     it('truncates long content lines', () => {
       const veryLong = 'echo ' + 'x'.repeat(100);
       const summary = getToolSummary({

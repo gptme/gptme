@@ -1,4 +1,5 @@
 import { scanMarkdownFences } from './markdownFences';
+import { isNativeToolName } from './toolCallParser';
 
 export interface NativeToolCall {
   start: number;
@@ -16,6 +17,9 @@ export function nativeToolCalls(content: string): NativeToolCall[] {
   let match: RegExpExecArray | null;
   while ((match = header.exec(content))) {
     if (fences.some((fence) => match!.index >= fence.start && match!.index < fence.end)) continue;
+    // Prose like `@mention(bob): {"text":"hi"}` matches the syntax; MCP names
+    // keep working via the dotted `server.tool` convention.
+    if (!isNativeToolName(match[1])) continue;
     const start = header.lastIndex;
     let depth = 0;
     let quoted = false;

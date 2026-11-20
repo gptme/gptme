@@ -29,6 +29,11 @@ export function isKnownTool(name: string): boolean {
   return GPTME_TOOL_ALLOWLIST.has(name.toLowerCase());
 }
 
+/** Native transcripts: gptme tools, or MCP `server.tool` names (dots). */
+export function isNativeToolName(name: string): boolean {
+  return isKnownTool(name) || name.includes('.');
+}
+
 /**
  * Parse ToolUse objects from markdown codeblock content.
  *
@@ -99,6 +104,22 @@ export function parseToolCalls(content: string): ToolUse[] {
   return results;
 }
 
+const KWARGS_SUMMARY_KEYS = [
+  'command',
+  'path',
+  'code',
+  'query',
+  'url',
+  'uri',
+  'input',
+  'content',
+  'text',
+] as const;
+
+function shortSummary(value: string, limit = 80): string {
+  return value.length > limit ? value.slice(0, limit - 3) + '...' : value;
+}
+
 /**
  * Get a short summary of a ToolUse for display in headers.
  *
@@ -107,13 +128,18 @@ export function parseToolCalls(content: string): ToolUse[] {
  * - For save/append: the filename
  * - For patch: the target file
  * - For ipython: first non-empty line of content
+ * - For native/MCP kwargs: command/path/code/query, then url/input/content
  */
 export function getToolSummary(toolUse: ToolUse): string {
   const { tool, args, content, kwargs } = toolUse;
   if (kwargs) {
-    const summary = kwargs.command ?? kwargs.path ?? kwargs.code ?? kwargs.query;
-    if (typeof summary === 'string')
-      return summary.length > 80 ? summary.slice(0, 77) + '...' : summary;
+    for (const key of KWARGS_SUMMARY_KEYS) {
+      const summary = kwargs[key];
+      if (typeof summary === 'string' && summary.trim()) return shortSummary(summary);
+    }
+    for (const summary of Object.values(kwargs)) {
+      if (typeof summary === 'string' && summary.trim()) return shortSummary(summary);
+    }
   }
 
   // Use args if available

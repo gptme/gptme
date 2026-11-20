@@ -107,7 +107,13 @@ function extractToolSteps(content: string): ToolStepDetail[] {
 
   for (const span of native) {
     for (const call of parseToolCalls(content.slice(span.start, span.end))) {
-      steps.push({ tool: call.tool, arg: getToolSummary(call), snippet: '', position: span.start });
+      const arg = getToolSummary(call);
+      let snippet = '';
+      if (call.kwargs && Object.keys(call.kwargs).length > 0) {
+        const compact = JSON.stringify(call.kwargs);
+        snippet = compact.length > 30 ? compact.slice(0, 27) + '...' : compact;
+      }
+      steps.push({ tool: call.tool, arg, snippet, position: span.start });
     }
   }
   return steps

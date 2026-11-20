@@ -18,6 +18,13 @@ describe('native tool transcripts', () => {
     expect(renderNativeToolCalls('@note: {"important":true}')).toBe('@note: {"important":true}');
   });
 
+  it('leaves unknown bare @name(id) JSON as prose, not a tool call', () => {
+    const text = 'Hello @mention(bob): {"text":"hi"} there';
+    expect(nativeToolCalls(text)).toEqual([]);
+    expect(renderNativeToolCalls(text)).toBe(text);
+    expect(parseToolCalls(text)).toEqual([]);
+  });
+
   it('ignores examples in markdown fences', () => {
     const example = '```text\n@shell(call_1): {"command":"not executed"}\n```';
     expect(nativeToolCalls(example)).toEqual([]);

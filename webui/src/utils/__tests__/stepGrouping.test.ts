@@ -27,6 +27,25 @@ describe('buildStepRoles', () => {
     }
   });
 
+  it('keeps native MCP payloads whose kwargs are only url/input', () => {
+    const content = '@goldfish.navigate(call_1): {"url":"https://gptme.org"}';
+    const roles = buildStepRoles(
+      [msg('user', 'go'), msg('assistant', content), msg('system', 'ok'), msg('assistant', 'done')],
+      neverHidden
+    );
+    const start = roles.get(1);
+    expect(start?.type).toBe('group-start');
+    if (start?.type === 'group-start') {
+      expect(start.steps).toEqual([
+        {
+          tool: 'goldfish.navigate',
+          arg: 'https://gptme.org',
+          snippet: '{"url":"https://gptme.org"}',
+        },
+      ]);
+    }
+  });
+
   it('returns empty map for no messages', () => {
     expect(buildStepRoles([], neverHidden).size).toBe(0);
   });
