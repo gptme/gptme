@@ -516,7 +516,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       pendingInitialSteps.delete(logfile);
       savePendingInitialSteps(pendingInitialSteps);
     },
-    confirmTool: async () => {},
+    confirmTool: async () => false,
     deleteConversation: async () => {},
     patchConversationMetadata: async () => {},
     getConversationMetadata: async () => ({ starred: false }),

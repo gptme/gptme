@@ -1367,14 +1367,15 @@ export class ApiClient {
             }
             // Notify that connection is established
             callbacks.onConnectionState?.({ status: 'connected' });
-            callbacks.onConnected?.();
-            // Restore state on reconnect (pending tools, generating flag)
-            if (callbacks.onReconnectState && (data.pending_tools?.length || data.generating)) {
+            // Apply the snapshot before onConnected can start new local work;
+            // the server captured it before any step requested by that callback.
+            if (callbacks.onReconnectState) {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
                 pendingTools: data.pending_tools ?? [],
               });
             }
+            callbacks.onConnected?.();
             break;
 
           case 'conversation_edited':
@@ -2230,7 +2231,7 @@ export class ApiClient {
       content?: string;
       count?: number;
     }
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
@@ -2240,7 +2241,7 @@ export class ApiClient {
     try {
       // Session id from the (healed, if needed) event stream; renewed once if
       // the server no longer knows it.
-      await this.withSession(logfile, (sessionId) => {
+      const result = await this.withSession(logfile, (sessionId) => {
         const request: ToolConfirmationRequest = {
           session_id: sessionId,
           tool_id: toolId,
@@ -2255,7 +2256,7 @@ export class ApiClient {
 
         console.log(`[ApiClient] Sending tool confirmation request:`, request);
 
-        return this.fetchJson<{ status: string }>(
+        return this.fetchJson<{ status: string; message?: string }>(
           `${this.baseUrl}/api/v2/conversations/${logfile}/tool/confirm`,
           {
             method: 'POST',
@@ -2266,6 +2267,7 @@ export class ApiClient {
       });
 
       console.log(`[ApiClient] Tool confirmation successful`);
+      return result.message === 'Tool already handled';
     } catch (error) {
       console.error(`[ApiClient] Tool confirmation failed:`, error);
       if (error instanceof DOMException && error.name === 'AbortError') {

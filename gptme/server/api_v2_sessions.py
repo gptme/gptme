@@ -248,25 +248,31 @@ def api_conversation_events(conversation_id: str):
             # fresh one, whose ID the `connected` event then announces.
             session = SessionManager.attach_client(session, client_id)
 
-            # Send initial connection event with pending tool state
-            connected_event = {
-                "type": "connected",
-                "session_id": session.id,
-                "generating": session.generating,
-                "last_error": session.last_error,
-                "pending_tools": [
-                    te.to_pending_dict()
-                    for te in list(session.pending_tools.values())
-                    if te.status == ToolStatus.PENDING
-                ],
-            }
+            # Snapshot the same conversation-wide state that live events expose.
+            # Capture the cursor BEFORE yielding: execution can finish while the
+            # client consumes connected/ping, and those events must not be lost.
+            with SessionManager.conversation_lock(conversation_id):
+                last_event_index = session.events_count
+                connected_event = {
+                    "type": "connected",
+                    "session_id": session.id,
+                    "generating": SessionManager.conversation_generating(
+                        conversation_id
+                    ),
+                    "last_error": session.last_error,
+                    "pending_tools": [
+                        te.to_pending_dict()
+                        for owner in SessionManager.get_sessions_for_conversation(
+                            conversation_id
+                        )
+                        for te in list(owner.pending_tools.values())
+                        if te.status == ToolStatus.PENDING
+                    ],
+                }
             yield f"data: {flask.json.dumps(connected_event)}\n\n"
 
             # Send immediate ping to ensure connection is established right away
             yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
-
-            # Track position using absolute event indices (offset-aware)
-            last_event_index = session.events_count
 
             while True:
                 # End the stream if the session was evicted (idle sweep or stuck
@@ -655,7 +661,7 @@ def api_conversation_step(conversation_id: str):
 @api_doc(
     summary="Confirm tool execution (V2)",
     description="Confirm, edit, skip, or auto-confirm a pending tool execution. "
-    "session_id is optional - if not provided, the tool will be found across all sessions for the conversation.",
+    "session_id is optional and validates the viewer's conversation; tools are resolved across that conversation.",
     request_body=ToolConfirmRequest,
     responses={
         200: StatusResponse,
@@ -669,9 +675,9 @@ def api_conversation_step(conversation_id: str):
 def api_conversation_tool_confirm(conversation_id: str):
     """Confirm or modify a tool execution.
 
-    session_id is optional. If not provided, the tool will be found across all
-    sessions for this conversation. This handles the race condition where the
-    client may not have received the session_id yet when confirming a tool.
+    session_id identifies the viewing client, not necessarily the tool owner.
+    Validate its conversation before resolving the tool across that conversation.
+    Recent duplicate approvals are acknowledged without scheduling another worker.
     """
     if error := _validate_conversation_id(conversation_id):
         return error
@@ -694,7 +700,8 @@ def api_conversation_tool_confirm(conversation_id: str):
     session: ConversationSession | None = None
 
     if session_id:
-        # If session_id provided, use it directly
+        # A viewer session must belong to this conversation, even when another
+        # session owns the pending tool.
         session = SessionManager.get_session(session_id)
         if session is None:
             return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
@@ -711,37 +718,22 @@ def api_conversation_tool_confirm(conversation_id: str):
                     "error": f"Session {session_id} does not belong to conversation {conversation_id}"
                 }
             ), 403
-        if tool_id not in session.pending_tools:
+
+    with SessionManager.conversation_lock(conversation_id):
+        session = None
+        for candidate in SessionManager.get_sessions_for_conversation(conversation_id):
+            if (
+                tool_id in candidate.handled_tools
+                or tool_id in candidate._executing_tools
+            ):
+                return flask.jsonify(
+                    {"status": "ok", "message": "Tool already handled"}
+                )
+            if tool_id in candidate.pending_tools:
+                session = candidate
+        tool_exec = session.pending_tools.get(tool_id) if session else None
+        if session is None or tool_exec is None:
             return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
-    else:
-        # If no session_id, search for the tool across all sessions for this conversation
-        for sess in SessionManager.get_sessions_for_conversation(conversation_id):
-            if tool_id in sess.pending_tools:
-                session = sess
-                break
-
-        if session is None:
-            return (
-                flask.jsonify(
-                    {
-                        "error": f"Tool {tool_id} not found in any session for conversation {conversation_id}"
-                    }
-                ),
-                404,
-            )
-
-    # Use .get() to avoid KeyError if tool was concurrently removed (e.g., by another
-    # request or the session step thread) between the check above and this access.
-    tool_exec = session.pending_tools.get(tool_id)
-    if tool_exec is None:
-        return (
-            flask.jsonify(
-                {
-                    "error": f"Tool {tool_id} no longer pending (may have been executed or cancelled)"
-                }
-            ),
-            404,
-        )
 
     # Native tool calls carry their arguments in kwargs, and tools read kwargs
     # before content: replacing content would report success and then run the
@@ -755,66 +747,70 @@ def api_conversation_tool_confirm(conversation_id: str):
 
     logdir = get_logs_dir() / conversation_id
 
-    # Skip reserves its continuation before resolving hook state or consuming the
-    # pending tool below. Other actions retain the existing hook resolution flow.
-    if action != "skip":
-        resolve_hook_confirmation(tool_id, action, req_json.get("content"))
-
-    if action in {"confirm", "edit"}:
-        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-        default_model = get_default_model()
-        model = chat_config.model or (
-            default_model.full if default_model else "anthropic"
-        )
-
-    if action == "confirm":
-        # Execute the tool
-        tooluse = tool_exec.tooluse
-
-        logger.info(f"Executing runnable tooluse: {tooluse}")
-        start_tool_execution(
-            conversation_id,
-            session,
-            tool_id,
-            tooluse,
-            model,
-            chat_config,
-            branch=tool_exec.branch,
-            max_tokens=tool_exec.max_tokens,
-            temperature=tool_exec.temperature,
-            top_p=tool_exec.top_p,
-        )
-        return flask.jsonify({"status": "ok", "message": "Tool confirmed"})
-
+    # Validate before accepting the approval. Serialize manual approvals with
+    # server auto-confirm's atomic pop; only the first request schedules work.
     if action == "edit":
-        # Edit and then execute the tool
-        edited_content = req_json.get("content")
-        if not edited_content or not isinstance(edited_content, str):
+        content = req_json.get("content")
+        if not content or not isinstance(content, str):
             return flask.jsonify(
                 {"error": "content must be a non-empty string for edit action"}
             ), 400
+    if action == "auto":
+        count = req_json.get("count", 1)
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return flask.jsonify({"error": "count must be a positive integer"}), 400
+    if action != "skip":
+        with SessionManager.conversation_lock(conversation_id):
+            if tool_id in session.handled_tools or tool_id in session._executing_tools:
+                return flask.jsonify(
+                    {"status": "ok", "message": "Tool already handled"}
+                )
+            if tool_id not in session.pending_tools:
+                return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
+            chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+            default_model = get_default_model()
+            model = chat_config.model or (
+                default_model.full if default_model else "anthropic"
+            )
+            tooluse = (
+                dataclasses.replace(tool_exec.tooluse, content=req_json["content"])
+                if action == "edit"
+                else tool_exec.tooluse
+            )
+            if action == "auto":
+                session.auto_confirm_count = count
+            session.remember_handled_tool(tool_id)
+            try:
+                resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+                start_tool_execution(
+                    conversation_id,
+                    session,
+                    tool_id,
+                    tooluse,
+                    model,
+                    chat_config,
+                    branch=tool_exec.branch,
+                    max_tokens=tool_exec.max_tokens,
+                    temperature=tool_exec.temperature,
+                    top_p=tool_exec.top_p,
+                )
+            except Exception:
+                # Dispatch failed before the worker could claim the pending call.
+                session.handled_tools.pop(tool_id, None)
+                raise
+        return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
 
-        # Execute with edited content
-        start_tool_execution(
-            conversation_id,
-            session,
-            tool_id,
-            dataclasses.replace(tool_exec.tooluse, content=edited_content),
-            model,
-            chat_config,
-            branch=tool_exec.branch,
-            max_tokens=tool_exec.max_tokens,
-            temperature=tool_exec.temperature,
-            top_p=tool_exec.top_p,
-        )
-
-    elif action == "skip":
+    if action == "skip":
         continuation_dispatched = False
         writer_pinned = False
         # Reserve the continuation before consuming any tool or hook state. A
         # concurrent /step may already own the reservation; then the pending tool
         # stays untouched so the client can retry.
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
+            if tool_id in session.handled_tools or tool_id in session._executing_tools:
+                return flask.jsonify(
+                    {"status": "ok", "message": "Tool already handled"}
+                )
             current_tool = session.pending_tools.get(tool_id)
             if current_tool is None:
                 return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
@@ -846,6 +842,7 @@ def api_conversation_tool_confirm(conversation_id: str):
                 current_tool.status = ToolStatus.SKIPPED
                 session.finish_skill_turn("abandoned")
                 session.pending_tools.pop(tool_id)
+                session.remember_handled_tool(tool_id)
 
                 # Persist the skip before the continuation can load the log.
                 tool_name = current_tool.tooluse.tool
@@ -895,33 +892,6 @@ def api_conversation_tool_confirm(conversation_id: str):
                         session.generating_since = None
             if writer_pinned:
                 session.release_writer_worker()
-
-    elif action == "auto":
-        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-        default_model = get_default_model()
-        model = chat_config.model or (
-            default_model.full if default_model else "anthropic"
-        )
-        # Enable auto-confirmation for future tools
-        count = req_json.get("count", 1)
-        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
-            return flask.jsonify({"error": "count must be a positive integer"}), 400
-
-        session.auto_confirm_count = count
-
-        # Also confirm this tool
-        start_tool_execution(
-            conversation_id,
-            session,
-            tool_id,
-            tool_exec.tooluse,
-            model,
-            chat_config,
-            branch=tool_exec.branch,
-            max_tokens=tool_exec.max_tokens,
-            temperature=tool_exec.temperature,
-            top_p=tool_exec.top_p,
-        )
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
 
