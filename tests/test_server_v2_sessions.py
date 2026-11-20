@@ -2065,7 +2065,6 @@ class TestConcurrentToolConfirmation:
                 ),
             ),
             patch("gptme.server.session_step._append_and_notify"),
-            patch("gptme.server.session_step._attach_tool_timings"),
             patch(
                 "gptme.server.session_step._start_step_thread",
                 side_effect=mock_start_step,
@@ -2152,7 +2151,6 @@ class TestConcurrentToolConfirmation:
                 ),
             ),
             patch("gptme.server.session_step._append_and_notify"),
-            patch("gptme.server.session_step._attach_tool_timings"),
             patch("gptme.server.session_step._start_step_thread") as start_step,
         ):
             thread = start_tool_execution(
@@ -2248,7 +2246,7 @@ class TestConcurrentToolConfirmation:
     def test_completion_bookkeeping_finishes_before_continuation(
         self, conv, client: FlaskClient
     ):
-        """The final execution claim covers completion events and timing writes."""
+        """The final execution claim covers completion events and result writes."""
         from gptme.config import ChatConfig
         from gptme.server.session_step import start_tool_execution
 
@@ -2271,10 +2269,14 @@ class TestConcurrentToolConfirmation:
         allow_timing = threading.Event()
         step_calls: list[bool] = []
 
-        def blocking_attach_timings(*args, **kwargs):
-            timing_entered.set()
-            assert tool_id in session._executing_tools
-            allow_timing.wait(timeout=5)
+        real_add_event = SessionManager.add_event
+
+        def blocking_completion(conversation_id, event):
+            if event.get("type") == "tool_complete":
+                timing_entered.set()
+                assert tool_id in session._executing_tools
+                allow_timing.wait(timeout=5)
+            return real_add_event(conversation_id, event)
 
         chat_config = ChatConfig(model="mock/model")
         with (
@@ -2286,10 +2288,7 @@ class TestConcurrentToolConfirmation:
                 ),
             ),
             patch("gptme.server.session_step._append_and_notify"),
-            patch(
-                "gptme.server.session_step._attach_tool_timings",
-                side_effect=blocking_attach_timings,
-            ),
+            patch.object(SessionManager, "add_event", side_effect=blocking_completion),
             patch(
                 "gptme.server.session_step._start_step_thread",
                 side_effect=lambda *args, **kwargs: step_calls.append(True),
@@ -2364,7 +2363,6 @@ class TestConcurrentToolConfirmation:
                 ),
             ),
             patch("gptme.server.session_step._append_and_notify"),
-            patch("gptme.server.session_step._attach_tool_timings"),
             patch("gptme.server.session_step._start_step_thread"),
             patch(
                 "gptme.server.session_step._compact_after_tool_results",
@@ -2437,7 +2435,6 @@ class TestConcurrentToolConfirmation:
                 ),
             ),
             patch("gptme.server.session_step._append_and_notify"),
-            patch("gptme.server.session_step._attach_tool_timings"),
             patch("gptme.server.session_step._start_step_thread"),
             patch.object(SessionManager, "add_event", staticmethod(failing_add_event)),
         ):
@@ -2603,9 +2600,8 @@ class TestRerunEndpoint:
             assert len(data["tool_ids"]) > initial_pending
 
             # Regression: rerun-created ToolExecutions must carry the
-            # originating assistant message's timestamp so timing gets
-            # attached to the correct step, not misattributed to whatever
-            # assistant message happens to be last when the tool finishes.
+            # originating assistant message's timestamp so execution can
+            # rebind provenance and associate results with the correct call.
             for tool_id in data["tool_ids"]:
                 tool_exec = session.pending_tools[tool_id]
                 assert tool_exec.assistant_msg_timestamp is not None

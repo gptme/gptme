@@ -1682,8 +1682,9 @@ def step(
                 )
             )
             if tool_timings:
-                # Attach aggregated tool timing to the assistant message metadata
-                # so it is persisted in the session record alongside LLM timings.
+                # Preserve aggregates for buffered step() consumers. CLI/TUI
+                # persist the early reply unchanged; durable per-call timings
+                # are already attached to the completed tool results.
                 from typing import cast
 
                 from .message import (
