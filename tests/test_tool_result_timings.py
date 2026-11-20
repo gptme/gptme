@@ -115,8 +115,9 @@ def test_interrupted_result_has_timing_but_unexecuted_call_does_not():
 
 
 @pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("edited", [False, True])
 def test_server_saves_timed_result_without_rewriting_reply(
-    monkeypatch, tmp_path, native
+    monkeypatch, tmp_path, native, edited
 ):
     pytest.importorskip("flask")
     from gptme.config import ChatConfig
@@ -150,8 +151,13 @@ def test_server_saves_timed_result_without_rewriting_reply(
         patch("gptme.server.session_step._start_step_thread"),
         patch("gptme.server.session_step._compact_after_tool_results"),
     ):
+        from dataclasses import replace
+
+        # Match the edit-confirmation route: execution content changes, but
+        # parser provenance and the persisted original call remain intact.
+        edited_tooluse = replace(tooluse, content="echo edited") if edited else None
         thread = start_tool_execution(
-            conversation_id, session, "tool", None, "mock/model", config
+            conversation_id, session, "tool", edited_tooluse, "mock/model", config
         )
         thread.join(timeout=10)
     assert not thread.is_alive()
@@ -164,6 +170,7 @@ def test_server_saves_timed_result_without_rewriting_reply(
     assert len(results) == 1
     assert results[0].metadata is not None
     assert results[0].metadata["timings"]["tool_ms"] >= 0
+    assert results[0].metadata["tool_call"] == 0
     assert results[0].call_id == ("call_1" if native else None)
     assert eventlog.recover_messages(final.logdir) == [m.to_dict() for m in final.log]
 
