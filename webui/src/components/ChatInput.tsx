@@ -742,7 +742,11 @@ export const ChatInput: FC<Props> = ({
     ? effortDraft === 'default'
       ? ''
       : effortDraft
-    : chatConfig?.chat?.reasoning_effort || '';
+    : chatConfig
+      ? chatConfig.chat?.reasoning_effort || ''
+      : undefined;
+  // An unresolved/failed config is not an explicit Default selection. Omit the
+  // override so admission retains the saved effort rather than resetting it.
   const effortIncompatible =
     modelEffortLevels !== undefined && !!requestedEffort && !effortLevels.includes(requestedEffort);
   const reasoningEffort = effortIncompatible ? '' : requestedEffort;
