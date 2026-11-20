@@ -6,6 +6,8 @@ import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { UnifiedSidebar } from '../UnifiedSidebar';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { selectedAgent$ } from '@/stores/sidebar';
 
 jest.mock('@/utils/connectionConfig', () => ({
   isDemoMode: jest.fn(() => false),
@@ -48,16 +50,18 @@ const renderTaskSidebar = (
   const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <UnifiedSidebar
-          conversations={[]}
-          selectedConversationId$={selectedConversationId$}
-          onSelectConversation={jest.fn()}
-          fetchNextPage={jest.fn()}
-          tasks={[]}
-          onSelectTask={jest.fn()}
-          onCreateTask={jest.fn()}
-          {...props}
-        />
+        <TooltipProvider>
+          <UnifiedSidebar
+            conversations={[]}
+            selectedConversationId$={selectedConversationId$}
+            onSelectConversation={jest.fn()}
+            fetchNextPage={jest.fn()}
+            tasks={[]}
+            onSelectTask={jest.fn()}
+            onCreateTask={jest.fn()}
+            {...props}
+          />
+        </TooltipProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -289,5 +293,67 @@ describe('UnifiedSidebar external sessions capability gate', () => {
     renderTaskSidebar('/chat');
 
     await waitFor(() => expect(mockGetExternalSessions).toHaveBeenCalledWith(7));
+  });
+});
+
+describe('UnifiedSidebar agent deep links', () => {
+  it('keeps unowned demo/store agents unowned instead of substituting the active server', async () => {
+    selectedAgent$.set({
+      name: 'Demo agent',
+      path: '/demo/agent',
+      hasAvatar: false,
+      conversationCount: 1,
+      lastUsed: new Date().toISOString(),
+    });
+    try {
+      const { queryClient } = renderTaskSidebar('/chat', {
+        conversations: [
+          {
+            id: 'demo-agent',
+            name: 'Unowned agent conversation',
+            modified: 100,
+            agent_path: '/demo/agent',
+          },
+        ],
+      });
+      await waitForServerInfo(queryClient);
+      expect(screen.getByText('Unowned agent conversation')).toBeInTheDocument();
+    } finally {
+      act(() => selectedAgent$.set(null));
+    }
+  });
+  it('filters by exact server and path even when names and conversation IDs collide', async () => {
+    const { queryClient } = renderTaskSidebar('/chat?agentPath=%2Fagents%2Fbob&server=two', {
+      conversations: [
+        {
+          id: 'shared',
+          name: 'Wanted conversation',
+          modified: 100,
+          agent_name: 'Bob',
+          agent_path: '/agents/bob',
+          serverId: 'two',
+        },
+        {
+          id: 'shared',
+          name: 'Wrong server',
+          modified: 100,
+          agent_name: 'Bob',
+          agent_path: '/agents/bob',
+          serverId: 'one',
+        },
+        {
+          id: 'other',
+          name: 'Wrong path',
+          modified: 100,
+          agent_name: 'Bob',
+          agent_path: '/other/bob',
+          serverId: 'two',
+        },
+      ],
+    });
+    await waitForServerInfo(queryClient);
+    expect(screen.getByText('Wanted conversation')).toBeInTheDocument();
+    expect(screen.queryByText('Wrong server')).not.toBeInTheDocument();
+    expect(screen.queryByText('Wrong path')).not.toBeInTheDocument();
   });
 });

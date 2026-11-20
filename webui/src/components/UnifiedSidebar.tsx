@@ -12,7 +12,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { matchesAgent } from '@/utils/workspaceUtils';
+
 import type { ConversationSummary } from '@/types/conversation';
 import type { Task } from '@/types/task';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -138,6 +140,10 @@ export const UnifiedSidebar: FC<Props> = ({
   const selectedAgent = use$(selectedAgent$);
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const routeAgentPath = searchParams.get('agentPath');
+  const routeAgentServer = searchParams.get('server') || undefined;
+
   const { api, connectionConfig, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
   const queryClient = useQueryClient();
@@ -196,16 +202,28 @@ export const UnifiedSidebar: FC<Props> = ({
   const filteredConversations = useMemo(() => {
     let filtered = conversations;
 
+    // A deep-linked agent filter is authoritative; stale workspace/store filters
+    // must not hide that agent's conversations or merge same-named agents.
+    if (routeAgentPath) {
+      return filtered.filter((conv) =>
+        matchesAgent(conv, { path: routeAgentPath, serverId: routeAgentServer })
+      );
+    }
     if (selectedWorkspace) {
       filtered = filtered.filter((conv) => conv.workspace === selectedWorkspace);
     }
 
     if (selectedAgent) {
-      filtered = filtered.filter((conv) => conv.agent_name === selectedAgent.name);
+      filtered = filtered.filter((conv) =>
+        matchesAgent(conv, {
+          path: selectedAgent.path,
+          serverId: selectedAgent.serverId,
+        })
+      );
     }
 
     return filtered;
-  }, [conversations, selectedWorkspace, selectedAgent]);
+  }, [conversations, selectedWorkspace, selectedAgent, routeAgentPath, routeAgentServer]);
 
   // Filter and sort tasks
   const sortedTasks = useMemo(() => {
@@ -313,7 +331,7 @@ export const UnifiedSidebar: FC<Props> = ({
       {currentSection === 'chat' && (
         <div className="flex items-center gap-2 bg-background p-2">
           <span className="ml-1 font-medium">Chats</span>
-          {(selectedWorkspace || selectedAgent) && (
+          {(selectedWorkspace || selectedAgent || routeAgentPath) && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -324,6 +342,9 @@ export const UnifiedSidebar: FC<Props> = ({
                     onClick={() => {
                       selectedWorkspace$.set('');
                       selectedAgent$.set(null);
+                      const params = new URLSearchParams(searchParams);
+                      params.delete('agentPath');
+                      setSearchParams(params);
                     }}
                     aria-label="Clear filters"
                   >
@@ -333,7 +354,9 @@ export const UnifiedSidebar: FC<Props> = ({
                 <TooltipContent>
                   Filtered by{' '}
                   {[
-                    selectedAgent && `agent: ${selectedAgent.name}`,
+                    routeAgentPath
+                      ? `agent: ${routeAgentPath}`
+                      : selectedAgent && `agent: ${selectedAgent.name}`,
                     selectedWorkspace && `workspace: ${selectedWorkspace.split('/').pop()}`,
                   ]
                     .filter(Boolean)

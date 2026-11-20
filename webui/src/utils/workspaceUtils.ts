@@ -15,6 +15,15 @@ export interface Agent {
   conversationCount: number;
   lastUsed: string;
   urls?: Record<string, string>;
+  serverId?: string;
+  serverName?: string;
+}
+
+export function matchesAgent(
+  conversation: ConversationSummary,
+  agent: Pick<Agent, 'path' | 'serverId'>
+): boolean {
+  return conversation.agent_path === agent.path && conversation.serverId === agent.serverId;
 }
 
 // For now, we'll use a simple heuristic to detect agents
@@ -104,8 +113,9 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
     const agentName = conversation.agent_name || agentPath.split('/').pop() || 'Unknown Agent';
     const lastUsed = new Date(conversation.modified * 1000).toISOString(); // Convert Unix timestamp to ISO string
 
-    if (agentMap.has(agentPath)) {
-      const existing = agentMap.get(agentPath)!;
+    const key = JSON.stringify([conversation.serverId ?? null, agentPath]);
+    if (agentMap.has(key)) {
+      const existing = agentMap.get(key)!;
       existing.conversationCount += 1;
       // Use the most recent timestamp; prefer URLs from the most recent conversation
       if (new Date(lastUsed) > new Date(existing.lastUsed)) {
@@ -120,7 +130,9 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
         existing.hasAvatar = true;
       }
     } else {
-      agentMap.set(agentPath, {
+      agentMap.set(key, {
+        serverId: conversation.serverId,
+        serverName: conversation.serverName,
         name: agentName,
         path: agentPath,
         description: formatPath(agentPath),

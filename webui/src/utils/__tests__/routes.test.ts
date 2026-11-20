@@ -1,4 +1,10 @@
-import { appRoute, chatRoute, decodeRouteParam } from '../routes';
+import {
+  agentRoute,
+  agentConversationsRoute,
+  appRoute,
+  chatRoute,
+  decodeRouteParam,
+} from '../routes';
 
 describe('chatRoute', () => {
   beforeEach(() => {
@@ -49,5 +55,18 @@ describe('decodeRouteParam', () => {
     expect(decodeRouteParam('demo%2Fconv-123')).toBe('demo/conv-123');
     expect(decodeRouteParam('%')).toBe('%');
     expect(decodeRouteParam(undefined)).toBeUndefined();
+  });
+});
+
+describe('agent routes', () => {
+  it('preserves exact path/server identity and demo mode without forwarding generation flags', () => {
+    window.history.replaceState(null, '', '/agents?demo=1&step=true&server=wrong');
+    const agent = { path: '/agents/Bob %2F #1', serverId: 'secondary' };
+    expect(agentRoute(agent)).toBe(
+      '/agents/overview?demo=1&path=%2Fagents%2FBob+%252F+%231&server=secondary'
+    );
+    expect(agentConversationsRoute(agent)).toBe(
+      '/chat?demo=1&agentPath=%2Fagents%2FBob+%252F+%231&server=secondary'
+    );
   });
 });

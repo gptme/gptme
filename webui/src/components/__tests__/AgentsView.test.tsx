@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { AgentsView } from '../AgentsView';
 import type { ConversationSummary } from '@/types/conversation';
+import { serverRegistry$ } from '@/stores/servers';
 
 const mockIsDemoMode = jest.fn(() => false);
 const mockExtractAgents = jest.fn();
@@ -20,7 +21,9 @@ jest.mock('@/contexts/ApiContext', () => ({
 
 jest.mock('../CreateAgentDialog', () => ({
   __esModule: true,
-  default: () => <div data-testid="create-agent-dialog" />,
+  default: ({ serverId }: { serverId?: string }) => (
+    <div data-testid="create-agent-dialog" data-server-id={serverId} />
+  ),
 }));
 
 jest.mock('@/utils/workspaceUtils', () => {
@@ -51,12 +54,54 @@ describe('AgentsView', () => {
     expect(screen.getAllByRole('button', { name: 'Create Agent' })).toHaveLength(2);
   });
 
+  it('passes the active server to agent creation', () => {
+    const previousId = serverRegistry$.activeServerId.get();
+    serverRegistry$.activeServerId.set('creation-server');
+    try {
+      renderAgentsView();
+      expect(screen.getByTestId('create-agent-dialog')).toHaveAttribute(
+        'data-server-id',
+        'creation-server'
+      );
+    } finally {
+      act(() => serverRegistry$.activeServerId.set(previousId));
+    }
+  });
+
   it('does not offer an unsupported create action in offline demo mode', () => {
     mockIsDemoMode.mockReturnValue(true);
     renderAgentsView();
 
     expect(screen.queryByRole('button', { name: 'Create Agent' })).not.toBeInTheDocument();
     expect(screen.getByText('Agent creation requires a live gptme server.')).toBeInTheDocument();
+  });
+
+  it('links same-named cards to their own server and path without changing chat filters', () => {
+    mockExtractAgents.mockReturnValue([
+      {
+        name: 'Bob',
+        path: '/agents/bob',
+        serverId: 'one',
+        lastUsed: new Date().toISOString(),
+        conversationCount: 1,
+      },
+      {
+        name: 'Bob',
+        path: '/agents/bob',
+        serverId: 'two',
+        lastUsed: new Date().toISOString(),
+        conversationCount: 1,
+      },
+    ]);
+    renderAgentsView();
+    expect(screen.getByRole('link', { name: 'Overview for Bob on one' })).toHaveAttribute(
+      'href',
+      '/agents/overview?path=%2Fagents%2Fbob&server=one'
+    );
+    expect(screen.getByRole('link', { name: 'Overview for Bob on two' })).toHaveAttribute(
+      'href',
+      '/agents/overview?path=%2Fagents%2Fbob&server=two'
+    );
   });
 
   describe('memoization', () => {
