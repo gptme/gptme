@@ -27,7 +27,7 @@ import { getClientForServer } from '@/stores/serverClients';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ConversationSummary, Message } from '@/types/conversation';
 import type { ExternalSessionCatalogItem } from '@/types/api';
-import { type FC, useRef, useEffect, useState, useCallback } from 'react';
+import { type FC, type RefObject, useRef, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
@@ -98,6 +98,9 @@ interface Props {
   externalSessions?: ExternalSessionCatalogItem[];
   onSelectExternal?: (id: string) => void;
   selectedExternalId?: string;
+  searchOpen?: boolean;
+  onSearchOpenChange?: (open: boolean) => void;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export const ConversationList: FC<Props> = ({
@@ -116,6 +119,9 @@ export const ConversationList: FC<Props> = ({
   externalSessions,
   onSelectExternal,
   selectedExternalId,
+  searchOpen = true,
+  onSearchOpenChange,
+  searchInputRef,
 }) => {
   const { api, getClient, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
@@ -174,7 +180,8 @@ export const ConversationList: FC<Props> = ({
   }, []);
   // Guard against double-submit: onKeyDown(Enter) sets this before onBlur fires
   const renameCommittedRef = useRef(false);
-  const filterInputRef = useRef<HTMLInputElement>(null);
+  const localFilterInputRef = useRef<HTMLInputElement>(null);
+  const filterInputRef = searchInputRef ?? localFilterInputRef;
 
   // URL-synced search state: local state for immediate input responsiveness,
   // with debounced writes to ?search= URL param.
@@ -435,23 +442,27 @@ export const ConversationList: FC<Props> = ({
     };
   }, [useInfiniteScroll, hasNextPage, fetchNextPage]); // isFetching accessed via ref to avoid observer recreation
 
+  const searchVisible = searchOpen || filterQuery.length > 0;
+  const focusFilter = useCallback(() => {
+    onSearchOpenChange?.(true);
+    filterInputRef.current?.focus();
+    filterInputRef.current?.select();
+  }, [onSearchOpenChange, filterInputRef]);
+
   useEffect(() => {
     const handleFilterShortcut = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== 'f' || !e.altKey || e.metaKey || e.ctrlKey) return;
-      if (!filterInputRef.current) return;
       e.preventDefault();
-      filterInputRef.current.focus();
-      filterInputRef.current.select();
+      focusFilter();
     };
 
     window.addEventListener('keydown', handleFilterShortcut);
     return () => window.removeEventListener('keydown', handleFilterShortcut);
-  }, []);
+  }, [focusFilter]);
 
   useEffect(() => {
     const handleSlashShortcut = (e: KeyboardEvent) => {
       if (e.key !== '/' || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
-      if (!filterInputRef.current) return;
       // Don't steal '/' from other focused inputs/textareas/contenteditable
       const active = document.activeElement;
       if (
@@ -463,13 +474,12 @@ export const ConversationList: FC<Props> = ({
         return;
       }
       e.preventDefault();
-      filterInputRef.current.focus();
-      filterInputRef.current.select();
+      focusFilter();
     };
 
     window.addEventListener('keydown', handleSlashShortcut);
     return () => window.removeEventListener('keydown', handleSlashShortcut);
-  }, []);
+  }, [focusFilter]);
 
   if (!conversations) {
     return null;
@@ -479,6 +489,16 @@ export const ConversationList: FC<Props> = ({
   const demoIds = new Set(demoConversations.map((d) => d.id));
   const realConversations = conversations.filter((c) => !demoIds.has(c.id));
   const demos = conversations.filter((c) => demoIds.has(c.id));
+  const hasListControls =
+    realConversations.length > 0 ||
+    !!(onSelectExternal && externalSessions && externalSessions.length > 0);
+  const stickyHeaderOffset = searchVisible
+    ? hasListControls
+      ? 'top-[68px]'
+      : 'top-11'
+    : hasListControls
+      ? 'top-9'
+      : 'top-0';
 
   const normalizedFilter = filterQuery.trim().toLowerCase();
   const matchesFilter = (conv: ConversationSummary) =>
@@ -542,37 +562,46 @@ export const ConversationList: FC<Props> = ({
       data-testid="conversation-list"
       className="h-full space-y-2 overflow-y-auto overflow-x-hidden"
     >
-      {!isLoading && !isError && conversations.length > 0 && (
+      {(searchVisible || (!isLoading && !isError && conversations.length > 0)) && (
         <div className="sticky top-0 z-20 bg-background/95 px-2 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={filterInputRef}
-              value={filterQuery}
-              onChange={(e) => handleFilterChange(e.target.value)}
-              placeholder="Search conversations"
-              aria-label="Search conversations"
-              className="h-8 pl-8 pr-8 text-sm"
-            />
-            {filterQuery && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Clear conversation search"
-                className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2"
-                onClick={() => {
-                  handleFilterChange('');
-                  filterInputRef.current?.focus();
+          {searchVisible && (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={filterInputRef}
+                value={filterQuery}
+                onFocus={() => onSearchOpenChange?.(true)}
+                onChange={(e) => handleFilterChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    onSearchOpenChange?.(false);
+                  }
                 }}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </div>
+                placeholder="Search conversations"
+                aria-label="Search conversations"
+                className="h-8 pl-8 pr-8 text-sm"
+              />
+              {filterQuery && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Clear conversation search"
+                  className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2"
+                  onClick={() => {
+                    onSearchOpenChange?.(true);
+                    handleFilterChange('');
+                    filterInputRef.current?.focus();
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          )}
           {/* Star filter toggle + sort control + external sessions toggle */}
-          {(realConversations.length > 0 ||
-            (onSelectExternal && externalSessions && externalSessions.length > 0)) && (
+          {hasListControls && (
             <div className="flex items-center justify-between px-1 pt-1">
               {realConversations.length > 0 ? (
                 <button
@@ -690,7 +719,7 @@ export const ConversationList: FC<Props> = ({
           <div key={group}>
             <div
               data-testid="date-group-header"
-              className="sticky top-11 z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60"
+              className={`sticky ${stickyHeaderOffset} z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60`}
             >
               {group}
             </div>
