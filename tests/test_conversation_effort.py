@@ -583,3 +583,35 @@ def test_patch_validates_effort_against_inherited_model(client, monkeypatch, sou
         .get_json()["chat"]
         .get("reasoning_effort")
     )
+
+
+@pytest.mark.parametrize("operation", ["create", "patch"])
+def test_no_effort_does_not_require_model_resolution(client, operation):
+    from gptme.config.models import ProviderConfig
+
+    cid = f"effort-custom-alias-{operation}"
+    if operation == "patch":
+        assert (
+            client.put(
+                f"/api/v2/conversations/{cid}", json={"prompt": "test"}
+            ).status_code
+            == 200
+        )
+    get_config().user.providers.append(
+        ProviderConfig(name="effort-custom", base_url="http://localhost:1/v1")
+    )
+    if operation == "create":
+        response = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "test", "config": {"chat": {"model": "effort-custom"}}},
+        )
+    else:
+        response = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": "effort-custom"}},
+        )
+    assert response.status_code == 200, response.get_json()
+    assert (
+        client.get(f"/api/v2/conversations/{cid}/config").get_json()["chat"]["model"]
+        == "effort-custom"
+    )

@@ -335,10 +335,12 @@ def _effective_model_for_effort_validation(chat_config: ChatConfig) -> str | Non
 
     Conversations may omit chat.model and inherit the server default or workspace
     MODEL. PUT and PATCH must use that same order so an unsupported effort is
-    rejected before it is saved.
+    rejected before it is saved. An inherited effort needs no capability check.
     """
+    if not chat_config.reasoning_effort:
+        return None
     effective_model = chat_config.model
-    if chat_config.reasoning_effort and not effective_model:
+    if not effective_model:
         default = get_default_model()
         effective_model = default.full if default else None
         if not effective_model:
