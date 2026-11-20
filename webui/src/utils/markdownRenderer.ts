@@ -30,6 +30,7 @@ const COLLAPSE_BY_DEFAULT = new Set([
   'gh',
   'mcp',
   'subagent',
+  'tool-call',
   // tool output
   'stdout',
   'stderr',
@@ -207,7 +208,12 @@ export function customRenderer(
           const lineCount = codeText.split('\n').length;
           const details = data.summary.parentElement; // the <details> element
 
-          if (lineCount <= 2 && codeText.length <= 1000 && details?.tagName === 'DETAILS') {
+          if (
+            lineCount <= 2 &&
+            codeText.length <= 1000 &&
+            !collapsesByDefault(data.summary.dataset.langtag || '') &&
+            details?.tagName === 'DETAILS'
+          ) {
             // Replace <details><summary>...<pre><code>... with inline element
             const inline = document.createElement('div');
             inline.className = 'inline-codeblock';
@@ -277,6 +283,7 @@ export function customRenderer(
           // label below). The NON-CHAT path (marked) in markdownUtils.ts still uses
           // getCodeBlockEmoji; keep the two in sync when changing labels.
           data.summary.innerHTML = codeBlockLabelHtml(value);
+          data.summary.dataset.langtag = value;
 
           // Smart collapse: tool-use and tool-output blocks are for
           // inspection/review, so collapse them by default. Agent code examples

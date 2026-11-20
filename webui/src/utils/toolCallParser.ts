@@ -1,4 +1,5 @@
 import type { ToolUse } from '@/types/conversation';
+import { nativeToolCalls } from './nativeToolCalls';
 
 /**
  * Known gptme tool names. Used to distinguish tool-call codeblocks
@@ -28,6 +29,11 @@ export function isKnownTool(name: string): boolean {
   return GPTME_TOOL_ALLOWLIST.has(name.toLowerCase());
 }
 
+/** Native transcripts: gptme tools, or MCP names (`server.tool`, `docs/team.search`). */
+export function isNativeToolName(name: string): boolean {
+  return isKnownTool(name) || /[./]/.test(name);
+}
+
 /**
  * Parse ToolUse objects from markdown codeblock content.
  *
@@ -39,8 +45,11 @@ export function parseToolCalls(content: string): ToolUse[] {
   const results: ToolUse[] = [];
   const codeblockRegex = /```(\w+)(?:\s+([^\n]*))?\n([\s\S]*?)```/g;
 
+  const native = nativeToolCalls(content);
   let match: RegExpExecArray | null;
   while ((match = codeblockRegex.exec(content)) !== null) {
+    // File/patch payloads may themselves contain fenced tool examples.
+    if (native.some((call) => match!.index >= call.start && match!.index < call.end)) continue;
     const tool = match[1];
     if (!isKnownTool(tool)) continue;
 
@@ -77,7 +86,38 @@ export function parseToolCalls(content: string): ToolUse[] {
     });
   }
 
+  for (const call of native) {
+    if (!call.complete) continue;
+    try {
+      const kwargs: unknown = JSON.parse(call.json);
+      if (!kwargs || typeof kwargs !== 'object' || Array.isArray(kwargs)) continue;
+      results.push({
+        tool: call.tool,
+        args: null,
+        content: null,
+        kwargs: kwargs as Record<string, unknown>,
+      });
+    } catch {
+      // Incomplete or malformed arguments must never count as an executed call.
+    }
+  }
   return results;
+}
+
+const KWARGS_SUMMARY_KEYS = [
+  'command',
+  'path',
+  'code',
+  'query',
+  'url',
+  'uri',
+  'input',
+  'content',
+  'text',
+] as const;
+
+function shortSummary(value: string, limit = 80): string {
+  return value.length > limit ? value.slice(0, limit - 3) + '...' : value;
 }
 
 /**
@@ -88,9 +128,19 @@ export function parseToolCalls(content: string): ToolUse[] {
  * - For save/append: the filename
  * - For patch: the target file
  * - For ipython: first non-empty line of content
+ * - For native/MCP kwargs: command/path/code/query, then url/input/content
  */
 export function getToolSummary(toolUse: ToolUse): string {
-  const { tool, args, content } = toolUse;
+  const { tool, args, content, kwargs } = toolUse;
+  if (kwargs) {
+    for (const key of KWARGS_SUMMARY_KEYS) {
+      const summary = kwargs[key];
+      if (typeof summary === 'string' && summary.trim()) return shortSummary(summary);
+    }
+    for (const summary of Object.values(kwargs)) {
+      if (typeof summary === 'string' && summary.trim()) return shortSummary(summary);
+    }
+  }
 
   // Use args if available
   if (args && args.length > 0) {

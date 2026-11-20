@@ -63,7 +63,7 @@ test('streamed reply keeps its DOM when the server supplies the final timestamp'
   page,
 }) => {
   await openTurn(page);
-  await appendMessage(page, 'assistant', 'A stable reply');
+  await appendMessage(page, 'assistant', 'A stable reply\n');
   const reply = page.locator('[data-message-index="1"]');
   await expect(reply).toContainText('A stable reply');
   const original = await reply.elementHandle();
@@ -614,4 +614,111 @@ test('rendered result preview stays inside a bounded pane', async ({ page }, tes
     ).toBeLessThanOrEqual(stage.clientHeight);
   }
   expect(await pane.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+});
+
+test('native tool payload streams collapsed without losing the preceding reply tail', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/?demo=1');
+  await page.getByText('Introduction to gptme').click();
+  await page.evaluate(async (id) => {
+    const { replaceLog } = await import('/src/stores/conversations.ts');
+    replaceLog(id, [
+      { role: 'user', content: 'Inspect this.' },
+      {
+        role: 'assistant',
+        content: 'The complete reply tail.\n@shell(call_1): {"command":"echo',
+        isComplete: false,
+      },
+    ]);
+  }, conversationId);
+  const message = page.locator('[data-message-index="1"]');
+  await expect(message).toContainText('The complete reply tail.');
+  await expect(message).not.toContainText('@shell(call_1)');
+  const details = message.locator('details');
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open', '');
+  await page.evaluate(async (id) => {
+    const { conversations$ } = await import('/src/stores/conversations.ts');
+    conversations$
+      .get(id)
+      .data.log[1].content.set(
+        'The complete reply tail.\n@shell(call_1): {"command":"echo hello"}'
+      );
+    conversations$.get(id).data.log[1].isComplete.set(true);
+  }, conversationId);
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open', '');
+  await details.locator('summary').click();
+  await expect(details).toContainText('echo hello');
+  await expect(message).toContainText('The complete reply tail.');
+  await page.screenshot({ path: testInfo.outputPath('native-tool-stream.png') });
+});
+
+// A wider synthetic fence can rebuild the parser while a save payload streams.
+// Check painted frames, not DOM identity: a synchronous rebuild need not flash.
+test('backticks in a streamed native save preserve the painted reply on every frame', async ({
+  page,
+}, testInfo) => {
+  await openTurn(page);
+  const tail = 'The full reply tail stays visible.';
+  await appendMessage(page, 'assistant', `${tail}\n\n`);
+  const message = page.locator('[data-message-index="1"]');
+  await expect(message).toContainText(tail);
+  await page.evaluate((tail) => {
+    const samples: { tailVisible: boolean; payloadVisible: boolean }[] = [];
+    const state = { running: true, samples };
+    const sample = () => {
+      const message = document.querySelector<HTMLElement>('[data-message-index="1"]');
+      const text = message?.innerText ?? '';
+      samples.push({
+        tailVisible: text.includes(tail),
+        payloadVisible: text.includes('PAYLOAD_SENTINEL') || text.includes('@save(call_1)'),
+      });
+      if (state.running) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    Object.assign(window, { nativeSaveFrames: state });
+  }, tail);
+  await streamTokens(page, [
+    '@save(call_1): {"path":"/tmp/example.md","content":"PAYLOAD_SENTINEL ',
+    '`',
+    '`',
+    '`',
+    'python\\nx = 1\\n',
+    '`',
+    '`',
+    '`',
+    '"}',
+  ]);
+  await page.evaluate(async (id) => {
+    const { conversations$ } = await import('/src/stores/conversations.ts');
+    conversations$.get(id).data.log[1].isComplete.set(true);
+  }, conversationId);
+  await nextFrames(page);
+  const frames = await page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        nativeSaveFrames: {
+          running: boolean;
+          samples: { tailVisible: boolean; payloadVisible: boolean }[];
+        };
+      }
+    ).nativeSaveFrames;
+    state.running = false;
+    return state.samples;
+  });
+  expect(frames.length).toBeGreaterThan(15);
+  expect(frames.filter((frame) => !frame.tailVisible || frame.payloadVisible)).toEqual([]);
+  const details = message.locator('details');
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open', '');
+  await details.locator('summary').click();
+  await expect(details).toContainText('PAYLOAD_SENTINEL ```python');
+  await expect(message).toContainText(tail);
+  await testInfo.attach('native-save-frames', {
+    body: JSON.stringify(frames),
+    contentType: 'application/json',
+  });
+  await page.screenshot({ path: testInfo.outputPath('native-save-backticks.png') });
 });

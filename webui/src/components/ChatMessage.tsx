@@ -17,6 +17,7 @@ import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
 import { processNestedCodeBlocks } from '@/utils/markdownUtils';
+import { renderNativeToolCalls } from '@/utils/nativeToolCalls';
 import {
   Clipboard,
   Check,
@@ -235,16 +236,23 @@ const ChatMessageComponent: FC<Props> = ({
       parser$.set(ObservableHint.opaque(newParser));
 
       // Write existing content to the new parser (handles re-mount after edit mode)
-      const existingContent = message$.content.peek();
+      const message = message$.peek();
+      if (!message) return;
+      const existingContent = renderNativeToolCalls(
+        message$.content.peek() || '',
+        'isComplete' in message && !message.isComplete
+      );
       if (existingContent) {
         previousContent$.set('');
         // Preprocess to widen outer fences for nested code blocks (gptme convention)
         // before feeding to smd, which doesn't understand ```lang = opener nesting.
         const { processedContent } = processNestedCodeBlocks(existingContent);
         smd.parser_write(newParser, processedContent);
-        smd.parser_end(newParser);
-        renderer$.set(null);
-        parser$.set(null);
+        if (!('isComplete' in message) || message.isComplete) {
+          smd.parser_end(newParser);
+          renderer$.set(null);
+          parser$.set(null);
+        }
         previousContent$.set(existingContent);
       }
     },
@@ -255,8 +263,13 @@ const ChatMessageComponent: FC<Props> = ({
   // Send any new content to the parser
   const previousContent$ = useObservable('');
   useObserveEffect(message$.content, ({ value }) => {
+    const message = message$.peek();
+    if (!message) return;
     const previousContent = previousContent$.get();
-    const content = value || '';
+    const content = renderNativeToolCalls(
+      value || '',
+      'isComplete' in message && !message.isComplete
+    );
 
     // If content was replaced (not appended), reinitialize the parser
     if (content && !content.startsWith(previousContent) && previousContent.length > 0) {
@@ -275,9 +288,11 @@ const ChatMessageComponent: FC<Props> = ({
         // Preprocess nested code blocks before feeding to smd
         const { processedContent } = processNestedCodeBlocks(content);
         smd.parser_write(newParser, processedContent);
-        smd.parser_end(newParser);
-        renderer$.set(null);
-        parser$.set(null);
+        if (!('isComplete' in message) || message.isComplete) {
+          smd.parser_end(newParser);
+          renderer$.set(null);
+          parser$.set(null);
+        }
         previousContent$.set(content);
       }
       return;
