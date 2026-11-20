@@ -1,4 +1,15 @@
+import { writeFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
+import {
+  injectFault,
+  installFrameOracle,
+  markChunk,
+  startRrweb,
+  stopFrameOracle,
+  stopRrweb,
+  type Fault,
+  type OracleResult,
+} from './helpers/streamFrameOracle';
 
 // Browser counterpart to the TUI frame tests (gptme/gptme#4375, #4376).
 // Drive the real observable store/rendering/virtualizer with deterministic token
@@ -721,4 +732,304 @@ test('backticks in a streamed native save preserve the painted reply on every fr
     contentType: 'application/json',
   });
   await page.screenshot({ path: testInfo.outputPath('native-save-backticks.png') });
+});
+
+// --- Boundary-split native tool streaming (gptme/gptme#5023) -----------------
+//
+// Stream a native call into a reply, chunk by chunk, while an in-page frame
+// oracle samples every animation frame. A raw header or argument marker must
+// never be visible in the collapsed message. The prose tail must stay visible
+// and unclipped once it has painted. A literal fenced example of native syntax
+// must stay visible, so an implementation that hides all `@...` text fails.
+
+interface NativeFixture {
+  name: string;
+  tool: string;
+  callId: string;
+  json: string;
+  /** Argument marker that only the raw transcript would show. */
+  argMarker: string;
+}
+
+const NATIVE_FIXTURES: NativeFixture[] = [
+  {
+    name: 'shell',
+    tool: 'shell',
+    callId: 'call_9fQx2LmZ7rT4vW8yB1nC6kD3hJ5sA0eG',
+    // Escaped quotes and backslashes inside JSON strings.
+    json: '{"command":"printf \'%s\\\\n\' \\"a \\\\\\"quoted\\\\\\" word\\" && echo done"}',
+    argMarker: '{"command"',
+  },
+  {
+    name: 'mcp',
+    tool: 'goldfish.search_memory',
+    callId: 'toolu_01HzVq8PkW3mN5bR7tY2cX9dLfJ4gA6s',
+    json: '{"query":"release notes","limit":5,"filter":{"tag":"a \\"b\\" c"}}',
+    argMarker: '{"query"',
+  },
+];
+
+const NATIVE_TAIL = 'I will check the release notes before answering, then summarize.';
+// Different tool than either fixture: it must stay visible as literal text.
+const NATIVE_LITERAL = '@save(call_example): {"path":"example.txt"}';
+const NATIVE_PROSE = `Here is the syntax, for reference:\n\n\`\`\`text\n${NATIVE_LITERAL}\n\`\`\`\n\n${NATIVE_TAIL}\n`;
+
+function nativeCall(fixture: NativeFixture): string {
+  return `@${fixture.tool}(${fixture.callId}):  ${fixture.json}`;
+}
+
+/** Phase of the streamed transcript after `length` characters have arrived. */
+function nativePhase(full: string, length: number): string {
+  const header = full.indexOf('\n@', NATIVE_PROSE.length - 1) + 1;
+  const brace = full.indexOf('{', header);
+  if (length <= header) return 'prose';
+  if (length <= brace) return 'header';
+  if (length < full.length) return 'payload';
+  return 'call-complete';
+}
+
+/** Chunk boundaries: fixed-size chunks, or deliberately chosen split points. */
+function nativeSplits(fixture: NativeFixture, mode: '20-char' | 'boundary'): number[] {
+  const full = NATIVE_PROSE + nativeCall(fixture);
+  if (mode === '20-char') {
+    const splits = [];
+    for (let i = 20; i < full.length; i += 20) splits.push(i);
+    return [...splits, full.length];
+  }
+  const at = (needle: string, offset = 0) => full.indexOf(needle, NATIVE_PROSE.length) + offset;
+  const header = NATIVE_PROSE.length;
+  const open = at('(');
+  const close = at('):');
+  const brace = at('{');
+  const escape = full.indexOf('\\"', brace);
+  const points = [
+    header, // after prose, before '@'
+    header + 1, // '@' alone
+    header + 3, // inside the tool name
+    header + Math.min(fixture.tool.length, 9), // later inside the name (or '.' for MCP)
+    open, // name complete, '(' pending
+    open + 1,
+    open + 8, // inside the long call ID
+    open + 20,
+    close, // ID complete, '):' pending
+    close + 1, // between ')' and ':'
+    close + 2, // ':' arrived, whitespace pending
+    close + 3, // inside whitespace before '{'
+    brace, // whitespace complete, '{' pending
+    brace + 1,
+    brace + 4, // inside the first key
+    escape, // just before an escape sequence
+    escape + 1, // between '\' and '"'
+    full.length - 1, // before the final '}'
+    full.length,
+  ];
+  return [...new Set(points)].sort((a, b) => a - b);
+}
+
+async function streamNativeFixture(
+  page: Page,
+  fixture: NativeFixture,
+  start: 'empty' | 'mounted',
+  mode: '20-char' | 'boundary',
+  fault?: { kind: Fault; atPhase: string }
+) {
+  const full = NATIVE_PROSE + nativeCall(fixture);
+  const splits = nativeSplits(fixture, mode);
+  // 'mounted' mounts the message mid-stream: prose plus a partial header.
+  const mountedAt = start === 'mounted' ? NATIVE_PROSE.length + 4 : 0;
+  await page.evaluate(
+    async ({ id, content }) => {
+      const { replaceLog } = await import('/src/stores/conversations.ts');
+      replaceLog(id, [
+        { role: 'user', content: 'Check the notes.', timestamp: '2026-01-01T00:00:00Z' },
+        { role: 'assistant', content, isComplete: false, timestamp: '2026-01-01T00:00:01Z' },
+      ]);
+    },
+    { id: conversationId, content: full.slice(0, mountedAt) }
+  );
+  await nextFrames(page);
+  await installFrameOracle(page, {
+    messageSelector: '[data-message-index="1"]',
+    tail: NATIVE_TAIL,
+    literal: NATIVE_LITERAL,
+    leakMarkers: [fixture.callId.slice(-10), fixture.argMarker],
+    leakPattern: `@${fixture.tool.slice(0, 2).replace(/[.]/g, '\\.')}`,
+  });
+  await markChunk(page, -1, mountedAt ? nativePhase(full, mountedAt) : 'empty');
+  await nextFrames(page, 3);
+  let previous = mountedAt;
+  let chunk = 0;
+  let faulted = false;
+  for (const split of splits) {
+    if (split <= previous) continue;
+    const phase = nativePhase(full, split);
+    await markChunk(page, chunk++, phase);
+    await streamTokens(page, [full.slice(previous, split)]);
+    previous = split;
+    if (fault && !faulted && phase === fault.atPhase) {
+      await injectFault(page, fault.kind);
+      await nextFrames(page, 3);
+      faulted = true;
+    }
+  }
+  // Completion: the server finalizes the message and supplies its timestamp.
+  await markChunk(page, chunk, 'complete');
+  await page.evaluate(async (id) => {
+    const { conversations$ } = await import('/src/stores/conversations.ts');
+    const message$ = conversations$.get(id).data.log[1];
+    message$.timestamp.set('2026-01-01T00:00:09Z');
+    message$.isComplete.set(true);
+  }, conversationId);
+  await nextFrames(page, 4);
+  return stopFrameOracle(page);
+}
+
+function describeFailures(result: OracleResult): string {
+  return JSON.stringify(result.failures.slice(0, 5), null, 1);
+}
+
+for (const viewport of [
+  { name: 'desktop', width: 1280, height: 800 },
+  { name: 'narrow', width: 390, height: 844 },
+]) {
+  for (const fixture of NATIVE_FIXTURES) {
+    test(`native ${fixture.name} call streams without raw-header flashes or tail loss (${viewport.name})`, async ({
+      page,
+    }, testInfo) => {
+      // Open via the desktop sidebar, then resize: the narrow layout hides it.
+      await openTurn(page);
+      await page.setViewportSize(viewport);
+      const recording = await startRrweb(page);
+      const evidence: Record<string, unknown> = {};
+      try {
+        for (const start of ['empty', 'mounted'] as const) {
+          for (const mode of ['20-char', 'boundary'] as const) {
+            const label = `${start}/${mode}`;
+            const result = await streamNativeFixture(page, fixture, start, mode);
+            evidence[label] = {
+              samples: result.samples.length,
+              phases: result.phases,
+              failures: result.failures,
+              mutationLeaks: result.mutationLeaks,
+            };
+            // At least two frames per streamed chunk (streamTokens waits two frames).
+            const chunks = new Set(result.samples.map((s) => s.chunk)).size;
+            expect(chunks, `${label}: chunks sampled`).toBeGreaterThan(3);
+            expect(result.samples.length, `${label}: sample count`).toBeGreaterThanOrEqual(
+              2 * chunks
+            );
+            const expected =
+              start === 'empty' ? ['prose', 'header', 'payload'] : ['header', 'payload'];
+            for (const phase of [...expected, 'call-complete', 'complete']) {
+              expect(result.phases, `${label}: phase ${phase} observed`).toContain(phase);
+            }
+            expect(result.failures, `${label}: ${describeFailures(result)}`).toEqual([]);
+            // The literal example and the tail survived; the call is one collapsed block.
+            const message = page.locator('[data-message-index="1"]');
+            await expect(message).toContainText(NATIVE_LITERAL);
+            await expect(message).toContainText(NATIVE_TAIL);
+            const details = message.locator('details');
+            await expect(details).toHaveCount(1);
+            await expect(details).not.toHaveAttribute('open', '');
+          }
+        }
+      } finally {
+        // Keep the replay on failure: that is when it is useful for diagnosis.
+        if (recording) {
+          const path = testInfo.outputPath('rrweb-events.json');
+          writeFileSync(path, JSON.stringify(await stopRrweb(page)));
+          await testInfo.attach('rrweb-events', { path, contentType: 'application/json' });
+        }
+      }
+      // Expanding the call reveals the payload without displacing the tail.
+      const message = page.locator('[data-message-index="1"]');
+      await message.locator('details summary').click();
+      await expect(message.locator('details')).toContainText(fixture.argMarker.slice(2, -1));
+      await expect(message).toContainText(NATIVE_TAIL);
+      await page.screenshot({ path: testInfo.outputPath(`native-${fixture.name}-expanded.png`) });
+      await testInfo.attach('native-stream-frames', {
+        body: JSON.stringify(evidence),
+        contentType: 'application/json',
+      });
+    });
+  }
+}
+
+test('native stream oracle catches one-frame payload flashes and tail clipping', async ({
+  page,
+}, testInfo) => {
+  await openTurn(page);
+  const recording = await startRrweb(page);
+  const fixture = NATIVE_FIXTURES[0];
+  const evidence: Record<string, unknown> = {};
+  for (const [kind, atPhase, expected] of [
+    ['payload-flash', 'payload', /@sh|call_|\{"command"/],
+    ['tail-clip', 'header', /clipped|no area|occluded|hides/],
+  ] as const) {
+    const result = await streamNativeFixture(page, fixture, 'mounted', 'boundary', {
+      kind,
+      atPhase,
+    });
+    evidence[kind] = result.failures;
+    // Exactly the faulty frame fails, and it carries chunk/phase/timestamp.
+    expect(result.failures.length, `${kind} must be detected`).toBeGreaterThan(0);
+    expect(result.failures.every((f) => f.fault === kind)).toBe(true);
+    const failure = result.failures[0];
+    expect(failure.phase).toBe(atPhase);
+    expect(failure.chunk).toBeGreaterThanOrEqual(0);
+    expect(String(kind === 'payload-flash' ? failure.leak : failure.tailClip)).toMatch(expected);
+  }
+  if (recording) {
+    const path = testInfo.outputPath('rrweb-events.json');
+    writeFileSync(path, JSON.stringify(await stopRrweb(page)));
+    await testInfo.attach('rrweb-events', { path, contentType: 'application/json' });
+  }
+  await testInfo.attach('oracle-negative-controls', {
+    body: JSON.stringify(evidence),
+    contentType: 'application/json',
+  });
+});
+
+test('native tool call inside a grouped step keeps the tail visible when expanded', async ({
+  page,
+}) => {
+  await openTurn(page);
+  const fixture = NATIVE_FIXTURES[0];
+  const result = await streamNativeFixture(page, fixture, 'empty', 'boundary');
+  expect(result.failures, describeFailures(result)).toEqual([]);
+  await page.evaluate(async (id) => {
+    const { addMessage } = await import('/src/stores/conversations.ts');
+    addMessage(id, {
+      role: 'system',
+      content: 'Ran command\n\n```stdout\na "quoted" word\ndone\nok\n```',
+      timestamp: '2026-01-01T00:00:10Z',
+    });
+    addMessage(id, {
+      role: 'assistant',
+      content: 'The notes are up to date.',
+      timestamp: '2026-01-01T00:00:11Z',
+    });
+  }, conversationId);
+  const toggle = page.getByRole('button', { name: /\d+ steps?/ });
+  await expect(toggle).toBeVisible();
+  // Collapsed group hides the step; expanding must restore the full tail, collapsed.
+  await toggle.click();
+  const message = page.locator('[data-message-index="1"]');
+  await expect(message).toContainText(NATIVE_TAIL);
+  await expect(message).not.toContainText('@shell(');
+  await expect(message.locator('details').first()).not.toHaveAttribute('open', '');
+  await installFrameOracle(page, {
+    messageSelector: '[data-message-index="1"]',
+    tail: NATIVE_TAIL,
+    literal: NATIVE_LITERAL,
+    leakMarkers: [fixture.callId.slice(-10), fixture.argMarker],
+    leakPattern: '@sh',
+  });
+  await markChunk(page, 0, 'group-expanded');
+  await nextFrames(page, 6);
+  const expanded = await stopFrameOracle(page);
+  expect(expanded.samples.length).toBeGreaterThan(3);
+  expect(expanded.failures, describeFailures(expanded)).toEqual([]);
+  await toggle.click();
+  await expect(page.locator('[data-message-index="3"]')).toContainText('up to date');
 });

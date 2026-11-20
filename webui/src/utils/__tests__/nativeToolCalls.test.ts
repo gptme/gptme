@@ -14,8 +14,8 @@ describe('native tool transcripts', () => {
   });
 
   it('holds partial headers while streaming, but not ordinary annotations', () => {
-    expect(renderNativeToolCalls('Reply.\n@shell(call_123456', true)).toBe('Reply.');
-    expect(renderNativeToolCalls('Reply.\n@docs/team.search(call_1', true)).toBe('Reply.');
+    expect(renderNativeToolCalls('Reply.\n@shell(call_123456', true)).toBe('Reply.\n');
+    expect(renderNativeToolCalls('Reply.\n@docs/team.search(call_1', true)).toBe('Reply.\n');
     expect(renderNativeToolCalls('@note: {"important":true}', true)).toBe(
       '@note: {"important":true}'
     );
@@ -41,6 +41,19 @@ describe('native tool transcripts', () => {
       expect(parseToolCalls(text).map((call) => call.tool)).toEqual([name]);
       expect(renderNativeToolCalls(text)).toContain(`\`\`\`tool-call ${name}`);
       expect(renderNativeToolCalls(text)).not.toContain(`@${name}(call_1)`);
+    }
+  });
+
+  it('keeps held streaming output an append-only extension at every split', () => {
+    // A non-prefix change makes ChatMessage rebuild the parser mid-stream,
+    // which re-parses (and briefly drops) the painted reply tail (#5023).
+    const full = 'Reply ends here.\n@mcp.search_memory(toolu_01HzVq8PkW3):  {"query":"a \\"b\\""}';
+    let previous = '';
+    for (let i = 0; i <= full.length; i++) {
+      const rendered = renderNativeToolCalls(full.slice(0, i), true);
+      expect(rendered.startsWith(previous)).toBe(true);
+      expect(rendered).not.toMatch(/@mc|toolu_/);
+      previous = rendered;
     }
   });
 
