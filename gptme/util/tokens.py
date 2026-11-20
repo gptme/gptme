@@ -219,6 +219,7 @@ _PROVIDER_PREFIXES = (
     "openai/",
     "openrouter/openai/",
     "requesty/openai/",
+    "llmtr/openai/",
     "gptme/openrouter/openai/",
     "anthropic/",
     "google/",

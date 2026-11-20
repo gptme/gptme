@@ -42,6 +42,7 @@ RECOMMENDED_MODELS: dict[str, str] = {
     "deepseek": "deepseek-v4-flash",
     "opencode-go": "deepseek-v4.1-flash",
     "groq": "llama-3.3-70b-versatile",
+    "llmtr": "minimax/minimax-m3.1-flash",
 }
 
 # Cheaper/faster model per provider used for summaries, titles, and other

@@ -72,6 +72,7 @@ def test_get_tokenizer_provider_prefixed_o1():
     for model in (
         "openai/gpt-4o-mini",
         "requesty/openai/gpt-4o-mini",
+        "llmtr/openai/gpt-4o-mini",
         "openrouter/openai/gpt-4o",
         "gptme/openrouter/openai/gpt-4o",
     ):

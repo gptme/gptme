@@ -266,6 +266,31 @@ Requesty
 
 Get an API key at https://app.requesty.ai/ (navigate to API Keys). See https://docs.requesty.ai for details.
 
+.. _llmtr:
+
+LLMTR
+~~~~~
+
+`LLMTR <https://llmtr.com/>`__ is an OpenAI-compatible LLM gateway. Model IDs
+are namespaced ``vendor/model`` values such as
+``llmtr/minimax/minimax-m3.1-flash``. IDs under ``llmtr/`` (for example
+``llmtr/llmtr/…``) are hosted in Turkey; other vendor/model IDs route to their
+vendors. It is reached through the standard OpenAI-compatible client path.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    LLMTR_API_KEY = "your-api-key"
+
+.. code-block:: bash
+
+    gptme "hello" -m llmtr/minimax/minimax-m3.1-flash
+
+Get an API key at https://llmtr.com/dashboard/keys.
+
 .. _opencode-go:
 
 OpenCode Go

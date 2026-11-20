@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "llmtr",
         "opencode-go",
         "openrouter",
         "nvidia",
@@ -869,6 +870,13 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.6,
             "supports_vision": True,
             "preferred_edit_format": "whole",
+        },
+    },
+    # LLMTR — OpenAI-compatible gateway. Model keys are vendor/model ids
+    # (everything after "llmtr/"). Pricing is not hardcoded; it varies by route.
+    "llmtr": {
+        "minimax/minimax-m3.1-flash": {
+            "context": 128_000,
         },
     },
     # gptme managed service — proxies to multiple providers

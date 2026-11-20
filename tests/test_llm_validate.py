@@ -58,6 +58,14 @@ class TestValidateApiKey:
         )
 
     @patch("gptme.llm.validate._validate_openai_compatible")
+    def test_llmtr_provider_calls_compatible_validator(self, mock_validate):
+        mock_validate.return_value = (True, "")
+        validate_api_key("sk-llmtr-test", "llmtr")
+        mock_validate.assert_called_once_with(
+            "sk-llmtr-test", 10, "https://llmtr.com/v1"
+        )
+
+    @patch("gptme.llm.validate._validate_openai_compatible")
     def test_moonshot_provider_calls_compatible_validator(self, mock_validate):
         mock_validate.return_value = (True, "")
         validate_api_key("moonshot-test", "moonshot")
@@ -464,6 +472,7 @@ class TestProviderDocs:
             "azure",
             "nvidia",
             "requesty",
+            "llmtr",
             "moonshot",
             "local",
         ]

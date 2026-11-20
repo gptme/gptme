@@ -83,6 +83,9 @@ Each links to its setup details on :doc:`providers-supported`.
    * - :ref:`Requesty <requesty>`
      - ``requesty/``
      - ``REQUESTY_API_KEY``
+   * - :ref:`LLMTR <llmtr>`
+     - ``llmtr/``
+     - ``LLMTR_API_KEY``
    * - :ref:`Groq <groq>`
      - ``groq/``
      - ``GROQ_API_KEY``
