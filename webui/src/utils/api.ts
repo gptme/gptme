@@ -102,7 +102,7 @@ function currentLogRevision(conversationId: string): number {
   return conversations$.get(conversationId)?.logRevision.get() ?? 0;
 }
 
-function sameLogMessage(a: Message, b: Message): boolean {
+export function sameLogMessage(a: Message, b: Message): boolean {
   if (a.timestamp === undefined || b.timestamp === undefined) return false;
   // Date.parse normalizes timezone/formatting but drops sub-millisecond digits.
   // Preserve those digits too: Python logs can contain microsecond timestamps.

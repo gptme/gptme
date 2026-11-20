@@ -43,6 +43,7 @@ import {
   AttachmentUploadError,
   getApiErrorPresentation,
   getClientGeneration,
+  sameLogMessage,
 } from '@/utils/api';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 
@@ -94,7 +95,11 @@ export function useConversation(conversationId: string, serverId?: string) {
       temperature?: number,
       topP?: number
     ) => {
-      conversation$?.disconnectedGenerationPrompt.set(undefined);
+      // Retrying the same saved prompt must not erase its outage recovery
+      // candidate. A different prompt still invalidates the old candidate.
+      if (conversation$?.disconnectedGenerationPrompt.peek() !== timestamp) {
+        conversation$?.disconnectedGenerationPrompt.set(undefined);
+      }
       const previous = conversation$?.generationPrompt.peek();
       const revision = conversation$?.generationRevision.peek();
       conversation$?.pendingGenerationPrompt.set(timestamp);
@@ -787,7 +792,11 @@ export function useConversation(conversationId: string, serverId?: string) {
                 // Older servers without turn identity cannot safely recover it.
                 !!state.latestUserTimestamp &&
                 !!recovery &&
-                new Date(state.latestUserTimestamp).getTime() === new Date(recovery).getTime() &&
+                sameLogMessage(log[index], {
+                  role: 'user',
+                  content: '',
+                  timestamp: state.latestUserTimestamp,
+                }) &&
                 log[index]._retry?.persistence === 'saved' &&
                 !log.slice(index + 1).some((message) => message.role === 'user')
               ) {
@@ -1171,6 +1180,21 @@ export function useConversation(conversationId: string, serverId?: string) {
           conversation$?.pendingTool.get()?.id === confirmedToolId
         ) {
           setPendingTool(conversationId, null, null);
+        }
+        if (action === 'skip' && alreadyHandled) {
+          // No continuation was dispatched for this duplicate. Reconcile with
+          // the server instead of waiting for an event that may already have
+          // passed, or declaring an actually running peer continuation idle.
+          const revision = conversation$?.generationRevision.peek();
+          const sessions = await api.getSessions();
+          if (conversation$?.generationRevision.peek() === revision) {
+            setGenerating(
+              conversationId,
+              sessions.some(
+                (session) => session.conversation_id === conversationId && session.generating
+              )
+            );
+          }
         }
       } catch (error) {
         console.error('Error confirming tool:', error);

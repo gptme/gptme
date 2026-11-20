@@ -1400,6 +1400,29 @@ describe('useConversation', () => {
     expect(conv$.isGenerating.get()).toBe(false);
   });
 
+  it.each([false, true])(
+    'reconciles duplicate Skip with server generating=%s',
+    async (generating) => {
+      const conv$ = conversations$.get('chat-placeholder')!;
+      conv$.needsInitialStep.set(false);
+      primaryClient.getSessions = jest.fn().mockResolvedValue([
+        { conversation_id: 'chat-placeholder', generating },
+        { conversation_id: 'another-chat', generating: true },
+      ]);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() =>
+        eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false)
+      );
+      confirmToolApi.mockResolvedValueOnce(true);
+      await act(async () => {
+        await result.current.confirmTool('skip');
+      });
+      expect(conv$.isGenerating.get()).toBe(generating);
+      expect(conv$.pendingTool.get()).toBeNull();
+    }
+  );
+
   it('releases the Skip reservation when confirmation fails', async () => {
     const conv$ = conversations$.get('chat-placeholder')!;
     conv$.needsInitialStep.set(false);
@@ -1939,6 +1962,75 @@ describe('useConversation', () => {
       }
     }
   );
+
+  it('retains a disconnected same-prompt candidate through 409 backoff', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    jest.useFakeTimers();
+    try {
+      step.mockImplementationOnce(async () => {
+        eventHandlers!.onError!('Connection lost and max reconnects reached');
+        throw new ApiClientError('Busy', 409);
+      });
+      step.mockRejectedValueOnce(new ApiClientError('Busy', 409));
+      let sending!: Promise<void>;
+      await act(async () => {
+        sending = result.current.sendMessage({ message: 'Recover during backoff' });
+      });
+      const prompt = conv$.data.log.peek().at(-1)!;
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(250);
+      });
+      act(() => {
+        eventHandlers!.onError!('Connection lost and max reconnects reached');
+        eventHandlers!.onReconnectState!({
+          generating: true,
+          latestUserTimestamp: prompt.timestamp,
+          pendingTools: [],
+        });
+        eventHandlers!.onError!('Error code: 402 - Payment required');
+      });
+      expect(conv$.data.log.peek().find((m) => m.timestamp === prompt.timestamp)?._status).toBe(
+        'failed'
+      );
+      await act(async () => {
+        await jest.runAllTimersAsync();
+        await sending;
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not recover a different prompt within the same millisecond', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const timestamp = '2026-11-20T10:00:00.123456Z';
+    conv$.data.log.set([
+      {
+        role: 'user',
+        content: 'Old turn',
+        timestamp,
+        _retry: { persistence: 'saved', options: {} },
+      },
+    ]);
+    conv$.generationPrompt.set(timestamp);
+    act(() => {
+      eventHandlers!.onError!('Connection lost and max reconnects reached');
+      eventHandlers!.onReconnectState!({
+        generating: true,
+        latestUserTimestamp: '2026-11-20T10:00:00.123457+00:00',
+        pendingTools: [],
+      });
+      eventHandlers!.onError!('Error code: 402 - Payment required');
+    });
+    expect(conv$.data.log.peek()[0]._status).not.toBe('failed');
+    expect(result.current).toBeDefined();
+  });
 
   it('restores ownership for a still-generating turn after reconnect', async () => {
     const conv$ = conversations$.get('chat-placeholder')!;
