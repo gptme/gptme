@@ -27,6 +27,8 @@ describe('ErrorBoundary', () => {
   });
 
   it('shows fallback UI on render error', () => {
+    // Clear any record from an earlier test so the assertion proves a fresh write.
+    localStorage.removeItem('gptme-last-render-error');
     render(
       <ErrorBoundary>
         <Bomb shouldThrow={true} />
@@ -34,6 +36,10 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.queryByTestId('ok')).not.toBeInTheDocument();
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('gptme-last-render-error')!)).toMatchObject({
+      name: 'Error',
+      message: 'Test render error',
+    });
     expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
   });
 

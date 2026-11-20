@@ -13,6 +13,7 @@ import {
   Bookmark,
   BookmarkCheck,
   Brain,
+  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PromptTextarea } from '@/components/PromptTextarea';
@@ -34,6 +35,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { serverRegistry$ } from '@/stores/servers';
 import { composerDraftKey } from '@/utils/composerDraft';
 import { useComposerDraft } from '@/hooks/useComposerDraft';
+import { useMessageQueue, type QueuedMessage } from '@/hooks/useMessageQueue';
 import { AttachmentUploadError } from '@/utils/api';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
@@ -76,7 +78,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+export type PersistenceOutcome = 'saved' | 'rejected' | 'unknown';
+
 export interface ChatOptions {
+  /** Queue acknowledgement: a resolved generation call is not proof of persistence. */
+  onPersistenceOutcome?: (outcome: PersistenceOutcome) => void;
   model?: string;
   /** Empty string restores server inheritance; omitted keeps the conversation setting. */
   reasoningEffort?: string;
@@ -574,38 +580,122 @@ const AgentBadge: FC<{ agent: Agent; baseUrl: string; onRemove: () => void }> = 
   </Badge>
 );
 
-const QueuedMessageBadge: FC<{ message: string; onClear: () => void; onRetry?: () => void }> = ({
+const QueuedMessageBadge: FC<{
+  message: string;
+  onClear: () => void;
+  /** Returns false when the edit could not be saved; the editor then stays open. */
+  onEdit: (text: string) => boolean;
+  onEditingChange: (editing: boolean) => void;
+  onRetry?: () => void;
+  retryLabel?: string;
+  missingFiles?: string[];
+  saveUnknown?: boolean;
+  onRestore?: () => void;
+  sending?: boolean;
+  editDraft?: string;
+  onDraftChange: (text: string | undefined) => void;
+}> = ({
   message,
   onClear,
+  onEdit,
+  onEditingChange,
   onRetry,
+  retryLabel,
+  missingFiles,
+  saveUnknown,
+  onRestore,
+  sending,
+  editDraft,
+  onDraftChange,
 }) => {
-  // Truncate long messages for display
-  const displayMessage = message.length > 30 ? message.slice(0, 30) + '...' : message;
-
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(message);
+  const finishEditing = () => {
+    setEditing(false);
+    onDraftChange(undefined);
+    onEditingChange(false);
+  };
+  if (editing) {
+    return (
+      <div className="w-full space-y-2 rounded border p-2">
+        <PromptTextarea
+          aria-label="Edit queued message"
+          value={text}
+          onValueChange={(value) => {
+            setText(value);
+            onDraftChange(value);
+          }}
+          onSubmit={() => {
+            if (onEdit(text)) finishEditing();
+          }}
+          onEscape={finishEditing}
+          autoFocus
+        />
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => {
+            if (onEdit(text)) finishEditing();
+          }}
+        >
+          Save queued message
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={finishEditing}>
+          Cancel editing
+        </Button>
+      </div>
+    );
+  }
   return (
     <Badge
       variant="outline"
       className="flex items-center gap-1.5 border-blue-500 bg-blue-50 pr-1 dark:bg-blue-950"
     >
-      <div className="flex items-center gap-1.5">
-        <Clock className="h-3 w-3 text-blue-600" />
-        <span className="text-xs text-blue-700 dark:text-blue-300" title={message}>
-          Queued: {displayMessage}
-        </span>
-      </div>
+      <Clock className="h-3 w-3 text-blue-600" />
+      <span className="text-xs text-blue-700 dark:text-blue-300" title={message}>
+        Queued: {message.length > 30 ? message.slice(0, 30) + '...' : message}
+      </span>
+      {missingFiles?.length ? (
+        <span>Reattach files before sending: {missingFiles.join(', ')}</span>
+      ) : null}
       <Button
+        type="button"
         variant="ghost"
         size="sm"
-        onClick={onClear}
-        className="h-4 w-4 p-0 hover:bg-destructive/20"
-        title="Clear queued message"
-        aria-label="Clear queued message"
+        aria-label="Edit queued message"
+        disabled={sending}
+        onClick={() => {
+          setText(editDraft ?? message);
+          setEditing(true);
+          onDraftChange(editDraft ?? message);
+          onEditingChange(true);
+        }}
       >
-        <X className="h-2.5 w-2.5" />
+        <Pencil className="h-3 w-3" />
       </Button>
-      {onRetry && (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label="Clear queued message"
+        disabled={sending}
+        onClick={() => {
+          if (window.confirm('Remove this queued message? This cannot be undone.')) onClear();
+        }}
+      >
+        <X className="h-3 w-3" />
+      </Button>
+      {onRestore && (
+        <Button type="button" variant="ghost" size="sm" onClick={onRestore}>
+          Return to composer
+        </Button>
+      )}
+      {saveUnknown && <span>Save unconfirmed — check history before resending</span>}
+      {editDraft !== undefined && <span>Unsaved edit recovered</span>}
+      {sending && <span>Sending…</span>}
+      {onRetry && !sending && (
         <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
-          Retry upload
+          {retryLabel ?? 'Retry send'}
         </Button>
       )}
     </Badge>
@@ -928,27 +1018,11 @@ export const ChatInput: FC<Props> = ({
   const message = value !== undefined ? value : internalMessage;
   const setMessage = value !== undefined ? onChange || (() => {}) : setInternalMessage;
 
-  // Message queue - stores messages to send when generation completes
-  // Options are captured at queue time to prevent changes during generation from affecting the send
-  interface QueuedMessage {
-    text: string;
-    options: ChatOptions;
-    uploadFailed?: boolean;
-  }
-  // Keep raw File objects in memory under their owning draft, never in another
-  // conversation's queue. Switching away must not discard a failed upload.
-  const [messageQueues, setMessageQueues] = useState<Record<string, QueuedMessage[]>>({});
-  const messageQueue: QueuedMessage[] = storageKey != null ? (messageQueues[storageKey] ?? []) : [];
-  const setMessageQueue = useCallback(
-    (update: SetStateAction<QueuedMessage[]>) => {
-      if (!storageKey) return;
-      setMessageQueues((queues) => ({
-        ...queues,
-        [storageKey]: typeof update === 'function' ? update(queues[storageKey] ?? []) : update,
-      }));
-    },
-    [storageKey]
-  );
+  // Persist text/options under the same server/account owner as composer drafts.
+  const [messageQueue, setMessageQueue] = useMessageQueue(storageKey);
+  const [editingQueuedMessage, setEditingQueuedMessage] = useState(false);
+  // Keyed by queue owner: a pending send must not block another conversation's queue.
+  const queueSendInFlight = useRef(new Set<string>());
   const [isUploading, setIsUploading] = useState(false);
   const uploadInFlight = useRef(false);
   // Async upload completion must not clear a different conversation's draft.
@@ -963,6 +1037,7 @@ export const ChatInput: FC<Props> = ({
     conversationEpoch.current++;
     uploadInFlight.current = false;
     setIsUploading(false);
+    setEditingQueuedMessage(false);
     wasBusy.current = false;
     return () => {
       submissionEpoch.current++;
@@ -1031,21 +1106,77 @@ export const ChatInput: FC<Props> = ({
   // Send next queued message once the step is fully done (not just paused for a
   // tool confirmation, which would flush mid-step).
   useEffect(() => {
-    if (wasBusy.current && !isBusy && messageQueue.length > 0) {
-      if (!onSend) return;
+    if (wasBusy.current && !isBusy && !editingQueuedMessage && messageQueue.length > 0) {
+      const sendKey = storageKey ?? '';
+      if (!onSend || queueSendInFlight.current.has(sendKey)) return;
       const nextMessage = messageQueue[0];
-      if (nextMessage.uploadFailed) return;
+      if (nextMessage.uploadFailed || nextMessage.editDraft !== undefined || nextMessage.sending)
+        return;
+      // Claim against the live shared queue, not this render's snapshot: another
+      // split-pane effect may already have claimed the same head in this commit.
+      let claimed = false;
+      // Retain the item durably until the send resolves. On reload, an
+      // interrupted send requires an explicit retry (never an automatic duplicate).
+      if (
+        !setMessageQueue((prev) => {
+          const head = prev[0];
+          if (
+            !head ||
+            head.id !== nextMessage.id ||
+            head.uploadFailed ||
+            head.editDraft !== undefined ||
+            head.sending
+          )
+            return prev;
+          claimed = true;
+          return [{ ...head, uploadFailed: true, sending: true }, ...prev.slice(1)];
+        })
+      ) {
+        toast({
+          variant: 'destructive',
+          title: 'Could not save queued message',
+          description:
+            'Browser storage is full. Your queued prompt is retained; free storage before retrying.',
+        });
+        return;
+      }
+      if (!claimed) return;
       console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
-      // Remove the message from queue first, then send. On a 409 (server still
-      // generating), put it back at the front of the queue — the message is not
-      // lost and will be retried when isBusy next transitions to false.
-      setMessageQueue((prev) => prev.slice(1));
+      queueSendInFlight.current.add(sendKey);
       const owner = conversationEpoch.current;
-      const result = onSend(nextMessage.text, nextMessage.options);
-      if (result instanceof Promise) {
-        result.catch((error: unknown) => {
+      const settle = (update: (prev: QueuedMessage[]) => QueuedMessage[]) => {
+        if (setMessageQueue(update, { memoryFallback: true })) return;
+        toast({
+          variant: 'destructive',
+          title: 'Could not save queue state',
+          description:
+            'Browser storage is full. The queue was updated for this tab; free storage to keep it across reloads.',
+        });
+      };
+      const send = async () => {
+        try {
+          let persisted: PersistenceOutcome | undefined;
+          await onSend(nextMessage.text, {
+            ...nextMessage.options,
+            onPersistenceOutcome: (outcome) => {
+              persisted = outcome;
+            },
+          });
+          if (persisted === 'rejected' || persisted === 'unknown') {
+            const saveUnknown = persisted === 'unknown';
+            settle((prev) =>
+              prev.map((item) =>
+                item.id === nextMessage.id
+                  ? { ...item, sending: false, uploadFailed: true, saveUnknown }
+                  : item
+              )
+            );
+          } else {
+            settle((prev) => prev.filter((item) => item.id !== nextMessage.id));
+          }
+        } catch (error: unknown) {
           // The scoped setter restores failed work to its original draft even
           // when the user switched away while the request was pending.
           const status =
@@ -1053,7 +1184,7 @@ export const ChatInput: FC<Props> = ({
               ? (error as { status: number }).status
               : undefined;
           if (error instanceof AttachmentUploadError) {
-            setMessageQueue((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev]);
+            settle((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev.slice(1)]);
             if (conversationEpoch.current === owner) {
               toast({
                 variant: 'destructive',
@@ -1063,19 +1194,23 @@ export const ChatInput: FC<Props> = ({
             }
           } else if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
-            setMessageQueue((prev) => [nextMessage, ...prev]);
+            settle((prev) => [nextMessage, ...prev.slice(1)]);
             // Returning to idle A while this POST is pending leaves the queue
             // empty, so the switch effect cannot re-arm wasBusy. Retry whenever
             // the original draft is visible, even after conversationEpoch moved.
             if (currentDraftKey.current === storageKey) scheduleQueueRetry();
           } else {
+            settle((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev.slice(1)]);
             console.error('[ChatInput] Failed to send queued message:', error);
           }
-        });
-      }
+        } finally {
+          queueSendInFlight.current.delete(sendKey);
+        }
+      };
+      void send();
     }
-    wasBusy.current = isBusy;
-  }, [isBusy, messageQueue, onSend, toast, setMessageQueue]);
+    if (!editingQueuedMessage) wasBusy.current = isBusy;
+  }, [isBusy, messageQueue, onSend, toast, setMessageQueue, editingQueuedMessage, storageKey]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
   // Sidebar workspace selections sync both ways. Agent default applies only when
@@ -1153,23 +1288,34 @@ export const ChatInput: FC<Props> = ({
           queueLength: messageQueue.length + 1,
         });
         // Capture options at queue time to preserve user's intent
-        setMessageQueue((prev) => [
-          ...prev,
-          {
-            text: message,
-            options: {
-              model: hasExplicitModelSelection ? effectiveModel : undefined,
-              reasoningEffort,
-              stream: streamingEnabled,
-              workspace: selectedWorkspace || undefined,
-              files: uploadedPaths,
-              pendingFiles,
-              maxTokens,
-              temperature,
-              topP,
+        try {
+          const saved = setMessageQueue((prev) => [
+            ...prev,
+            {
+              text: message,
+              options: {
+                model: hasExplicitModelSelection ? effectiveModel : undefined,
+                reasoningEffort,
+                stream: streamingEnabled,
+                workspace: selectedWorkspace || undefined,
+                files: uploadedPaths,
+                pendingFiles,
+                maxTokens,
+                temperature,
+                topP,
+              },
             },
-          },
-        ]);
+          ]);
+          if (!saved) throw new Error('Queue storage unavailable');
+        } catch {
+          toast({
+            variant: 'destructive',
+            title: 'Could not save queued message',
+            description:
+              'Your message is still in the composer. Free browser storage before trying again.',
+          });
+          return;
+        }
         setMessage('');
         cleanupAndClearFiles();
         // Clear localStorage draft since we're queueing it
@@ -1243,8 +1389,8 @@ export const ChatInput: FC<Props> = ({
         if (status === 409 && !(error instanceof AttachmentUploadError)) {
           // The captured setter belongs to the original draft, even if another
           // conversation is visible now. Only its active composer may retry.
-          clearSubmittedDraft();
           setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
+          clearSubmittedDraft();
           if (currentDraftKey.current === draftKey) {
             scheduleQueueRetry();
           }
@@ -1412,8 +1558,60 @@ export const ChatInput: FC<Props> = ({
           <div className="flex flex-wrap items-center gap-1">
             {messageQueue.map((msg: QueuedMessage, index: number) => (
               <QueuedMessageBadge
-                key={index}
-                message={messageQueue.length > 1 ? `(${index + 1}) ${msg.text}` : msg.text}
+                key={msg.id}
+                message={msg.text}
+                sending={msg.sending}
+                editDraft={msg.editDraft}
+                onDraftChange={(editDraft) =>
+                  setMessageQueue((prev) =>
+                    prev.map((item) => (item.id === msg.id ? { ...item, editDraft } : item))
+                  )
+                }
+                onRestore={
+                  msg.missingFiles?.length
+                    ? () => {
+                        if (message.trim() || attachedFiles.length) {
+                          toast({
+                            title: 'Composer is not empty',
+                            description:
+                              'Save or send the current draft before restoring this queued prompt.',
+                          });
+                          return;
+                        }
+                        setMessage(msg.editDraft ?? msg.text);
+                        setHasExplicitModelSelection(!!msg.options.model);
+                        if (msg.options.model) setSelectedModel(msg.options.model);
+                        setStreamingEnabled(msg.options.stream ?? true);
+                        setMaxTokens(msg.options.maxTokens);
+                        setTemperature(msg.options.temperature);
+                        setTopP(msg.options.topP);
+                        if (msg.options.workspace) setSelectedWorkspace(msg.options.workspace);
+                        setAttachedFiles(createAttachedFiles(msg.options.files));
+                        setMessageQueue((prev) => prev.filter((_, i) => i !== index));
+                        textareaRef.current?.focus();
+                      }
+                    : undefined
+                }
+                missingFiles={msg.missingFiles}
+                saveUnknown={msg.saveUnknown}
+                retryLabel={msg.options.pendingFiles?.length ? 'Retry upload' : 'Retry send'}
+                onEditingChange={(editing) => {
+                  setEditingQueuedMessage(editing);
+                  if (!editing) wasBusy.current = true;
+                }}
+                onEdit={(text) => {
+                  const saved = setMessageQueue((prev) =>
+                    prev.map((item) => (item.id === msg.id ? { ...item, text } : item))
+                  );
+                  if (!saved)
+                    toast({
+                      variant: 'destructive',
+                      title: 'Could not save queued message',
+                      description:
+                        'Browser storage is full. Your edit is still open; free storage and save again.',
+                    });
+                  return saved;
+                }}
                 onClear={() => {
                   // A failed upload never starts generation, so discarding it
                   // must re-arm the flush for messages waiting behind it.
@@ -1421,12 +1619,22 @@ export const ChatInput: FC<Props> = ({
                   setMessageQueue((prev) => prev.filter((_, i) => i !== index));
                 }}
                 onRetry={
-                  msg.uploadFailed
+                  msg.uploadFailed && !msg.missingFiles?.length
                     ? () => {
+                        // The server may already hold this prompt; reposting would duplicate it.
+                        if (
+                          msg.saveUnknown &&
+                          !window.confirm(
+                            'This prompt may already be saved. Check the conversation history first. Send it again anyway?'
+                          )
+                        )
+                          return;
                         wasBusy.current = true;
                         setMessageQueue((prev) =>
                           prev.map((item, i) =>
-                            i === index ? { ...item, uploadFailed: false } : item
+                            i === index
+                              ? { ...item, uploadFailed: false, saveUnknown: undefined }
+                              : item
                           )
                         );
                       }

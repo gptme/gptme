@@ -10,7 +10,7 @@ const mockUploadFiles = jest.fn();
 //   undefined = fetch not yet attempted (show loading skeleton)
 //   null      = fetch completed but failed (show fallback model, no skeleton)
 //   ChatConfig = successfully fetched
-type MockChatConfig = { chat: { model?: string } } | null | undefined;
+type MockChatConfig = { chat: { model?: string; reasoning_effort?: string } } | null | undefined;
 const mockConversation$ = observable<{
   isGenerating: boolean;
   executingTool: null;
@@ -226,6 +226,264 @@ describe('ChatInput', () => {
       expect(onSendB).not.toHaveBeenCalled();
     }
   );
+
+  it('persists queued text through remount and supports non-destructive edit/cancel', () => {
+    const onSend = jest.fn();
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'long original prompt' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    first.unmount();
+    render(<ChatInput {...props} />);
+    expect(screen.getByText('Queued: long original prompt')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'changed prompt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel editing' }));
+    expect(screen.getByText('Queued: long original prompt')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'saved prompt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    expect(screen.getByText('Queued: saved prompt')).toBeInTheDocument();
+    expect(onSend).not.toHaveBeenCalled();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear queued message' }));
+    expect(screen.getByText('Queued: saved prompt')).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it('does not flush a queued message while its edit is open', async () => {
+    const onSend = jest.fn().mockResolvedValue(undefined);
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'original' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'replacement' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('replacement', expect.any(Object)));
+  });
+
+  it('sends a shared queued head only once when split panes become idle together', async () => {
+    let finishSend!: () => void;
+    const onSend = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        })
+    );
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    render(
+      <>
+        <ChatInput {...props} />
+        <ChatInput {...props} />
+      </>
+    );
+    const input = screen.getAllByRole('textbox', { name: 'Chat message' })[0];
+    fireEvent.change(input, { target: { value: 'send exactly once' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(screen.getAllByText('Queued: send exactly once')).toHaveLength(2);
+
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith('send exactly once', expect.any(Object));
+    await act(async () => finishSend());
+    expect(screen.queryByText('Queued: send exactly once')).not.toBeInTheDocument();
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves queued reasoning effort through reload even when conversation settings change', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('saved');
+    });
+    mockConversation$.set({
+      isGenerating: true,
+      executingTool: null,
+      chatConfig: { chat: { reasoning_effort: 'high' } },
+    });
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'think carefully' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    first.unmount();
+    mockConversation$.chatConfig.set({ chat: { reasoning_effort: 'low' } });
+    render(<ChatInput {...props} />);
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(
+        'think carefully',
+        expect.objectContaining({ reasoningEffort: 'high' })
+      )
+    );
+  });
+
+  it('retains a queued prompt when production send resolves with a rejected persistence outcome', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('rejected');
+    });
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'rejected prompt' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Queued: rejected prompt')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry send' })).toBeInTheDocument();
+  });
+
+  it('withholds Retry of an unconfirmed save until the user confirms a resend', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('unknown');
+    });
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'maybe saved' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Save unconfirmed/)).toBeInTheDocument();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    confirm.mockRestore();
+  });
+
+  it('never resends stale text when Retry is clicked on a prompt with a recovered edit draft', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('unknown');
+    });
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'original text' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'edited text' },
+    });
+    // Abandon the edit by reloading: the draft survives as an unsaved edit.
+    first.unmount();
+    render(<ChatInput {...props} />);
+    expect(screen.getByText('Unsaved edit recovered')).toBeInTheDocument();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    await act(async () => {});
+    expect(onSend).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    expect(screen.getByRole('textbox', { name: 'Edit queued message' })).toHaveValue('edited text');
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    expect(onSend).toHaveBeenLastCalledWith('edited text', expect.any(Object));
+    confirm.mockRestore();
+  });
+
+  it("does not let a pending send in one conversation block another conversation's queue", async () => {
+    const autoFocus$ = observable(false);
+    const onSendA = jest.fn(() => new Promise<void>(() => {}));
+    const onSendB = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('saved');
+    });
+    mockConversation$.isGenerating.set(true);
+    const { rerender } = render(
+      <ChatInput conversationId="conv-a" onSend={onSendA} autoFocus$={autoFocus$} />
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'pending in A' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSendA).toHaveBeenCalledTimes(1));
+    rerender(<ChatInput conversationId="conv-b" onSend={onSendB} autoFocus$={autoFocus$} />);
+    act(() => mockConversation$.isGenerating.set(true));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'queued in B' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSendB).toHaveBeenCalledWith('queued in B', expect.any(Object)));
+  });
+
+  it('keeps the editor open with the edit when saving it fails', () => {
+    const onSend = jest.fn();
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'short' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation((_key, value) => {
+      if (String(value).includes('much longer edit')) throw new Error('QuotaExceededError');
+    });
+    const editor = screen.getByRole('textbox', { name: 'Edit queued message' });
+    fireEvent.change(editor, { target: { value: 'a much longer edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    expect(screen.getByRole('textbox', { name: 'Edit queued message' })).toHaveValue(
+      'a much longer edit'
+    );
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).not.toHaveBeenCalled();
+    setItem.mockRestore();
+  });
+
+  it('unlocks a finished send even when storage fails while it is pending', async () => {
+    let finishSend!: () => void;
+    const onSend = jest.fn(
+      (_text, options) =>
+        new Promise<void>((resolve) => {
+          finishSend = () => {
+            options.onPersistenceOutcome('rejected');
+            resolve();
+          };
+        })
+    );
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'storage dies' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Sending…')).toBeInTheDocument();
+    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    await act(async () => finishSend());
+    expect(screen.queryByText('Sending…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear queued message' })).toBeEnabled();
+    setItem.mockRestore();
+  });
+
+  it('does not replace attached files when restoring a queued prompt', async () => {
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend: jest.fn(), autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(first.container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(['old'], 'queued.txt')] },
+    });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'needs reattach' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    first.unmount();
+    const second = render(<ChatInput {...props} />);
+    fireEvent.change(second.container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(['new'], 'draft.txt')] },
+    });
+    await waitFor(() => expect(screen.getByText('draft.txt')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Return to composer' }));
+    expect(screen.getByText('draft.txt')).toBeInTheDocument();
+    expect(screen.getByText('Queued: needs reattach')).toBeInTheDocument();
+  });
 
   it('labels the composer and disables empty sends', async () => {
     const autoFocus$ = observable(false);

@@ -312,6 +312,7 @@ it('keeps a new-chat attachment draft locked until message persistence finishes'
 });
 
 it('sends the next queued message when a failed head upload is discarded', async () => {
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
   const upload = jest
     .spyOn(mockClient, 'uploadFiles')
     .mockRejectedValue(new ApiClientError('Too large', 413));

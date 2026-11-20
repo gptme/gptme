@@ -63,6 +63,22 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info.componentStack);
+    // Preserve the exception across Reload page; console logs alone disappear.
+    // Local-only, one bounded record; never sent to telemetry.
+    try {
+      localStorage.setItem(
+        'gptme-last-render-error',
+        JSON.stringify({
+          at: new Date().toISOString(),
+          name: error.name,
+          message: error.message.slice(0, 2000),
+          stack: error.stack?.slice(0, 8000),
+          componentStack: info.componentStack?.slice(0, 8000),
+        })
+      );
+    } catch {
+      // A storage failure must never break the recovery screen.
+    }
   }
 
   handleReload = () => {
