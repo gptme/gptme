@@ -363,6 +363,37 @@ describe('ChatInput', () => {
     confirm.mockRestore();
   });
 
+  it('never resends stale text when Retry is clicked on a prompt with a recovered edit draft', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('unknown');
+    });
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'original text' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit queued message' }), {
+      target: { value: 'edited text' },
+    });
+    // Abandon the edit by reloading: the draft survives as an unsaved edit.
+    first.unmount();
+    render(<ChatInput {...props} />);
+    expect(screen.getByText('Unsaved edit recovered')).toBeInTheDocument();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    await act(async () => {});
+    expect(onSend).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    expect(screen.getByRole('textbox', { name: 'Edit queued message' })).toHaveValue('edited text');
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    expect(onSend).toHaveBeenLastCalledWith('edited text', expect.any(Object));
+    confirm.mockRestore();
+  });
+
   it('does not replace attached files when restoring a queued prompt', async () => {
     mockConversation$.isGenerating.set(true);
     const props = { conversationId: 'conv-a', onSend: jest.fn(), autoFocus$: observable(false) };

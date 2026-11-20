@@ -27,6 +27,8 @@ describe('ErrorBoundary', () => {
   });
 
   it('shows fallback UI on render error', () => {
+    // Clear any record from an earlier test so the assertion proves a fresh write.
+    localStorage.removeItem('gptme-last-render-error');
     render(
       <ErrorBoundary>
         <Bomb shouldThrow={true} />
