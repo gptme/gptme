@@ -330,6 +330,24 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
+def _effective_model_for_effort_validation(chat_config: ChatConfig) -> str | None:
+    """Resolve the model effort validation should use.
+
+    Conversations may omit chat.model and inherit the server default or workspace
+    MODEL. PUT and PATCH must use that same order so an unsupported effort is
+    rejected before it is saved.
+    """
+    effective_model = chat_config.model
+    if chat_config.reasoning_effort and not effective_model:
+        default = get_default_model()
+        effective_model = default.full if default else None
+        if not effective_model:
+            effective_model = Config.from_workspace(
+                workspace=chat_config.workspace
+            ).get_env("MODEL")
+    return effective_model
+
+
 def _append_conversation_system_prompt(
     messages: list[Message], system_prompt: str | None
 ) -> None:
@@ -1839,14 +1857,7 @@ def api_conversation_put(conversation_id: str):
     config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
-        effective_model = request_config.model
-        if request_config.reasoning_effort and not effective_model:
-            default = get_default_model()
-            effective_model = default.full if default else None
-            if not effective_model:
-                effective_model = Config.from_workspace(
-                    workspace=request_config.workspace
-                ).get_env("MODEL")
+        effective_model = _effective_model_for_effort_validation(request_config)
         if effective_model:
             from ..llm.models.effort import validate_reasoning_effort
 
@@ -3150,11 +3161,12 @@ def api_conversation_config_patch(conversation_id: str):
 
         try:
             chat_config = ChatConfig.load_or_create(logdir, request_config)
-            if chat_config.model:
+            effective_model = _effective_model_for_effort_validation(chat_config)
+            if effective_model:
                 from ..llm.models.effort import validate_reasoning_effort
 
                 validate_reasoning_effort(
-                    get_model(chat_config.model), chat_config.reasoning_effort
+                    get_model(effective_model), chat_config.reasoning_effort
                 )
             chat_config.save()
         except ValueError as exc:

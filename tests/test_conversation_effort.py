@@ -520,3 +520,33 @@ def test_creation_validates_effort_against_inherited_model(client, monkeypatch, 
     assert response.status_code == 400, response.get_json()
     assert "not supported" in response.get_json()["error"]
     assert not (get_logs_dir() / cid).exists()
+
+
+@pytest.mark.parametrize("source", ["default", "workspace"])
+def test_patch_validates_effort_against_inherited_model(client, monkeypatch, source):
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_default_model",
+        lambda: get_model("openai/o3") if source == "default" else None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2.Config.from_workspace",
+        lambda workspace: Config(chat=ChatConfig(env={"MODEL": "openai/o3"})),
+    )
+    cid = f"effort-patch-inherited-{source}"
+    assert (
+        client.put(f"/api/v2/conversations/{cid}", json={"prompt": "test"}).status_code
+        == 200
+    )
+    response = client.patch(
+        f"/api/v2/conversations/{cid}/config",
+        json={"chat": {"reasoning_effort": "xhigh"}},
+    )
+    assert response.status_code == 400, response.get_json()
+    assert "not supported" in response.get_json()["error"]
+    assert (
+        not client.get(f"/api/v2/conversations/{cid}/config")
+        .get_json()["chat"]
+        .get("reasoning_effort")
+    )
