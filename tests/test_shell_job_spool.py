@@ -607,17 +607,145 @@ def test_full_stop_queue_that_drains_does_not_report_timeout(tmp_path) -> None:
         stream.close()
 
 
-def test_receipt_labels_representation_counts_and_unknown_raw_counts(
+def _assert_raw_conserved(counts: dict) -> None:
+    assert counts["raw_observed_bytes"] == (
+        counts["raw_accepted_bytes"]
+        + counts["raw_pending_bytes"]
+        + counts["raw_discarded_bytes"]
+    )
+
+
+def test_receipt_reports_raw_pipe_bytes_separately_from_representation(
     direct_job,
 ) -> None:
     assert direct_job.receipt_path is not None
     receipt = json.loads(direct_job.receipt_path.read_text())
     assert receipt["byte_count_basis"] == "sanitized_utf8_representation"
+    assert receipt["raw_byte_count_basis"] == "pipe_bytes_read"
+    produced = len(b"ERROR-BEGIN\n" + b"error line\n" * 110000 + b"ERROR-END\n")
+    stderr = receipt["stderr"]
+    assert stderr["raw_observed_bytes"] == produced
+    assert stderr["raw_accepted_bytes"] == produced
+    assert stderr["raw_pending_bytes"] == 0
+    assert stderr["raw_discarded_bytes"] == 0
+    assert receipt["stdout"]["raw_observed_bytes"] == 0
     for name in ("stdout", "stderr"):
-        assert receipt[name]["raw_observed_bytes"] is None
-        assert receipt[name]["raw_accepted_bytes"] is None
-        assert receipt[name]["raw_pending_bytes"] is None
-        assert receipt[name]["raw_discarded_bytes"] is None
+        _assert_raw_conserved(receipt[name])
+
+
+def _run_direct_job(tmp_path, monkeypatch, script: str) -> dict:
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
+    )
+    job = start_background_job(
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+    )
+    try:
+        job.process.wait(timeout=15)
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+        assert job.receipt_path is not None
+        return json.loads(job.receipt_path.read_text())
+    finally:
+        reset_background_jobs()
+
+
+def test_raw_counts_survive_split_and_invalid_utf8(tmp_path, monkeypatch) -> None:
+    """Raw bytes are counted at the pipe, not re-derived from decoded text."""
+    script = (
+        "import os, sys, time\n"
+        "w = sys.stdout.buffer\n"
+        "w.write(b'caf\\xc3'); w.flush(); time.sleep(0.2)\n"
+        "w.write(b'\\xa9\\n\\xff\\xfe bad\\nno-newline-tail\\xe2\\x82'); w.flush()\n"
+    )
+    receipt = _run_direct_job(tmp_path, monkeypatch, script)
+    stdout = receipt["stdout"]
+    produced = len(b"caf\xc3\xa9\n\xff\xfe bad\nno-newline-tail\xe2\x82")
+    assert stdout["raw_observed_bytes"] == produced
+    # Invalid bytes are replaced in the representation, so its size differs.
+    assert receipt["stdout"]["committed_bytes"] != produced
+    assert stdout["raw_accepted_bytes"] == produced
+    assert stdout["raw_pending_bytes"] == 0
+    _assert_raw_conserved(stdout)
+
+
+def test_raw_counts_attribute_quota_loss_to_discarded(tmp_path, monkeypatch) -> None:
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 4096)
+    script = "import sys; sys.stdout.write('line of output\\n' * 2000)"
+    receipt = _run_direct_job(tmp_path, monkeypatch, script)
+    stdout = receipt["stdout"]
+    assert receipt["capture_state"] == "partial"
+    assert stdout["raw_observed_bytes"] == len("line of output\n") * 2000
+    assert 0 < stdout["raw_accepted_bytes"] <= 4096
+    assert stdout["raw_discarded_bytes"] > 0
+    assert stdout["raw_pending_bytes"] == 0
+    _assert_raw_conserved(stdout)
+
+
+def test_raw_counts_attribute_sanitation_window_drop(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "window.live")
+    job._stdout_spool = stream
+    try:
+        oversized = b"API_SECRET=" + b"x" * _SPOOL_PENDING_MAX
+        suffix = b"secret-suffix\n"
+        safe = b"SAFE\n"
+        job._append_output(1, 1, oversized)
+        assert job._stdout_raw.discarded == len(oversized)
+        assert job._stdout_raw.pending == 0
+        job._append_output(1, 1, suffix + safe)
+        job._append_output(1, 1, b"", final=True)
+        raw = job._stdout_raw
+        assert raw.observed == len(oversized + suffix + safe)
+        assert raw.discarded == len(oversized + suffix)
+        assert raw.accepted == len(safe)
+        assert raw.pending == 0
+    finally:
+        stream.close()
+
+
+def test_raw_pending_holds_unfinished_line_until_eof(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "pending.live")
+    job._stdout_spool = stream
+    try:
+        job._append_output(1, 1, b"done\npartial \xe2\x82")
+        raw = job._stdout_raw
+        assert raw.accepted == len(b"done\n")
+        assert raw.pending == len(b"partial ")
+        # The incomplete multibyte character is still inside the decoder.
+        assert job._raw_receipt_fields(True)["raw_pending_bytes"] == len(
+            b"partial \xe2\x82"
+        )
+        job._append_output(1, 1, b"\xac\n")
+        job._append_output(1, 1, b"", final=True)
+        fields = job._raw_receipt_fields(True)
+        assert fields["raw_accepted_bytes"] == fields["raw_observed_bytes"]
+        assert fields["raw_pending_bytes"] == 0
+    finally:
+        stream.close()
+
+
+def test_raw_counts_unknown_for_text_without_pipe_provenance(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "adopted.live")
+    job._stdout_spool = stream
+    try:
+        job._ingest_text(True, "decoded upstream\n")
+        assert job._raw_receipt_fields(True) == {
+            "raw_observed_bytes": None,
+            "raw_accepted_bytes": None,
+            "raw_pending_bytes": None,
+            "raw_discarded_bytes": None,
+        }
+        # Empty flushes do not invalidate an otherwise-known stream.
+        job._ingest_text(False, "", final=True)
+        assert job._raw_receipt_fields(False)["raw_observed_bytes"] == 0
+    finally:
+        stream.close()
 
 
 def test_writer_failure_counts_unwritten_and_drained_bytes_as_discarded(
