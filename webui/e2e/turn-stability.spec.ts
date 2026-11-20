@@ -14,8 +14,8 @@ async function nextFrames(page: Page, count = 2) {
   }, count);
 }
 
-async function openTurn(page: Page) {
-  await page.goto('/');
+async function openTurn(page: Page, demo = false) {
+  await page.goto(demo ? '/?demo=1' : '/');
   await page.getByText('Introduction to gptme').click();
   await expect(page.locator('[data-message-index]').first()).toBeVisible();
   await page.evaluate(async (id) => {
@@ -467,9 +467,32 @@ for (const viewport of [
   test(`opening tool output keeps scroll growth bounded (${viewport.name})`, async ({
     page,
   }, testInfo) => {
+    // The offline client is connected synchronously, so this exercises the
+    // demo reload on remount even when no live backend is available.
     // Open via the desktop sidebar, then resize: the narrow layout hides it.
-    await openTurn(page);
+    await openTurn(page, true);
+    const previousViewport = await page
+      .locator('[data-testid="message-scroll-viewport"]')
+      .elementHandle();
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    if (viewport.width < 768) {
+      // Crossing MainLayout's breakpoint remounts the conversation. Wait for
+      // both the old DOM to detach and useConversation to restore the demo
+      // log before injecting once; a visible row alone can still be the old tree.
+      await expect.poll(() => previousViewport!.evaluate((el) => el.isConnected)).toBe(false);
+      await expect
+        .poll(() =>
+          page.evaluate(async (id) => {
+            const { conversations$ } = await import('/src/stores/conversations.ts');
+            const { getDemoMessages } = await import('/src/democonversations.ts');
+            return (
+              JSON.stringify(conversations$.get(id).data.log.peek()) ===
+              JSON.stringify(getDemoMessages(id))
+            );
+          }, conversationId)
+        )
+        .toBe(true);
+    }
     await renderDisclosureTurn(page, 'short');
     const short = await runDisclosureSequence(page);
     await renderDisclosureTurn(page, 'large');
