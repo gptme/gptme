@@ -843,7 +843,14 @@ async function streamNativeFixture(
   const mountedAt = start === 'mounted' ? NATIVE_PROSE.length + 4 : 0;
   await page.evaluate(
     async ({ id, content }) => {
-      const { replaceLog } = await import('/src/stores/conversations.ts');
+      const { replaceLog, setConnected, updateConversation } =
+        await import('/src/stores/conversations.ts');
+      const { getPrimaryClient } = await import('/src/stores/serverClients.ts');
+      const { getClientGeneration } = await import('/src/utils/api.ts');
+      // The responsive layout remounts useConversation. Give this synthetic
+      // fixture a settled subscription so its demo loader cannot reset the log.
+      updateConversation(id, { streamClientGeneration: getClientGeneration(getPrimaryClient()) });
+      setConnected(id, true);
       replaceLog(id, [
         { role: 'user', content: 'Check the notes.', timestamp: '2026-01-01T00:00:00Z' },
         { role: 'assistant', content, isComplete: false, timestamp: '2026-01-01T00:00:01Z' },
@@ -909,7 +916,7 @@ function nativeVisibilityViolations(result: OracleResult, start: 'empty' | 'moun
 }
 
 test('native stream coverage rejects prose hidden until completion', async ({ page }) => {
-  await openTurn(page);
+  await openTurn(page, true);
   for (const start of ['empty', 'mounted'] as const) {
     const result = await streamNativeFixture(
       page,
@@ -947,8 +954,9 @@ for (const viewport of [
     test(`native ${fixture.name} call streams without raw-header flashes or tail loss (${viewport.name})`, async ({
       page,
     }, testInfo) => {
+      // Keep this synthetic store/rendering test independent of a live API.
       // Open via the desktop sidebar, then resize: the narrow layout hides it.
-      await openTurn(page);
+      await openTurn(page, true);
       await page.setViewportSize(viewport);
       const recording = await startRrweb(page);
       const evidence: Record<string, unknown> = {};
@@ -958,7 +966,7 @@ for (const viewport of [
             const label = `${start}/${mode}`;
             const result = await streamNativeFixture(page, fixture, start, mode);
             evidence[label] = {
-              samples: result.samples.length,
+              samples: result.samples,
               phases: result.phases,
               failures: result.failures,
               mutationLeaks: result.mutationLeaks,
@@ -1014,7 +1022,7 @@ for (const viewport of [
 test('native stream oracle catches one-frame payload flashes and tail clipping', async ({
   page,
 }, testInfo) => {
-  await openTurn(page);
+  await openTurn(page, true);
   const recording = await startRrweb(page);
   const fixture = NATIVE_FIXTURES[0];
   const evidence: Record<string, unknown> = {};
@@ -1049,7 +1057,7 @@ test('native stream oracle catches one-frame payload flashes and tail clipping',
 test('native tool call inside a grouped step keeps the tail visible when expanded', async ({
   page,
 }) => {
-  await openTurn(page);
+  await openTurn(page, true);
   const fixture = NATIVE_FIXTURES[0];
   const result = await streamNativeFixture(page, fixture, 'empty', 'boundary');
   expect(result.failures, describeFailures(result)).toEqual([]);

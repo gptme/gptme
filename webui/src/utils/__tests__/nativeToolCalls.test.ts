@@ -48,11 +48,21 @@ describe('native tool transcripts', () => {
     // A non-prefix change makes ChatMessage rebuild the parser mid-stream,
     // which re-parses (and briefly drops) the painted reply tail (#5023).
     const full = 'Reply ends here.\n@mcp.search_memory(toolu_01HzVq8PkW3):  {"query":"a \\"b\\""}';
+    const prose = 'Reply ends here.\n';
+    const brace = full.indexOf('{');
     let previous = '';
     for (let i = 0; i <= full.length; i++) {
       const rendered = renderNativeToolCalls(full.slice(0, i), true);
       expect(rendered.startsWith(previous)).toBe(true);
-      expect(rendered).not.toMatch(/@mc|toolu_/);
+      // Check the entire output, including the lone '@' and partial call ID:
+      // a narrow marker regex could miss either leak (or a blank rendering).
+      const expected =
+        i <= prose.length
+          ? full.slice(0, i)
+          : i <= brace
+            ? prose
+            : `${prose}\`\`\`tool-call mcp.search_memory\n${full.slice(brace, i)}${i === full.length ? '\n```\n' : ''}`;
+      expect(rendered).toBe(expected);
       previous = rendered;
     }
   });

@@ -18,7 +18,7 @@
     "test": "NODE_OPTIONS=--no-warnings jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:e2e": "playwright test --reporter=list",
+    "test:e2e": "playwright test --reporter=list,html",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
