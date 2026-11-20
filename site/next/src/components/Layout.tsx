@@ -6,6 +6,43 @@ import { MenuIcon, StarIcon } from "./icons";
 
 export type PageMeta = { title: string; description: string; path: string };
 
+const SITE_URL = "https://gptme.org/";
+
+const PUBLISHER = {
+  "@type": "Organization",
+  name: "Superuser Labs",
+  url: "https://superuserlabs.org/",
+};
+
+// Structured data for search engines and AI crawlers. Every page describes the
+// site; the home page also describes the product itself, which is what makes
+// it eligible for a richer search result.
+function structuredData({ description, path }: PageMeta): string {
+  const graph: Record<string, unknown>[] = [
+    {
+      "@type": "WebSite",
+      name: "gptme",
+      url: SITE_URL,
+      description,
+      publisher: PUBLISHER,
+    },
+  ];
+  if (path === "/") {
+    graph.push({
+      "@type": "SoftwareApplication",
+      name: "gptme",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Linux, macOS, Windows",
+      url: SITE_URL,
+      description,
+      license: "https://opensource.org/licenses/MIT",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      publisher: PUBLISHER,
+    });
+  }
+  return JSON.stringify({ "@context": "https://schema.org", "@graph": graph });
+}
+
 export function Head({ title, description, path }: PageMeta) {
   const canonical = new URL(path, "https://gptme.org").toString();
   return (
@@ -17,6 +54,12 @@ export function Head({ title, description, path }: PageMeta) {
       <meta property="og:description" content={description} />
       <meta property="og:image" content="https://gptme.org/media/logo.png" />
       <meta property="og:type" content="website" />
+      <script
+        type="application/ld+json"
+        // Raw JSON, not JSX text: React would HTML-escape the quotes inside a
+        // <script> body and leave invalid JSON-LD.
+        dangerouslySetInnerHTML={{ __html: structuredData({ title, description, path }) }}
+      />
     </>
   );
 }
