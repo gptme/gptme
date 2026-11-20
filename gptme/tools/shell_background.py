@@ -180,6 +180,31 @@ def _release_conversation_spool(conversation_id: str | None, n: int) -> None:
         _conversation_spool_bytes[conversation_id] = max(0, used - n)
 
 
+def _utf8_len(text: str) -> int:
+    return len(text.encode("utf-8", "surrogatepass"))
+
+
+@dataclass
+class _RawStreamCounts:
+    """Raw pipe-byte accounting for one stream: observed = accepted + pending + discarded.
+
+    ``accepted`` counts raw bytes whose sanitized representation was handed to
+    persistence (later write failures show up in the representation counters,
+    not here). ``pending`` counts raw bytes held in the spool's unfinished-line
+    window; bytes buffered inside the UTF-8 decoder are added at receipt time.
+    Counts become unknown (``known=False``) when text arrives without its raw
+    bytes, e.g. a promoted foreground capture that was decoded upstream.
+    Invalid UTF-8 inside an unfinished line can shift attribution between
+    ``pending`` and the neighbouring line, never the total.
+    """
+
+    observed: int = 0
+    accepted: int = 0
+    pending: int = 0
+    discarded: int = 0
+    known: bool = True
+
+
 @dataclass
 class BackgroundJob:
     """Tracks a background process with its output."""
@@ -259,6 +284,8 @@ class BackgroundJob:
     _stderr_committed_bytes: int = field(default=0, repr=False)
     _stdout_discarded_bytes: int = field(default=0, repr=False)
     _stderr_discarded_bytes: int = field(default=0, repr=False)
+    _stdout_raw: _RawStreamCounts = field(default_factory=_RawStreamCounts, repr=False)
+    _stderr_raw: _RawStreamCounts = field(default_factory=_RawStreamCounts, repr=False)
     _stdout_byte_cursor: int = field(default=0, repr=False)
     _stderr_byte_cursor: int = field(default=0, repr=False)
     # Raw RAM offset where persistence stopped for a stream; incremental reads
@@ -401,14 +428,33 @@ class BackgroundJob:
         pipe reads are reassembled correctly instead of replaced. Pass
         ``final=True`` at stream EOF to flush any buffered incomplete sequence.
         """
-        decoder = self._stdout_decoder if fd == stdout_fd else self._stderr_decoder
+        is_stdout = fd == stdout_fd
+        decoder = self._stdout_decoder if is_stdout else self._stderr_decoder
+        (self._stdout_raw if is_stdout else self._stderr_raw).observed += len(data)
+        buffered_before = len(decoder.getstate()[0])
         text = decoder.decode(data, final=final)
-        self._ingest_text(fd == stdout_fd, text, final=final)
+        # Exact raw size of this decoded text: what the decoder consumed,
+        # including bytes it had buffered from the previous chunk.
+        raw_len = len(data) + buffered_before - len(decoder.getstate()[0])
+        self._ingest_text(is_stdout, text, final=final, raw_len=raw_len)
 
-    def _ingest_text(self, is_stdout: bool, text: str, *, final: bool = False) -> None:
-        """Spool one decoded chunk, then append it to the bounded RAM tail."""
+    def _ingest_text(
+        self,
+        is_stdout: bool,
+        text: str,
+        *,
+        final: bool = False,
+        raw_len: int | None = None,
+    ) -> None:
+        """Spool one decoded chunk, then append it to the bounded RAM tail.
+
+        ``raw_len`` is the number of pipe bytes ``text`` was decoded from; pass
+        ``None`` for text without raw provenance (raw counts become unknown).
+        """
+        if text and raw_len is None:
+            (self._stdout_raw if is_stdout else self._stderr_raw).known = False
         if text or final:
-            self._spool_text(is_stdout, text, final=final)
+            self._spool_text(is_stdout, text, final=final, raw_len=raw_len)
         if not text:
             return
         with self._buffer_lock:
@@ -437,77 +483,112 @@ class BackgroundJob:
                 ):
                     self._stderr_ram_resume = self._stderr_spool_original_chars
 
-    def _spool_text(self, is_stdout: bool, text: str, *, final: bool) -> None:
-        """Commit sanitized complete lines to the live stream before RAM eviction."""
+    def _spool_text(
+        self,
+        is_stdout: bool,
+        text: str,
+        *,
+        final: bool,
+        raw_len: int | None = None,
+    ) -> None:
+        """Commit sanitized complete lines to the live stream before RAM eviction.
+
+        Alongside the text, ``raw_len`` pipe bytes are settled into the
+        stream's raw counters as accepted, pending or discarded.
+        """
+        raw = self._stdout_raw if is_stdout else self._stderr_raw
+        if raw_len is None:
+            raw_len = _utf8_len(text)
         stream = self._stdout_spool if is_stdout else self._stderr_spool
         if stream is None:
+            raw.discarded += raw_len
             return
         pending_attr = "_spool_pending_stdout" if is_stdout else "_spool_pending_stderr"
         discard_attr = "_spool_discard_stdout" if is_stdout else "_spool_discard_stderr"
         if getattr(self, discard_attr):
             # The assignment prefix was omitted. Its suffix is unsafe even at EOF;
             # resume only after the newline, with a fresh line's full context.
-            _, newline, text = text.partition("\n")
+            dropped, newline, text = text.partition("\n")
             if not newline:
+                raw.discarded += raw_len
                 return
+            dropped_raw = min(raw_len, _utf8_len(dropped + newline))
+            raw.discarded += dropped_raw
+            raw_len -= dropped_raw
             setattr(self, discard_attr, False)
         pending = getattr(self, pending_attr) + text
+        pending_raw = raw.pending + raw_len
         if final:
             to_write, leftover = pending, ""
+            write_raw, leftover_raw = pending_raw, 0
         else:
             head, sep, tail = pending.rpartition("\n")
             if not sep:
                 if len(pending) > _SPOOL_PENDING_MAX:
                     to_write = "[omitted: pending sanitation window exceeded]\n"
                     leftover = ""
+                    raw.discarded += pending_raw
+                    write_raw, leftover_raw = 0, 0
                     setattr(self, discard_attr, True)
                     self._note_partial("sanitation_window")
                 else:
                     setattr(self, pending_attr, pending)
+                    raw.pending = pending_raw
                     return
             else:
                 to_write, leftover = head + sep, tail
+                leftover_raw = min(pending_raw, _utf8_len(tail))
+                write_raw = pending_raw - leftover_raw
                 if len(leftover) > _SPOOL_PENDING_MAX:
                     leftover = ""
+                    raw.discarded += leftover_raw
+                    leftover_raw = 0
                     setattr(self, discard_attr, True)
                     self._note_partial("sanitation_window")
                     to_write += "[omitted: pending sanitation window exceeded]\n"
         setattr(self, pending_attr, leftover)
+        raw.pending = leftover_raw
         if not to_write:
+            raw.accepted += write_raw
             return
         if is_stdout:
             sanitized, _, _ = _sanitize_job_output(to_write, "", complete=final)
         else:
             _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
-        if sanitized:
-            persist_attr = (
-                "_spool_persist_stdout" if is_stdout else "_spool_persist_stderr"
+        if not sanitized:
+            # Transformed to an empty representation (e.g. only ANSI escapes).
+            raw.accepted += write_raw
+            return
+        chars_attr = (
+            "_stdout_spool_original_chars"
+            if is_stdout
+            else "_stderr_spool_original_chars"
+        )
+        sanitized_bytes = sanitized.encode("utf-8", "surrogateescape")
+        content_bytes = self._commit_spool_bytes(is_stdout, sanitized_bytes)
+        # Decide from the return value: the writer thread can clear the persist
+        # flag (write error) right after a full enqueue, which is not a cut.
+        if content_bytes == len(sanitized_bytes):
+            # Full commit: all of to_write was accepted.
+            setattr(self, chars_attr, getattr(self, chars_attr) + len(to_write))
+            raw.accepted += write_raw
+        elif content_bytes > 0:
+            # Partial quota cut: convert the committed *bytes* to characters
+            # (the resume offset indexes the decoded RAM buffer).  A cut
+            # inside a multi-byte character drops that character, so it is
+            # replayed from RAM rather than lost.  Sanitation can only
+            # shrink text, so the count is clamped to the raw length; an
+            # early resume replays committed text, never skips output.
+            committed_chars = min(
+                len(sanitized_bytes[:content_bytes].decode("utf-8", "ignore")),
+                len(to_write),
             )
-            chars_attr = (
-                "_stdout_spool_original_chars"
-                if is_stdout
-                else "_stderr_spool_original_chars"
-            )
-            sanitized_bytes = sanitized.encode("utf-8", "surrogateescape")
-            content_bytes = self._commit_spool_bytes(is_stdout, sanitized_bytes)
-            if getattr(self, persist_attr):
-                # Full commit: all of to_write was accepted.
-                setattr(self, chars_attr, getattr(self, chars_attr) + len(to_write))
-            elif content_bytes > 0:
-                # Partial quota cut: convert the committed *bytes* to characters
-                # (the resume offset indexes the decoded RAM buffer).  A cut
-                # inside a multi-byte character drops that character, so it is
-                # replayed from RAM rather than lost.  Sanitation can only
-                # shrink text, so the count is clamped to the raw length; an
-                # early resume replays committed text, never skips output.
-                committed_chars = len(
-                    sanitized_bytes[:content_bytes].decode("utf-8", "ignore")
-                )
-                setattr(
-                    self,
-                    chars_attr,
-                    getattr(self, chars_attr) + min(committed_chars, len(to_write)),
-                )
+            setattr(self, chars_attr, getattr(self, chars_attr) + committed_chars)
+            accepted_raw = min(write_raw, _utf8_len(to_write[:committed_chars]))
+            raw.accepted += accepted_raw
+            raw.discarded += write_raw - accepted_raw
+        else:
+            raw.discarded += write_raw
 
     def _feed_adopted_chunk(self, is_stdout: bool, text: str) -> None:
         """Ingest one adopted chunk in bounded slices, pacing on the writer.
@@ -843,6 +924,24 @@ class BackgroundJob:
         self._close_spool_files()
         self._publish_receipt()
 
+    def _raw_receipt_fields(self, is_stdout: bool) -> dict[str, int | None]:
+        """Raw pipe-byte counters, or explicit unknowns when provenance was lost."""
+        raw = self._stdout_raw if is_stdout else self._stderr_raw
+        if not raw.known:
+            return {
+                "raw_observed_bytes": None,
+                "raw_accepted_bytes": None,
+                "raw_pending_bytes": None,
+                "raw_discarded_bytes": None,
+            }
+        decoder = self._stdout_decoder if is_stdout else self._stderr_decoder
+        return {
+            "raw_observed_bytes": raw.observed,
+            "raw_accepted_bytes": raw.accepted,
+            "raw_pending_bytes": raw.pending + len(decoder.getstate()[0]),
+            "raw_discarded_bytes": raw.discarded,
+        }
+
     def _publish_receipt(self) -> None:
         """Atomically publish final capture metadata after stream close."""
         if self.log_dir is None or not self._spool_from_reader or self.receipt_path:
@@ -856,6 +955,9 @@ class BackgroundJob:
             "capture_id": self.capture_id,
             "capture_origin": self._capture_origin,
             "byte_count_basis": "sanitized_utf8_representation",
+            # raw_* counters: bytes read from the child's pipe, before decoding
+            # and redaction; null when the capture was decoded upstream.
+            "raw_byte_count_basis": "pipe_bytes_read",
             "capture_state": capture_state,
             "partial_reasons": sorted(self._partial_reasons),
             "exit_code": exit_code,
@@ -864,20 +966,14 @@ class BackgroundJob:
                 "committed_bytes": self._stdout_committed_bytes,
                 "accepted_bytes": self._stdout_accepted_bytes,
                 "discarded_bytes": self._stdout_discarded_bytes,
-                "raw_observed_bytes": None,
-                "raw_accepted_bytes": None,
-                "raw_pending_bytes": None,
-                "raw_discarded_bytes": None,
+                **self._raw_receipt_fields(True),
             },
             "stderr": {
                 "path": str(self.stderr_log_path) if self.stderr_log_path else None,
                 "committed_bytes": self._stderr_committed_bytes,
                 "accepted_bytes": self._stderr_accepted_bytes,
                 "discarded_bytes": self._stderr_discarded_bytes,
-                "raw_observed_bytes": None,
-                "raw_accepted_bytes": None,
-                "raw_pending_bytes": None,
-                "raw_discarded_bytes": None,
+                **self._raw_receipt_fields(False),
             },
         }
         payload = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")

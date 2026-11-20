@@ -694,6 +694,9 @@ def test_promoted_job_adopts_capture_beyond_ram_buffer(
     assert receipt["capture_state"] == "complete"
     assert receipt["exit_code"] == 7
     assert receipt["stdout"]["committed_bytes"] == len(saved)
+    # The foreground reader decoded upstream: raw pipe bytes are unknown, not 0.
+    assert receipt["stdout"]["raw_observed_bytes"] is None
+    assert receipt["stdout"]["raw_accepted_bytes"] is None
     # One capture, one representation: no second combined log.
     assert not list(job.log_path.parent.glob("*.log"))
 
