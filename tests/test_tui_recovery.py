@@ -366,3 +366,53 @@ def test_tui_resume_pairs_crashed_tool_call_before_accepting_prompt(
         # Reopening the same conversation must not synthesize duplicate results.
         GptmeApp(reloaded, workspace=tmp_path, tool_format="tool")
         assert len(reloaded.log) == 4
+
+
+@pytest.mark.asyncio
+async def test_tool_internal_interrupt_returns_tui_to_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The executor's caught interrupt must stop the TUI without a step cap."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import INTERRUPT_CONTENT
+    from gptme.tools import ToolUse, init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+    manager = LogManager(
+        [Message("user", "work")], logdir=tmp_path / "conversation", lock=False
+    )
+    app = GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+    reply = Message(
+        "assistant",
+        '@shell(call_1): {"command": "sleep 99"}\n@shell(call_2): {"command": "pwd"}',
+        metadata={"tool_format": "tool"},
+    )
+    replies = 0
+
+    def reply_once(*args: Any, **kwargs: Any) -> Message:
+        nonlocal replies
+        replies += 1
+        assert replies == 1, "Tool interruption must not generate another reply"
+        return reply
+
+    def interrupted_tool(self: ToolUse, **kwargs: Any) -> Iterator[Message]:
+        raise KeyboardInterrupt
+        yield
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "reply", reply_once)
+    monkeypatch.setattr(ToolUse, "execute", interrupted_tool)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr("gptme.tui.app.maybe_start_auto_naming", lambda *a: None)
+    monkeypatch.setattr(app, "_restore_terminal", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+    async with app.run_test():
+        await asyncio.to_thread(app._generation_body)
+        assert replies == 1
+        assert app._terminal_outcome == "idle"
+        assert _should_prompt_for_input(manager.log)
+        assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
+        assert manager.log[-1].content == INTERRUPT_CONTENT
+        assert manager.log[-1].call_id is None
+        assert _should_prompt_for_input(LogManager.load(manager.logdir, lock=False).log)

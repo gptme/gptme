@@ -844,6 +844,10 @@ def execute_msg(
                                 ),
                                 rem_index,
                             )
+                    # Control flow is separate from native results: a call-ID
+                    # result cannot also be the return-to-prompt marker.
+                    if tooluse.call_id is not None:
+                        yield Message("system", INTERRUPT_CONTENT)
                     return
                 else:
                     yield from outputs

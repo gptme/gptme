@@ -971,11 +971,16 @@ def _process_message_conversation(
         if command_consumed:
             break
 
-        # Check if user declined execution - return to prompt without generating response
-        # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
-        if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
+        # Tool execution can consume Ctrl-C itself and yield paired results.
+        # Stop before compaction or another generation, just as for a decline.
+        if any(
+            msg.role == "system"
+            and not msg.call_id
+            and msg.content in (DECLINED_CONTENT, INTERRUPT_CONTENT)
+            for msg in response_msgs
+        ):
             if not is_output_json() and not is_output_quiet():
-                console.log("Execution declined, returning to prompt.")
+                console.log("Execution stopped, returning to prompt.")
             interrupted = True
             _idle_autowake_blocked.set(True)
             break

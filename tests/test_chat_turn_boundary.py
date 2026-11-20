@@ -258,16 +258,29 @@ def test_native_tool_interrupt_pairs_calls_in_same_cli_session(
         raise KeyboardInterrupt
         yield  # Keep the real execute_msg generator/interrupt boundary.
 
+    replies = 0
+
+    def reply_once(*args: object, **kwargs: object) -> Message:
+        nonlocal replies
+        replies += 1
+        assert replies == 1, (
+            "Tool interruption must return to input, not generate again"
+        )
+        return reply
+
     monkeypatch.setattr(ToolUse, "execute", interrupted_tool)
-    monkeypatch.setattr(chat, "reply", lambda *a, **kw: reply)
+    monkeypatch.setattr(chat, "reply", reply_once)
     monkeypatch.setattr(chat, "trigger_hook", lambda *a, **kw: [])
     monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_args: False)
     monkeypatch.setattr(chat, "get_default_model", lambda: None)
-    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
 
     assert chat._process_message_conversation(
         manager, False, "tool", "openai/gpt-4o-mini"
     )
+    assert replies == 1
+    assert chat._should_prompt_for_input(manager.log)
+    assert chat._should_prompt_for_input(LogManager.load(tmp_path, lock=False).log)
     assert executed == ["call_1"]
     assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
     assert manager.log[2].content == chat.INTERRUPT_CONTENT

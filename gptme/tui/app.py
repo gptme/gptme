@@ -4870,6 +4870,7 @@ class GptmeApp(App):
                     break
                 self.call_from_thread(self._begin_stream)
                 interrupted = False
+                interrupt_recorded = False
                 declined = False
                 response: Message | None = None
                 # Ctrl+C raises KeyboardInterrupt into this thread while in
@@ -4902,8 +4903,12 @@ class GptmeApp(App):
                             persister.append(msg)
                             if msg.role == "assistant":
                                 response = msg
-                            if msg.content == DECLINED_CONTENT:
-                                declined = True
+                            if msg.role == "system" and not msg.call_id:
+                                if msg.content == DECLINED_CONTENT:
+                                    declined = True
+                                elif msg.content == INTERRUPT_CONTENT:
+                                    interrupted = True
+                                    interrupt_recorded = True
                             self.call_from_thread(self._on_step_message, msg)
                             if msg.role == "assistant":
                                 pending_reply = None
@@ -4913,7 +4918,9 @@ class GptmeApp(App):
                     self._leave_step()
                     # tools (e.g. ipython) may have reset the tty out of raw mode
                     self._restore_terminal()
-                if interrupted:  # recorded outside the window Ctrl+C can reach
+                if interrupted and not interrupt_recorded:
+                    # Record outside the window Ctrl+C can reach. An executor
+                    # interrupt already yielded paired results and its marker.
                     # Ctrl+C can hit after early persistence but before the
                     # executor's own interrupt handler starts (e.g. waiting
                     # for the before-tools UI callback). Pair those calls
