@@ -277,35 +277,45 @@ function syntheticOutput(size: 'short' | 'large'): string {
 
 async function renderDisclosureTurn(page: Page, size: 'short' | 'large') {
   const output = syntheticOutput(size);
-  await page.evaluate(
-    async ({ id, output }) => {
-      const { replaceLog } = await import('/src/stores/conversations.ts');
-      const step = (command: string, n: number) => [
-        {
-          role: 'assistant' as const,
-          content: `Let me look around.\n\n\`\`\`shell\n${command}\n\`\`\``,
-          timestamp: `2026-01-01T00:00:0${n}Z`,
-        },
-        {
-          role: 'system' as const,
-          content: `Ran command: \`${command}\`\n\n\`\`\`stdout\n${output}\n\`\`\``,
-          timestamp: `2026-01-01T00:00:0${n + 1}Z`,
-        },
-      ];
-      replaceLog(id, [
-        { role: 'user', content: 'Inspect the repo.', timestamp: '2026-01-01T00:00:00Z' },
-        ...step('find . -type f', 1),
-        ...step('cat README.md', 3),
-        {
-          role: 'assistant',
-          content: 'Both commands finished; the repository looks healthy.',
-          timestamp: '2026-01-01T00:00:05Z',
-        },
-      ]);
-    },
-    { id: conversationId, output }
-  );
-  await expect(page.locator('[data-message-index="5"]')).toContainText('looks healthy');
+  const inject = () =>
+    page.evaluate(
+      async ({ id, output }) => {
+        const { replaceLog } = await import('/src/stores/conversations.ts');
+        const step = (command: string, n: number) => [
+          {
+            role: 'assistant' as const,
+            content: `Let me look around.\n\n\`\`\`shell\n${command}\n\`\`\``,
+            timestamp: `2026-01-01T00:00:0${n}Z`,
+          },
+          {
+            role: 'system' as const,
+            content: `Ran command: \`${command}\`\n\n\`\`\`stdout\n${output}\n\`\`\``,
+            timestamp: `2026-01-01T00:00:0${n + 1}Z`,
+          },
+        ];
+        replaceLog(id, [
+          { role: 'user', content: 'Inspect the repo.', timestamp: '2026-01-01T00:00:00Z' },
+          ...step('find . -type f', 1),
+          ...step('cat README.md', 3),
+          {
+            role: 'assistant',
+            content: 'Both commands finished; the repository looks healthy.',
+            timestamp: '2026-01-01T00:00:05Z',
+          },
+        ]);
+      },
+      { id: conversationId, output }
+    );
+  // Resizing across the mobile breakpoint swaps MainLayout's tree and remounts
+  // the conversation view. With a connected server, that mount re-applies the
+  // demo messages for this demo conversation, which can land after our
+  // replaceLog and wipe the injected turn. Re-inject until the turn sticks.
+  await expect(async () => {
+    await inject();
+    await expect(page.locator('[data-message-index="5"]')).toContainText('looks healthy', {
+      timeout: 1000,
+    });
+  }).toPass({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: /2 steps/ })).toBeVisible();
   await settle(page);
 }
