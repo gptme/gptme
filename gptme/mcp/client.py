@@ -25,6 +25,7 @@ from gptme.circuit_breaker import CircuitBreaker
 from gptme.config import Config, get_config
 
 from .oauth import (
+    DEFAULT_FLOW_TIMEOUT_S,
     OAUTH_ENV_VAR,
     MCPOAuthError,
     OAuthHandler,
@@ -45,6 +46,17 @@ logger = logging.getLogger(__name__)
 # requested cancellation. ACP session cancel must not hang if a tool call
 # never returns.
 MCP_CLOSE_TIMEOUT_S = 5.0
+
+# The MCP handshake is quick, except when the HTTP transport has to run the
+# OAuth flow first: the browser round-trip happens inside initialize(), so that
+# case gets the flow timeout plus room for the token exchange.
+MCP_INITIALIZE_TIMEOUT_S = 5.0
+MCP_INITIALIZE_OAUTH_TIMEOUT_S = DEFAULT_FLOW_TIMEOUT_S + 30.0
+
+
+def _initialize_timeout(auth: httpx.Auth | None) -> float:
+    """Return the handshake budget for a transport with (or without) OAuth."""
+    return MCP_INITIALIZE_TIMEOUT_S if auth is None else MCP_INITIALIZE_OAUTH_TIMEOUT_S
 
 
 class MCPInterruptedError(Exception):
@@ -510,7 +522,9 @@ class MCPClient:
             if not self.session:
                 raise RuntimeError("Failed to initialize session")
 
-            await asyncio.wait_for(self.session.initialize(), timeout=5.0)
+            await asyncio.wait_for(
+                self.session.initialize(), timeout=_initialize_timeout(auth)
+            )
             tools = await asyncio.wait_for(self.session.list_tools(), timeout=10.0)
             self.tools = tools
 
@@ -606,13 +620,24 @@ class MCPClient:
                         server.url, server.headers, use_sse=server.is_sse, auth=auth
                     )
                 )
-            except (
-                MCPOAuthError,
-                OAuthFlowError,
-                OAuthRegistrationError,
-                OAuthTokenError,
-            ) as e:
-                raise RuntimeError(f"{server_name}: MCP OAuth failed: {e}") from None
+            except BaseException as e:
+                # A failed handshake must not keep the loopback listener (and its
+                # port) alive for the rest of the process.
+                close_oauth_provider(self._oauth_provider)
+                self._oauth_provider = None
+                if isinstance(
+                    e,
+                    (
+                        MCPOAuthError,
+                        OAuthFlowError,
+                        OAuthRegistrationError,
+                        OAuthTokenError,
+                    ),
+                ):
+                    raise RuntimeError(
+                        f"{server_name}: MCP OAuth failed: {e}"
+                    ) from None
+                raise
         else:
             # Stdio MCP server
             env = {**os.environ, **(server.env or {})}

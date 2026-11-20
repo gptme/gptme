@@ -28,7 +28,7 @@ import tempfile
 import threading
 import webbrowser
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -46,6 +46,9 @@ DEFAULT_FLOW_TIMEOUT_S = 300.0
 OAUTH_ENV_VAR = "GPTME_MCP_OAUTH"
 _DISABLED_VALUES = frozenset({"0", "false", "no", "off"})
 _CALLBACK_PATH = "/callback"
+# A browser may open the socket before it sends the request (preconnect), and a
+# stale connection must not hold a worker forever.
+_REQUEST_TIMEOUT_S = 30
 
 
 class MCPOAuthError(RuntimeError):
@@ -105,6 +108,11 @@ class FileTokenStorage(TokenStorage):
             return {}
         except OSError as e:
             logger.warning(f"MCP OAuth: cannot read {self.path}: {e}")
+            return {}
+        except UnicodeDecodeError:
+            # Truncated or partially overwritten bytes are not recoverable, but
+            # they must not stop a fresh authorization either.
+            logger.warning(f"MCP OAuth: ignoring undecodable token file {self.path}")
             return {}
         try:
             data = json.loads(raw)
@@ -179,6 +187,10 @@ class LoopbackReceiver:
         outer = self
 
         class _Handler(BaseHTTPRequestHandler):
+            # Drop connections that connect but never send a request, instead
+            # of keeping a worker blocked on them.
+            timeout = _REQUEST_TIMEOUT_S
+
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
                 if parsed.path != _CALLBACK_PATH:
@@ -212,7 +224,10 @@ class LoopbackReceiver:
             def log_message(self, format: str, *args: object) -> None:
                 return
 
-        self._httpd = HTTPServer((host, 0), _Handler)
+        # One thread per connection: a browser that opens the socket early would
+        # otherwise block the actual callback in a single-threaded server.
+        self._httpd = ThreadingHTTPServer((host, 0), _Handler)
+        self._httpd.daemon_threads = True
         self._closed = False
         self._thread = threading.Thread(
             target=self._httpd.serve_forever, name="gptme-mcp-oauth", daemon=True
@@ -237,8 +252,16 @@ class LoopbackReceiver:
         the client registration, so a flow restarted after a failed refresh has
         to land on the same port. ``reset()`` arms it for the next attempt.
         """
+        if self._closed:
+            raise OAuthLoginUnavailable("the OAuth listener is already closed")
         loop = asyncio.get_running_loop()
-        delivered = await loop.run_in_executor(None, self._done.wait, timeout)
+        try:
+            delivered = await loop.run_in_executor(None, self._done.wait, timeout)
+        except asyncio.CancelledError:
+            # Cancelling the sign-in must not leave a worker thread blocked for
+            # the rest of the OAuth timeout: interpreter shutdown joins it.
+            self._done.set()
+            raise
         if not delivered:
             raise OAuthLoginUnavailable(
                 f"timed out after {int(timeout)}s waiting for the OAuth redirect "
@@ -251,10 +274,15 @@ class LoopbackReceiver:
         return self._result
 
     def close(self) -> None:
-        """Stop the listener. Safe to call more than once."""
+        """Stop the listener and release anyone waiting for the redirect."""
         if self._closed:
             return
         self._closed = True
+        if self._result is None and self._error is None:
+            self._error = "the OAuth listener was closed before the redirect arrived"
+        # Wakes a `wait()` blocked in a worker thread, so closing cannot hang
+        # for the remainder of the OAuth timeout.
+        self._done.set()
         self._httpd.shutdown()
         self._httpd.server_close()
         self._thread.join(timeout=2)

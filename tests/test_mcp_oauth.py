@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import threading
 import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 import pytest
 from pydantic import AnyUrl
@@ -104,6 +106,18 @@ def test_file_storage_treats_corrupt_file_as_no_credentials(tmp_path: Path):
     asyncio.run(storage.set_tokens(_token("new")))
     tokens = asyncio.run(storage.get_tokens())
     assert tokens is not None and tokens.access_token == "new"
+
+
+def test_file_storage_treats_undecodable_file_as_no_credentials(tmp_path: Path):
+    path = tmp_path / "server.json"
+    # A partially overwritten file is not valid UTF-8; that must not raise.
+    path.write_bytes(b'\xff\xfe{"tokens"')
+    storage = FileTokenStorage(path)
+
+    assert asyncio.run(storage.get_tokens()) is None
+    asyncio.run(storage.set_tokens(_token("fresh")))
+    tokens = asyncio.run(storage.get_tokens())
+    assert tokens is not None and tokens.access_token == "fresh"
 
 
 def test_oauth_disabled_returns_no_provider(monkeypatch: pytest.MonkeyPatch):
@@ -210,6 +224,46 @@ def test_loopback_receiver_times_out_instead_of_hanging():
             asyncio.run(receiver.wait(0.1))
         assert "timed out" in str(excinfo.value)
     finally:
+        receiver.close()
+
+
+def test_closing_the_receiver_releases_a_pending_wait():
+    receiver = LoopbackReceiver()
+
+    async def scenario() -> str:
+        task = asyncio.create_task(receiver.wait(30))
+        await asyncio.sleep(0.2)  # let the worker thread start blocking
+        receiver.close()
+        with pytest.raises(OAuthLoginUnavailable) as excinfo:
+            # If close() fails to wake the waiter this trips the guard instead
+            # of hanging the test for the full OAuth timeout.
+            await asyncio.wait_for(task, timeout=5)
+        return str(excinfo.value)
+
+    try:
+        message = asyncio.run(scenario())
+    finally:
+        receiver.close()
+    assert "closed" in message
+
+
+def test_idle_connection_does_not_block_the_callback():
+    """A browser may open the socket before sending the request."""
+    receiver = LoopbackReceiver()
+    idle = socket.create_connection(
+        (urlsplit(receiver.redirect_uri).hostname, urlsplit(receiver.redirect_uri).port)
+    )
+    try:
+        thread = threading.Thread(
+            target=_get,
+            args=(f"{receiver.redirect_uri}?code=ok&state=s",),
+            daemon=True,
+        )
+        thread.start()
+        assert asyncio.run(receiver.wait(10)) == ("ok", "s")
+        thread.join(timeout=5)
+    finally:
+        idle.close()
         receiver.close()
 
 
@@ -380,11 +434,25 @@ def test_oauth_flow_runs_discovery_and_reports_headless_clearly(
         # cancellation or a bare status code.
         assert "cannot open a browser" in message
         assert "cancelled while connecting" not in message
+        # The listener is bound to a port; a failed handshake must release it
+        # instead of holding it for the lifetime of the process.
+        assert client._oauth_provider is None
     finally:
         client.close()
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=2)
+
+
+def test_initialize_budget_allows_a_browser_round_trip():
+    import httpx
+
+    from gptme.mcp.client import MCP_INITIALIZE_TIMEOUT_S, _initialize_timeout
+
+    assert _initialize_timeout(None) == MCP_INITIALIZE_TIMEOUT_S
+    # Browser consent happens inside initialize(), so the handshake cannot use
+    # the plain 5 s budget once OAuth is in play.
+    assert _initialize_timeout(httpx.Auth()) > 60
 
 
 def test_auth_failure_says_the_oauth_flow_ran(monkeypatch: pytest.MonkeyPatch):
