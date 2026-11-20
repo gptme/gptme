@@ -804,6 +804,16 @@ the length of the string.</p>
 everything its namespace holds) per conversation that ever ran Python.</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.python.</span></span><span class="sig-name descname"><span class="pre">suspend_inprocess_session_cwd</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.15)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Release this thread’s in-process cwd pin for a blocking wait.</p>
+<p>A server Python cell that calls <code class="docutils literal notranslate"><span class="pre">subagent_parallel</span></code> / <code class="docutils literal notranslate"><span class="pre">subagent_wait</span></code>
+must not hold <code class="docutils literal notranslate"><span class="pre">_inprocess_cwd_lock</span></code> while child conversations run Python.
+No-op when this thread is not pinning. Child cells restore the host cwd
+before this resumes and re-pins <code class="docutils literal notranslate"><span class="pre">current_workspace()</span></code>.</p>
+</dd></dl>
+
 </section>
 
 
