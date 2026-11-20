@@ -691,12 +691,21 @@ its chunk lists with a bounded tail. TTY/Windows and no-logdir calls keep the
 existing post-hoc storage/preview path.</p>
 <p>The current receipt’s <code class="docutils literal notranslate"><span class="pre">byte_count_basis</span></code> is <code class="docutils literal notranslate"><span class="pre">sanitized_utf8_representation</span></code>:
 committed, accepted, discarded and cursor counts describe transformed output,
-not original pipe bytes. The four <code class="docutils literal notranslate"><span class="pre">raw_*_bytes</span></code> fields are explicitly <code class="docutils literal notranslate"><span class="pre">null</span></code>
-(unknown), not inferred from file size. Raw-input conservation accounting in
-step 2 below remains an unmet pilot gate; this change does not claim that gate
-is complete. In particular, redaction and sanitation-window omissions prevent
-these representation counters from reconstructing raw capture loss. The bounded
-queue/quota and receipt-lifecycle changes can ship independently of that accounting.</p>
+not original pipe bytes. Direct-job receipts now also report
+<code class="docutils literal notranslate"><span class="pre">raw_observed_bytes</span></code> / <code class="docutils literal notranslate"><span class="pre">raw_accepted_bytes</span></code> / <code class="docutils literal notranslate"><span class="pre">raw_pending_bytes</span></code> /
+<code class="docutils literal notranslate"><span class="pre">raw_discarded_bytes</span></code> with <code class="docutils literal notranslate"><span class="pre">raw_byte_count_basis:</span> <span class="pre">pipe_bytes_read</span></code> (#5033);
+adopted foreground-promotion chunks stay <code class="docutils literal notranslate"><span class="pre">null</span></code> because they were decoded
+upstream. Representation counters still cannot reconstruct raw capture loss
+after redaction or sanitation-window omissions.</p>
+<p>Browser text results (page Markdown, ARIA snapshots, console logs, PDF
+extracts) are bounded at <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_MAX_OUTPUT_CHARS</span></code> (default 100k
+characters, same order as MCP) on every call path: Python-registered
+functions, direct-call, and native <code class="docutils literal notranslate"><span class="pre">from_function</span></code> conversion. Oversized
+results keep head+tail inline and spill the full text to
+<code class="docutils literal notranslate"><span class="pre">tool-outputs/browser/</span></code> when a conversation logdir exists. Short results,
+screenshots, and PDF-to-image paths are unchanged. This is a presentation
+bound plus post-materialization spill, not a streaming spool; Playwright
+still materializes the page first.</p>
 <p><strong>Request:</strong> <a class="reference external" href="https://github.com/gptme/gptme/issues/4663">gptme/gptme#4663</a>.</p>
 <p><strong>Source inventory:</strong> <code class="docutils literal notranslate"><span class="pre">15f20e44c96acdd035da81213b9e9f5bb54ac98d</span></code> (2026-10-30).</p>
 <section id="decision">
