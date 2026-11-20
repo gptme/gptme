@@ -277,6 +277,8 @@ class MessageMetadata(TypedDict, total=False):
     # Idle child/watch notice. Transparent to crash-recovery so a progress or
     # notification-only completion does not start an unrequested model turn.
     idle_notification: bool
+    # Executor-generated return-to-input signal, distinct from tool output text.
+    interrupt_marker: bool
     # Set by the harness on its own auto-reply/completion nudges (user-role).
     # Provenance, never inferred from text: consumers such as subagent result
     # recovery treat the nudge as transparent, while a real user message that

@@ -287,3 +287,27 @@ def test_real_tool_result_not_hook_chatter_gets_duration(monkeypatch, outcome, n
         for m in outputs
         if m.content in ("progress", "pre hook", "post hook")
     )
+
+
+def test_interrupt_after_final_native_result_keeps_one_paired_output(monkeypatch):
+    from gptme.constants import INTERRUPT_CONTENT
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+
+    def execute(self, **kwargs):
+        yield Message("system", "completed", call_id=self.call_id)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ToolUse, "execute", execute)
+    outputs = list(
+        execute_msg(Message("assistant", '@shell(call_1): {"command": "pwd"}'))
+    )
+    paired = [m for m in outputs if m.call_id == "call_1"]
+    assert len(paired) == 1
+    assert paired[0].content == "completed"
+    assert paired[0].metadata is not None
+    assert paired[0].metadata["timings"]["tool_ms"] >= 0
+    assert outputs[-1].content == INTERRUPT_CONTENT
+    assert outputs[-1].call_id is None

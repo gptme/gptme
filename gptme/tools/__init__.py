@@ -819,18 +819,32 @@ def execute_msg(
                 except KeyboardInterrupt:
                     elapsed_ms = (time.monotonic() - t0) * 1000
                     clear_interruptible()
-                    yield from outputs
-                    yield stamp_tool_result_timing(
-                        _stamp_call(
-                            Message(
-                                "system",
-                                INTERRUPT_CONTENT,
-                                call_id=tooluse.call_id,
-                            ),
-                            index,
+                    completed_index = next(
+                        (
+                            i
+                            for i in range(len(outputs) - 1, -1, -1)
+                            if tooluse.call_id is not None
+                            and outputs[i].call_id == tooluse.call_id
                         ),
-                        elapsed_ms,
+                        None,
                     )
+                    if completed_index is not None:
+                        outputs[completed_index] = stamp_tool_result_timing(
+                            outputs[completed_index], elapsed_ms
+                        )
+                    yield from outputs
+                    if completed_index is None:
+                        yield stamp_tool_result_timing(
+                            _stamp_call(
+                                Message(
+                                    "system",
+                                    INTERRUPT_CONTENT,
+                                    call_id=tooluse.call_id,
+                                ),
+                                index,
+                            ),
+                            elapsed_ms,
+                        )
                     # Drain the rest: any structured tool_use that's left in the
                     # message still needs a paired tool_result or the next API
                     # request will 400 with a dangling tool_use.
@@ -846,8 +860,9 @@ def execute_msg(
                             )
                     # Control flow is separate from native results: a call-ID
                     # result cannot also be the return-to-prompt marker.
-                    if tooluse.call_id is not None:
-                        yield Message("system", INTERRUPT_CONTENT)
+                    yield Message(
+                        "system", INTERRUPT_CONTENT, metadata={"interrupt_marker": True}
+                    )
                     return
                 else:
                     yield from outputs

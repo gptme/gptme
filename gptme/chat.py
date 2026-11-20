@@ -978,7 +978,7 @@ def _process_message_conversation(
             or (
                 msg.role == "system"
                 and not msg.call_id
-                and msg.content == INTERRUPT_CONTENT
+                and (msg.metadata or {}).get("interrupt_marker") is True
             )
             for msg in response_msgs
         ):

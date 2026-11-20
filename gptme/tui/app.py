@@ -4908,7 +4908,7 @@ class GptmeApp(App):
                             if (
                                 msg.role == "system"
                                 and not msg.call_id
-                                and msg.content == INTERRUPT_CONTENT
+                                and (msg.metadata or {}).get("interrupt_marker") is True
                             ):
                                 interrupted = True
                                 interrupt_recorded = True

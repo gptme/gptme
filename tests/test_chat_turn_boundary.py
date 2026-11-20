@@ -335,3 +335,29 @@ def test_cli_cancel_before_executor_pairs_native_calls(
     reloaded = LogManager.load(tmp_path, lock=False)
     assert [m.call_id for m in reloaded.log if m.call_id] == ["call_1", "call_2"]
     assert reloaded.log[-1].content == "continue"
+
+
+def test_tool_output_matching_interrupt_text_does_not_stop_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = LogManager([Message("user", "work")], logdir=tmp_path, lock=False)
+    calls = 0
+
+    def step(*args: object, **kwargs: object) -> list[Message]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return [
+                Message("assistant", "```shell\npwd\n```"),
+                Message("system", chat.INTERRUPT_CONTENT, metadata={"tool_call": 0}),
+            ]
+        assert calls == 2
+        return [Message("assistant", "done")]
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_args: False)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+    assert not chat._process_message_conversation(manager, False, "markdown", None)
+    assert calls == 2
