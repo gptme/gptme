@@ -93,7 +93,8 @@ export function useConversation(conversationId: string, serverId?: string) {
       branch = 'main',
       maxTokens?: number,
       temperature?: number,
-      topP?: number
+      topP?: number,
+      reasoningEffort?: string
     ) => {
       // Retrying the same saved prompt must not erase its outage recovery
       // candidate. A different prompt still invalidates the old candidate.
@@ -105,7 +106,16 @@ export function useConversation(conversationId: string, serverId?: string) {
       conversation$?.pendingGenerationPrompt.set(timestamp);
       if (!previous) conversation$?.generationPrompt.set(timestamp);
       try {
-        await api.step(conversationId, model, stream, branch, maxTokens, temperature, topP);
+        await api.step(
+          conversationId,
+          model,
+          stream,
+          branch,
+          maxTokens,
+          temperature,
+          topP,
+          reasoningEffort
+        );
         // Completion, refusal or Stop may arrive before this HTTP response.
         // An acknowledgment must not resurrect ownership released by that event.
         if (
