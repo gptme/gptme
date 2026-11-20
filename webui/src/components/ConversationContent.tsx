@@ -1196,30 +1196,31 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         </button>
       )}
 
-      {showConnectionBanner && (
-        <div className="absolute bottom-28 left-1/2 z-20 w-[min(calc(100%_-_2rem),42rem)] -translate-x-1/2 rounded-md border border-border bg-background/95 px-3 py-2 text-sm shadow-sm">
-          {connectionStatus === 'reconnecting' ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
-              <span className="truncate">
-                Reconnecting event stream
-                {reconnectAttempt && reconnectMaxAttempts
-                  ? ` (${reconnectAttempt}/${reconnectMaxAttempts})`
-                  : ''}
-                {reconnectRetrySeconds ? ` in ${reconnectRetrySeconds}s` : ''}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <WifiOff className="h-4 w-4 shrink-0 text-destructive" />
-              <span className="truncate">{connectionError || 'Event stream disconnected'}</span>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background via-background/80 to-transparent">
         <div className="mx-auto max-w-2xl p-4">
+          {/* In flow, not absolute: an overlay covered the queued-message badge and
+              its inline editor and swallowed clicks on Save while reconnecting. */}
+          {showConnectionBanner && (
+            <div className="mb-2 rounded-md border border-border bg-background/95 px-3 py-2 text-sm shadow-sm">
+              {connectionStatus === 'reconnecting' ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
+                  <span className="truncate">
+                    Reconnecting event stream
+                    {reconnectAttempt && reconnectMaxAttempts
+                      ? ` (${reconnectAttempt}/${reconnectMaxAttempts})`
+                      : ''}
+                    {reconnectRetrySeconds ? ` in ${reconnectRetrySeconds}s` : ''}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <WifiOff className="h-4 w-4 shrink-0 text-destructive" />
+                  <span className="truncate">{connectionError || 'Event stream disconnected'}</span>
+                </div>
+              )}
+            </div>
+          )}
           <ChatInput
             conversationId={conversationId}
             serverId={serverId}
