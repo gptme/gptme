@@ -528,7 +528,7 @@ class StepRequest(BaseModel):
 
     reasoning_effort: str | None = Field(
         None,
-        description="Conversation effort override; empty string restores inheritance. Omit to keep the saved setting.",
+        description="Conversation effort override; empty string restores inheritance. Omit or pass null to keep the saved setting.",
     )
     session_id: str = Field(..., description="Session ID")
     model: str | None = Field(None, description="Model to use")

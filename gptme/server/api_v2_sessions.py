@@ -479,7 +479,8 @@ def api_conversation_step(conversation_id: str):
         ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify({"error": "Generation already in progress"}), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-        if "reasoning_effort" in req_json:
+        effort_provided = req_json.get("reasoning_effort") is not None
+        if effort_provided:
             try:
                 effort_config = ChatConfig.from_dict(
                     {"chat": {"reasoning_effort": req_json["reasoning_effort"]}}
@@ -518,7 +519,7 @@ def api_conversation_step(conversation_id: str):
         if model and model != chat_config.model:
             chat_config.model = model
             changed_fields.append("model")
-        if "reasoning_effort" in req_json:
+        if effort_provided:
             changed_fields.append("reasoning_effort")
         if changed_fields:
             chat_config.save()

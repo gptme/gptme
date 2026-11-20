@@ -140,6 +140,39 @@ def test_step_persists_effort_and_default_and_rejects_model_switch(client):
         )
 
 
+def test_null_step_effort_keeps_saved_choice(client):
+    from unittest.mock import patch
+
+    from gptme.server.session_models import SessionManager
+
+    cid = "effort-null-step"
+    response = client.put(
+        f"/api/v2/conversations/{cid}",
+        json={
+            "prompt": "test",
+            "config": {"chat": {"model": "openai/o3", "reasoning_effort": "high"}},
+        },
+    )
+    assert response.status_code == 200
+    sid = response.get_json()["session_id"]
+    session = SessionManager.get_session(sid)
+    assert session is not None
+    with patch("gptme.server.api_v2_sessions._start_step_thread") as dispatch:
+        response = client.post(
+            f"/api/v2/conversations/{cid}/step",
+            json={"session_id": sid, "reasoning_effort": None},
+        )
+    assert response.status_code == 200, response.get_json()
+    dispatch.assert_called_once()
+    assert (
+        client.get(f"/api/v2/conversations/{cid}/config").get_json()["chat"][
+            "reasoning_effort"
+        ]
+        == "high"
+    )
+    session.generating = False
+
+
 def test_patch_can_reset_effort_to_inherit(client):
     cid = "effort-patch"
     assert (
