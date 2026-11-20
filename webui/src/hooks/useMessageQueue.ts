@@ -8,6 +8,8 @@ export interface QueuedMessage {
   editDraft?: string;
   options: ChatOptions;
   uploadFailed?: boolean;
+  /** The send may have been saved server-side; never repost without an explicit check. */
+  saveUnknown?: boolean;
   missingFiles?: string[];
 }
 
@@ -34,6 +36,8 @@ function readQueue(key: string): QueuedMessage[] {
         id: item.id || newId(),
         sending: false,
         uploadFailed: true,
+        // A send interrupted by reload has the same ambiguous outcome as a lost response.
+        ...(item.sending || item.saveUnknown ? { saveUnknown: true } : {}),
       }));
   } catch {
     return [];
@@ -59,7 +63,9 @@ export function useMessageQueue(key: string | null) {
   const setQueue = useCallback(
     (update: SetStateAction<QueuedMessage[]>) => {
       if (!key) return false;
-      const previous = queues.get(key) ?? [];
+      // The cache is cleared when the last composer unmounts; a pending send's
+      // captured setter must then start from storage, not an empty queue.
+      const previous = queues.get(key) ?? readQueue(key);
       const next = (typeof update === 'function' ? update(previous) : update).map((item) => ({
         ...item,
         id: item.id || newId(),

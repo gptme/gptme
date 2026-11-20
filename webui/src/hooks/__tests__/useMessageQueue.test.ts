@@ -52,6 +52,34 @@ describe('durable message queue', () => {
     expect(JSON.parse(localStorage.getItem('split:queue')!)).toHaveLength(2);
   });
 
+  it('starts from storage when a pending setter outlives every composer', () => {
+    const state = renderHook(() => useMessageQueue('owner-a'));
+    const setQueue = state.result.current[1];
+    act(() =>
+      setQueue([
+        { id: 'head', text: 'sending', sending: true, options: {} },
+        { id: 'next', text: 'still queued', options: {} },
+      ])
+    );
+    state.unmount();
+    act(() => setQueue((prev) => prev.filter((item) => item.id !== 'head')));
+    expect(
+      JSON.parse(localStorage.getItem('owner-a:queue')!).map((i: { id: string }) => i.id)
+    ).toEqual(['next']);
+  });
+
+  it('marks a send interrupted by reload as an unconfirmed save', () => {
+    const first = renderHook(() => useMessageQueue('owner-a'));
+    act(() => first.result.current[1]([{ text: 'in flight', sending: true, options: {} }]));
+    first.unmount();
+    const restored = renderHook(() => useMessageQueue('owner-a'));
+    expect(restored.result.current[0][0]).toMatchObject({
+      sending: false,
+      uploadFailed: true,
+      saveUnknown: true,
+    });
+  });
+
   it('keeps async callbacks scoped to their original owner', () => {
     const state = renderHook(({ owner }) => useMessageQueue(owner), {
       initialProps: { owner: 'a' },

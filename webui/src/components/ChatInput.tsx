@@ -78,9 +78,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+export type PersistenceOutcome = 'saved' | 'rejected' | 'unknown';
+
 export interface ChatOptions {
   /** Queue acknowledgement: a resolved generation call is not proof of persistence. */
-  onPersistenceOutcome?: (saved: boolean) => void;
+  onPersistenceOutcome?: (outcome: PersistenceOutcome) => void;
   model?: string;
   /** Empty string restores server inheritance; omitted keeps the conversation setting. */
   reasoningEffort?: string;
@@ -586,6 +588,7 @@ const QueuedMessageBadge: FC<{
   onRetry?: () => void;
   retryLabel?: string;
   missingFiles?: string[];
+  saveUnknown?: boolean;
   onRestore?: () => void;
   sending?: boolean;
   editDraft?: string;
@@ -598,6 +601,7 @@ const QueuedMessageBadge: FC<{
   onRetry,
   retryLabel,
   missingFiles,
+  saveUnknown,
   onRestore,
   sending,
   editDraft,
@@ -687,6 +691,7 @@ const QueuedMessageBadge: FC<{
           Return to composer
         </Button>
       )}
+      {saveUnknown && <span>Save unconfirmed — check history before resending</span>}
       {editDraft !== undefined && <span>Unsaved edit recovered</span>}
       {sending && <span>Sending…</span>}
       {onRetry && !sending && (
@@ -1142,17 +1147,20 @@ export const ChatInput: FC<Props> = ({
       const owner = conversationEpoch.current;
       const send = async () => {
         try {
-          let persisted: boolean | undefined;
+          let persisted: PersistenceOutcome | undefined;
           await onSend(nextMessage.text, {
             ...nextMessage.options,
-            onPersistenceOutcome: (saved) => {
-              persisted = saved;
+            onPersistenceOutcome: (outcome) => {
+              persisted = outcome;
             },
           });
-          if (persisted === false) {
+          if (persisted === 'rejected' || persisted === 'unknown') {
+            const saveUnknown = persisted === 'unknown';
             setMessageQueue((prev) =>
               prev.map((item) =>
-                item.id === nextMessage.id ? { ...item, sending: false, uploadFailed: true } : item
+                item.id === nextMessage.id
+                  ? { ...item, sending: false, uploadFailed: true, saveUnknown }
+                  : item
               )
             );
           } else {
@@ -1552,7 +1560,7 @@ export const ChatInput: FC<Props> = ({
                 onRestore={
                   msg.missingFiles?.length
                     ? () => {
-                        if (message.trim()) {
+                        if (message.trim() || attachedFiles.length) {
                           toast({
                             title: 'Composer is not empty',
                             description:
@@ -1575,6 +1583,7 @@ export const ChatInput: FC<Props> = ({
                     : undefined
                 }
                 missingFiles={msg.missingFiles}
+                saveUnknown={msg.saveUnknown}
                 retryLabel={msg.options.pendingFiles?.length ? 'Retry upload' : 'Retry send'}
                 onEditingChange={(editing) => {
                   setEditingQueuedMessage(editing);
@@ -1594,10 +1603,20 @@ export const ChatInput: FC<Props> = ({
                 onRetry={
                   msg.uploadFailed && !msg.missingFiles?.length
                     ? () => {
+                        // The server may already hold this prompt; reposting would duplicate it.
+                        if (
+                          msg.saveUnknown &&
+                          !window.confirm(
+                            'This prompt may already be saved. Check the conversation history first. Send it again anyway?'
+                          )
+                        )
+                          return;
                         wasBusy.current = true;
                         setMessageQueue((prev) =>
                           prev.map((item, i) =>
-                            i === index ? { ...item, uploadFailed: false } : item
+                            i === index
+                              ? { ...item, uploadFailed: false, saveUnknown: undefined }
+                              : item
                           )
                         );
                       }

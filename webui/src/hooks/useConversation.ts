@@ -839,7 +839,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           console.warn('[useConversation] Failed to reconcile retried message order:', error);
         }
       }
-      options?.onPersistenceOutcome?.(true);
+      options?.onPersistenceOutcome?.('saved');
       setRetryState('saved');
       setMessageStatus(conversationId, userMessage.timestamp!, 'sent', '');
       // Keep settings even when the step fails or waits for server-idle.
@@ -903,7 +903,12 @@ export function useConversation(conversationId: string, serverId?: string) {
         }
       }
     } catch (error) {
-      options?.onPersistenceOutcome?.(messageSent);
+      // These responses are returned before append. Timeouts, aborts, proxy
+      // errors and 5xx responses are ambiguous and must never blindly repost.
+      const rejected =
+        ApiClientError.isApiError(error) &&
+        [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
+      options?.onPersistenceOutcome?.(messageSent ? 'saved' : rejected ? 'rejected' : 'unknown');
       console.error('Error sending message:', error);
       // 409 before the message was persisted: remove the optimistic copy and
       // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
@@ -918,14 +923,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         removeMessage(conversationId, userMessage.timestamp!);
         throw error;
       }
-      if (!messageSent) {
-        // These responses are returned before append. Timeouts, aborts, proxy
-        // errors and 5xx responses are ambiguous and must never blindly repost.
-        const rejected =
-          ApiClientError.isApiError(error) &&
-          [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
-        setRetryState(rejected ? 'rejected' : 'unknown');
-      }
+      if (!messageSent) setRetryState(rejected ? 'rejected' : 'unknown');
       const { title, description } = getApiErrorPresentation(error, {
         fallbackTitle: 'Failed to send',
         fallbackDescription: 'Failed to send message',

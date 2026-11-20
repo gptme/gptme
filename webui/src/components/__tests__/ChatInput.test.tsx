@@ -303,7 +303,7 @@ describe('ChatInput', () => {
 
   it('retains a queued prompt when production send resolves with a rejected persistence outcome', async () => {
     const onSend = jest.fn(async (_text, options) => {
-      options.onPersistenceOutcome(false);
+      options.onPersistenceOutcome('rejected');
     });
     mockConversation$.isGenerating.set(true);
     render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
@@ -313,6 +313,47 @@ describe('ChatInput', () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(screen.getByText('Queued: rejected prompt')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry send' })).toBeInTheDocument();
+  });
+
+  it('withholds Retry of an unconfirmed save until the user confirms a resend', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('unknown');
+    });
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'maybe saved' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Save unconfirmed/)).toBeInTheDocument();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+    confirm.mockRestore();
+  });
+
+  it('does not replace attached files when restoring a queued prompt', async () => {
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend: jest.fn(), autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(first.container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(['old'], 'queued.txt')] },
+    });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'needs reattach' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    first.unmount();
+    const second = render(<ChatInput {...props} />);
+    fireEvent.change(second.container.querySelector('input[type="file"]')!, {
+      target: { files: [new File(['new'], 'draft.txt')] },
+    });
+    await waitFor(() => expect(screen.getByText('draft.txt')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Return to composer' }));
+    expect(screen.getByText('draft.txt')).toBeInTheDocument();
+    expect(screen.getByText('Queued: needs reattach')).toBeInTheDocument();
   });
 
   it('labels the composer and disables empty sends', async () => {
