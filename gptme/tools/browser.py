@@ -94,14 +94,16 @@ import importlib.metadata
 import importlib.util
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import replace
-from functools import lru_cache
+from functools import lru_cache, wraps
 from io import BytesIO
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -443,6 +445,81 @@ logger = logging.getLogger(__name__)
 
 # Always include all engine types in the type definition
 EngineType = Literal["google", "duckduckgo", "perplexity"]
+
+# A page, PDF extract, or ARIA tree can be megabytes of already-materialized
+# text. Python-call and direct-call paths only cap at 10 MiB; native
+# ``from_function`` conversion has no cap at all. Bound the model-facing
+# result the same way MCP does, and spill the full text when a conversation
+# directory is active. Screenshots and PDF-to-image paths stay files.
+BROWSER_MAX_OUTPUT_CHARS_ENV = "GPTME_BROWSER_MAX_OUTPUT_CHARS"
+_DEFAULT_BROWSER_MAX_OUTPUT_CHARS = 100_000  # about 25k tokens
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _browser_max_output_chars() -> int:
+    raw = os.environ.get(BROWSER_MAX_OUTPUT_CHARS_ENV)
+    if raw is None:
+        return _DEFAULT_BROWSER_MAX_OUTPUT_CHARS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        logger.warning(
+            "Ignoring invalid %s=%r (expected a positive integer)",
+            BROWSER_MAX_OUTPUT_CHARS_ENV,
+            raw,
+        )
+        return _DEFAULT_BROWSER_MAX_OUTPUT_CHARS
+    return value
+
+
+def _bound_browser_result(result: str, command_info: str) -> str:
+    """Keep the head and tail of an oversized browser result.
+
+    The full text is saved under the conversation's ``tool-outputs/`` when a
+    conversation directory is active, and the omission marker names the file.
+    """
+    limit = _browser_max_output_chars()
+    if len(result) <= limit:
+        return result
+
+    saved_path = None
+    try:
+        from ..logmanager import LogManager
+        from ..util.output_storage import save_large_output
+
+        manager = LogManager.get_current_log()
+        if manager and manager.logdir:
+            _, saved_path = save_large_output(
+                content=result,
+                logdir=manager.logdir,
+                output_type="browser",
+                command_info=command_info,
+            )
+    except Exception as e:  # saving is best-effort; the bound must still apply
+        logger.warning("Could not save full browser output: %s", e)
+
+    head = limit // 2
+    tail = limit - head
+    marker = f"[... {len(result) - limit} characters omitted"
+    marker += f", full output saved to {saved_path}" if saved_path else ""
+    marker += "]"
+    return f"{result[:head]}\n{marker}\n{result[-tail:]}"
+
+
+def _bound_str_return(fn: _F) -> _F:
+    """Bound string returns so every call path (Python, direct, native) agrees."""
+
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        result = fn(*args, **kwargs)
+        if isinstance(result, str):
+            return _bound_browser_result(result, fn.__name__)
+        return result
+
+    return cast(_F, wrapper)
+
 
 SEARCH_ENGINE_ERROR_PREFIX = "Error:"
 
@@ -1380,6 +1457,29 @@ def get_current_url() -> str:
     if browser == "playwright":
         return get_current_url_pw()
     raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+# Apply the bound to public string-returning functions so Python-call,
+# direct-call, and native ``from_function`` conversion all spill the same way.
+# Path-returning helpers (screenshots, PDF-to-image) are left unchanged.
+read_url = _bound_str_return(read_url)
+search = _bound_str_return(search)
+snapshot_url = _bound_str_return(snapshot_url)
+read_logs = _bound_str_return(read_logs)
+open_page = _bound_str_return(open_page)
+close_page = _bound_str_return(close_page)
+save_browser_state = _bound_str_return(save_browser_state)
+load_browser_state = _bound_str_return(load_browser_state)
+read_page_text = _bound_str_return(read_page_text)
+click_element = _bound_str_return(click_element)
+fill_element = _bound_str_return(fill_element)
+scroll_page = _bound_str_return(scroll_page)
+press_key = _bound_str_return(press_key)
+select_option = _bound_str_return(select_option)
+wait_for_element = _bound_str_return(wait_for_element)
+hover_element = _bound_str_return(hover_element)
+snapshot_page = _bound_str_return(snapshot_page)
+get_current_url = _bound_str_return(get_current_url)
 
 
 tool = ToolSpec(
