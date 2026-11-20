@@ -123,6 +123,16 @@
   @apply rounded-b-lg;
 }
 
+/* Tool-use/output blocks open into a bounded pane that scrolls internally, so
+   opening one large command output grows the conversation by at most this cap
+   instead of its full payload. The whole output stays reachable by scrolling the
+   pane (gptme/gptme#5023). Agent code examples are not bounded. */
+.chat-message details.tool-block pre,
+.chat-message details.tool-block .preview-content {
+  @apply overflow-y-auto;
+  max-height: min(60vh, 32rem);
+}
+
 .chat-message pre {
   @apply overflow-x-auto text-white;
   background-color: hsl(var(--code-background));

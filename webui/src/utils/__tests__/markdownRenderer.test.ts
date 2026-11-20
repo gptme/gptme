@@ -150,6 +150,31 @@ describe('renderCodeBlocks', () => {
   });
 });
 
+describe('tool-block bounding', () => {
+  // Tool output/use blocks get a bounded pane (index.css) so a large output
+  // can't grow the conversation by its whole payload (gptme/gptme#5023).
+  function parseWith(markdown: string, blocksDefaultOpen: boolean) {
+    const div = document.createElement('div');
+    const parser = smd.parser(customRenderer(div, false, false, blocksDefaultOpen));
+    smd.parser_write(parser, markdown);
+    smd.parser_end(parser);
+    return div;
+  }
+  const longBlock = (lang: string) => `\`\`\`${lang}\n${'line\n'.repeat(5)}\`\`\``;
+
+  it.each([true, false])('marks tool output blocks (blocksDefaultOpen=%s)', (defaultOpen) => {
+    const details = parseWith(longBlock('stdout'), defaultOpen).querySelector('details');
+    expect(details).toHaveClass('tool-block');
+    expect(details?.hasAttribute('open')).toBe(defaultOpen);
+  });
+
+  it('leaves agent code examples unbounded and open', () => {
+    const details = parseWith(longBlock('python'), false).querySelector('details');
+    expect(details).not.toHaveClass('tool-block');
+    expect(details).toHaveAttribute('open');
+  });
+});
+
 describe('renderMarkdownBlocks', () => {
   it('should handle one markdown block at start of text', () => {
     const markdown = `\`\`\`markdown\nThis is a markdown block\n\`\`\`\nsome other text`;
