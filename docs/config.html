@@ -1208,6 +1208,7 @@ arriving in that window are recorded without a continuation.</p>
 <p class="rubric">Browser Configuration</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code> - Connect the Playwright browser backend to an existing Chromium-compatible browser over Chrome DevTools Protocol instead of launching Playwright’s bundled Chromium. Example: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9222</span></code>. Start Chrome/Chromium with <code class="docutils literal notranslate"><span class="pre">--remote-debugging-port=9222</span></code> to enable this.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_MAX_OUTPUT_CHARS</span></code> - Page characters kept from an oversized browser text result (page Markdown, ARIA snapshot, console log, PDF extract) before it reaches the model (default: 100000, about 25k tokens). The head and tail are kept; when a conversation directory is active the full text is saved under <code class="docutils literal notranslate"><span class="pre">tool-outputs/browser/</span></code>. The limit counts retained page content only: the omission notice and saved-file path are added on top, so the returned text is slightly longer than the limit.</p></li>
 </ul>
 <p class="rubric">Paths</p>
 <ul class="simple">

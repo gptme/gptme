@@ -616,6 +616,7 @@ Besides the configuration files, gptme supports several environment variables to
 .. rubric:: Browser Configuration
 
 - ``GPTME_BROWSER_CDP_URL`` - Connect the Playwright browser backend to an existing Chromium-compatible browser over Chrome DevTools Protocol instead of launching Playwright's bundled Chromium. Example: ``http://127.0.0.1:9222``. Start Chrome/Chromium with ``--remote-debugging-port=9222`` to enable this.
+- ``GPTME_BROWSER_MAX_OUTPUT_CHARS`` - Page characters kept from an oversized browser text result (page Markdown, ARIA snapshot, console log, PDF extract) before it reaches the model (default: 100000, about 25k tokens). The head and tail are kept; when a conversation directory is active the full text is saved under ``tool-outputs/browser/``. The limit counts retained page content only: the omission notice and saved-file path are added on top, so the returned text is slightly longer than the limit.
 
 .. rubric:: Paths
 

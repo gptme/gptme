@@ -116,7 +116,8 @@ Large tool results
 A tool result longer than 100,000 characters (about 25k tokens) is cut to its head and tail
 before it reaches the model. When a conversation directory is active, the full text is saved
 under ``tool-outputs/`` and the omission marker names the file. Set
-``GPTME_MCP_MAX_OUTPUT_CHARS`` to change the limit.
+``GPTME_MCP_MAX_OUTPUT_CHARS`` to change the limit. The limit counts the kept content; the
+omission notice and file path are added on top of it.
 
 MCP Server Examples
 -------------------

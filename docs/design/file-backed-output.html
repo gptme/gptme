@@ -706,6 +706,12 @@ results keep head+tail inline and spill the full text to
 screenshots, and PDF-to-image paths are unchanged. This is a presentation
 bound plus post-materialization spill, not a streaming spool; Playwright
 still materializes the page first.</p>
+<p>The limit counts retained source characters (<code class="docutils literal notranslate"><span class="pre">limit</span> <span class="pre">//</span> <span class="pre">2</span></code> head plus the rest as
+tail), not total response length: the omission marker and saved-file path are
+appended on top, so the returned text exceeds the limit by the marker length.
+This is deliberate. A total-length cap would subtract the marker from the
+content budget, and at a small configured limit the marker would crowd out the
+content and the recovery path. The MCP bound below uses the same rule.</p>
 <p><strong>Request:</strong> <a class="reference external" href="https://github.com/gptme/gptme/issues/4663">gptme/gptme#4663</a>.</p>
 <p><strong>Source inventory:</strong> <code class="docutils literal notranslate"><span class="pre">15f20e44c96acdd035da81213b9e9f5bb54ac98d</span></code> (2026-10-30).</p>
 <section id="decision">
