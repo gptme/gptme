@@ -8,6 +8,7 @@ for the duration of the cell and must not leave the host cwd changed.
 
 import atexit
 import contextvars
+import os
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -390,6 +391,71 @@ def test_blocking_helper_releases_cwd_lock_for_child_python(
     child_thread.join(timeout=10)
     assert not child_thread.is_alive()
     assert (child_ws / "from-child.txt").read_text() == "ok"
+    assert Path.cwd() == host
+
+
+def test_suspend_restores_the_cell_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, workspace, subdir = (tmp_path / n for n in ("host", "workspace", "sub"))
+    for path in (host, workspace, subdir):
+        path.mkdir()
+    (workspace / "sub").mkdir()
+    cell_dir = workspace / "sub"
+    monkeypatch.chdir(host)
+
+    def parent() -> None:
+        with python_tool._inprocess_session_cwd():
+            os.chdir(cell_dir)
+            with python_tool.suspend_inprocess_session_cwd():
+                assert Path.cwd() == host
+            assert Path.cwd() == cell_dir
+        assert Path.cwd() == host
+
+    _in_server_session("conv-a", workspace, parent)
+
+
+def test_suspend_does_not_capture_child_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, parent_ws, child_ws = (tmp_path / n for n in ("host", "parent", "child"))
+    for path in (host, parent_ws, child_ws):
+        path.mkdir()
+    monkeypatch.chdir(host)
+    started = threading.Event()
+    child_done = threading.Event()
+
+    def blocking_helper() -> str:
+        with python_tool.suspend_inprocess_session_cwd():
+            started.set()
+            assert child_done.wait(timeout=10)
+        return "ok"
+
+    python_tool.register_function(blocking_helper, tool_name="test")
+
+    def child() -> None:
+        assert started.wait(timeout=10)
+        _in_server_session(
+            "conv-child",
+            child_ws,
+            lambda: _execute("print('child-secret')"),
+        )
+        child_done.set()
+
+    child_thread = threading.Thread(target=child)
+    child_thread.start()
+    messages = _in_server_session(
+        "conv-parent",
+        parent_ws,
+        lambda: _execute(
+            "print('parent-before'); blocking_helper(); print('parent-after')"
+        ),
+    )
+    child_thread.join(timeout=10)
+    text = "\n".join(m.content for m in messages)
+    assert "child-secret" not in text
+    assert "parent-before" in text
+    assert "parent-after" in text
     assert Path.cwd() == host
 
 

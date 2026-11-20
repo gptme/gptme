@@ -280,6 +280,10 @@ def suspend_inprocess_session_cwd() -> Generator[None, None, None]:
         yield
         return
 
+    try:
+        cell_cwd = Path.cwd()
+    except FileNotFoundError:
+        cell_cwd = pin["target"]
     host_cwd = pin["host_cwd"]
     if host_cwd is not None:
         try:
@@ -290,22 +294,30 @@ def suspend_inprocess_session_cwd() -> Generator[None, None, None]:
                 host_cwd,
                 e,
             )
+    # Drop this cell's TeeIO so a nested conversation's capture does not wrap
+    # it and leak that conversation's output into this cell's result.
+    saved_stdout, saved_stderr = sys.stdout, sys.stderr
+    if isinstance(sys.stdout, TeeIO):
+        sys.stdout = sys.stdout.original_stream
+    if isinstance(sys.stderr, TeeIO):
+        sys.stderr = sys.stderr.original_stream
     _inprocess_cwd_tls.pin = None
     _inprocess_cwd_lock.release()
     try:
         yield
     finally:
         _inprocess_cwd_lock.acquire()
+        sys.stdout, sys.stderr = saved_stdout, saved_stderr
         resume_host: Path | None
         try:
             resume_host = Path.cwd()
         except FileNotFoundError:
             resume_host = None
-        os.chdir(current_workspace())
-        _inprocess_cwd_tls.pin = {
-            "host_cwd": resume_host,
-            "target": current_workspace(),
-        }
+        try:
+            os.chdir(cell_cwd)
+        except OSError:
+            os.chdir(current_workspace())
+        _inprocess_cwd_tls.pin = {"host_cwd": resume_host, "target": cell_cwd}
 
 
 def _get_timeout() -> float | None:
