@@ -583,7 +583,8 @@ const AgentBadge: FC<{ agent: Agent; baseUrl: string; onRemove: () => void }> = 
 const QueuedMessageBadge: FC<{
   message: string;
   onClear: () => void;
-  onEdit: (text: string) => void;
+  /** Returns false when the edit could not be saved; the editor then stays open. */
+  onEdit: (text: string) => boolean;
   onEditingChange: (editing: boolean) => void;
   onRetry?: () => void;
   retryLabel?: string;
@@ -625,8 +626,7 @@ const QueuedMessageBadge: FC<{
             onDraftChange(value);
           }}
           onSubmit={() => {
-            onEdit(text);
-            finishEditing();
+            if (onEdit(text)) finishEditing();
           }}
           onEscape={finishEditing}
           autoFocus
@@ -635,8 +635,7 @@ const QueuedMessageBadge: FC<{
           type="button"
           size="sm"
           onClick={() => {
-            onEdit(text);
-            finishEditing();
+            if (onEdit(text)) finishEditing();
           }}
         >
           Save queued message
@@ -1022,7 +1021,8 @@ export const ChatInput: FC<Props> = ({
   // Persist text/options under the same server/account owner as composer drafts.
   const [messageQueue, setMessageQueue] = useMessageQueue(storageKey);
   const [editingQueuedMessage, setEditingQueuedMessage] = useState(false);
-  const queueSendInFlight = useRef(false);
+  // Keyed by queue owner: a pending send must not block another conversation's queue.
+  const queueSendInFlight = useRef(new Set<string>());
   const [isUploading, setIsUploading] = useState(false);
   const uploadInFlight = useRef(false);
   // Async upload completion must not clear a different conversation's draft.
@@ -1107,7 +1107,8 @@ export const ChatInput: FC<Props> = ({
   // tool confirmation, which would flush mid-step).
   useEffect(() => {
     if (wasBusy.current && !isBusy && !editingQueuedMessage && messageQueue.length > 0) {
-      if (!onSend || queueSendInFlight.current) return;
+      const sendKey = storageKey ?? '';
+      if (!onSend || queueSendInFlight.current.has(sendKey)) return;
       const nextMessage = messageQueue[0];
       if (nextMessage.uploadFailed || nextMessage.editDraft !== undefined || nextMessage.sending)
         return;
@@ -1143,8 +1144,17 @@ export const ChatInput: FC<Props> = ({
       console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
-      queueSendInFlight.current = true;
+      queueSendInFlight.current.add(sendKey);
       const owner = conversationEpoch.current;
+      const settle = (update: (prev: QueuedMessage[]) => QueuedMessage[]) => {
+        if (setMessageQueue(update, { memoryFallback: true })) return;
+        toast({
+          variant: 'destructive',
+          title: 'Could not save queue state',
+          description:
+            'Browser storage is full. The queue was updated for this tab; free storage to keep it across reloads.',
+        });
+      };
       const send = async () => {
         try {
           let persisted: PersistenceOutcome | undefined;
@@ -1156,7 +1166,7 @@ export const ChatInput: FC<Props> = ({
           });
           if (persisted === 'rejected' || persisted === 'unknown') {
             const saveUnknown = persisted === 'unknown';
-            setMessageQueue((prev) =>
+            settle((prev) =>
               prev.map((item) =>
                 item.id === nextMessage.id
                   ? { ...item, sending: false, uploadFailed: true, saveUnknown }
@@ -1164,7 +1174,7 @@ export const ChatInput: FC<Props> = ({
               )
             );
           } else {
-            setMessageQueue((prev) => prev.filter((item) => item.id !== nextMessage.id));
+            settle((prev) => prev.filter((item) => item.id !== nextMessage.id));
           }
         } catch (error: unknown) {
           // The scoped setter restores failed work to its original draft even
@@ -1174,7 +1184,7 @@ export const ChatInput: FC<Props> = ({
               ? (error as { status: number }).status
               : undefined;
           if (error instanceof AttachmentUploadError) {
-            setMessageQueue((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev.slice(1)]);
+            settle((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev.slice(1)]);
             if (conversationEpoch.current === owner) {
               toast({
                 variant: 'destructive',
@@ -1184,23 +1194,23 @@ export const ChatInput: FC<Props> = ({
             }
           } else if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
-            setMessageQueue((prev) => [nextMessage, ...prev.slice(1)]);
+            settle((prev) => [nextMessage, ...prev.slice(1)]);
             // Returning to idle A while this POST is pending leaves the queue
             // empty, so the switch effect cannot re-arm wasBusy. Retry whenever
             // the original draft is visible, even after conversationEpoch moved.
             if (currentDraftKey.current === storageKey) scheduleQueueRetry();
           } else {
-            setMessageQueue((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev.slice(1)]);
+            settle((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev.slice(1)]);
             console.error('[ChatInput] Failed to send queued message:', error);
           }
         } finally {
-          queueSendInFlight.current = false;
+          queueSendInFlight.current.delete(sendKey);
         }
       };
       void send();
     }
     if (!editingQueuedMessage) wasBusy.current = isBusy;
-  }, [isBusy, messageQueue, onSend, toast, setMessageQueue, editingQueuedMessage]);
+  }, [isBusy, messageQueue, onSend, toast, setMessageQueue, editingQueuedMessage, storageKey]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
   // Sidebar workspace selections sync both ways. Agent default applies only when
@@ -1589,11 +1599,19 @@ export const ChatInput: FC<Props> = ({
                   setEditingQueuedMessage(editing);
                   if (!editing) wasBusy.current = true;
                 }}
-                onEdit={(text) =>
-                  setMessageQueue((prev) =>
+                onEdit={(text) => {
+                  const saved = setMessageQueue((prev) =>
                     prev.map((item) => (item.id === msg.id ? { ...item, text } : item))
-                  )
-                }
+                  );
+                  if (!saved)
+                    toast({
+                      variant: 'destructive',
+                      title: 'Could not save queued message',
+                      description:
+                        'Browser storage is full. Your edit is still open; free storage and save again.',
+                    });
+                  return saved;
+                }}
                 onClear={() => {
                   // A failed upload never starts generation, so discarding it
                   // must re-arm the flush for messages waiting behind it.

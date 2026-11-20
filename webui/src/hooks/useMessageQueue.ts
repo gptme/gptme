@@ -61,7 +61,7 @@ export function useMessageQueue(key: string | null) {
   const items = useSyncExternalStore(subscribe, snapshot, snapshot);
 
   const setQueue = useCallback(
-    (update: SetStateAction<QueuedMessage[]>) => {
+    (update: SetStateAction<QueuedMessage[]>, opts?: { memoryFallback?: boolean }) => {
       if (!key) return false;
       // The cache is cleared when the last composer unmounts; a pending send's
       // captured setter must then start from storage, not an empty queue.
@@ -90,6 +90,11 @@ export function useMessageQueue(key: string | null) {
         if (serializable.length) localStorage.setItem(`${key}:queue`, JSON.stringify(serializable));
         else localStorage.removeItem(`${key}:queue`);
       } catch {
+        // Settling a finished send must still unlock the UI; storage keeps the
+        // stale row (restored as unconfirmed) until the next successful write.
+        if (!opts?.memoryFallback) return false;
+        queues.set(key, next);
+        listeners.forEach((listener) => listener());
         return false;
       }
       queues.set(key, next);

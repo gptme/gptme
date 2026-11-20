@@ -394,6 +394,77 @@ describe('ChatInput', () => {
     confirm.mockRestore();
   });
 
+  it("does not let a pending send in one conversation block another conversation's queue", async () => {
+    const autoFocus$ = observable(false);
+    const onSendA = jest.fn(() => new Promise<void>(() => {}));
+    const onSendB = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('saved');
+    });
+    mockConversation$.isGenerating.set(true);
+    const { rerender } = render(
+      <ChatInput conversationId="conv-a" onSend={onSendA} autoFocus$={autoFocus$} />
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'pending in A' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSendA).toHaveBeenCalledTimes(1));
+    rerender(<ChatInput conversationId="conv-b" onSend={onSendB} autoFocus$={autoFocus$} />);
+    act(() => mockConversation$.isGenerating.set(true));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'queued in B' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSendB).toHaveBeenCalledWith('queued in B', expect.any(Object)));
+  });
+
+  it('keeps the editor open with the edit when saving it fails', () => {
+    const onSend = jest.fn();
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'short' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation((_key, value) => {
+      if (String(value).includes('much longer edit')) throw new Error('QuotaExceededError');
+    });
+    const editor = screen.getByRole('textbox', { name: 'Edit queued message' });
+    fireEvent.change(editor, { target: { value: 'a much longer edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save queued message' }));
+    expect(screen.getByRole('textbox', { name: 'Edit queued message' })).toHaveValue(
+      'a much longer edit'
+    );
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).not.toHaveBeenCalled();
+    setItem.mockRestore();
+  });
+
+  it('unlocks a finished send even when storage fails while it is pending', async () => {
+    let finishSend!: () => void;
+    const onSend = jest.fn(
+      (_text, options) =>
+        new Promise<void>((resolve) => {
+          finishSend = () => {
+            options.onPersistenceOutcome('rejected');
+            resolve();
+          };
+        })
+    );
+    mockConversation$.isGenerating.set(true);
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'storage dies' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Sending…')).toBeInTheDocument();
+    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    await act(async () => finishSend());
+    expect(screen.queryByText('Sending…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear queued message' })).toBeEnabled();
+    setItem.mockRestore();
+  });
+
   it('does not replace attached files when restoring a queued prompt', async () => {
     mockConversation$.isGenerating.set(true);
     const props = { conversationId: 'conv-a', onSend: jest.fn(), autoFocus$: observable(false) };
