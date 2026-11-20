@@ -347,6 +347,52 @@ def test_concurrent_server_cells_stay_isolated(
     assert Path.cwd() == host
 
 
+def test_blocking_helper_releases_cwd_lock_for_child_python(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A parent cell that waits must not deadlock a child's in-process Python.
+
+    subagent_parallel joins children while the parent cell still holds the
+    cwd lock unless that wait suspends the pin (gptme/gptme#4951).
+    """
+    host, parent_ws, child_ws = (tmp_path / n for n in ("host", "parent", "child"))
+    for path in (host, parent_ws, child_ws):
+        path.mkdir()
+    monkeypatch.chdir(host)
+    started = threading.Event()
+    child_done = threading.Event()
+
+    def blocking_helper() -> str:
+        with python_tool.suspend_inprocess_session_cwd():
+            started.set()
+            assert child_done.wait(timeout=10)
+        return "ok"
+
+    python_tool.register_function(blocking_helper, tool_name="test")
+
+    def parent() -> None:
+        _execute("blocking_helper()")
+
+    def child() -> None:
+        assert started.wait(timeout=10)
+        _in_server_session(
+            "conv-child",
+            child_ws,
+            lambda: _execute(
+                "from pathlib import Path; Path('from-child.txt').write_text('ok')"
+            ),
+        )
+        child_done.set()
+
+    child_thread = threading.Thread(target=child)
+    child_thread.start()
+    _in_server_session("conv-parent", parent_ws, parent)
+    child_thread.join(timeout=10)
+    assert not child_thread.is_alive()
+    assert (child_ws / "from-child.txt").read_text() == "ok"
+    assert Path.cwd() == host
+
+
 def test_cli_relative_cell_uses_process_cwd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

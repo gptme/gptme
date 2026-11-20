@@ -92,7 +92,10 @@ _conversation_ipython: dict[str, Any] = {}
 _conv_ipython_lock = threading.Lock()
 # Serializes the temporary os.chdir around one in-process cell on the server.
 # Held only for that cell; other threads can still observe the temporary cwd.
+# Blocking waits (subagent join) must call suspend_inprocess_session_cwd() so
+# child conversations can run Python without deadlocking the parent.
 _inprocess_cwd_lock = threading.Lock()
+_inprocess_cwd_tls = threading.local()
 
 # Cached result of auto-detection; None means not yet determined.
 _kernel_mode_cache: bool | None = None
@@ -241,14 +244,17 @@ def _inprocess_session_cwd() -> Generator[None, None, None]:
 
     target = current_workspace()
     with _inprocess_cwd_lock:
+        host_cwd: Path | None
         try:
             host_cwd = Path.cwd()
         except FileNotFoundError:
             host_cwd = None
         try:
             os.chdir(target)
+            _inprocess_cwd_tls.pin = {"host_cwd": host_cwd, "target": target}
             yield
         finally:
+            _inprocess_cwd_tls.pin = None
             if host_cwd is not None:
                 try:
                     os.chdir(host_cwd)
@@ -258,6 +264,48 @@ def _inprocess_session_cwd() -> Generator[None, None, None]:
                         host_cwd,
                         e,
                     )
+
+
+@contextmanager
+def suspend_inprocess_session_cwd() -> Generator[None, None, None]:
+    """Release this thread's in-process cwd pin for a blocking wait.
+
+    A server Python cell that calls ``subagent_parallel`` / ``subagent_wait``
+    must not hold ``_inprocess_cwd_lock`` while child conversations run Python.
+    No-op when this thread is not pinning. Child cells restore the host cwd
+    before this resumes and re-pins ``current_workspace()``.
+    """
+    pin = getattr(_inprocess_cwd_tls, "pin", None)
+    if pin is None:
+        yield
+        return
+
+    host_cwd = pin["host_cwd"]
+    if host_cwd is not None:
+        try:
+            os.chdir(host_cwd)
+        except OSError as e:
+            logger.warning(
+                "Could not restore cwd to %s before blocking wait: %s",
+                host_cwd,
+                e,
+            )
+    _inprocess_cwd_tls.pin = None
+    _inprocess_cwd_lock.release()
+    try:
+        yield
+    finally:
+        _inprocess_cwd_lock.acquire()
+        resume_host: Path | None
+        try:
+            resume_host = Path.cwd()
+        except FileNotFoundError:
+            resume_host = None
+        os.chdir(current_workspace())
+        _inprocess_cwd_tls.pin = {
+            "host_cwd": resume_host,
+            "target": current_workspace(),
+        }
 
 
 def _get_timeout() -> float | None:

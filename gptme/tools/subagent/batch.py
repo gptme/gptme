@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, cast
 
-from .api import subagent, subagent_cancel, subagent_wait
+from .api import _without_inprocess_cwd_pin, subagent, subagent_cancel, subagent_wait
 from .types import ReturnType, SubagentBudget
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,7 @@ class BatchJob:
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _budget_recorded_ids: set = field(default_factory=set, init=False, repr=False)
 
+    @_without_inprocess_cwd_pin
     def wait_all(
         self, timeout: int = 300, cancel_on_failure: bool = False
     ) -> dict[str, dict]:
@@ -396,6 +397,7 @@ class BatchJob:
                 }
             return raw
 
+    @_without_inprocess_cwd_pin
     def wait_any(self, timeout: int = 300) -> tuple[str, dict]:
         """Wait for the first subagent to complete and return its result.
 
@@ -886,6 +888,7 @@ def subagent_parallel(
     return raw_results
 
 
+@_without_inprocess_cwd_pin
 def _subagent_parallel_capped(
     tasks: list[tuple[str, str]],
     max_concurrent: int,
@@ -1119,6 +1122,7 @@ def _subagent_parallel_capped(
     return raw_results
 
 
+@_without_inprocess_cwd_pin
 def subagent_pipeline(
     items: list[tuple[str, str]],
     *stages: Callable[[str, str], str],
