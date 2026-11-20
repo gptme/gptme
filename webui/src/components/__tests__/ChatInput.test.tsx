@@ -272,6 +272,35 @@ describe('ChatInput', () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('replacement', expect.any(Object)));
   });
 
+  it('sends a shared queued head only once when split panes become idle together', async () => {
+    let finishSend!: () => void;
+    const onSend = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        })
+    );
+    mockConversation$.isGenerating.set(true);
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    render(
+      <>
+        <ChatInput {...props} />
+        <ChatInput {...props} />
+      </>
+    );
+    const input = screen.getAllByRole('textbox', { name: 'Chat message' })[0];
+    fireEvent.change(input, { target: { value: 'send exactly once' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(screen.getAllByText('Queued: send exactly once')).toHaveLength(2);
+
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith('send exactly once', expect.any(Object));
+    await act(async () => finishSend());
+    expect(screen.queryByText('Queued: send exactly once')).not.toBeInTheDocument();
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
   it('retains a queued prompt when production send resolves with a rejected persistence outcome', async () => {
     const onSend = jest.fn(async (_text, options) => {
       options.onPersistenceOutcome(false);

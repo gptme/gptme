@@ -1106,16 +1106,25 @@ export const ChatInput: FC<Props> = ({
       const nextMessage = messageQueue[0];
       if (nextMessage.uploadFailed || nextMessage.editDraft !== undefined || nextMessage.sending)
         return;
-      console.log('[ChatInput] Step completed, sending queued message', {
-        remaining: messageQueue.length - 1,
-      });
+      // Claim against the live shared queue, not this render's snapshot: another
+      // split-pane effect may already have claimed the same head in this commit.
+      let claimed = false;
       // Retain the item durably until the send resolves. On reload, an
       // interrupted send requires an explicit retry (never an automatic duplicate).
       if (
-        !setMessageQueue((prev) => [
-          { ...nextMessage, uploadFailed: true, sending: true },
-          ...prev.slice(1),
-        ])
+        !setMessageQueue((prev) => {
+          const head = prev[0];
+          if (
+            !head ||
+            head.id !== nextMessage.id ||
+            head.uploadFailed ||
+            head.editDraft !== undefined ||
+            head.sending
+          )
+            return prev;
+          claimed = true;
+          return [{ ...head, uploadFailed: true, sending: true }, ...prev.slice(1)];
+        })
       ) {
         toast({
           variant: 'destructive',
@@ -1125,6 +1134,10 @@ export const ChatInput: FC<Props> = ({
         });
         return;
       }
+      if (!claimed) return;
+      console.log('[ChatInput] Step completed, sending queued message', {
+        remaining: messageQueue.length - 1,
+      });
       queueSendInFlight.current = true;
       const owner = conversationEpoch.current;
       const send = async () => {
