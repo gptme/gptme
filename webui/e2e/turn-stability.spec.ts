@@ -989,6 +989,11 @@ for (const viewport of [
           }
         }
       } finally {
+        // Keep frame evidence even when a streaming assertion fails, without rrweb.
+        await testInfo.attach('native-stream-frames', {
+          body: JSON.stringify(evidence),
+          contentType: 'application/json',
+        });
         // Keep the replay on failure: that is when it is useful for diagnosis.
         if (recording) {
           const path = testInfo.outputPath('rrweb-events.json');
@@ -1002,10 +1007,6 @@ for (const viewport of [
       await expect(message.locator('details')).toContainText(fixture.argMarker.slice(2, -1));
       await expect(message).toContainText(NATIVE_TAIL);
       await page.screenshot({ path: testInfo.outputPath(`native-${fixture.name}-expanded.png`) });
-      await testInfo.attach('native-stream-frames', {
-        body: JSON.stringify(evidence),
-        contentType: 'application/json',
-      });
     });
   }
 }
