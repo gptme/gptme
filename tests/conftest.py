@@ -330,12 +330,12 @@ def restore_cwd():
     """Restore the process cwd after every test.
 
     Several code paths still do a process-wide ``os.chdir()`` with no matching
-    restore (e.g. ``session_step.py``'s legacy fallback for tools that still use
-    ``Path.cwd()``). Under pytest-xdist a leaked cwd survives to the next test on
-    the same worker, making an unrelated test like ``test_shell_cd_chdir`` fail
-    deterministically depending on run order (gptme/gptme#3850). Defined first
-    among the autouse fixtures so its teardown runs last, undoing a chdir made
-    during another fixture's teardown too.
+    restore (e.g. CLI ``chat()`` and thread-mode subagents). Under pytest-xdist
+    a leaked cwd survives to the next test on the same worker, making an
+    unrelated test like ``test_shell_cd_chdir`` fail deterministically depending
+    on run order (gptme/gptme#3850). Defined first among the autouse fixtures
+    so its teardown runs last, undoing a chdir made during another fixture's
+    teardown too.
     """
     original_cwd = os.getcwd()
     yield

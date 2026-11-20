@@ -2600,11 +2600,12 @@ def api_conversation_fork(conversation_id: str):
 def _leave_dir_before_delete(path: Path) -> None:
     """Move the process out of ``path`` before it is removed.
 
-    Session steps ``os.chdir`` the whole server process into the conversation
-    workspace (``session_step.py``). Deleting that conversation used to leave
-    the process with a vanished cwd, so every later ``Path.cwd()`` — e.g. the
-    ``ChatConfig`` default workspace on ``PUT /api/v2/conversations`` — raised
-    ``FileNotFoundError`` and returned 500 until the server restarted.
+    In-process Python cells, CLI ``chat()``, and thread-mode subagents may
+    still ``os.chdir`` the process. Deleting a conversation whose directory is
+    the cwd used to leave the process with a vanished cwd, so every later
+    ``Path.cwd()`` — e.g. the ``ChatConfig`` default workspace on
+    ``PUT /api/v2/conversations`` — raised ``FileNotFoundError`` and returned
+    500 until the server restarted.
     """
     try:
         cwd = Path.cwd().resolve()

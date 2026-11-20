@@ -1051,7 +1051,7 @@ def step(
     # symlinked workspace that was moved/deleted). step() runs in a daemon
     # thread, so an uncaught error here would silently leave the session stuck
     # in "generating"; emit a visible error event and stop instead of letting
-    # the later os.chdir(workspace) crash the thread.
+    # later workspace-relative operations crash the thread.
     try:
         require_workspace_exists(workspace)
     except FileNotFoundError as e:
@@ -1099,18 +1099,10 @@ def step(
 
     # Set the workspace directory for the shell via thread-safe ContextVar.
     # This ensures each session's shell starts in the correct directory even
-    # when multiple sessions are being served concurrently.
-    # save/read/patch/patch_many/morph/vision resolve relative paths through
-    # current_workspace(), so they follow this ContextVar. We still keep
-    # os.chdir() for the first message as a fallback for tools that use
-    # Path.cwd() (see gptme/gptme#4951).
+    # when multiple sessions are being served concurrently. File tools, Python,
+    # and other workspace-aware code resolve through current_workspace() /
+    # get_workspace_cwd() instead of a process-wide os.chdir (gptme/gptme#4951).
     set_workspace_cwd(str(workspace))
-    user_messages = [msg for msg in manager.log.messages if msg.role == "user"]
-    if len(user_messages) <= 1:
-        logger.debug(
-            f"One or fewer user messages found, changing directory to workspace: {workspace}"
-        )
-        os.chdir(workspace)
 
     # Trigger TURN_PRE once per submitted user prompt before the step starts.
     # Guard against tool-continuation calls: step() is re-entered after every
