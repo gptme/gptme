@@ -66,7 +66,10 @@ def _truncate_output(
     """Bound pane output to prevent context overflow.
 
     Keeps ``pre_lines`` head and ``post_lines`` tail lines, then bounds the
-    preview to ``max_chars``. When anything is omitted, the full captured text
+    retained pane content to ``max_chars`` characters. The truncation marker
+    (which can name the saved file) is added on top of that bound, so the
+    returned string can exceed ``max_chars`` by the marker length. When
+    anything is omitted, the full captured text
     is saved under the conversation's ``tool-outputs/tmux/`` and the marker
     names the file. The saved file is the pane scrollback tmux still held at
     capture time; history beyond tmux's ``history-limit`` was never captured.
@@ -78,7 +81,7 @@ def _truncate_output(
         logdir: Conversation directory to save full output under; defaults to
             the active conversation. Without one, nothing is saved.
         context: Context string for saved file (e.g., "inspect-pane gptme_1")
-        max_chars: Character bound on the returned preview
+        max_chars: Character bound on retained pane content (marker excluded)
 
     Returns:
         Truncated content with message about truncation, or original if short enough
