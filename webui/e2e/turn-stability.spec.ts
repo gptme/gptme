@@ -631,3 +631,71 @@ test('native tool payload streams collapsed without losing the preceding reply t
   await expect(message).toContainText('The complete reply tail.');
   await page.screenshot({ path: testInfo.outputPath('native-tool-stream.png') });
 });
+
+// A wider synthetic fence can rebuild the parser while a save payload streams.
+// Check painted frames, not DOM identity: a synchronous rebuild need not flash.
+test('backticks in a streamed native save preserve the painted reply on every frame', async ({
+  page,
+}, testInfo) => {
+  await openTurn(page);
+  const tail = 'The full reply tail stays visible.';
+  await appendMessage(page, 'assistant', `${tail}\n\n`);
+  const message = page.locator('[data-message-index="1"]');
+  await expect(message).toContainText(tail);
+  await page.evaluate((tail) => {
+    const samples: { tailVisible: boolean; payloadVisible: boolean }[] = [];
+    const state = { running: true, samples };
+    const sample = () => {
+      const message = document.querySelector<HTMLElement>('[data-message-index="1"]');
+      const text = message?.innerText ?? '';
+      samples.push({
+        tailVisible: text.includes(tail),
+        payloadVisible: text.includes('PAYLOAD_SENTINEL') || text.includes('@save(call_1)'),
+      });
+      if (state.running) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    Object.assign(window, { nativeSaveFrames: state });
+  }, tail);
+  await streamTokens(page, [
+    '@save(call_1): {"path":"/tmp/example.md","content":"PAYLOAD_SENTINEL ',
+    '`',
+    '`',
+    '`',
+    'python\\nx = 1\\n',
+    '`',
+    '`',
+    '`',
+    '"}',
+  ]);
+  await page.evaluate(async (id) => {
+    const { conversations$ } = await import('/src/stores/conversations.ts');
+    conversations$.get(id).data.log[1].isComplete.set(true);
+  }, conversationId);
+  await nextFrames(page);
+  const frames = await page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        nativeSaveFrames: {
+          running: boolean;
+          samples: { tailVisible: boolean; payloadVisible: boolean }[];
+        };
+      }
+    ).nativeSaveFrames;
+    state.running = false;
+    return state.samples;
+  });
+  expect(frames.length).toBeGreaterThan(15);
+  expect(frames.filter((frame) => !frame.tailVisible || frame.payloadVisible)).toEqual([]);
+  const details = message.locator('details');
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open', '');
+  await details.locator('summary').click();
+  await expect(details).toContainText('PAYLOAD_SENTINEL ```python');
+  await expect(message).toContainText(tail);
+  await testInfo.attach('native-save-frames', {
+    body: JSON.stringify(frames),
+    contentType: 'application/json',
+  });
+  await page.screenshot({ path: testInfo.outputPath('native-save-backticks.png') });
+});
