@@ -1095,6 +1095,11 @@ def test_large_foreground_output_spools_before_completion(
         assert live, "large foreground output must spill while the command is running"
         assert "BEGIN-MARKER" in live[0].read_text()
         assert "Zq8x7WmK2pL9vR4tY6uN3bH5jC1" not in live[0].read_text()
+        # Wait for the secret's sanitized line, not just the earlier prefix.
+        while time.monotonic() < deadline and "API_SECRET=" not in live[0].read_text():
+            time.sleep(0.02)
+        assert "API_SECRET=[REDACTED]" in live[0].read_text()
+        assert "Zq8x7WmK2pL9vR4tY6uN3bH5jC1" not in live[0].read_text()
     finally:
         release.touch()
         worker.join(15)
@@ -1371,3 +1376,136 @@ def test_adoption_keeps_first_capture_origin(tmp_path: Path) -> None:
     finally:
         job.process.finish(0)
         complete_adopted_job(job, notify=False)
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected"),
+    [
+        ("git log --oneline", "Showing first 20 of 1000 commits."),
+        ("gh issue list", "Showing first 10 of 1000 items."),
+        ("rg selected .", "Pruned to 1 of 1000 lines"),
+    ],
+)
+def test_budget_capture_keeps_selected_preview(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cmd: str, expected: str
+) -> None:
+    from gptme.tools.pruner import PrunePlan
+    from gptme.tools.shell import _format_shell_output
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    lines = [f"{i:07x} {'output ' * 15}" for i in range(1000)]
+    lines[500] = "SELECTED-MIDDLE-LINE"
+    stdout = "\n".join(lines) + "\n"
+    assert len(stdout) > 64 * 1024
+    capture = BackgroundJob(0, cmd, PromotedJobProcess(), time.time(), log_dir=tmp_path)
+    assert adopt_foreground_capture(
+        capture, [([stdout], [])], origin="foreground_budget"
+    )
+    capture.process.finish(0)
+    complete_adopted_job(capture, notify=False)
+    assert capture.log_path is not None
+    plan = PrunePlan(
+        ranges=((501, 501),),
+        total_lines=1000,
+        kept_lines=1,
+        original_tokens=30000,
+        kept_tokens=10,
+        model="mock/echo",
+    )
+    monkeypatch.setattr(
+        "gptme.tools.shell.plan_tool_output_prune", lambda *a, **kw: plan
+    )
+    content = _format_shell_output(
+        cmd, stdout, "", 0, False, False, logdir=tmp_path, capture=capture
+    )
+    assert expected in content
+    assert str(capture.log_path) in content
+    assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    if cmd.startswith("rg"):
+        assert "SELECTED-MIDDLE-LINE" in content
+        assert lines[0] not in content
+
+
+def test_budget_capture_interrupt_is_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An interrupt raised by the pipe reader seals an error receipt, not success."""
+    import json
+    import sys
+
+    from gptme.tools.shell_background import BackgroundJob
+
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    capture = BackgroundJob(
+        0, "interrupted", PromotedJobProcess(), time.time(), log_dir=tmp_path
+    )
+
+    def interrupt(
+        code: str, output: bool, timeout: float | None
+    ) -> tuple[int | None, str, str]:
+        stdout: list[str] = []
+        assert shell._capture_segments is not None
+        shell._capture_segments.append((stdout, []))
+        shell._capture_output(
+            stdout, "output\n" * 12000, stream=sys.stdout, output=False
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(shell, "_run_commands", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        shell.run("interrupted", output=False, capture=capture)
+    assert capture.receipt_path is not None
+    receipt = json.loads(capture.receipt_path.read_text())
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_error" in receipt["partial_reasons"]
+    assert receipt["exit_code"] == -1
+    assert capture.process.poll() == -1
+
+
+@pytest.mark.parametrize("state", ["live", "partial", "quota_refused"])
+def test_selected_preview_does_not_bypass_incomplete_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: str
+) -> None:
+    from gptme.tools.shell import _format_shell_output
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    stdout = "a commit subject\n" * 5000
+    capture = BackgroundJob(
+        0, "git log --oneline", PromotedJobProcess(), time.time(), log_dir=tmp_path
+    )
+    if state == "quota_refused":
+        monkeypatch.setattr("gptme.tools.shell_background._SPOOL_CONVERSATION_QUOTA", 0)
+        assert not adopt_foreground_capture(capture, [([stdout], [])])
+    else:
+        assert adopt_foreground_capture(capture, [([stdout], [])])
+    try:
+        if state == "partial":
+            capture.process.finish(0)
+            complete_adopted_job(capture, partial_reason="write_error", notify=False)
+        content = _format_shell_output(
+            "git log --oneline",
+            stdout,
+            "",
+            0,
+            False,
+            False,
+            logdir=tmp_path,
+            capture=capture,
+        )
+        assert "Showing first" not in content
+        assert "Full output saved" not in content
+        assert "full output saved" not in content
+        assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    finally:
+        if state == "live":
+            capture.process.finish(0)
+            complete_adopted_job(capture, notify=False)

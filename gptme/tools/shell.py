@@ -2861,13 +2861,15 @@ def _matches_gh_list(cmd: str) -> bool:
     return True
 
 
-def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+def _format_git_log_preview(
+    cmd: str, stdout: str, logdir: Path | None, *, retained_path: Path | None = None
+) -> str | None:
     lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
     if len(lines) <= _GIT_LOG_PREVIEW_LINES:
         return None
 
-    saved_path: Path | None = None
-    if logdir:
+    saved_path = retained_path
+    if logdir and saved_path is None:
         _, saved_path = save_large_output(
             content=stdout,
             logdir=logdir,
@@ -2911,14 +2913,16 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
     return body
 
 
-def _format_gh_list_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+def _format_gh_list_preview(
+    cmd: str, stdout: str, logdir: Path | None, *, retained_path: Path | None = None
+) -> str | None:
     """Format a compact preview for ``gh issue list`` / ``gh pr list`` output."""
     lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
     if len(lines) <= _GH_LIST_PREVIEW_LINES:
         return None
 
-    saved_path: Path | None = None
-    if logdir:
+    saved_path = retained_path
+    if logdir and saved_path is None:
         _, saved_path = save_large_output(
             content=stdout,
             logdir=logdir,
@@ -2966,6 +2970,8 @@ def _format_query_pruned_output(
     cmd: str,
     stdout: str,
     logdir: Path | None,
+    *,
+    retained_path: Path | None = None,
 ) -> str | None:
     plan = plan_tool_output_prune("shell", stdout, context_label=cmd)
     if not plan:
@@ -2975,8 +2981,8 @@ def _format_query_pruned_output(
     pruned_stdout = plan.apply(lines)
     effective_logdir = logdir or get_path_fn()
 
-    saved_path: Path | None = None
-    if effective_logdir:
+    saved_path = retained_path
+    if effective_logdir and saved_path is None:
         _, saved_path = save_large_output(
             content=stdout,
             logdir=effective_logdir,
@@ -3047,9 +3053,20 @@ def _format_shell_output(
         if capture is not None and capture._spool_quota_refused
         else None
     )
+    # Selected previews may reuse a complete spool, but must not claim full
+    # retention or bypass the quota when capture is partial/unavailable.
+    retained_path = (
+        capture.log_path
+        if capture is not None
+        and capture._spool_from_reader
+        and capture._capture_finished.is_set()
+        and not capture._capture_partial
+        else None
+    )
+    can_select_preview = captured_output is None or retained_path is not None
     compact_stdout = None
     if (
-        captured_output is None
+        can_select_preview
         and returncode == 0
         and stdout
         and not stderr
@@ -3059,7 +3076,9 @@ def _format_shell_output(
         and _matches_git_log_oneline(cmd)
     ):
         try:
-            compact_stdout = _format_git_log_preview(cmd, stdout, logdir)
+            compact_stdout = _format_git_log_preview(
+                cmd, stdout, logdir, retained_path=retained_path
+            )
         except OSError as e:
             logger.warning("Failed to format compact shell output: %s", e)
 
@@ -3070,11 +3089,13 @@ def _format_shell_output(
         and not interrupted
         and not timed_out
         and not byte_cap_exceeded
-        and captured_output is None
+        and can_select_preview
         and _matches_gh_list(cmd)
     ):
         try:
-            compact_stdout = _format_gh_list_preview(cmd, stdout, logdir)
+            compact_stdout = _format_gh_list_preview(
+                cmd, stdout, logdir, retained_path=retained_path
+            )
         except OSError as e:
             logger.warning("Failed to format compact shell output: %s", e)
 
@@ -3087,8 +3108,10 @@ def _format_shell_output(
         and not byte_cap_exceeded
     ):
         try:
-            if captured_output is None:
-                compact_stdout = _format_query_pruned_output(cmd, stdout, logdir)
+            if can_select_preview:
+                compact_stdout = _format_query_pruned_output(
+                    cmd, stdout, logdir, retained_path=retained_path
+                )
         except OSError as e:
             logger.warning("Failed to format query-pruned shell output: %s", e)
 
