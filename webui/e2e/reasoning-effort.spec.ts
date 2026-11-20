@@ -6,7 +6,8 @@ for (const theme of ['light', 'dark']) {
   }, testInfo) => {
     const steps: Record<string, unknown>[] = [];
     await page.addInitScript((theme) => {
-      localStorage.setItem('gptme-theme', theme);
+      // next-themes' storage key; applied before first paint, so no colour transition is captured.
+      localStorage.setItem('theme', theme);
     }, theme);
     await page.route('**/api/**', async (route) => {
       const request = route.request();
@@ -76,21 +77,16 @@ for (const theme of ['light', 'dark']) {
       return reply({ tasks: [], sessions: [], files: [], workspaces: [], agents: [] });
     });
     await page.goto('/chat/effort-a');
-    await page.evaluate((theme) => {
-      document.documentElement.classList.toggle('dark', theme === 'dark');
-    }, theme);
     const effort = page.getByRole('combobox', { name: 'Reasoning effort' });
     await expect(effort).toBeEnabled();
-    await expect(effort).toContainText('Default');
+    await expect(effort).toHaveAccessibleName('Reasoning effort: default');
+    await page.screenshot({ path: testInfo.outputPath(`effort-${theme}-default.png`) });
     await effort.click();
     await expect(page.getByRole('option', { name: 'max', exact: true })).toHaveCount(0);
     await page.getByRole('option', { name: 'medium', exact: true }).click();
     await expect(effort).toContainText('medium');
     await page.reload();
     await expect(effort).toContainText('medium');
-    await page.evaluate((theme) => {
-      document.documentElement.classList.toggle('dark', theme === 'dark');
-    }, theme);
     await page.screenshot({ path: testInfo.outputPath(`effort-${theme}.png`), fullPage: true });
     const input = page.getByRole('textbox', { name: 'Chat message' });
     await input.fill('Use medium reasoning');
@@ -100,12 +96,12 @@ for (const theme of ['light', 'dark']) {
 
     // A separate conversation never picks up A's local draft choice.
     await page.goto('/chat/effort-b');
-    await expect(effort).toContainText('Default');
+    await expect(effort).toHaveAccessibleName('Reasoning effort: default');
     await page.goto('/chat/effort-a');
     await expect(effort).toContainText('medium');
     await page.getByTestId('model-selector').click();
     await page.getByRole('option', { name: /kimi-k3/ }).click();
-    await expect(effort).toContainText('Default');
+    await expect(effort).toHaveAccessibleName('Reasoning effort: default');
     await expect(page.getByRole('status').filter({ hasText: 'medium unsupported' })).toBeVisible();
     await effort.click();
     await expect(page.getByRole('option', { name: 'medium', exact: true })).toHaveCount(0);
@@ -113,8 +109,8 @@ for (const theme of ['light', 'dark']) {
     await expect(effort).toContainText('max');
     await page.getByTestId('model-selector').click();
     await page.getByRole('option', { name: /gpt-4o/ }).click();
-    await expect(effort).toBeDisabled();
-    await expect(effort).toContainText('Default');
+    // A model without effort levels gets no control at all.
+    await expect(effort).toHaveCount(0);
     await input.fill('No reasoning parameter for this model');
     await input.press('Enter');
     await expect.poll(() => steps.length).toBe(2);

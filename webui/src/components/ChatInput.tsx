@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   Bookmark,
   BookmarkCheck,
+  Brain,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PromptTextarea } from '@/components/PromptTextarea';
@@ -1544,35 +1545,40 @@ export const ChatInput: FC<Props> = ({
                         isDisabled={isDisabled}
                         isLoading={isChatConfigLoading}
                       />
-                      <Select
-                        value={reasoningEffort || 'default'}
-                        onValueChange={setEffortDraft}
-                        disabled={isDisabled || isChatConfigLoading || effortLevels.length === 0}
-                      >
-                        <SelectTrigger
-                          aria-label="Reasoning effort"
-                          title={
-                            effortIncompatible
-                              ? `${requestedEffort} is unsupported by this model. Using Default (inherit).`
-                              : 'Reasoning effort. Default inherits server configuration.'
-                          }
-                          className="h-5 w-auto shrink-0 gap-1 border-0 px-1.5 text-[10px] text-muted-foreground shadow-none"
+                      {/* Models that report no effort levels get no control; an
+                          unknown catalog keeps it so a saved choice stays visible. */}
+                      {!(modelEffortLevels !== undefined && effortLevels.length === 0) && (
+                        <Select
+                          value={reasoningEffort || 'default'}
+                          onValueChange={setEffortDraft}
+                          disabled={isDisabled || isChatConfigLoading || effortLevels.length === 0}
                         >
-                          <span>Effort:</span>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="default">Default</SelectItem>
-                          {modelEffortLevels === undefined && requestedEffort && (
-                            <SelectItem value={requestedEffort}>{requestedEffort}</SelectItem>
-                          )}
-                          {effortLevels.map((level) => (
-                            <SelectItem key={level} value={level}>
-                              {level}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            aria-label={`Reasoning effort: ${reasoningEffort || 'default'}`}
+                            title={
+                              effortIncompatible
+                                ? `${requestedEffort} is unsupported by this model. Using Default (inherit).`
+                                : `Reasoning effort: ${reasoningEffort || 'Default (inherits server configuration)'}`
+                            }
+                            className="h-5 w-auto shrink-0 gap-1 border-0 px-1.5 text-[10px] text-muted-foreground shadow-none [&>svg:last-child]:h-3 [&>svg:last-child]:w-3"
+                          >
+                            <Brain className="h-3 w-3" aria-hidden="true" />
+                            {/* Default shows the icon only; an explicit level shows its name. */}
+                            <SelectValue>{reasoningEffort || null}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            {modelEffortLevels === undefined && requestedEffort && (
+                              <SelectItem value={requestedEffort}>{requestedEffort}</SelectItem>
+                            )}
+                            {effortLevels.map((level) => (
+                              <SelectItem key={level} value={level}>
+                                {level}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                       {effortIncompatible && (
                         <span role="status" className="shrink-0 text-[10px] text-muted-foreground">
                           {requestedEffort} unsupported; using Default
