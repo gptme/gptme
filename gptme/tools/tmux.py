@@ -117,20 +117,24 @@ def _truncate_output(
         preview = "\n".join(head + [marker] + tail)
         if len(preview) <= max_chars:
             return preview
-        # Lines themselves are huge: fall through to a character bound on the
-        # line-truncated preview, keeping the line count in the marker.
-        content = "\n".join(head + tail)
-        if len(content) <= max_chars:  # only the marker tipped it over
+        if len("\n".join(head + tail)) <= max_chars:  # only the marker tipped it over
             return preview
+        # Bound each region separately: joining them before slicing would make
+        # distant lines appear consecutive when one region is short.
+        head_text, tail_text = "\n".join(head), "\n".join(tail)
         prefix = f"{omitted} lines and "
     else:
+        head_text = tail_text = content
         prefix = ""
 
     head_chars = max_chars // 4
     tail_chars = max_chars - head_chars
-    omitted_chars = len(content) - head_chars - tail_chars
+    kept_head = head_text[:head_chars]
+    kept_tail = tail_text[-tail_chars:] if tail_chars else ""
+    retained_length = len(head_text) + len(tail_text) if over_lines else len(content)
+    omitted_chars = retained_length - len(kept_head) - len(kept_tail)
     marker = f"... ({prefix}{omitted_chars} characters truncated{saved_note}) ..."
-    return f"{content[:head_chars]}\n{marker}\n{content[-tail_chars:]}"
+    return f"{kept_head}\n{marker}\n{kept_tail}"
 
 
 # Examples of identifiers:

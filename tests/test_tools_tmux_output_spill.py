@@ -80,6 +80,22 @@ def test_many_wide_lines_hit_both_bounds(tmp_path):
     assert len(_saved(tmp_path)) == 1
 
 
+def test_double_bound_keeps_marker_between_distant_regions(tmp_path):
+    head = [f"HEAD-{i}" for i in range(50)]
+    tail = [f"TAIL-{i}-" + "y" * 1000 for i in range(150)]
+    content = "\n".join(head + ["OMITTED"] * 200 + tail)
+    with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
+        preview = _truncate_output(content)
+
+    before = preview.split("\n... (", 1)[0]
+    assert before == "\n".join(head)
+    assert "TAIL-" not in before
+    assert "200 lines and " in preview
+    assert preview.endswith(tail[-1])
+    assert len(preview) < MAX_OUTPUT_CHARS + 500
+    assert _saved(tmp_path)[0].read_text() == content
+
+
 def test_marker_only_overflow_does_not_duplicate_text(tmp_path):
     # 300 lines whose kept 200 lines fit exactly under the char cap.
     content = "\n".join("z" * 9 for _ in range(300))
