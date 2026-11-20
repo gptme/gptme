@@ -27,6 +27,25 @@ describe('buildStepRoles', () => {
     }
   });
 
+  it('groups MCP names with slashes the backend preserves', () => {
+    const content = '@docs/team.search(call_1): {"query":"hello"}';
+    const roles = buildStepRoles(
+      [msg('user', 'go'), msg('assistant', content), msg('system', 'ok'), msg('assistant', 'done')],
+      neverHidden
+    );
+    const start = roles.get(1);
+    expect(start?.type).toBe('group-start');
+    if (start?.type === 'group-start') {
+      expect(start.steps).toEqual([
+        {
+          tool: 'docs/team.search',
+          arg: 'hello',
+          snippet: '{"query":"hello"}',
+        },
+      ]);
+    }
+  });
+
   it('keeps native MCP payloads whose kwargs are only url/input', () => {
     const content = '@goldfish.navigate(call_1): {"url":"https://gptme.org"}';
     const roles = buildStepRoles(

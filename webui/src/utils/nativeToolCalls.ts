@@ -9,16 +9,28 @@ export interface NativeToolCall {
   complete: boolean;
 }
 
+/**
+ * Same delimiter as gptme.tools.base.toolcall_re: the name is one line, bounded
+ * by `(call_id):`. Canonical MCP names may include spaces, slashes, colons, and
+ * parentheses (`docs/team.search`, `docs team.search`, `docs:team.search`,
+ * `docs(team).search`).
+ */
+const NATIVE_HEADER = /^@([^\r\n]+?)\(([\w.:-]+)\):[ \t]*(?=\{)/gm;
+
+/** Hold a trailing native header before `{` arrives. */
+const PARTIAL_NATIVE_HEADER =
+  /(?:^|\n)@(?:[^\r\n]*\([\w.:-]*\)?:?[ \t]*|[\w./:-]*\.[\w./:-]*|[\w.-]+)$/;
+
 /** Native transcript syntax, excluding literal examples inside fenced blocks. */
 export function nativeToolCalls(content: string): NativeToolCall[] {
   const fences = scanMarkdownFences(content).filter((fence) => fence.depth === 0);
-  const header = /^@([\w.-]+)\([^\n)]+\):[ \t]*(?=\{)/gm;
+  const header = new RegExp(NATIVE_HEADER.source, NATIVE_HEADER.flags);
   const calls: NativeToolCall[] = [];
   let match: RegExpExecArray | null;
   while ((match = header.exec(content))) {
     if (fences.some((fence) => match!.index >= fence.start && match!.index < fence.end)) continue;
     // Prose like `@mention(bob): {"text":"hi"}` matches the syntax; MCP names
-    // keep working via the dotted `server.tool` convention.
+    // keep working via dots/slashes (`server.tool`, `docs/team.search`).
     if (!isNativeToolName(match[1])) continue;
     const start = header.lastIndex;
     let depth = 0;
@@ -57,7 +69,7 @@ export function renderNativeToolCalls(content: string, streaming = false): strin
   if (streaming) {
     // The backend can flush a header before its opening JSON brace arrives.
     // Hold this suffix out of prose instead of flashing a long call ID.
-    content = content.replace(/(?:^|\n)@[\w.-]+(?:\([^\n)]*(?:\):?[ \t]*)?)?$/, '');
+    content = content.replace(PARTIAL_NATIVE_HEADER, '');
   }
   let output = '';
   let offset = 0;

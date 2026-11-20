@@ -15,7 +15,13 @@ describe('native tool transcripts', () => {
 
   it('holds partial headers while streaming, but not ordinary annotations', () => {
     expect(renderNativeToolCalls('Reply.\n@shell(call_123456', true)).toBe('Reply.');
-    expect(renderNativeToolCalls('@note: {"important":true}')).toBe('@note: {"important":true}');
+    expect(renderNativeToolCalls('Reply.\n@docs/team.search(call_1', true)).toBe('Reply.');
+    expect(renderNativeToolCalls('@note: {"important":true}', true)).toBe(
+      '@note: {"important":true}'
+    );
+    expect(renderNativeToolCalls('Thanks.\n@alice please look', true)).toBe(
+      'Thanks.\n@alice please look'
+    );
   });
 
   it('leaves unknown bare @name(id) JSON as prose, not a tool call', () => {
@@ -23,6 +29,19 @@ describe('native tool transcripts', () => {
     expect(nativeToolCalls(text)).toEqual([]);
     expect(renderNativeToolCalls(text)).toBe(text);
     expect(parseToolCalls(text)).toEqual([]);
+  });
+
+  it('parses MCP names with slashes, spaces, colons, and parentheses', () => {
+    const names = ['docs/team.search', 'docs team.search', 'docs:team.search', 'docs(team).search'];
+    for (const name of names) {
+      const text = `@${name}(call_1): {"query":"hello"}`;
+      const calls = nativeToolCalls(text);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ tool: name, complete: true });
+      expect(parseToolCalls(text).map((call) => call.tool)).toEqual([name]);
+      expect(renderNativeToolCalls(text)).toContain(`\`\`\`tool-call ${name}`);
+      expect(renderNativeToolCalls(text)).not.toContain(`@${name}(call_1)`);
+    }
   });
 
   it('ignores examples in markdown fences', () => {

@@ -29,9 +29,9 @@ export function isKnownTool(name: string): boolean {
   return GPTME_TOOL_ALLOWLIST.has(name.toLowerCase());
 }
 
-/** Native transcripts: gptme tools, or MCP `server.tool` names (dots). */
+/** Native transcripts: gptme tools, or MCP names (`server.tool`, `docs/team.search`). */
 export function isNativeToolName(name: string): boolean {
-  return isKnownTool(name) || name.includes('.');
+  return isKnownTool(name) || /[./]/.test(name);
 }
 
 /**
