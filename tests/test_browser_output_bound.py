@@ -53,6 +53,15 @@ def test_bound_browser_result_still_bounds_without_a_conversation_dir(monkeypatc
     assert "saved to" not in bounded
 
 
+def test_bound_browser_result_limit_counts_content_not_marker(monkeypatch):
+    """The limit is a retained-content budget; the marker is added on top."""
+    monkeypatch.setenv(BROWSER_MAX_OUTPUT_CHARS_ENV, "100")
+    full = "a" * 50 + "m" * 4900 + "z" * 50
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        bounded = _bound_browser_result(full, "read_url")
+    assert bounded == "a" * 50 + "\n[... 4900 characters omitted]\n" + "z" * 50
+
+
 def test_bound_browser_result_invalid_env_falls_back_to_default(monkeypatch):
     for bad in ("abc", "0", "-5"):
         monkeypatch.setenv(BROWSER_MAX_OUTPUT_CHARS_ENV, bad)
