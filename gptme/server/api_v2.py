@@ -1839,11 +1839,19 @@ def api_conversation_put(conversation_id: str):
     config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
-        if request_config.model:
+        effective_model = request_config.model
+        if request_config.reasoning_effort and not effective_model:
+            default = get_default_model()
+            effective_model = default.full if default else None
+            if not effective_model:
+                effective_model = Config.from_workspace(
+                    workspace=request_config.workspace
+                ).get_env("MODEL")
+        if effective_model:
             from ..llm.models.effort import validate_reasoning_effort
 
             validate_reasoning_effort(
-                get_model(request_config.model), request_config.reasoning_effort
+                get_model(effective_model), request_config.reasoning_effort
             )
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400

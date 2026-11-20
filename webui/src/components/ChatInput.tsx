@@ -742,7 +742,7 @@ export const ChatInput: FC<Props> = ({
     ? effortDraft === 'default'
       ? ''
       : effortDraft
-    : chatConfig?.chat.reasoning_effort || '';
+    : chatConfig?.chat?.reasoning_effort || '';
   const effortIncompatible =
     modelEffortLevels !== undefined && !!requestedEffort && !effortLevels.includes(requestedEffort);
   const reasoningEffort = effortIncompatible ? '' : requestedEffort;

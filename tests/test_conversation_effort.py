@@ -492,3 +492,31 @@ def test_step_without_any_model_does_not_persist_effort(client, monkeypatch):
         .get_json()["chat"]
         .get("reasoning_effort")
     )
+
+
+@pytest.mark.parametrize("source", ["default", "workspace"])
+def test_creation_validates_effort_against_inherited_model(client, monkeypatch, source):
+    from gptme.dirs import get_logs_dir
+
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_default_model",
+        lambda: get_model("openai/o3") if source == "default" else None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2.Config.from_workspace",
+        lambda workspace: Config(chat=ChatConfig(env={"MODEL": "openai/o3"})),
+    )
+    cid = f"effort-create-inherited-{source}"
+    response = client.put(
+        f"/api/v2/conversations/{cid}",
+        json={
+            "prompt": "test",
+            "config": {"chat": {"reasoning_effort": "xhigh"}},
+            "messages": [{"role": "user", "content": "Do not save this"}],
+        },
+    )
+    assert response.status_code == 400, response.get_json()
+    assert "not supported" in response.get_json()["error"]
+    assert not (get_logs_dir() / cid).exists()
