@@ -21,6 +21,7 @@ import time
 import uuid
 from collections import Counter
 from collections.abc import Iterator
+from contextvars import copy_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO, Literal
 
@@ -729,8 +730,25 @@ def _create_subagent_thread(
 
         set_subagent_request_deadline(started_at + max_time)
 
+    # Bind the child tools to the child conversation, even when this entry
+    # point runs under a copied parent context (e.g. free-threaded Python).
+    # Keep the model/tools/hooks prepared above, but never borrow its shell or
+    # pending shell-promotion state. The copy also restores the caller on error.
+    from ...hooks import current_conversation_id, current_session_id
+    from .. import shell
+    from ..shell_background import reset_background_jobs
+
+    chat_context = copy_context()
+    chat_context.run(current_conversation_id.set, logdir.name)
+    chat_context.run(current_session_id.set, None)
+    chat_context.run(shell.set_workspace_cwd, str(workspace))
+    chat_context.run(shell._shell_var.set, None)
+    chat_context.run(shell._promoted_next_cwd.set, None)
+    chat_context.run(shell._promoted_next_state.set, None)
+
     try:
-        chat(
+        chat_context.run(
+            chat,
             prompt_msgs,
             initial_msgs,
             logdir=logdir,
@@ -757,6 +775,23 @@ def _create_subagent_thread(
         if prompt_queue_closed is not None:
             prompt_queue_closed.set()
         _exit_subagent_cwd(workspace)
+        # SESSION_END handles normal completion; failures need the same cleanup.
+        shell.close_conversation_shell(logdir.name)
+        reset_background_jobs(logdir.name, all_conversations=False)
+        # Thread children do not pass through server session eviction, so reclaim
+        # their Python kernel and bridge explicitly, never the caller's backend.
+        from ..python_kernel import detach_backend
+
+        backend = detach_backend(logdir.name)
+        if backend is not None:
+            try:
+                backend.shutdown()
+            except Exception:
+                logger.warning(
+                    "Failed to shut down Python kernel for %s",
+                    logdir.name,
+                    exc_info=True,
+                )
         # Drain any steer messages that arrived after the last STEP_PRE fired but
         # before chat() returned. These were not deliverable mid-turn; warn so
         # the orchestrator knows the guidance was not seen.

@@ -286,3 +286,42 @@ def test_read_log_failure_without_complete(tmp_path):
         ],
     )
     assert result.status == "failure"
+
+
+@pytest.mark.timeout(60)
+def test_bound_parent_workspace_does_not_capture_child_save(parent_session, tmp_path):
+    """Real mock/echo chat saves in the child workdir with the parent workspace bound."""
+    from contextvars import copy_context
+
+    from gptme.hooks import current_conversation_id, current_session_id
+    from gptme.tools import shell
+
+    child = tmp_path / "child-workspace"
+    child.mkdir()
+    parent = copy_context()
+    parent.run(shell.set_workspace_cwd, str(parent_session))
+    parent.run(current_conversation_id.set, "parent-conversation")
+    parent.run(current_session_id.set, "parent-request")
+    prompt = (
+        "Write the file and finish.\n"
+        "```save child.txt\nCHILD-WORKSPACE\n```\n"
+        "```complete\nDONE\n```"
+    )
+    cwd_before = Path.cwd()
+
+    parent.run(
+        subagent,
+        "bound-workspace",
+        prompt,
+        model="mock/echo",
+        workdir=str(child),
+    )
+    result = parent.run(subagent_wait, "bound-workspace", timeout=60)
+
+    assert result["status"] == "success", result
+    assert (child / "child.txt").read_text().strip() == "CHILD-WORKSPACE"
+    assert not (parent_session / "child.txt").exists()
+    assert parent.run(current_conversation_id.get) == "parent-conversation"
+    assert parent.run(current_session_id.get) == "parent-request"
+    assert parent.run(shell.get_workspace_cwd) == str(parent_session)
+    assert Path.cwd() == cwd_before
