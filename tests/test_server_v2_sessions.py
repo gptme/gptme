@@ -10,6 +10,7 @@ import json
 import math
 import threading
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -743,6 +744,60 @@ class TestStepEndpoint:
             f"Expected ChatConfig top_p=0.9, got {captured.get('top_p')!r}"
         )
 
+    def test_step_does_not_chdir_process(self, conv, tmp_path, monkeypatch):
+        """A session step must not move the host process into the workspace.
+
+        Several conversations share one server process. The first user message
+        used to os.chdir(workspace), so later conversations resolved relative
+        paths against whichever workspace last ran (gptme/gptme#4951).
+        """
+        host = tmp_path / "host"
+        workspace = tmp_path / "workspace"
+        host.mkdir()
+        workspace.mkdir()
+        monkeypatch.chdir(host)
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        with (
+            patch("gptme.server.session_step._stream", return_value=iter([])),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=workspace,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="mock/model",
+                workspace=workspace,
+            )
+
+        assert Path.cwd() == host
+
 
 # --- Interrupt endpoint tests ---
 
@@ -939,8 +994,7 @@ class TestInterruptEndpoint:
         captures step_seq at entry; a mismatch means the continuation took over
         and we must not clear its reservation.
         """
-        # step() calls os.chdir(workspace) when user_messages <= 1; use monkeypatch so
-        # the cwd change is scoped to this test and doesn't bleed into siblings.
+        # Keep this test's cwd isolated from siblings even if a nested helper chdirs.
         monkeypatch.chdir(tmp_path)
 
         from gptme.message import Message

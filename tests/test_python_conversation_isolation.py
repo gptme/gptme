@@ -2,12 +2,15 @@
 
 A single process serves several server conversations. One ``InteractiveShell``
 shared by all of them leaked variables from one conversation into another
-(gptme/gptme#4951).
+(gptme/gptme#4951). Relative-cwd cells are pinned to the session workspace
+for the duration of the cell and must not leave the host cwd changed.
 """
 
 import atexit
 import contextvars
+import os
 import sqlite3
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -17,6 +20,7 @@ import pytest
 from gptme.hooks import SessionEndHook, current_conversation_id
 from gptme.logmanager import LogManager
 from gptme.tools import python as python_tool
+from gptme.tools.shell import set_workspace_cwd
 
 
 def _close_shell(shell: Any) -> None:
@@ -56,6 +60,21 @@ def _shell(conversation_id: str | None) -> Any:
 
 def _run(conversation_id: str | None, code: str) -> None:
     _shell(conversation_id).run_cell(code, store_history=False)
+
+
+def _in_server_session(conversation_id: str, workspace: Path, fn: Any) -> Any:
+    ctx = contextvars.copy_context()
+
+    def run() -> Any:
+        current_conversation_id.set(conversation_id)
+        set_workspace_cwd(str(workspace))
+        return fn()
+
+    return ctx.run(run)
+
+
+def _execute(code: str) -> list[Any]:
+    return list(python_tool.execute_python(code, [], None))
 
 
 def test_two_conversations_get_distinct_shells() -> None:
@@ -220,6 +239,273 @@ def test_plot_snapshot_matches_execution_directory(
     expected_dir = workspace if kernel else execution_dir
     assert [a["path"] for a in artifacts] == [str(expected_dir / "plot.png")]
     assert Path.cwd() == execution_dir
+
+
+def test_server_relative_cell_lands_in_own_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, ws_a, ws_b = (tmp_path / n for n in ("host", "a", "b"))
+    for path in (host, ws_a, ws_b):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    def write(text: str) -> None:
+        _execute(f"from pathlib import Path; Path('out.txt').write_text({text!r})")
+
+    _in_server_session("conv-a", ws_a, lambda: write("from-a"))
+    _in_server_session("conv-b", ws_b, lambda: write("from-b"))
+
+    assert (ws_a / "out.txt").read_text() == "from-a"
+    assert (ws_b / "out.txt").read_text() == "from-b"
+    assert not (host / "out.txt").exists()
+    assert Path.cwd() == host
+
+
+def test_server_cell_os_chdir_does_not_stick(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, workspace, other = (tmp_path / n for n in ("host", "workspace", "other"))
+    for path in (host, workspace, other):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    _in_server_session(
+        "conv-a",
+        workspace,
+        lambda: _execute(f"import os; os.chdir({str(other)!r})"),
+    )
+    assert Path.cwd() == host
+
+
+def test_server_cell_exception_restores_host_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, workspace = (tmp_path / n for n in ("host", "workspace"))
+    for path in (host, workspace):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    _in_server_session(
+        "conv-a",
+        workspace,
+        lambda: _execute("raise RuntimeError('boom')"),
+    )
+    assert Path.cwd() == host
+
+
+def test_server_cell_interrupt_restores_host_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, workspace = (tmp_path / n for n in ("host", "workspace"))
+    for path in (host, workspace):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    def explode(*args: Any, **kwargs: Any) -> None:
+        raise KeyboardInterrupt
+
+    def cell() -> None:
+        monkeypatch.setattr(python_tool._get_ipython(), "run_cell", explode)
+        with pytest.raises(KeyboardInterrupt):
+            _execute("1 + 1")
+
+    _in_server_session("conv-a", workspace, cell)
+    assert Path.cwd() == host
+
+
+def test_concurrent_server_cells_stay_isolated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, ws_a, ws_b = (tmp_path / n for n in ("host", "a", "b"))
+    for path in (host, ws_a, ws_b):
+        path.mkdir()
+    monkeypatch.chdir(host)
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def run(conversation_id: str, workspace: Path, text: str) -> None:
+        def cell() -> None:
+            barrier.wait()
+            _execute(f"from pathlib import Path; Path('out.txt').write_text({text!r})")
+
+        try:
+            _in_server_session(conversation_id, workspace, cell)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=run, args=("conv-a", ws_a, "from-a")),
+        threading.Thread(target=run, args=("conv-b", ws_b, "from-b")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert (ws_a / "out.txt").read_text() == "from-a"
+    assert (ws_b / "out.txt").read_text() == "from-b"
+    assert Path.cwd() == host
+
+
+def test_blocking_helper_releases_cwd_lock_for_child_python(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A parent cell that waits must not deadlock a child's in-process Python.
+
+    subagent_parallel joins children while the parent cell still holds the
+    cwd lock unless that wait suspends the pin (gptme/gptme#4951).
+    """
+    host, parent_ws, child_ws = (tmp_path / n for n in ("host", "parent", "child"))
+    for path in (host, parent_ws, child_ws):
+        path.mkdir()
+    monkeypatch.chdir(host)
+    started = threading.Event()
+    child_done = threading.Event()
+
+    def blocking_helper() -> str:
+        with python_tool.suspend_inprocess_session_cwd():
+            started.set()
+            assert child_done.wait(timeout=10)
+        return "ok"
+
+    python_tool.register_function(blocking_helper, tool_name="test")
+
+    def parent() -> None:
+        _execute("blocking_helper()")
+
+    def child() -> None:
+        assert started.wait(timeout=10)
+        _in_server_session(
+            "conv-child",
+            child_ws,
+            lambda: _execute(
+                "from pathlib import Path; Path('from-child.txt').write_text('ok')"
+            ),
+        )
+        child_done.set()
+
+    child_thread = threading.Thread(target=child)
+    child_thread.start()
+    _in_server_session("conv-parent", parent_ws, parent)
+    child_thread.join(timeout=10)
+    assert not child_thread.is_alive()
+    assert (child_ws / "from-child.txt").read_text() == "ok"
+    assert Path.cwd() == host
+
+
+def test_suspend_restores_the_cell_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, workspace, subdir = (tmp_path / n for n in ("host", "workspace", "sub"))
+    for path in (host, workspace, subdir):
+        path.mkdir()
+    (workspace / "sub").mkdir()
+    cell_dir = workspace / "sub"
+    monkeypatch.chdir(host)
+
+    def parent() -> None:
+        with python_tool._inprocess_session_cwd():
+            os.chdir(cell_dir)
+            with python_tool.suspend_inprocess_session_cwd():
+                assert Path.cwd() == host
+            assert Path.cwd() == cell_dir
+        assert Path.cwd() == host
+
+    _in_server_session("conv-a", workspace, parent)
+
+
+def test_suspend_does_not_capture_child_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, parent_ws, child_ws = (tmp_path / n for n in ("host", "parent", "child"))
+    for path in (host, parent_ws, child_ws):
+        path.mkdir()
+    monkeypatch.chdir(host)
+    started = threading.Event()
+    child_done = threading.Event()
+
+    def blocking_helper() -> str:
+        with python_tool.suspend_inprocess_session_cwd():
+            started.set()
+            assert child_done.wait(timeout=10)
+        return "ok"
+
+    python_tool.register_function(blocking_helper, tool_name="test")
+
+    def child() -> None:
+        assert started.wait(timeout=10)
+        _in_server_session(
+            "conv-child",
+            child_ws,
+            lambda: _execute("print('child-secret')"),
+        )
+        child_done.set()
+
+    child_thread = threading.Thread(target=child)
+    child_thread.start()
+    messages = _in_server_session(
+        "conv-parent",
+        parent_ws,
+        lambda: _execute(
+            "print('parent-before'); blocking_helper(); print('parent-after')"
+        ),
+    )
+    child_thread.join(timeout=10)
+    text = "\n".join(m.content for m in messages)
+    assert "child-secret" not in text
+    assert "parent-before" in text
+    assert "parent-after" in text
+    assert Path.cwd() == host
+
+
+def test_cli_relative_cell_uses_process_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, other = (tmp_path / n for n in ("host", "other"))
+    for path in (host, other):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    _execute("from pathlib import Path; Path('out.txt').write_text('cli')")
+
+    assert (host / "out.txt").read_text() == "cli"
+    assert not (other / "out.txt").exists()
+    assert Path.cwd() == host
+
+
+def test_cli_cell_os_chdir_persists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, sub = (tmp_path / n for n in ("host", "sub"))
+    for path in (host, sub):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    _execute(f"import os; os.chdir({str(sub)!r})")
+    assert Path.cwd() == sub
+    _execute("from pathlib import Path; Path('out.txt').write_text('cli')")
+    assert (sub / "out.txt").read_text() == "cli"
+
+
+def test_inprocess_plot_snapshot_uses_session_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, workspace = (tmp_path / n for n in ("host", "workspace"))
+    for path in (host, workspace):
+        path.mkdir()
+    monkeypatch.chdir(host)
+
+    messages = _in_server_session(
+        "conv-a",
+        workspace,
+        lambda: _execute(
+            "from pathlib import Path; Path('plot.png').write_bytes(b'png')"
+        ),
+    )
+    artifacts = (messages[-1].metadata or {}).get("artifacts", [])
+    assert [a["path"] for a in artifacts] == [str(workspace / "plot.png")]
+    assert Path.cwd() == host
 
 
 def test_cli_context_keeps_the_process_global_shell() -> None:

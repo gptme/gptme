@@ -4,6 +4,7 @@ Contains the main subagent() function and supporting status/wait/read_log
 functions that form the public interface of the subagent tool.
 """
 
+import functools
 import logging
 import random
 import string
@@ -11,11 +12,34 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _without_inprocess_cwd_pin(fn: _F) -> _F:
+    """Drop the parent in-process Python cwd lock while this wait blocks.
+
+    A server cell that calls subagent_wait/parallel holds ``_inprocess_cwd_lock``
+    for the cell. Child conversations need that lock to run Python. Releasing
+    it here is the wait-side half of gptme/gptme#4951 option 2.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        from gptme.tools.python import suspend_inprocess_session_cwd
+
+        with suspend_inprocess_session_cwd():
+            return fn(*args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
 from ..base import current_workspace, resolve_in_workspace
 from . import execution as _exec
 from .concurrency import get_slot_sem
@@ -2641,6 +2665,7 @@ def subagent_status(agent_id: str) -> dict:
     return asdict(sa.status())
 
 
+@_without_inprocess_cwd_pin
 def subagent_wait(
     agent_id: str, timeout: int = 60, max_result_chars: int = 2000
 ) -> dict:

@@ -49,7 +49,9 @@ def test_current_workspace_prefers_session(workspaces):
     assert _in_session(a, current_workspace) == a.resolve()
 
 
-@pytest.mark.parametrize("operation", ["workspace", "precommit", "save"])
+@pytest.mark.parametrize(
+    "operation", ["workspace", "precommit", "save", "python", "auto_include"]
+)
 def test_tools_follow_shell_cd_in_each_session(
     workspaces: tuple[Path, Path, Path],
     operation: str,
@@ -61,6 +63,8 @@ def test_tools_follow_shell_cd_in_each_session(
 
     a, b, elsewhere = workspaces
     monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    monkeypatch.setenv("GPTME_SANDBOX", "none")
+    monkeypatch.setattr("gptme.tools.python._resolve_kernel_backend", lambda: False)
     sessions: list[tuple[contextvars.Context, ShellSession, Path, Path]] = []
     try:
         for root in (a, b):
@@ -92,6 +96,25 @@ def test_tools_follow_shell_cd_in_each_session(
                     repo_root = _get_repo_root()
                     assert repo_root is not None
                     assert repo_root.resolve() == project.resolve()
+                elif operation == "python":
+                    from gptme.tools import python as python_tool
+
+                    list(
+                        python_tool.execute_python(
+                            "from pathlib import Path; "
+                            f"Path('py-out.txt').write_text({root.name!r})",
+                            [],
+                            None,
+                        )
+                    )
+                    assert (project / "py-out.txt").read_text().strip() == root.name
+                    assert not (root / "py-out.txt").exists()
+                elif operation == "auto_include":
+                    (project / "marker.txt").write_text(root.name)
+                    from gptme.util.context import _find_potential_paths
+
+                    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1")
+                    assert "marker.txt" in _find_potential_paths("see marker.txt")
                 else:
                     list(execute_save_impl(root.name, Path("result.txt")))
                     assert (project / "result.txt").read_text().strip() == root.name
@@ -102,6 +125,14 @@ def test_tools_follow_shell_cd_in_each_session(
     finally:
         for _, shell, _, _ in sessions:
             shell.close()
+        from gptme.tools import python as python_tool
+
+        ipython = python_tool._ipython
+        if ipython is not None:
+            history = ipython.history_manager
+            if history is not None and history.save_thread is not None:
+                history.save_thread.stop()
+            python_tool._ipython = None
 
 
 def test_save_relative_path_lands_in_session_workspace(workspaces):

@@ -4163,10 +4163,11 @@ def test_v2_conversation_delete_while_cwd_inside_keeps_server_usable(
 ):
     """Deleting the conversation the process is chdir'd into must not brick PUT.
 
-    Session steps os.chdir() into the conversation workspace; deleting that
-    conversation left the server with a vanished cwd and every later
-    conversation create returned 500 (Path.cwd() -> FileNotFoundError) until
-    restart. Hit in production by the gptme.ai chat probe (gptme-cloud#1063).
+    In-process Python cells and CLI/subagent ``chat()`` may still os.chdir()
+    into a conversation workspace; deleting that conversation left the server
+    with a vanished cwd and every later conversation create returned 500
+    (Path.cwd() -> FileNotFoundError) until restart. Hit in production by the
+    gptme.ai chat probe (gptme-cloud#1063).
     """
     import os
 
@@ -4177,7 +4178,7 @@ def test_v2_conversation_delete_while_cwd_inside_keeps_server_usable(
     workspace = get_logs_dir() / conversation_id / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     original_cwd = os.getcwd()
-    os.chdir(workspace)  # what session_step does on the first user message
+    os.chdir(workspace)  # what a leftover process-wide chdir looks like
     try:
         response = client.delete(f"/api/v2/conversations/{conversation_id}")
         assert response.status_code == 200

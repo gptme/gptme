@@ -90,6 +90,12 @@ _IPYTHON_BACKEND = os.environ.get("GPTME_IPYTHON_BACKEND", "auto").lower()
 # SESSION_END can drop it.
 _conversation_ipython: dict[str, Any] = {}
 _conv_ipython_lock = threading.Lock()
+# Serializes the temporary os.chdir around one in-process cell on the server.
+# Held only for that cell; other threads can still observe the temporary cwd.
+# Blocking waits (subagent join) must call suspend_inprocess_session_cwd() so
+# child conversations can run Python without deadlocking the parent.
+_inprocess_cwd_lock = threading.Lock()
+_inprocess_cwd_tls = threading.local()
 
 # Cached result of auto-detection; None means not yet determined.
 _kernel_mode_cache: bool | None = None
@@ -215,6 +221,103 @@ def _decode_slice(data: bytes) -> str:
 
 class CellTimeout(KeyboardInterrupt):
     """Raised in a cell's thread when it exceeds GPTME_IPYTHON_TIMEOUT."""
+
+
+@contextmanager
+def _inprocess_session_cwd() -> Generator[None, None, None]:
+    """Pin one in-process cell to the session workspace, then restore.
+
+    In-process IPython cannot scope cwd per conversation. Server conversations
+    (those with ``set_workspace_cwd``) serialize cells under
+    ``_inprocess_cwd_lock``, chdir for the cell, and restore the host cwd in
+    ``finally``. CLI sessions have no workspace ContextVar and keep the
+    process cwd, including cell-to-cell ``os.chdir`` / ``%cd``.
+
+    The lock is held only for this cell, not a model turn. Other threads can
+    still observe the temporary cwd while a cell runs (gptme/gptme#4951).
+    """
+    from .shell import get_workspace_cwd
+
+    if get_workspace_cwd() is None:
+        yield
+        return
+
+    target = current_workspace()
+    with _inprocess_cwd_lock:
+        host_cwd: Path | None
+        try:
+            host_cwd = Path.cwd()
+        except FileNotFoundError:
+            host_cwd = None
+        try:
+            os.chdir(target)
+            _inprocess_cwd_tls.pin = {"host_cwd": host_cwd, "target": target}
+            yield
+        finally:
+            _inprocess_cwd_tls.pin = None
+            if host_cwd is not None:
+                try:
+                    os.chdir(host_cwd)
+                except OSError as e:
+                    logger.warning(
+                        "Could not restore cwd to %s after in-process cell: %s",
+                        host_cwd,
+                        e,
+                    )
+
+
+@contextmanager
+def suspend_inprocess_session_cwd() -> Generator[None, None, None]:
+    """Release this thread's in-process cwd pin for a blocking wait.
+
+    A server Python cell that calls ``subagent_parallel`` / ``subagent_wait``
+    must not hold ``_inprocess_cwd_lock`` while child conversations run Python.
+    No-op when this thread is not pinning. Child cells restore the host cwd
+    before this resumes and re-pins ``current_workspace()``.
+    """
+    pin = getattr(_inprocess_cwd_tls, "pin", None)
+    if pin is None:
+        yield
+        return
+
+    try:
+        cell_cwd = Path.cwd()
+    except FileNotFoundError:
+        cell_cwd = pin["target"]
+    host_cwd = pin["host_cwd"]
+    if host_cwd is not None:
+        try:
+            os.chdir(host_cwd)
+        except OSError as e:
+            logger.warning(
+                "Could not restore cwd to %s before blocking wait: %s",
+                host_cwd,
+                e,
+            )
+    # Drop this cell's TeeIO so a nested conversation's capture does not wrap
+    # it and leak that conversation's output into this cell's result.
+    saved_stdout, saved_stderr = sys.stdout, sys.stderr
+    if isinstance(sys.stdout, TeeIO):
+        sys.stdout = sys.stdout.original_stream
+    if isinstance(sys.stderr, TeeIO):
+        sys.stderr = sys.stderr.original_stream
+    _inprocess_cwd_tls.pin = None
+    _inprocess_cwd_lock.release()
+    try:
+        yield
+    finally:
+        _inprocess_cwd_lock.acquire()
+        sys.stdout, sys.stderr = saved_stdout, saved_stderr
+        resume_host: Path | None
+        try:
+            resume_host = Path.cwd()
+        except FileNotFoundError:
+            resume_host = None
+        try:
+            os.chdir(cell_cwd)
+        except OSError:
+            os.chdir(current_workspace())
+        _inprocess_cwd_tls.pin = {"host_cwd": resume_host, "target": cell_cwd}
 
 
 def _get_timeout() -> float | None:
@@ -545,9 +648,12 @@ def _get_ipython():
     sessions have no conversation id and keep the process-global shell, which
     is what ``chat()`` and the ``gptme`` REPL expect.
 
-    The working directory is still process-wide: ``os.chdir`` cannot be scoped
-    to a shell, so in-process cells that depend on a relative cwd are only
-    isolated in kernel mode.
+    The working directory is still process-wide: ``os.chdir`` cannot be
+    scoped to a shell. Server conversations pin each in-process cell to
+    ``current_workspace()`` under a lock and restore the host cwd in
+    ``finally`` (gptme/gptme#4951). CLI sessions keep the process cwd,
+    including cell-to-cell ``os.chdir`` / ``%cd``. The lock is not full
+    process isolation: threads outside it can observe the temporary cwd.
     """
     from ..hooks import current_conversation_id  # avoid an import cycle
 
@@ -964,37 +1070,36 @@ def execute_python(
     # Create an IPython instance if it doesn't exist yet
     _ipython = _get_ipython()
 
-    # Snapshot image files before execution so we can detect newly created plots.
-    # Match where the in-process cell actually executes. Workspace-scoped cwd
-    # execution is separate work; changing only the snapshot loses attachments.
-    cwd = Path.cwd()
-    pre_images = _snapshot_images(cwd)
-
-    # Capture and display output in real-time
+    # Snapshot image files where the in-process cell actually executes.
+    # Server conversations pin the process cwd for this cell only (see
+    # _inprocess_session_cwd); CLI keeps the process cwd.
     timeout = _get_timeout()
-    with (
-        _cell_timeout(timeout) as timed_out,
-        interruptible_sleep(),
-        capture_and_display() as (stdout_capture, stderr_capture),
-    ):
-        # Execute the code (output will be displayed in real-time)
-        result: ExecutionResult = _ipython.run_cell(
-            code, silent=False, store_history=False
-        )
-    if timed_out():
+    with _inprocess_session_cwd():
+        cwd = Path.cwd()
+        pre_images = _snapshot_images(cwd)
+        with (
+            _cell_timeout(timeout) as timed_out,
+            interruptible_sleep(),
+            capture_and_display() as (stdout_capture, stderr_capture),
+        ):
+            # Execute the code (output will be displayed in real-time)
+            result: ExecutionResult = _ipython.run_cell(
+                code, silent=False, store_history=False
+            )
+        timed_out_fired = timed_out()
+        captured_stdout = stdout_capture.get_captured()
+        captured_stderr = stderr_capture.get_captured()
+        post_images = pre_images if timed_out_fired else _snapshot_images(cwd)
+
+    if timed_out_fired:
         yield Message(
             "system",
             f"Execution timed out after {timeout:g}s and was interrupted "
             "(GPTME_IPYTHON_TIMEOUT). Run long work in the background with the "
             "shell tool instead.\n\n"
-            + _format_cell_output(
-                stdout_capture.get_captured(), stderr_capture.get_captured()
-            ),
+            + _format_cell_output(captured_stdout, captured_stderr),
         )
         return
-
-    captured_stdout = stdout_capture.get_captured()
-    captured_stderr = stderr_capture.get_captured()
 
     output = ""
     terminal_output = ""
@@ -1051,7 +1156,6 @@ def execute_python(
     output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
 
     # Detect plot files created or modified during execution and attach descriptors
-    post_images = _snapshot_images(cwd)
     plot_artifacts = _make_plot_artifacts(pre_images, post_images)
     # stdout/stderr were already streamed through TeeIO. Keep the complete result
     # for the model and structured consumers, but render only details that were
@@ -1178,9 +1282,9 @@ square(10)
 
 def init() -> ToolSpec:
     # Set up user's venv paths early so library detection includes user packages.
-    # Only use VIRTUAL_ENV here (not cwd-based detection) because init() runs
-    # before os.chdir(workspace). The cwd-based .venv detection is deferred to
-    # _get_ipython() which runs lazily after workspace chdir has happened.
+    # Only use VIRTUAL_ENV here (not workspace-based detection) because init()
+    # runs before the session workspace is bound. Workspace .venv detection is
+    # deferred to _get_ipython(), which runs lazily via current_workspace().
     _setup_venv_paths(env_only=True)
 
     # Register python functions from other tools
