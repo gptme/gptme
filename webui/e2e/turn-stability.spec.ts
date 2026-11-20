@@ -14,8 +14,8 @@ async function nextFrames(page: Page, count = 2) {
   }, count);
 }
 
-async function openTurn(page: Page) {
-  await page.goto('/');
+async function openTurn(page: Page, demo = false) {
+  await page.goto(demo ? '/?demo=1' : '/');
   await page.getByText('Introduction to gptme').click();
   await expect(page.locator('[data-message-index]').first()).toBeVisible();
   await page.evaluate(async (id) => {
@@ -277,45 +277,35 @@ function syntheticOutput(size: 'short' | 'large'): string {
 
 async function renderDisclosureTurn(page: Page, size: 'short' | 'large') {
   const output = syntheticOutput(size);
-  const inject = () =>
-    page.evaluate(
-      async ({ id, output }) => {
-        const { replaceLog } = await import('/src/stores/conversations.ts');
-        const step = (command: string, n: number) => [
-          {
-            role: 'assistant' as const,
-            content: `Let me look around.\n\n\`\`\`shell\n${command}\n\`\`\``,
-            timestamp: `2026-01-01T00:00:0${n}Z`,
-          },
-          {
-            role: 'system' as const,
-            content: `Ran command: \`${command}\`\n\n\`\`\`stdout\n${output}\n\`\`\``,
-            timestamp: `2026-01-01T00:00:0${n + 1}Z`,
-          },
-        ];
-        replaceLog(id, [
-          { role: 'user', content: 'Inspect the repo.', timestamp: '2026-01-01T00:00:00Z' },
-          ...step('find . -type f', 1),
-          ...step('cat README.md', 3),
-          {
-            role: 'assistant',
-            content: 'Both commands finished; the repository looks healthy.',
-            timestamp: '2026-01-01T00:00:05Z',
-          },
-        ]);
-      },
-      { id: conversationId, output }
-    );
-  // Resizing across the mobile breakpoint swaps MainLayout's tree and remounts
-  // the conversation view. With a connected server, that mount re-applies the
-  // demo messages for this demo conversation, which can land after our
-  // replaceLog and wipe the injected turn. Re-inject until the turn sticks.
-  await expect(async () => {
-    await inject();
-    await expect(page.locator('[data-message-index="5"]')).toContainText('looks healthy', {
-      timeout: 1000,
-    });
-  }).toPass({ timeout: 10_000 });
+  await page.evaluate(
+    async ({ id, output }) => {
+      const { replaceLog } = await import('/src/stores/conversations.ts');
+      const step = (command: string, n: number) => [
+        {
+          role: 'assistant' as const,
+          content: `Let me look around.\n\n\`\`\`shell\n${command}\n\`\`\``,
+          timestamp: `2026-01-01T00:00:0${n}Z`,
+        },
+        {
+          role: 'system' as const,
+          content: `Ran command: \`${command}\`\n\n\`\`\`stdout\n${output}\n\`\`\``,
+          timestamp: `2026-01-01T00:00:0${n + 1}Z`,
+        },
+      ];
+      replaceLog(id, [
+        { role: 'user', content: 'Inspect the repo.', timestamp: '2026-01-01T00:00:00Z' },
+        ...step('find . -type f', 1),
+        ...step('cat README.md', 3),
+        {
+          role: 'assistant',
+          content: 'Both commands finished; the repository looks healthy.',
+          timestamp: '2026-01-01T00:00:05Z',
+        },
+      ]);
+    },
+    { id: conversationId, output }
+  );
+  await expect(page.locator('[data-message-index="5"]')).toContainText('looks healthy');
   await expect(page.getByRole('button', { name: /2 steps/ })).toBeVisible();
   await settle(page);
 }
@@ -477,9 +467,32 @@ for (const viewport of [
   test(`opening tool output keeps scroll growth bounded (${viewport.name})`, async ({
     page,
   }, testInfo) => {
+    // The offline client is connected synchronously, so this exercises the
+    // demo reload on remount even when no live backend is available.
     // Open via the desktop sidebar, then resize: the narrow layout hides it.
-    await openTurn(page);
+    await openTurn(page, true);
+    const previousViewport = await page
+      .locator('[data-testid="message-scroll-viewport"]')
+      .elementHandle();
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    if (viewport.width < 768) {
+      // Crossing MainLayout's breakpoint remounts the conversation. Wait for
+      // both the old DOM to detach and useConversation to restore the demo
+      // log before injecting once; a visible row alone can still be the old tree.
+      await expect.poll(() => previousViewport!.evaluate((el) => el.isConnected)).toBe(false);
+      await expect
+        .poll(() =>
+          page.evaluate(async (id) => {
+            const { conversations$ } = await import('/src/stores/conversations.ts');
+            const { getDemoMessages } = await import('/src/democonversations.ts');
+            return (
+              JSON.stringify(conversations$.get(id).data.log.peek()) ===
+              JSON.stringify(getDemoMessages(id))
+            );
+          }, conversationId)
+        )
+        .toBe(true);
+    }
     await renderDisclosureTurn(page, 'short');
     const short = await runDisclosureSequence(page);
     await renderDisclosureTurn(page, 'large');
