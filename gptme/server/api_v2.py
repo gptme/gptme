@@ -330,6 +330,26 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
+def _effective_model_for_effort_validation(chat_config: ChatConfig) -> str | None:
+    """Resolve the model effort validation should use.
+
+    Conversations may omit chat.model and inherit the server default or workspace
+    MODEL. PUT and PATCH must use that same order so an unsupported effort is
+    rejected before it is saved. An inherited effort needs no capability check.
+    """
+    if not chat_config.reasoning_effort:
+        return None
+    effective_model = chat_config.model
+    if not effective_model:
+        default = get_default_model()
+        effective_model = default.full if default else None
+        if not effective_model:
+            effective_model = Config.from_workspace(
+                workspace=chat_config.workspace
+            ).get_env("MODEL")
+    return effective_model
+
+
 def _append_conversation_system_prompt(
     messages: list[Message], system_prompt: str | None
 ) -> None:
@@ -1839,6 +1859,13 @@ def api_conversation_put(conversation_id: str):
     config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
+        effective_model = _effective_model_for_effort_validation(request_config)
+        if effective_model:
+            from ..llm.models.effort import validate_reasoning_effort
+
+            validate_reasoning_effort(
+                get_model(effective_model), request_config.reasoning_effort
+            )
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -2684,6 +2711,8 @@ def api_models():
     If proxy is configured, only returns proxy-supported models.
     """
 
+    from ..llm.models.effort import reasoning_effort_levels
+
     config = Config()
 
     # Check if proxy is configured
@@ -2731,6 +2760,7 @@ def api_models():
                 "supports_streaming": model.supports_streaming,
                 "supports_vision": model.supports_vision,
                 "supports_reasoning": model.supports_reasoning,
+                "reasoning_effort_levels": reasoning_effort_levels(model),
                 "price_input": model.price_input,
                 "price_output": model.price_output,
                 "deprecated": model.deprecated,
@@ -3132,7 +3162,15 @@ def api_conversation_config_patch(conversation_id: str):
                     ), 400
 
         try:
-            chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+            chat_config = ChatConfig.load_or_create(logdir, request_config)
+            effective_model = _effective_model_for_effort_validation(chat_config)
+            if effective_model:
+                from ..llm.models.effort import validate_reasoning_effort
+
+                validate_reasoning_effort(
+                    get_model(effective_model), chat_config.reasoning_effort
+                )
+            chat_config.save()
         except ValueError as exc:
             return flask.jsonify({"error": str(exc)}), 400
         config = Config.from_workspace(workspace=chat_config.workspace)

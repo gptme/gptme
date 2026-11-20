@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   Bookmark,
   BookmarkCheck,
+  Brain,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PromptTextarea } from '@/components/PromptTextarea';
@@ -77,6 +78,8 @@ import {
 
 export interface ChatOptions {
   model?: string;
+  /** Empty string restores server inheritance; omitted keeps the conversation setting. */
+  reasoningEffort?: string;
   stream?: boolean;
   workspace?: string;
   files?: string[];
@@ -728,6 +731,27 @@ export const ChatInput: FC<Props> = ({
     ? selectedModel
     : conversationModel || defaultModel || apiDefaultModel || fallbackModel;
 
+  const [effortDraft, setEffortDraft] = useComposerDraft(
+    storageKey ? `${storageKey}-effort` : null,
+    JSON.stringify([serverId ?? null, conversationId ?? null])
+  );
+  const modelEffortLevels = modelInfos.find(
+    (m) => m.id === effectiveModel
+  )?.reasoning_effort_levels;
+  const effortLevels = modelEffortLevels || [];
+  const requestedEffort = effortDraft
+    ? effortDraft === 'default'
+      ? ''
+      : effortDraft
+    : chatConfig
+      ? chatConfig.chat?.reasoning_effort || ''
+      : undefined;
+  // An unresolved/failed config is not an explicit Default selection. Omit the
+  // override so admission retains the saved effort rather than resetting it.
+  const effortIncompatible =
+    modelEffortLevels !== undefined && !!requestedEffort && !effortLevels.includes(requestedEffort);
+  const reasoningEffort = effortIncompatible ? '' : requestedEffort;
+
   // Update selectedModel when conversation config changes, but only if no explicit selection
   useEffect(() => {
     if (!hasExplicitModelSelection) {
@@ -1135,6 +1159,7 @@ export const ChatInput: FC<Props> = ({
             text: message,
             options: {
               model: hasExplicitModelSelection ? effectiveModel : undefined,
+              reasoningEffort,
               stream: streamingEnabled,
               workspace: selectedWorkspace || undefined,
               files: uploadedPaths,
@@ -1169,6 +1194,7 @@ export const ChatInput: FC<Props> = ({
       const sentMessage = message;
       const sentOptions = {
         model: hasExplicitModelSelection ? effectiveModel : undefined,
+        reasoningEffort,
         stream: streamingEnabled,
         workspace: selectedWorkspace || undefined,
         files: uploadedPaths,
@@ -1519,6 +1545,45 @@ export const ChatInput: FC<Props> = ({
                         isDisabled={isDisabled}
                         isLoading={isChatConfigLoading}
                       />
+                      {/* Models that report no effort levels get no control; an
+                          unknown catalog keeps it so a saved choice stays visible. */}
+                      {!(modelEffortLevels !== undefined && effortLevels.length === 0) && (
+                        <Select
+                          value={reasoningEffort || 'default'}
+                          onValueChange={setEffortDraft}
+                          disabled={isDisabled || isChatConfigLoading || effortLevels.length === 0}
+                        >
+                          <SelectTrigger
+                            aria-label={`Reasoning effort: ${reasoningEffort || 'default'}`}
+                            title={
+                              effortIncompatible
+                                ? `${requestedEffort} is unsupported by this model. Using Default (inherit).`
+                                : `Reasoning effort: ${reasoningEffort || 'Default (inherits server configuration)'}`
+                            }
+                            className="h-5 w-auto shrink-0 gap-1 border-0 px-1.5 text-[10px] text-muted-foreground shadow-none [&>svg:last-child]:h-3 [&>svg:last-child]:w-3"
+                          >
+                            <Brain className="h-3 w-3" aria-hidden="true" />
+                            {/* Default shows the icon only; an explicit level shows its name. */}
+                            <SelectValue>{reasoningEffort || null}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            {modelEffortLevels === undefined && requestedEffort && (
+                              <SelectItem value={requestedEffort}>{requestedEffort}</SelectItem>
+                            )}
+                            {effortLevels.map((level) => (
+                              <SelectItem key={level} value={level}>
+                                {level}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {effortIncompatible && (
+                        <span role="status" className="shrink-0 text-[10px] text-muted-foreground">
+                          {requestedEffort} unsupported; using Default
+                        </span>
+                      )}
                       {/* File attach button */}
                       <Button
                         type="button"

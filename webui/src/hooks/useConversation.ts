@@ -793,6 +793,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     };
     const retryOptions = {
       model: options?.model,
+      reasoningEffort: options?.reasoningEffort,
       stream: options?.stream,
       maxTokens: options?.maxTokens,
       temperature: options?.temperature,
@@ -860,7 +861,8 @@ export function useConversation(conversationId: string, serverId?: string) {
             'main',
             options?.maxTokens,
             options?.temperature,
-            options?.topP
+            options?.topP,
+            options?.reasoningEffort
           );
           break;
         } catch (stepError) {
@@ -889,7 +891,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 'main',
                 options?.maxTokens,
                 options?.temperature,
-                options?.topP
+                options?.topP,
+                options?.reasoningEffort
               );
             };
             return;

@@ -20,7 +20,7 @@ from flask import request
 
 from ..config import ChatConfig, Config
 from ..dirs import get_logs_dir
-from ..llm.models import get_default_model
+from ..llm.models import get_default_model, get_model
 from ..logmanager import LogManager
 from ..message import Message
 from .api_v2_common import _validate_branch, _validate_conversation_id
@@ -472,6 +472,10 @@ def api_conversation_step(conversation_id: str):
             400,
         )
 
+    branch = req_json.get("branch", "main")
+    if error := _validate_branch(branch):
+        return error
+
     # Reserve generation and capture config in the same critical section as
     # config PATCH. A PATCH completed before this acquisition must affect the
     # worker; one arriving afterward sees generating=True and returns 409.
@@ -481,6 +485,58 @@ def api_conversation_step(conversation_id: str):
         ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify({"error": "Generation already in progress"}), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        effort_provided = req_json.get("reasoning_effort") is not None
+        if effort_provided:
+            try:
+                effort_config = ChatConfig.from_dict(
+                    {"chat": {"reasoning_effort": req_json["reasoning_effort"]}}
+                )
+            except ValueError as exc:
+                return flask.jsonify({"error": str(exc)}), 400
+            chat_config.reasoning_effort = effort_config.reasoning_effort or ""
+        if (use_acp or session.use_acp) and chat_config.reasoning_effort:
+            return flask.jsonify(
+                {
+                    "error": "Reasoning effort selection is not supported by the ACP transport; select Default."
+                }
+            ), 400
+        effective_model = model or chat_config.model
+        if not effective_model:
+            default = get_default_model()
+            effective_model = default.full if default else None
+        if not effective_model:
+            effective_model = Config.from_workspace(
+                workspace=chat_config.workspace
+            ).get_env("MODEL")
+        if not effective_model and not (use_acp or session.use_acp):
+            return flask.jsonify(
+                {"error": "No model specified and no default model set"}
+            ), 400
+        if effective_model:
+            from ..llm.models.effort import validate_reasoning_effort
+
+            try:
+                validate_reasoning_effort(
+                    get_model(effective_model), chat_config.reasoning_effort
+                )
+            except ValueError as exc:
+                return flask.jsonify({"error": str(exc)}), 400
+        changed_fields = []
+        if model and model != chat_config.model:
+            chat_config.model = model
+            changed_fields.append("model")
+        if effort_provided:
+            changed_fields.append("reasoning_effort")
+        if changed_fields:
+            chat_config.save()
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "config_changed",
+                    "config": chat_config.to_dict(),
+                    "changed_fields": changed_fields,
+                },
+            )
         if stream is None:
             stream = chat_config.stream
         # Check bool first: bool is a subclass of int.
@@ -508,27 +564,9 @@ def api_conversation_step(conversation_id: str):
     # permanently stuck in "generating" state.
     _step_dispatched = False
     try:
-        # Get the branch and model
-        branch = req_json.get("branch", "main")
-        if error := _validate_branch(branch):
-            return error
         default_model = get_default_model()
 
-        # Get model from request, config, or default (in that order).
-        # The frontend only sends model when the user explicitly selected one
-        # (hasExplicitModelSelection), so any value here is a genuine choice.
-        if model and model != chat_config.model:
-            chat_config.model = model
-            chat_config.save()
-            # Notify frontend so the model badge updates
-            SessionManager.add_event(
-                conversation_id,
-                {
-                    "type": "config_changed",
-                    "config": chat_config.to_dict(),
-                    "changed_fields": ["model"],
-                },
-            )
+        # Explicit model/effort changes were saved together under the reservation lock.
         if not model:
             model = chat_config.model
         if not model and default_model:

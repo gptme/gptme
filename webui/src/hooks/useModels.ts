@@ -15,6 +15,7 @@ export interface ModelInfo {
   supports_streaming: boolean;
   supports_vision: boolean;
   supports_reasoning: boolean;
+  reasoning_effort_levels?: string[];
   price_input: number;
   price_output: number;
 }

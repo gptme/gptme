@@ -1701,7 +1701,9 @@ export class ApiClient {
   async createConversation(
     logfile: string,
     messages: Message[],
-    config?: { chat?: { model?: string; stream?: boolean; workspace?: string } }
+    config?: {
+      chat?: { model?: string; reasoning_effort?: string; stream?: boolean; workspace?: string };
+    }
   ): Promise<{ status: string; session_id: string }> {
     if (!this.isConnected) {
       console.error('Attempted to create conversation while disconnected');
@@ -1808,6 +1810,7 @@ export class ApiClient {
       maxTokens?: number;
       temperature?: number;
       topP?: number;
+      reasoningEffort?: string;
     }
   ): Promise<string> {
     // Generate conversation ID immediately
@@ -1872,6 +1875,7 @@ export class ApiClient {
         await this.createConversation(conversationId, [], {
           chat: {
             model: options?.model,
+            reasoning_effort: options?.reasoningEffort,
             stream: options?.stream,
             workspace: requestWorkspace(options?.workspace),
           },
@@ -1944,6 +1948,7 @@ export class ApiClient {
         await this.createConversation(conversationId, [message], {
           chat: {
             model: options?.model,
+            reasoning_effort: options?.reasoningEffort,
             stream: options?.stream,
             workspace: requestWorkspace(options?.workspace),
           },
@@ -2140,7 +2145,8 @@ export class ApiClient {
     branch: string = 'main',
     maxTokens?: number,
     temperature?: number,
-    topP?: number
+    topP?: number,
+    reasoningEffort?: string
   ): Promise<void> {
     if (!this.isConnected) {
       throw new Error('Not connected to API');
@@ -2200,6 +2206,7 @@ export class ApiClient {
               ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
               ...(temperature !== undefined ? { temperature } : {}),
               ...(topP !== undefined ? { top_p: topP } : {}),
+              ...(reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {}),
             }),
             signal: controller.signal,
           }

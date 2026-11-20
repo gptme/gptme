@@ -118,6 +118,8 @@ class ChatConfig:
     # these are under a [chat] namespace in the toml
     name: str | None = None
     model: str | None = None
+    # Empty string explicitly restores inheritance; None means no PATCH override.
+    reasoning_effort: str | None = None
     tools: list[str] | None = None
     tool_format: "ToolFormat | None" = None
     stream: bool = True
@@ -228,6 +230,15 @@ class ChatConfig:
                 raise ValueError(
                     f"chat.{field_name} must be a number, got {type(val).__name__}"
                 )
+        effort = chat_data.get("reasoning_effort")
+        if effort is not None and (
+            not isinstance(effort, str)
+            or effort
+            not in ("", "none", "minimal", "low", "medium", "high", "xhigh", "max")
+        ):
+            raise ValueError(
+                "chat.reasoning_effort must be a supported effort level or empty to inherit"
+            )
         context_budget = chat_data.get("context_budget")
         if context_budget is not None:
             chat_data["context_budget"] = parse_context_budget(

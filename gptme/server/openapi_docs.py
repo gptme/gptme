@@ -526,6 +526,10 @@ class SessionResponse(BaseModel):
 class StepRequest(BaseModel):
     """Request to take a step in conversation."""
 
+    reasoning_effort: str | None = Field(
+        None,
+        description="Conversation effort override; empty string restores inheritance. Omit or pass null to keep the saved setting.",
+    )
     session_id: str = Field(..., description="Session ID")
     model: str | None = Field(None, description="Model to use")
     stream: bool = Field(True, description="Enable streaming")
@@ -677,6 +681,10 @@ class ChatConfig(BaseModel):
 
     name: str | None = Field(None, description="Conversation name")
     model: str | None = Field(None, description="Default model")
+    reasoning_effort: str | None = Field(
+        None,
+        description="Conversation effort override; empty string restores inheritance",
+    )
     tools: list[str] | None = Field(None, description="Enabled tools")
     workspace: str | None = Field(None, description="Workspace path")
     watch_autowake: bool = Field(

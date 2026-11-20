@@ -35,6 +35,7 @@ export interface Message {
     persistence: 'saved' | 'rejected' | 'unknown';
     options: {
       model?: string;
+      reasoningEffort?: string;
       stream?: boolean;
       maxTokens?: number;
       temperature?: number;

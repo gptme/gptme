@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { ChatInput } from '../ChatInput';
 import { serverRegistry$ } from '@/stores/servers';
+import { composerDraftKey } from '@/utils/composerDraft';
 import type { ServerConfig } from '@/types/servers';
 
 const mockUploadFiles = jest.fn();
@@ -11,7 +12,7 @@ const mockUploadFiles = jest.fn();
 //   undefined = fetch not yet attempted (show loading skeleton)
 //   null      = fetch completed but failed (show fallback model, no skeleton)
 //   ChatConfig = successfully fetched
-type MockChatConfig = { chat: { model?: string } } | null | undefined;
+type MockChatConfig = { chat: { model?: string; reasoning_effort?: string } } | null | undefined;
 const mockConversation$ = observable<{
   isGenerating: boolean;
   executingTool: null;
@@ -174,6 +175,7 @@ describe('ChatInput draft ownership', () => {
   let setItemSpy: jest.SpyInstance;
 
   beforeEach(() => {
+    mockConversation$.chatConfig.set({ chat: {} });
     window.localStorage.clear();
     mockConnectionConfig = SERVER_A;
     setItemSpy = jest.spyOn(Storage.prototype, 'setItem');
@@ -305,6 +307,30 @@ describe('ChatInput draft ownership', () => {
     renderInput({ conversationId: 'c1', serverId: 'gone' });
     type('nowhere to go');
     expect(draftEntries()).toEqual({});
+  });
+
+  it.each([undefined, null])('omits untouched effort when config is %s', async (chatConfig) => {
+    mockConversation$.chatConfig.set(chatConfig);
+    const onSend = jest.fn();
+    render(<ChatInput conversationId="c1" onSend={onSend} autoFocus$={observable(false)} />);
+    type('Keep my saved effort');
+    fireEvent.keyDown(textbox(), { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend.mock.calls[0][1].reasoningEffort).toBeUndefined();
+  });
+
+  it.each([
+    ['default', ''],
+    ['high', 'high'],
+  ])('retains an explicit %s effort draft when config is unavailable', async (draft, expected) => {
+    mockConversation$.chatConfig.set(null);
+    localStorage.setItem(`${composerDraftKey(SERVER_A, 'c1')}-effort`, draft);
+    const onSend = jest.fn();
+    render(<ChatInput conversationId="c1" onSend={onSend} autoFocus$={observable(false)} />);
+    type('Use my explicit choice');
+    fireEvent.keyDown(textbox(), { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend.mock.calls[0][1].reasoningEffort).toBe(expected);
   });
 
   it('keeps unknown-owner text memory-only and loads the resolved owner draft', () => {
