@@ -707,6 +707,84 @@ def test_raw_counts_attribute_sanitation_window_drop(tmp_path) -> None:
         stream.close()
 
 
+@pytest.mark.parametrize("is_stdout", [True, False])
+@pytest.mark.parametrize("overflow_first", [True, False])
+def test_raw_counts_conserve_composed_sanitation_and_quota_cut(
+    tmp_path, monkeypatch, is_stdout: bool, overflow_first: bool
+) -> None:
+    """Exercise real quota writes after a drop, including a synthetic marker."""
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_PENDING_MAX", 16)
+    marker = b"[omitted: pending sanitation window exceeded]\n"
+    room = len(marker) + 3 if overflow_first else 3
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", room + len(bg._SPOOL_QUOTA_MARKER))
+    job = BackgroundJob(1, "synthetic", Mock(), 0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "composed.live")
+    setattr(job, "_stdout_spool" if is_stdout else "_stderr_spool", stream)
+    fd = 1 if is_stdout else 2
+    raw = job._stdout_raw if is_stdout else job._stderr_raw
+    try:
+        if overflow_first:
+            oversized = b"x" * 17
+            suffix = b"unsafe-suffix\n"
+            safe = b"SAFE-LINE\n"
+            job._append_output(fd, 1, oversized)
+            job._append_output(fd, 1, suffix + safe)
+            discarded = len(oversized + suffix) + len(safe) - 3
+            saved_prefix = marker + safe[:3]
+        else:
+            # The omitted tail marker is appended to the same quota-cut write.
+            safe = b"SAFE-LINE\n"
+            oversized = b"x" * 17
+            job._append_output(fd, 1, safe + oversized)
+            discarded = len(oversized) + len(safe) - 3
+            saved_prefix = safe[:3]
+        job._append_output(fd, 1, b"", final=True)
+        assert stream.path.read_bytes() == saved_prefix + bg._SPOOL_QUOTA_MARKER
+        assert raw.accepted == 3
+        assert raw.discarded == discarded
+        assert raw.pending == 0
+        _assert_raw_conserved(job._raw_receipt_fields(is_stdout))
+    finally:
+        stream.close()
+
+
+@pytest.mark.parametrize("is_stdout", [True, False])
+def test_raw_discard_resume_with_split_utf8_keeps_next_line_bytes(
+    tmp_path, monkeypatch, is_stdout: bool
+) -> None:
+    """Buffered bytes on either side of the newline retain their provenance."""
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_PENDING_MAX", 16)
+    job = BackgroundJob(1, "synthetic", Mock(), 0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "split-resume.live")
+    setattr(job, "_stdout_spool" if is_stdout else "_stderr_spool", stream)
+    fd = 1 if is_stdout else 2
+    oversized = b"x" * 17
+    suffix = "\u20ac\n".encode()
+    safe = "caf\u00e9\n".encode()
+    try:
+        job._append_output(fd, 1, oversized)
+        job._append_output(fd, 1, suffix[:2])
+        _assert_raw_conserved(job._raw_receipt_fields(is_stdout))
+        job._append_output(fd, 1, suffix[2:] + safe[:4])
+        counts = job._raw_receipt_fields(is_stdout)
+        assert counts["raw_discarded_bytes"] == len(oversized + suffix)
+        assert counts["raw_pending_bytes"] == 4
+        _assert_raw_conserved(counts)
+        job._append_output(fd, 1, safe[4:])
+        job._append_output(fd, 1, b"", final=True)
+        counts = job._raw_receipt_fields(is_stdout)
+        assert counts["raw_accepted_bytes"] == len(safe)
+        assert counts["raw_discarded_bytes"] == len(oversized + suffix)
+        assert counts["raw_pending_bytes"] == 0
+        _assert_raw_conserved(counts)
+    finally:
+        stream.close()
+
+
 def test_raw_full_enqueue_stays_accepted_when_writer_fails_concurrently(
     tmp_path, monkeypatch
 ) -> None:
