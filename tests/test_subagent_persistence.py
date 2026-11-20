@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -1311,6 +1312,534 @@ class TestOwnerScopedIdLookup:
         subagent_list()
         assert subagent_status("worker")["result"] == "newer A"
         self._assert_one_holder(newer_a, ReturnType("failure", "newer A"))
+
+    @staticmethod
+    def _live_run(
+        tmp_path: Path, name: str, parent: Path, started_at: float
+    ) -> tuple[Subagent, threading.Event]:
+        """A registered run whose thread stays alive until the event is set."""
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        gate = threading.Event()
+        thread = threading.Thread(target=gate.wait, daemon=True)
+        thread.start()
+        logdir = tmp_path / f"subagent-worker-{name}"
+        logdir.mkdir()
+        sa = Subagent(
+            agent_id="worker",
+            prompt=name,
+            thread=thread,
+            logdir=logdir,
+            model=None,
+            started_at=started_at,
+            parent_logdir=parent,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        return sa, gate
+
+    @staticmethod
+    def _finish(sa: Subagent, gate: threading.Event) -> None:
+        gate.set()
+        assert sa.thread is not None
+        sa.thread.join(5)
+        assert not sa.is_running()
+
+    @pytest.mark.parametrize("first", ["older", "newer"])
+    def test_concurrent_runs_keep_their_own_completions(
+        self, first: str, tmp_path: Path, monkeypatch
+    ):
+        """gptme/gptme#4990: both conversations run `worker` at the same time.
+
+        Neither run's completion may be dropped or land in the other's slot,
+        whichever finishes first.
+        """
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        runs = {
+            "A": self._live_run(tmp_path, "live-a", parent_a, 100.0),
+            "B": self._live_run(tmp_path, "live-b", parent_b, 200.0),
+        }
+        parents = {"A": parent_a, "B": parent_b}
+        order = ["A", "B"] if first == "older" else ["B", "A"]
+        try:
+            assert all(sa.is_running() for sa, _ in runs.values())
+            done, still_live = order
+            sa, gate = runs[done]
+            self._finish(sa, gate)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", f"{done} done"), attempt=sa
+            )
+            as_conversation(parents[still_live])
+            assert subagent_status("worker")["status"] == "running"
+            as_conversation(parents[done])
+            assert subagent_status("worker")["result"] == f"{done} done"
+
+            sa, gate = runs[still_live]
+            self._finish(sa, gate)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", f"{still_live} done"), attempt=sa
+            )
+            for name in ("A", "B"):
+                as_conversation(parents[name])
+                assert subagent_status("worker")["result"] == f"{name} done"
+        finally:
+            for _, gate in runs.values():
+                gate.set()
+
+    @pytest.mark.parametrize("terminal", ["timeout", "cancelled"])
+    def test_late_completion_preserves_terminal_outcome_after_slot_reuse(
+        self, tmp_path: Path, monkeypatch, terminal: Status
+    ) -> None:
+        """A late finalizer cannot replace A's timeout after B clears the slot."""
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            set_subagent_result_if_absent,
+        )
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b = None
+        gate_b = None
+        outcome = ReturnType(terminal, f"A {terminal}")
+        try:
+            _completed_log(sa_a.logdir, "late A success")
+            assert set_subagent_result_if_absent("worker", outcome, attempt=sa_a)
+            sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+            # The real launch registration clears the previous agent_id slot.
+            with _subagent_results_lock:
+                _subagent_results.pop("worker", None)
+            self._finish(sa_a, gate_a)
+            assert not set_subagent_result_if_absent(
+                "worker", sa_a._read_log(), attempt=sa_a
+            )
+            assert sa_a.status() == outcome
+            assert load_subagent_outcome(sa_a) == outcome
+            assert sa_b.status().status == "running"
+            assert "worker" not in _subagent_results
+        finally:
+            self._finish(sa_a, gate_a)
+            if sa_b is not None and gate_b is not None:
+                self._finish(sa_b, gate_b)
+
+    def test_stuck_run_keeps_its_timeout_after_another_conversation_launches(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A's timeout stays visible while its thread is still unwinding.
+
+        B's launch clears the shared slot and A stays registered, so A's own
+        persisted outcome is the only record of the timeout.
+        """
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            set_subagent_result_if_absent,
+        )
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        gate_b = None
+        timeout = ReturnType("timeout", "A timed out")
+        try:
+            assert set_subagent_result_if_absent("worker", timeout, attempt=sa_a)
+            _, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+            # The real launch registration clears the previous agent_id slot.
+            with _subagent_results_lock:
+                _subagent_results.pop("worker", None)
+            assert sa_a.is_running() and not sa_a.shadowed
+            assert sa_a.status() == timeout
+            as_conversation(parent_a)
+            assert subagent_status("worker")["status"] == "timeout"
+            as_conversation(parent_b)
+            assert subagent_status("worker")["status"] == "running"
+        finally:
+            gate_a.set()
+            if gate_b is not None:
+                gate_b.set()
+
+    @pytest.mark.parametrize("first", ["A1", "A2"])
+    def test_relaunch_supersedes_older_run_while_another_conversation_holds_id(
+        self, first: str, tmp_path: Path, monkeypatch
+    ):
+        """A1 and A2 in conversation A, then B in conversation B, all `worker`.
+
+        A2 supersedes A1, so A1's completion is refused (no notification to A)
+        and A's status reports A2, whichever of them finishes first.
+        """
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        a1, gate_a1 = self._live_run(tmp_path, "a1", parent_a, 100.0)
+        a2, gate_a2 = self._live_run(tmp_path, "a2", parent_a, 150.0)
+        _, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        runs = {"A1": (a1, gate_a1), "A2": (a2, gate_a2)}
+        order = ["A1", "A2"] if first == "A1" else ["A2", "A1"]
+        try:
+            for name in order:
+                sa, gate = runs[name]
+                self._finish(sa, gate)
+                published = set_subagent_result_if_absent(
+                    "worker", ReturnType("success", f"{name} done"), attempt=sa
+                )
+                assert published == (name == "A2")
+            assert not a1.shadowed
+            as_conversation(parent_a)
+            assert subagent_status("worker")["result"] == "A2 done"
+            as_conversation(parent_b)
+            assert subagent_status("worker")["status"] == "running"
+        finally:
+            for gate in (gate_a1, gate_a2, gate_b):
+                gate.set()
+
+    def test_listings_show_demoted_relaunch_over_older_registered_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A1 and A2 in conversation A, then B, all `worker`; A2 finishes first.
+
+        A2 is demoted because B holds the ID, while A1 stays registered. The
+        older A1 must not hide A2's completed run from A's listings.
+        """
+        from gptme.tools.subagent.api import subagent_list, subagent_snapshots
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        a1, gate_a1 = self._live_run(tmp_path, "a1", parent_a, 100.0)
+        a2, gate_a2 = self._live_run(tmp_path, "a2", parent_a, 150.0)
+        _, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(a2, gate_a2)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "A2 done"), attempt=a2
+            )
+            assert a2.shadowed and not a1.shadowed
+            snaps = {s.run_id: s.status for s in subagent_snapshots(parent_a)}
+            assert snaps[str(a2.logdir)] == "success"
+            assert snaps[str(a1.logdir)] == "running"
+            as_conversation(parent_a)
+            statuses = sorted(e["status"] for e in subagent_list())
+            assert statuses == ["running", "success"]
+        finally:
+            for gate in (gate_a1, gate_a2, gate_b):
+                gate.set()
+
+    def test_listings_hide_older_demoted_run_behind_newer_demoted_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A1 and A2 both finish while a run of conversation B holds `worker`.
+
+        A1 is demoted while B1 holds the ID; A relaunches as A2, B relaunches as
+        B2, and A2 is demoted too. A2 supersedes A1, so A's listings show A2
+        only, as they would if A2 were registered.
+        """
+        from gptme.tools.subagent.api import subagent_snapshots
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        a1, gate_a1 = self._live_run(tmp_path, "a1", parent_a, 100.0)
+        _, gate_b1 = self._live_run(tmp_path, "b1", parent_b, 200.0)
+        gates = [gate_a1, gate_b1]
+        try:
+            self._finish(a1, gate_a1)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "A1 done"), attempt=a1
+            )
+            a2, gate_a2 = self._live_run(tmp_path, "a2", parent_a, 300.0)
+            _, gate_b2 = self._live_run(tmp_path, "b2", parent_b, 400.0)
+            gates += [gate_a2, gate_b2]
+            self._finish(a2, gate_a2)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "A2 done"), attempt=a2
+            )
+            assert a1.shadowed and a2.shadowed
+            run_ids = {s.run_id for s in subagent_snapshots(parent_a)}
+            assert str(a2.logdir) in run_ids
+            assert str(a1.logdir) not in run_ids
+        finally:
+            for gate in gates:
+                gate.set()
+
+    def test_subprocess_launch_failure_stays_on_its_run(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A's subprocess fails to start after B launched the same ID.
+
+        The failure is A's outcome; B's run keeps the shared slot untouched.
+        """
+        from gptme.tools.subagent import api
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr(api, "notify_completion", lambda *a, **k: None)
+        proceed = threading.Event()
+
+        def launch(**kwargs):
+            assert proceed.wait(5)
+            raise RuntimeError("spawn failed")
+
+        monkeypatch.setattr(api._exec, "_run_subagent_subprocess", launch)
+        as_conversation(parent_a)
+        api.subagent("worker", "A task", use_subprocess=True)
+        with _subagents_lock:
+            sa_a = next(
+                s
+                for s in reversed(_subagents)
+                if s.agent_id == "worker" and s.parent_logdir == parent_a
+            )
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, time.time())
+        try:
+            proceed.set()
+            assert sa_a.thread is not None
+            sa_a.thread.join(5)
+            assert not sa_a.is_running()
+            with _subagent_results_lock:
+                assert "worker" not in _subagent_results
+            assert sa_b.status().status == "running"
+            result = sa_a.status()
+            assert result.status == "failure"
+            assert "spawn failed" in str(result.result)
+        finally:
+            proceed.set()
+            gate_b.set()
+
+    def test_live_run_never_reads_concurrent_holders_result(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A wait already bound to A must not return B's result from the slot."""
+        from gptme.tools.subagent.api import _wait_for_cached_subagent_result
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("timeout", "B timed out"), attempt=sa_b
+            )
+            assert sa_a.is_running()
+            assert _wait_for_cached_subagent_result(sa_a, timeout=0.05) is None
+            assert sa_a.status().status == "running"
+            # The thread finalizer reads its answer through _read_log().
+            assert sa_a._read_log().result != "B timed out"
+            assert sa_b.status().result == "B timed out"
+        finally:
+            gate_a.set()
+            gate_b.set()
+
+    def test_branch_notice_stays_with_shadowed_run(self, tmp_path: Path, monkeypatch):
+        """A's preserved-work notice amends A's outcome, never B's slot."""
+        from gptme.tools.subagent.persistence import load_subagent_outcome
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "B done"), attempt=sa_b
+            )
+            self._finish(sa_a, gate_a)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("failure", "A boom"), attempt=sa_a
+            )
+            assert sa_a.shadowed
+            update_subagent_result_with_branch("worker", "keep-a", attempt=sa_a)
+            assert _subagent_results["worker"].result == "B done"
+            own = sa_a.status().result
+            assert isinstance(own, str) and own.startswith("A boom")
+            assert "keep-a" in own
+            persisted = load_subagent_outcome(sa_a)
+            assert persisted is not None and persisted.result == own
+        finally:
+            gate_a.set()
+            gate_b.set()
+
+    def test_holders_branch_notice_is_persisted_before_a_takeover(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A takeover right after the amendment must not leave it in memory only."""
+        from gptme.tools.subagent import types as types_mod
+        from gptme.tools.subagent.persistence import load_subagent_outcome
+        from gptme.tools.subagent.types import (
+            _shadowed_subagents,
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, _, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        try:
+            self._finish(sa_a, gate_a)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("failure", "A boom"), attempt=sa_a
+            )
+            real_lock = types_mod._outcome_persist_lock
+
+            class TakeoverOnRelease:
+                """Another conversation takes the ID over as the lock is released."""
+
+                def __enter__(self):
+                    real_lock.acquire()
+
+                def __exit__(self, *exc):
+                    real_lock.release()
+                    with _subagents_lock:
+                        if sa_a.shadowed:
+                            return
+                        with _subagent_results_lock:
+                            popped = _subagent_results.pop("worker", None)
+                        _subagents.remove(sa_a)
+                        object.__setattr__(sa_a, "shadowed", True)
+                        object.__setattr__(sa_a, "shadowed_outcome", popped)
+                        _shadowed_subagents.append(sa_a)
+
+            monkeypatch.setattr(types_mod, "_outcome_persist_lock", TakeoverOnRelease())
+            update_subagent_result_with_branch("worker", "keep-a", attempt=sa_a)
+            persisted = load_subagent_outcome(sa_a)
+            assert persisted is not None
+            assert isinstance(persisted.result, str) and "keep-a" in persisted.result
+        finally:
+            gate_a.set()
+
+    def test_shadowed_read_never_clobbers_a_concurrent_publish(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A read that found nothing on disk must not erase an outcome set meanwhile."""
+        from gptme.tools.subagent import persistence
+        from gptme.tools.subagent.types import set_subagent_result_if_absent
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "B done"), attempt=sa_b
+            )
+            self._finish(sa_a, gate_a)
+            outcome = ReturnType("failure", "A boom")
+            assert set_subagent_result_if_absent("worker", outcome, attempt=sa_a)
+            assert sa_a.shadowed
+            object.__setattr__(sa_a, "shadowed_outcome", None)
+
+            def load_races_publish(sa):
+                # The publisher stores the outcome while the reader is on disk,
+                # which it has not reached yet: the read finds nothing.
+                object.__setattr__(sa, "shadowed_outcome", outcome)
+
+            monkeypatch.setattr(
+                persistence, "load_subagent_outcome", load_races_publish
+            )
+            assert sa_a._cached_result() == outcome
+            assert sa_a.shadowed_outcome == outcome
+        finally:
+            gate_a.set()
+            gate_b.set()
+
+    def test_unshadowed_run_never_amends_concurrent_holders_slot(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A still-registered older run must not append its notice to B's slot."""
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, parent_b, _, _, _ = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        try:
+            self._finish(sa_b, gate_b)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "B done"), attempt=sa_b
+            )
+            assert not sa_a.shadowed
+            update_subagent_result_with_branch("worker", "keep-a", attempt=sa_a)
+            assert _subagent_results["worker"].result == "B done"
+            # B's own notice still lands in its slot.
+            update_subagent_result_with_branch("worker", "keep-b", attempt=sa_b)
+            result = _subagent_results["worker"].result
+            assert isinstance(result, str) and "keep-b" in result
+        finally:
+            gate_a.set()
+            gate_b.set()
+
+    def test_same_conversation_newer_run_still_supersedes(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """A newer run of the SAME conversation keeps refusing the older writer."""
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        parent_a, _, _, _, _ = self._setup(tmp_path, monkeypatch)
+        old, old_gate = self._live_run(tmp_path, "old", parent_a, 100.0)
+        new, new_gate = self._live_run(tmp_path, "new", parent_a, 200.0)
+        try:
+            self._finish(old, old_gate)
+            assert not set_subagent_result_if_absent(
+                "worker", ReturnType("success", "old"), attempt=old
+            )
+            assert not old.shadowed
+            assert "worker" not in _subagent_results
+            # Nor may the older run's preserved-work notice reach the newer slot.
+            self._finish(new, new_gate)
+            assert set_subagent_result_if_absent(
+                "worker", ReturnType("success", "new"), attempt=new
+            )
+            update_subagent_result_with_branch("worker", "keep-old", attempt=old)
+            assert _subagent_results["worker"].result == "new"
+        finally:
+            old_gate.set()
+            new_gate.set()
+
+    def test_timeout_reaches_its_run_while_another_conversation_runs_id(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import _timeout_subagent, subagent_status
+
+        parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
+        sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
+        sa_b, gate_b = self._live_run(tmp_path, "live-b", parent_b, 200.0)
+        monkeypatch.setattr(
+            "gptme.tools.subagent.api.notify_completion", lambda *a, **k: None
+        )
+        try:
+            # B's watchdog fires while A's older run is still registered.
+            _timeout_subagent("worker", 1.0, expected_run=sa_b)
+            as_conversation(parent_b)
+            assert subagent_status("worker")["status"] == "timeout"
+            # A's own watchdog reaches A even though B holds the slot.
+            _timeout_subagent("worker", 1.0, expected_run=sa_a)
+            as_conversation(parent_a)
+            assert subagent_status("worker")["status"] == "timeout"
+            as_conversation(parent_b)
+            assert subagent_status("worker")["status"] == "timeout"
+        finally:
+            gate_a.set()
+            gate_b.set()
 
     def test_tui_can_continue_shadowed_child(self, tmp_path: Path, monkeypatch):
         pytest.importorskip("textual")

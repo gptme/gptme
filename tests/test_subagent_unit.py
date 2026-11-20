@@ -1466,7 +1466,7 @@ class TestSubagentCancel:
             notify_calls.append((agent_id, status, summary))
 
         def fake_set_subagent_result_if_absent(
-            agent_id: str, result: ReturnType
+            agent_id: str, result: ReturnType, **_kwargs: object
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
@@ -1515,7 +1515,7 @@ class TestSubagentCancel:
             cleanup_calls.append(sa.agent_id)
 
         def fake_set_subagent_result_if_absent(
-            agent_id: str, result: ReturnType
+            agent_id: str, result: ReturnType, **_kwargs: object
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
@@ -1572,7 +1572,7 @@ class TestSubagentCancel:
             notify_calls.append((agent_id, status, summary))
 
         def fake_set_subagent_result_if_absent(
-            agent_id: str, result: ReturnType
+            agent_id: str, result: ReturnType, **_kwargs: object
         ) -> bool:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = ReturnType(
@@ -1601,6 +1601,53 @@ class TestSubagentCancel:
             assert _subagent_results["proc-agent"] == ReturnType(
                 "cancelled", "Cancelled by orchestrator"
             )
+
+    @pytest.mark.parametrize("use_subprocess", [False, True])
+    def test_other_conversations_timeout_does_not_skip_queued_launch(
+        self, monkeypatch, tmp_path, use_subprocess: bool
+    ) -> None:
+        from types import SimpleNamespace
+
+        from gptme.logmanager import LogManager
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        parent = [tmp_path / "parent-a"]
+        monkeypatch.setattr(
+            LogManager, "get_current_log", lambda: SimpleNamespace(logdir=parent[0])
+        )
+        sem = threading.BoundedSemaphore(1)
+        assert sem.acquire(timeout=0)
+        monkeypatch.setattr(subagent_api, "get_slot_sem", lambda: sem)
+        launch_mock = MagicMock()
+        monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", launch_mock)
+        monkeypatch.setattr(subagent_api._exec, "_run_subagent_subprocess", launch_mock)
+        monkeypatch.setattr(subagent_api._exec, "_monitor_subprocess", lambda sa: None)
+        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", lambda sa: None)
+        monkeypatch.setattr(subagent_api, "notify_completion", lambda *a, **kw: None)
+
+        subagent("shared-queued", "A work", use_subprocess=use_subprocess)
+        with _subagents_lock:
+            sa_a = _subagents[-1]
+        parent[0] = tmp_path / "parent-b"
+        subagent("shared-queued", "B work", use_subprocess=use_subprocess)
+        with _subagents_lock:
+            sa_b = _subagents[-1]
+        try:
+            subagent_api._timeout_subagent("shared-queued", 0.1, expected_run=sa_b)
+        finally:
+            sem.release()
+            for sa in (sa_a, sa_b):
+                assert sa.thread is not None
+                sa.thread.join(timeout=5)
+                assert not sa.thread.is_alive()
+        assert launch_mock.call_count == 1
+        assert launch_mock.call_args.kwargs["prompt"] == "A work"
+        assert sa_b.status().status == "timeout"
 
     def test_cancelled_queued_subprocess_does_not_launch_after_slot_frees(
         self, monkeypatch, tmp_path
@@ -1889,6 +1936,72 @@ class TestSubagentContinue:
         assert sa.acp_session_id == "session-after-new"
         with _subagent_results_lock:
             assert _subagent_results[sa.agent_id].status == "failure"
+
+    def test_acp_run_keeps_its_session_and_outcome_when_another_conversation_runs_id(
+        self, tmp_path, monkeypatch
+    ):
+        """gptme/gptme#4990: ACP must bind its own run, not the first same-ID entry."""
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(subagent_execution, "_cleanup_isolation", lambda sa: None)
+
+        class FailingAcpClient:
+            def __init__(self, *args, **kwargs):
+                self.last_session_id = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def run(self, prompt, cwd=None):
+                self.last_session_id = "session-own"
+                raise RuntimeError("own run failed")
+
+        import gptme.acp.client as acp_client
+
+        monkeypatch.setattr(acp_client, "GptmeAcpClient", FailingAcpClient)
+
+        # Another conversation's concurrent run of the same ID, registered first,
+        # so an agent_id lookup would find it before ours.
+        other_thread = MagicMock(spec=threading.Thread)
+        other_thread.is_alive.return_value = True
+        other = Subagent(
+            agent_id="shared-acp",
+            prompt="other task",
+            thread=other_thread,
+            logdir=tmp_path / "other-log",
+            model=None,
+            parent_logdir=tmp_path / "other-conversation",
+        )
+        with _subagents_lock:
+            _subagents.append(other)
+
+        try:
+            subagent("shared-acp", "task", use_acp=True)
+            with _subagents_lock:
+                own = next(
+                    s
+                    for s in _subagents
+                    if s.agent_id == "shared-acp" and s is not other
+                )
+            assert own.thread is not None
+            own.thread.join(timeout=1)
+            assert not own.thread.is_alive()
+
+            assert own.acp_session_id == "session-own"
+            assert other.acp_session_id is None
+            own_result = own._cached_result()
+            assert own_result is not None
+            assert own_result.status == "failure"
+            assert "own run failed" in str(own_result.result)
+        finally:
+            other_thread.is_alive.return_value = False
 
     def test_rejects_running_agent(self, tmp_path):
         from gptme.tools.subagent.api import subagent_continue
@@ -4185,7 +4298,9 @@ class TestMaxTimeWatchdog:
             None,
             ReturnType("timeout", "Auto-cancelled after 0.5s (max_time exceeded)"),
         ]
-        monkeypatch.setattr(subagent_api, "_subagent_results", cache)
+        # The poll reads through Subagent._cached_result(), which lives in the
+        # types module (gptme/gptme#4990).
+        monkeypatch.setattr(subagent_types, "_subagent_results", cache)
 
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = True
@@ -4200,8 +4315,11 @@ class TestMaxTimeWatchdog:
         )
         with _subagents_lock:
             _subagents.append(sa)
-
-        result = subagent_wait("wait-race-thread", timeout=0)
+        try:
+            result = subagent_wait("wait-race-thread", timeout=0)
+        finally:
+            with _subagents_lock:
+                _subagents.remove(sa)
 
         # Two reads prove the result came from the retry loop, not the first read.
         assert cache.get.call_count == 2

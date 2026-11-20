@@ -168,13 +168,29 @@ def _owned_candidate(
     """Return ``(registry holder, owner's own run)`` for ``agent_id``.
 
     Caller must hold ``_subagents_lock``. The holder is the entry agent_id-keyed
-    lookups resolve to; the owner's run is its newest registry entry, else its
-    shadowed run.
+    lookups resolve to. With ``newest``, the owner's run is its newest run across
+    the registry and ``_shadowed_subagents``: a superseded registry entry must not
+    outrank a newer run that was demoted while another conversation held the ID.
+    Otherwise it is the owner's oldest registry entry, else its shadowed run.
     """
     seq = list(reversed(_subagents)) if newest else list(_subagents)
     same_id = [s for s in seq if s.agent_id == agent_id]
     holder = same_id[0] if same_id else None
     candidate = next((s for s in same_id if _owned(s, owner)), None)
+    if newest:
+        newer_shadowed = max(
+            (
+                s
+                for s in _shadowed_subagents
+                if s.agent_id == agent_id
+                and _owned(s, owner)
+                and (candidate is None or s.started_at > candidate.started_at)
+            ),
+            key=lambda s: s.started_at,
+            default=None,
+        )
+        if newer_shadowed is not None:
+            candidate = newer_shadowed
     if candidate is None:
         candidate = next(
             (
@@ -185,6 +201,33 @@ def _owned_candidate(
             None,
         )
     return holder, candidate
+
+
+def _listable_shadowed(registered: list[Subagent]) -> list[Subagent]:
+    """Shadowed runs that listings show beside ``registered``.
+
+    Caller must hold ``_subagents_lock``. A shadowed run is hidden only by a
+    newer run of the same conversation and ID, registered or shadowed. An older
+    registry run must not hide it: a relaunch demoted while another conversation
+    holds the ID is that conversation's current run (gptme/gptme#4990).
+    """
+    newest: dict[tuple[Path | None, str], float] = {}
+    for s in [*registered, *_shadowed_subagents]:
+        key = (s.parent_logdir, s.agent_id)
+        newest[key] = max(newest.get(key, s.started_at), s.started_at)
+    newest_registered: dict[tuple[Path | None, str], float] = {}
+    for s in registered:
+        key = (s.parent_logdir, s.agent_id)
+        newest_registered[key] = max(
+            newest_registered.get(key, s.started_at), s.started_at
+        )
+    return [
+        s
+        for s in _shadowed_subagents
+        if s.started_at == newest[(s.parent_logdir, s.agent_id)]
+        and s.started_at
+        > newest_registered.get((s.parent_logdir, s.agent_id), float("-inf"))
+    ]
 
 
 def _take_over_agent_id(
@@ -404,13 +447,16 @@ def _write_cancel_op(logdir: Path, agent_id: str) -> None:
 
 
 def _wait_for_cached_subagent_result(
-    agent_id: str, timeout: float = 0.5, poll_interval: float = 0.005
+    sa: Subagent, timeout: float = 0.5, poll_interval: float = 0.005
 ) -> ReturnType | None:
-    """Briefly wait for a concurrent watchdog/cancel result to hit the cache."""
+    """Briefly wait for a concurrent watchdog/cancel result to hit the cache.
+
+    Reads through ``sa`` so a run never picks up the result of another
+    conversation's concurrent run with the same agent_id (gptme/gptme#4990).
+    """
     deadline = time.monotonic() + timeout
     while True:
-        with _subagent_results_lock:
-            cached_result = _subagent_results.get(agent_id)
+        cached_result = sa._cached_result()
         if cached_result is not None:
             return cached_result
 
@@ -993,12 +1039,16 @@ def subagent(
                 f"Subagent {agent_id}: 'reasoning_effort' is not supported in ACP mode (ignored)"
             )
 
+        # The run this thread executes. Agent IDs are only unique within one
+        # conversation, so a lookup by agent_id can find another conversation's
+        # concurrent run (gptme/gptme#4990).
+        _own_acp_run: list[Subagent] = []
+
         def _save_acp_session_id(client: Any) -> None:
             session_id = getattr(client, "last_session_id", None)
             if not isinstance(session_id, str):
                 return
-            with _subagents_lock:
-                sa_ref = next((s for s in _subagents if s.agent_id == agent_id), None)
+            sa_ref = _own_acp_run[0] if _own_acp_run else None
             if sa_ref is not None:
                 object.__setattr__(sa_ref, "acp_session_id", session_id)
                 persist_subagent_meta(sa_ref)
@@ -1010,16 +1060,10 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
-                with _subagent_results_lock:
-                    cancelled = agent_id in _subagent_results
-                if cancelled:
+                own_run = _own_acp_run[0]
+                if own_run._cached_result() is not None:
                     logger.info(f"Skipping cancelled queued ACP subagent {agent_id}")
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
-                    if sa:
-                        _exec._cleanup_isolation(sa)
+                    _exec._cleanup_isolation(own_run)
                     return
 
                 import asyncio
@@ -1080,13 +1124,11 @@ def subagent(
                 try:
                     status, summary = asyncio.run(_acp_run())
 
-                    with _subagents_lock:
-                        sa_ref = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
-                    usage = sa_ref._read_usage() if sa_ref is not None else {}
+                    usage = own_run._read_usage()
                     result = ReturnType(status, summary, **usage)
-                    if not set_subagent_result_if_absent(agent_id, result):
+                    if not set_subagent_result_if_absent(
+                        agent_id, result, attempt=own_run
+                    ):
                         return
                     notify_completion(
                         agent_id,
@@ -1098,7 +1140,7 @@ def subagent(
                 except Exception as e:
                     logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
                     if not set_subagent_result_if_absent(
-                        agent_id, ReturnType("failure", str(e))
+                        agent_id, ReturnType("failure", str(e)), attempt=own_run
                     ):
                         return
                     notify_completion(
@@ -1109,21 +1151,17 @@ def subagent(
                         parent_branch=parent_branch,
                     )
                 finally:
-                    with _subagents_lock:
-                        sa_ref = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
+                    # ACP always caches a result above before reaching this
+                    # cleanup, so patch the already-stored result with any
+                    # preserved branch (mirrors the thread-mode fallback).
+                    preserved_branch = _exec._cleanup_isolation(own_run)
+                    if preserved_branch:
+                        update_subagent_result_with_branch(
+                            agent_id,
+                            preserved_branch,
+                            has_output_schema=bool(own_run.output_schema),
+                            attempt=own_run,
                         )
-                    if sa_ref:
-                        # ACP always caches a result above before reaching this
-                        # cleanup, so patch the already-stored result with any
-                        # preserved branch (mirrors the thread-mode fallback).
-                        preserved_branch = _exec._cleanup_isolation(sa_ref)
-                        if preserved_branch:
-                            update_subagent_result_with_branch(
-                                agent_id,
-                                preserved_branch,
-                                has_output_schema=bool(sa_ref.output_schema),
-                            )
             finally:
                 release_thread()
                 _sem.release()
@@ -1158,8 +1196,8 @@ def subagent(
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
         )
-        # Append sa before starting the thread so the finally block can find it
-        # (avoids race condition where fast completion can't locate sa in _subagents)
+        _own_acp_run.append(sa)
+        # Append sa before starting the thread so listings see it immediately.
         with _subagents_lock:
             _subagents.append(sa)
             with _subagent_results_lock:
@@ -1207,13 +1245,12 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
-                with _subagent_results_lock:
-                    if agent_id in _subagent_results:
-                        logger.info(
-                            f"Skipping cancelled queued subprocess subagent {agent_id}"
-                        )
-                        _exec._cleanup_isolation(sa)
-                        return
+                if sa._cached_result() is not None:
+                    logger.info(
+                        f"Skipping cancelled queued subprocess subagent {agent_id}"
+                    )
+                    _exec._cleanup_isolation(sa)
+                    return
                 process = _exec._run_subagent_subprocess(
                     prompt=prompt,
                     logdir=logdir,
@@ -1237,8 +1274,10 @@ def subagent(
                 logger.error(
                     f"Subagent {agent_id} subprocess failed: {e}", exc_info=True
                 )
+                # attempt=sa: another conversation may hold this ID by now
+                # (gptme/gptme#4990); the failure must stay on this run.
                 if set_subagent_result_if_absent(
-                    agent_id, ReturnType("failure", str(e))
+                    agent_id, ReturnType("failure", str(e)), attempt=sa
                 ):
                     notify_completion(
                         agent_id,
@@ -1326,6 +1365,11 @@ def subagent(
         # set within the same millisecond just before sa = Subagent() is created).
         _subagent_launch_time = time.time()
 
+        # The run this thread executes. Agent IDs are only unique within one
+        # conversation, so a lookup by agent_id can find another conversation's
+        # concurrent run (gptme/gptme#4990).
+        _own_run: list[Subagent] = []
+
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -1333,14 +1377,10 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
-                with _subagent_results_lock:
-                    cancelled = agent_id in _subagent_results
-                if cancelled:
+                own_run = _own_run[0]
+                if own_run._cached_result() is not None:
                     logger.info(f"Skipping cancelled queued thread subagent {agent_id}")
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
+                    sa = _own_run[0] if _own_run else None
                     if sa:
                         _exec._cleanup_isolation(sa)
                     return
@@ -1369,20 +1409,20 @@ def subagent(
                     # If subagent creation fails, notify with error status
                     logger.error(f"Subagent {agent_id} failed during execution: {e}")
                     cached = set_subagent_result_if_absent(
-                        agent_id, ReturnType("failure", str(e))
+                        agent_id,
+                        ReturnType("failure", str(e)),
+                        attempt=_own_run[0] if _own_run else None,
                     )
                     # Preserve the location even when timeout/cancel won the cache
                     # race. Cleanup must run before notifying callers of failure.
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
+                    sa = _own_run[0] if _own_run else None
                     preserved = _exec._cleanup_isolation(sa) if sa else None
                     if preserved and sa:
                         update_subagent_result_with_branch(
                             agent_id,
                             preserved,
                             has_output_schema=bool(sa.output_schema),
+                            attempt=sa,
                         )
                     if not cached:
                         return
@@ -1400,8 +1440,7 @@ def subagent(
                     return
 
                 # Notify via hook system when complete (only if successful)
-                with _subagents_lock:
-                    sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+                sa = _own_run[0] if _own_run else None
                 if sa:
                     # prompt_queue_closed is already set inside _create_subagent_thread
                     # (right after chat() returns, before this thread gets the lock).
@@ -1423,7 +1462,7 @@ def subagent(
                             result,
                             result=f"{result.result}{preserved_notice(preserved_branch)}",
                         )
-                    if not set_subagent_result_if_absent(agent_id, result):
+                    if not set_subagent_result_if_absent(agent_id, result, attempt=sa):
                         # Timeout/cancel won the cache race. Cleanup already ran above.
                         # Patch the stored result with branch info so callers can find it.
                         if preserved_branch:
@@ -1431,6 +1470,7 @@ def subagent(
                                 agent_id,
                                 preserved_branch,
                                 has_output_schema=bool(sa.output_schema),
+                                attempt=sa,
                             )
                         return
                     try:
@@ -1490,6 +1530,7 @@ def subagent(
             prompt_queue_closed=_pqc,
             fork_message_count=len(fork_messages) if fork_messages is not None else 0,
         )
+        _own_run.append(sa)
         with _subagents_lock:
             _subagents.append(sa)
             with _subagent_results_lock:
@@ -1519,9 +1560,15 @@ def _timeout_subagent(
     reused the same agent ID.
     """
     with _subagents_lock:
-        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+        if expected_run is not None:
+            # Not a lookup by agent_id: another conversation may run the same
+            # ID concurrently (gptme/gptme#4990).
+            registered = any(s is expected_run for s in _subagents)
+            sa = expected_run if registered else None
+        else:
+            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
 
-    if sa is None or (expected_run is not None and sa is not expected_run):
+    if sa is None:
         return  # Agent ID now belongs to another run
     if not sa.is_running():
         return  # Already finished normally before the timer fired
@@ -1529,7 +1576,9 @@ def _timeout_subagent(
     timeout_result = ReturnType(
         "timeout", f"Auto-cancelled after {max_time}s (max_time exceeded)"
     )
-    if not set_subagent_result_if_absent(agent_id, timeout_result):
+    if not set_subagent_result_if_absent(
+        agent_id, timeout_result, attempt=expected_run
+    ):
         return  # Another result was set concurrently (subagent finished at the same time)
 
     if sa.execution_mode == "subprocess" and sa.process:
@@ -2411,12 +2460,7 @@ def subagent_list() -> list[dict]:
     with _subagents_lock:
         # copy under lock, then iterate outside
         agents = list(_subagents)
-        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
-        agents += [
-            s
-            for s in _shadowed_subagents
-            if (s.parent_logdir, s.agent_id) not in known_owners
-        ]
+        agents += _listable_shadowed(agents)
 
     result: list[dict[str, Any]] = []
     for sa in agents:
@@ -2487,13 +2531,7 @@ def subagent_snapshots(
     with _subagents_lock:
         agents = list(_subagents)
         # Runs whose agent_id another conversation holds (see _shadowed_subagents).
-        known_owners = {(s.parent_logdir, s.agent_id) for s in agents}
-        shadowed = [
-            s
-            for s in _shadowed_subagents
-            if s.parent_logdir == owner
-            and (s.parent_logdir, s.agent_id) not in known_owners
-        ]
+        shadowed = [s for s in _listable_shadowed(agents) if s.parent_logdir == owner]
     newest: dict[str, Subagent] = {}
     for sa in agents:
         newest[sa.agent_id] = sa  # append-only: last entry is the newest run
@@ -2652,7 +2690,7 @@ def subagent_wait(
     # A shadowed run (another conversation's running run holds the ID) must not
     # read the agent_id-keyed cache; sa.status() reports its own outcome.
     cached_status = (
-        _wait_for_cached_subagent_result(agent_id)
+        _wait_for_cached_subagent_result(sa)
         if sa.is_running() and not sa.shadowed
         else None
     )

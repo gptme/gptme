@@ -200,15 +200,22 @@ def set_subagent_result_if_absent(
     its outcome is kept on the run itself and persisted to its own logdir.
     """
     if attempt is not None and attempt.shadowed:
-        from .persistence import persist_subagent_outcome
+        from .persistence import load_subagent_outcome, persist_subagent_outcome
 
         # Same lock order as _persist_cached_outcome (persist, then registry).
         # Holding the persist lock across the write orders it before any write
         # by a later attempt: if the owner reclaims and continues this run, the
         # continuation's outcome cannot land first and be overwritten by ours.
         with _outcome_persist_lock:
+            # A new concurrent launch clears the shared ID slot. An earlier
+            # timeout/cancel may therefore survive only in this run's outcome
+            # file when its late finalizer is demoted. Restore that winner
+            # before accepting a second terminal result for the same attempt.
+            persisted = load_subagent_outcome(attempt)
             with _subagents_lock:
                 if attempt.shadowed:
+                    if attempt.shadowed_outcome is None and persisted is not None:
+                        object.__setattr__(attempt, "shadowed_outcome", persisted)
                     if attempt.shadowed_outcome is not None:
                         return False
                     object.__setattr__(attempt, "shadowed_outcome", result)
@@ -219,18 +226,60 @@ def set_subagent_result_if_absent(
                 persist_subagent_outcome(attempt, result)
                 return True
     with _subagents_lock:
+        demoted = False
         if attempt is not None:
             current = next(
                 (s for s in reversed(_subagents) if s.agent_id == agent_id), None
             )
             if current is not None and current is not attempt:
-                return False
-        with _subagent_results_lock:
-            if agent_id in _subagent_results:
-                return False
-            _subagent_results[agent_id] = result
+                registered = any(s is attempt for s in _subagents)
+                if (
+                    not registered
+                    or current.parent_logdir == attempt.parent_logdir
+                    or _newer_own_run_exists(attempt)
+                ):
+                    # Superseded by a newer run of this conversation (a
+                    # continuation, or a relaunch under the same ID that a third
+                    # conversation's run now hides from the holder check).
+                    return False
+                # Another conversation's run holds the agent_id slot because both
+                # ran at once (gptme/gptme#4990). This attempt is not superseded:
+                # keep its outcome on the run, like any other non-holder.
+                _subagents.remove(attempt)
+                object.__setattr__(attempt, "shadowed", True)
+                object.__setattr__(attempt, "shadowed_outcome", None)
+                _shadowed_subagents.append(attempt)
+                demoted = True
+        if not demoted:
+            with _subagent_results_lock:
+                if agent_id in _subagent_results:
+                    return False
+                _subagent_results[agent_id] = result
+    if demoted:
+        # Publish through the shadowed branch above, outside the registry lock
+        # so it keeps the persist-then-registry lock order.
+        return set_subagent_result_if_absent(agent_id, result, attempt=attempt)
     _persist_cached_outcome(agent_id)
     return True
+
+
+def _newer_own_run_exists(attempt: "Subagent") -> bool:
+    """Whether the same conversation launched ``attempt``'s ID again after it.
+
+    Caller must hold ``_subagents_lock``. Registration appends, so a registry
+    entry after ``attempt`` is newer; a demoted run is newer by ``started_at``.
+    """
+    idx = next(i for i, s in enumerate(_subagents) if s is attempt)
+    later = _subagents[idx + 1 :]
+    return any(
+        s.agent_id == attempt.agent_id and s.parent_logdir == attempt.parent_logdir
+        for s in later
+    ) or any(
+        s.agent_id == attempt.agent_id
+        and s.parent_logdir == attempt.parent_logdir
+        and s.started_at > attempt.started_at
+        for s in _shadowed_subagents
+    )
 
 
 def preserved_notice(preserved: str) -> str:
@@ -248,7 +297,11 @@ def preserved_notice(preserved: str) -> str:
 
 
 def update_subagent_result_with_branch(
-    agent_id: str, branch: str, has_output_schema: bool = False
+    agent_id: str,
+    branch: str,
+    has_output_schema: bool = False,
+    *,
+    attempt: "Subagent | None" = None,
 ) -> None:
     """Amend a cached result to include a preserved branch name.
 
@@ -259,21 +312,64 @@ def update_subagent_result_with_branch(
     When ``has_output_schema`` is True, the cached result string is JSON that
     callers parse — appending human-readable text would break that parse, so
     the branch is logged only (via ``_cleanup_isolation``) and not patched in.
+
+    A shadowed ``attempt`` does not own the shared slot (another conversation's
+    run does, gptme/gptme#4990): its own outcome is amended instead.
     """
     if has_output_schema:
         return
     suffix = preserved_notice(branch)
-    with _subagent_results_lock:
-        existing = _subagent_results.get(agent_id)
+
+    def amend(existing: "ReturnType | None") -> "ReturnType | None":
         if existing is None:
-            return
+            return None
         if isinstance(existing.result, str):
-            amended: str | None = existing.result + suffix
-        elif existing.result is None:
-            amended = suffix.lstrip("\n")
-        else:
-            return  # structured (dict) result — cannot amend inline
-        _subagent_results[agent_id] = replace(existing, result=amended)
+            return replace(existing, result=existing.result + suffix)
+        if existing.result is None:
+            return replace(existing, result=suffix.lstrip("\n"))
+        return None  # structured (dict) result — cannot amend inline
+
+    if attempt is not None:
+        from .persistence import persist_subagent_outcome
+
+        # Decide holder vs shadowed and amend under takeover's lock order
+        # (persist, registry, results), so a concurrent takeover can neither
+        # drop the notice nor redirect it to another conversation's result.
+        with _outcome_persist_lock:
+            with _subagents_lock:
+                if attempt.shadowed:
+                    own = amend(attempt.shadowed_outcome)
+                    if own is None:
+                        return
+                    object.__setattr__(attempt, "shadowed_outcome", own)
+                    target: Subagent | None = attempt
+                else:
+                    target = next(
+                        (s for s in reversed(_subagents) if s.agent_id == agent_id),
+                        None,
+                    )
+                    if target is not None and target is not attempt:
+                        # The slot belongs to another run: a newer run of this
+                        # conversation (as set_subagent_result_if_absent refuses
+                        # it) or another conversation's run. Neither gets this
+                        # attempt's preserved-work notice.
+                        return
+                    with _subagent_results_lock:
+                        own = amend(_subagent_results.get(agent_id))
+                        if own is None:
+                            return
+                        _subagent_results[agent_id] = own
+            # Persist before releasing the persist lock: a takeover that lands
+            # after the amendment would otherwise leave it in memory only, and
+            # a restart would lose the preserved-work notice.
+            if target is not None:
+                persist_subagent_outcome(target, own)
+        return
+    with _subagent_results_lock:
+        amended = amend(_subagent_results.get(agent_id))
+        if amended is None:
+            return
+        _subagent_results[agent_id] = amended
     _persist_cached_outcome(agent_id)
 
 
@@ -732,18 +828,47 @@ class Subagent:
         return False
 
     def _cached_result(self) -> ReturnType | None:
-        """Return this run's cached terminal result, never another run's."""
-        if self.shadowed:
-            if self.shadowed_outcome is None:
-                # A surviving subprocess may publish its outcome after the scan.
-                from .persistence import load_subagent_outcome
+        """Return this run's cached terminal result, never another run's.
 
-                object.__setattr__(
-                    self, "shadowed_outcome", load_subagent_outcome(self)
+        Takes ``_subagents_lock`` (a plain Lock): never call it, or anything
+        that reads through it (``status``, ``_read_log``,
+        ``continuation_blocker``), while holding that lock.
+        """
+        with _subagents_lock:
+            shadowed = self.shadowed
+            if not shadowed:
+                holder = next(
+                    (s for s in reversed(_subagents) if s.agent_id == self.agent_id),
+                    None,
                 )
-            return self.shadowed_outcome
-        with _subagent_results_lock:
-            return _subagent_results.get(self.agent_id)
+                if not (
+                    holder is not None
+                    and holder is not self
+                    and holder.parent_logdir != self.parent_logdir
+                ):
+                    with _subagent_results_lock:
+                        return _subagent_results.get(self.agent_id)
+        if not shadowed:
+            # Another conversation's concurrent run holds the agent_id slot
+            # (gptme/gptme#4990), and its launch cleared whatever this run had
+            # published there. Only this run's own persisted outcome (keyed by
+            # its generation) is its result: an earlier timeout or cancel must
+            # stay visible even while a stuck thread delays the demotion.
+            from .persistence import load_subagent_outcome
+
+            return load_subagent_outcome(self)
+        # Shadowed: disk I/O outside the registry lock.
+        if self.shadowed_outcome is None:
+            # A surviving subprocess may publish its outcome after the scan.
+            from .persistence import load_subagent_outcome
+
+            loaded = load_subagent_outcome(self)
+            with _subagents_lock:
+                # Publishers set shadowed_outcome under this lock; never
+                # overwrite one that landed while we read disk.
+                if self.shadowed_outcome is None and loaded is not None:
+                    object.__setattr__(self, "shadowed_outcome", loaded)
+        return self.shadowed_outcome
 
     def status(self) -> ReturnType:
         cached_result = self._cached_result()

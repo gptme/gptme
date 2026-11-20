@@ -715,13 +715,15 @@ def _timeout_is_resumable(agent_id: str) -> bool:
     """
     with _subagents_lock:
         matches = [s for s in _subagents if s.agent_id == agent_id]
-        if len(matches) != 1:
-            return False
-        try:
-            return matches[0].continuation_blocker() is None
-        except OSError:
-            logger.debug("Could not check continuation for %s", agent_id, exc_info=True)
-            return False
+    if len(matches) != 1:
+        return False
+    # Outside the registry lock: continuation_blocker() reads the result cache
+    # through Subagent._cached_result(), which takes _subagents_lock itself.
+    try:
+        return matches[0].continuation_blocker() is None
+    except OSError:
+        logger.debug("Could not check continuation for %s", agent_id, exc_info=True)
+        return False
 
 
 def _completion_message(agent_id: str, status: Status, summary: str) -> Message:
