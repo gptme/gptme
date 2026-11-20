@@ -38,6 +38,21 @@ DEFAULT_POST_LINES = (
     150  # Lines to show at end (more recent output is usually more relevant)
 )
 MAX_OUTPUT_LINES = 200  # Total max lines before truncation kicks in
+# Character bound on the inline preview. Line truncation alone does not bound
+# size: native panes (``%N``) can be arbitrarily wide and ``capture-pane`` lines
+# are not wrapped to a fixed width. 200 lines of a 120-column session is ~24k.
+MAX_OUTPUT_CHARS = 40_000
+
+
+def _conversation_logdir() -> Path | None:
+    """The active conversation's log directory, if any."""
+    try:
+        from ..logmanager import LogManager
+
+        manager = LogManager.get_current_log()
+    except Exception:  # pragma: no cover - defensive; never block pane output
+        return None
+    return manager.logdir if manager and manager.logdir else None
 
 
 def _truncate_output(
@@ -46,51 +61,73 @@ def _truncate_output(
     post_lines: int = DEFAULT_POST_LINES,
     logdir: Path | None = None,
     context: str | None = None,
+    max_chars: int = MAX_OUTPUT_CHARS,
 ) -> str:
-    """Truncate long output to prevent context overflow.
+    """Bound pane output to prevent context overflow.
 
-    If content exceeds pre_lines + post_lines, truncates the middle and
-    optionally saves the full output to a file.
+    Keeps ``pre_lines`` head and ``post_lines`` tail lines, then bounds the
+    preview to ``max_chars``. When anything is omitted, the full captured text
+    is saved under the conversation's ``tool-outputs/tmux/`` and the marker
+    names the file. The saved file is the pane scrollback tmux still held at
+    capture time; history beyond tmux's ``history-limit`` was never captured.
 
     Args:
         content: The full output content
         pre_lines: Number of lines to keep at the start
         post_lines: Number of lines to keep at the end
-        logdir: Directory to save full output (if provided and truncation occurs)
+        logdir: Conversation directory to save full output under; defaults to
+            the active conversation. Without one, nothing is saved.
         context: Context string for saved file (e.g., "inspect-pane gptme_1")
+        max_chars: Character bound on the returned preview
 
     Returns:
         Truncated content with message about truncation, or original if short enough
     """
     lines = content.split("\n")
     total_lines = len(lines)
-
-    # No truncation needed if output is short enough
-    if total_lines <= pre_lines + post_lines:
+    over_lines = total_lines > pre_lines + post_lines
+    if not over_lines and len(content) <= max_chars:
         return content
 
-    # Calculate truncated line count
-    truncated_count = total_lines - pre_lines - post_lines
-
-    # Save full output to file if logdir provided
+    if logdir is None:
+        logdir = _conversation_logdir()
     saved_path = None
     if logdir:
-        _, saved_path = save_large_output(
-            content=content,
-            logdir=logdir,
-            output_type="tmux",
-            command_info=context,
-        )
+        try:
+            _, saved_path = save_large_output(
+                content=content,
+                logdir=logdir,
+                output_type="tmux",
+                command_info=context,
+            )
+        except Exception as e:  # saving is best-effort; the bound still applies
+            logger.warning("Could not save full tmux output: %s", e)
 
-    # Build truncation message
-    truncation_msg = f"... ({truncated_count} lines truncated"
-    if saved_path:
-        truncation_msg += f", full output saved to {saved_path}"
-    truncation_msg += ") ..."
+    saved_note = (
+        f", full captured scrollback saved to {saved_path}" if saved_path else ""
+    )
 
-    # Combine pre + truncation message + post
-    truncated_lines = lines[:pre_lines] + [truncation_msg] + lines[-post_lines:]
-    return "\n".join(truncated_lines)
+    if over_lines:
+        head, tail = lines[:pre_lines], lines[-post_lines:] if post_lines else []
+        omitted = total_lines - len(head) - len(tail)
+        marker = f"... ({omitted} lines truncated{saved_note}) ..."
+        preview = "\n".join(head + [marker] + tail)
+        if len(preview) <= max_chars:
+            return preview
+        # Lines themselves are huge: fall through to a character bound on the
+        # line-truncated preview, keeping the line count in the marker.
+        content = "\n".join(head + tail)
+        if len(content) <= max_chars:  # only the marker tipped it over
+            return preview
+        prefix = f"{omitted} lines and "
+    else:
+        prefix = ""
+
+    head_chars = max_chars // 4
+    tail_chars = max_chars - head_chars
+    omitted_chars = len(content) - head_chars - tail_chars
+    marker = f"... ({prefix}{omitted_chars} characters truncated{saved_note}) ..."
+    return f"{content[:head_chars]}\n{marker}\n{content[-tail_chars:]}"
 
 
 # Examples of identifiers:
@@ -403,7 +440,8 @@ def inspect_pane(pane_id: str, logdir: Path | None = None) -> Message:
 
     Args:
         pane_id: The tmux pane ID to inspect
-        logdir: Optional directory to save full output if truncated
+        logdir: Conversation directory to save full output under if truncated;
+            defaults to the active conversation
 
     Returns:
         Message with pane content (truncated if too long)
@@ -817,12 +855,7 @@ def execute_tmux(
             pane_id, keys = send_parts
             yield send_keys(pane_id, keys)
         elif command == "inspect-pane":
-            # Use default cache directory for saving full output when truncated
-            from platformdirs import user_cache_dir
-
-            cache_dir = Path(user_cache_dir("gptme")) / "tmux-output"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            yield inspect_pane(_args, logdir=cache_dir)
+            yield inspect_pane(_args)
         elif command == "kill-session":
             yield kill_session(_args)
         elif command == "wait":
@@ -839,14 +872,7 @@ def execute_tmux(
                     "Error: wait timeout and stable time must be integers",
                 )
                 continue
-            # Use default cache directory for saving full output when truncated
-            from platformdirs import user_cache_dir
-
-            cache_dir = Path(user_cache_dir("gptme")) / "tmux-output"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            yield wait_for_output(
-                wait_session_id, wait_timeout, wait_stable, logdir=cache_dir
-            )
+            yield wait_for_output(wait_session_id, wait_timeout, wait_stable)
         else:
             yield Message("system", f"Error: Unknown command: {command}")
 
