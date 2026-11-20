@@ -950,7 +950,7 @@ def test_mcp_http_401_oauth_challenge_is_reported_as_auth_failure(
             assert "cancelled while connecting" not in message
             assert "authentication failed (401)" in message
             assert "OAuth protected-resource metadata" in message
-            assert "does not run the MCP OAuth authorization-code flow" in message
+            assert "did not run the MCP OAuth authorization-code flow" in message
             assert "http://127.0.0.1" not in message
         finally:
             client.close()
