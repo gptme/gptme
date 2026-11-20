@@ -10,7 +10,7 @@ const mockUploadFiles = jest.fn();
 //   undefined = fetch not yet attempted (show loading skeleton)
 //   null      = fetch completed but failed (show fallback model, no skeleton)
 //   ChatConfig = successfully fetched
-type MockChatConfig = { chat: { model?: string } } | null | undefined;
+type MockChatConfig = { chat: { model?: string; reasoning_effort?: string } } | null | undefined;
 const mockConversation$ = observable<{
   isGenerating: boolean;
   executingTool: null;
@@ -299,6 +299,33 @@ describe('ChatInput', () => {
     await act(async () => finishSend());
     expect(screen.queryByText('Queued: send exactly once')).not.toBeInTheDocument();
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves queued reasoning effort through reload even when conversation settings change', async () => {
+    const onSend = jest.fn(async (_text, options) => {
+      options.onPersistenceOutcome('saved');
+    });
+    mockConversation$.set({
+      isGenerating: true,
+      executingTool: null,
+      chatConfig: { chat: { reasoning_effort: 'high' } },
+    });
+    const props = { conversationId: 'conv-a', onSend, autoFocus$: observable(false) };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'think carefully' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    first.unmount();
+    mockConversation$.chatConfig.set({ chat: { reasoning_effort: 'low' } });
+    render(<ChatInput {...props} />);
+    act(() => mockConversation$.isGenerating.set(false));
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry send' }));
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(
+        'think carefully',
+        expect.objectContaining({ reasoningEffort: 'high' })
+      )
+    );
   });
 
   it('retains a queued prompt when production send resolves with a rejected persistence outcome', async () => {
