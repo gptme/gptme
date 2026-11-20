@@ -343,7 +343,12 @@ def test_denied_native_call_keeps_one_paired_result(fake_echo_tool, monkeypatch)
     assert results[0].call_id is None
     assert "tool_call" not in (results[0].metadata or {})
     assert results[1].call_id == call_id
-    assert results[1].metadata == {
+    assert results[1].metadata is not None
+    metadata = dict(results[1].metadata)
+    metadata.pop("timings")
+    assert results[1].metadata["timings"]["tool_ms"] >= 0
+    assert "timings" not in (results[0].metadata or {})
+    assert metadata == {
         "tool": "echo",
         "tool_call": 0,
         "tool_status": "denied",

@@ -122,7 +122,7 @@ class PanelHint(TypedDict, total=False):
 
 
 class MessageTimings(TypedDict, total=False):
-    """Per-step timing breakdown for an assistant message.
+    """Generation timings on assistant messages and execution timings on results.
 
     All fields are in milliseconds (wall-clock).  All are optional — only the
     phases that were instrumented for a given step will be present.
@@ -156,9 +156,11 @@ class MessageTimings(TypedDict, total=False):
     gen_ms: float
     """Time from first token to last token (generation time only, not TTFT)."""
     tool_ms: float
-    """Total wall-clock time spent in tool execution for this turn."""
+    """Wall-clock execution time for this result's call. Legacy assistant messages
+    and buffered step() replies may carry a per-step aggregate instead."""
     tool_ms_by_name: dict[str, float]
-    """Per-tool breakdown, e.g. ``{"shell": 1200, "browser": 450}``."""
+    """Legacy/buffered per-step breakdown, e.g. ``{"shell": 1200, "browser": 450}``.
+    Persisted tool results instead have tool_ms and call_id/tool_call identity."""
 
 
 class DegenerationData(TypedDict, total=False):
@@ -275,6 +277,8 @@ class MessageMetadata(TypedDict, total=False):
     # Idle child/watch notice. Transparent to crash-recovery so a progress or
     # notification-only completion does not start an unrequested model turn.
     idle_notification: bool
+    # Executor-generated return-to-input signal, distinct from tool output text.
+    interrupt_marker: bool
     # Set by the harness on its own auto-reply/completion nudges (user-role).
     # Provenance, never inferred from text: consumers such as subagent result
     # recovery treat the nudge as transparent, while a real user message that

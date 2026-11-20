@@ -375,6 +375,10 @@ def chat(
         if not is_output_json() and not is_output_quiet():
             console.log(f"Using logdir: {path_with_tilde(logdir)}")
         manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+        # Repair before resume injections: a user-role injection would hide
+        # the trailing unanswered assistant call from recovery. History replay
+        # below displays the repair, so do not also print it while appending.
+        _close_interrupted_tool_calls(manager, quiet=True)
 
         # ``initial_msgs`` is ignored when the log already has history, so
         # resume-only injections (e.g. a re-applied agent profile) must be
@@ -877,6 +881,7 @@ def _process_message_conversation(
     # the interrupted task still owed a model response, so the turn that
     # completes the checkpoint can resume it instead of stopping.
     checkpoint_followup = False
+    persister = StepPersister(manager)
 
     while True:
         try:
@@ -915,6 +920,10 @@ def _process_message_conversation(
                     workspace=manager.workspace,
                     model=model,
                     output_schema=output_schema,
+                    # Persist the reply before tools run: thread-mode subagent
+                    # transcripts are read live, and an interrupt mid-tool must
+                    # not lose the step record.
+                    on_before_tool_execution=persister.before_tools,
                     logdir=manager.logdir,
                 )
             )
@@ -940,7 +949,8 @@ def _process_message_conversation(
         except KeyboardInterrupt:
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted during response generation.")
-            manager.append(Message("system", INTERRUPT_CONTENT))
+            if not _close_interrupted_tool_calls(manager):
+                manager.append(Message("system", INTERRUPT_CONTENT))
             interrupted = True
             _idle_autowake_blocked.set(True)
             break
@@ -949,7 +959,7 @@ def _process_message_conversation(
 
         command_consumed = False
         for response_msg in response_msgs:
-            manager.append(response_msg)
+            persister.append(response_msg)
             # run any user-commands, if msg is from user
             if response_msg.role == "user" and execute_cmd(response_msg, manager):
                 command_consumed = True
@@ -961,11 +971,19 @@ def _process_message_conversation(
         if command_consumed:
             break
 
-        # Check if user declined execution - return to prompt without generating response
-        # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
-        if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
+        # Tool execution can consume Ctrl-C itself and yield paired results.
+        # Stop before compaction or another generation, just as for a decline.
+        if any(
+            msg.content == DECLINED_CONTENT
+            or (
+                msg.role == "system"
+                and not msg.call_id
+                and (msg.metadata or {}).get("interrupt_marker") is True
+            )
+            for msg in response_msgs
+        ):
             if not is_output_json() and not is_output_quiet():
-                console.log("Execution declined, returning to prompt.")
+                console.log("Execution stopped, returning to prompt.")
             interrupted = True
             _idle_autowake_blocked.set(True)
             break
@@ -1073,6 +1091,46 @@ def _turn_reply_completed(log: Log) -> bool:
         "",
     )
     return bool(last_content.strip()) and not _has_pending_tooluse(log)
+
+
+def _close_interrupted_tool_calls(manager: LogManager, *, quiet: bool = False) -> bool:
+    """Answer unfinished tool calls, then mark the turn interrupted.
+
+    Replies are persisted before their tools run (:class:`StepPersister`), so a
+    hard kill mid-tool, or cancellation before the executor starts, can leave
+    a trailing assistant message whose structured calls have no result.
+    Native-tool providers reject that history
+    (``tool_use`` without ``tool_result``). Pair each unanswered call with an
+    error result and add the interrupt marker, so resume returns to the prompt
+    exactly as after Ctrl-C. Returns True if the log was changed.
+    """
+    msgs = manager.log.messages
+    last = next(
+        (i for i in range(len(msgs) - 1, -1, -1) if msgs[i].role != "system"), None
+    )
+    if last is None or msgs[last].role != "assistant":
+        return False
+    done = {m.call_id for m in msgs[last + 1 :] if m.call_id}
+    open_ids = [
+        tooluse.call_id
+        for tooluse in ToolUse.iter_from_content(
+            msgs[last].content, (msgs[last].metadata or {}).get("tool_format")
+        )
+        if tooluse.call_id and tooluse.call_id not in done
+    ]
+    if not open_ids:
+        return False
+    for call_id in open_ids:
+        manager.append(
+            Message(
+                "system",
+                "Tool call interrupted: the session ended before it returned a result.",
+                call_id=call_id,
+                quiet=quiet,
+            )
+        )
+    manager.append(Message("system", INTERRUPT_CONTENT, quiet=quiet))
+    return True
 
 
 def _has_pending_tooluse(log: Log) -> bool:
@@ -1481,6 +1539,44 @@ def _reply_with_overflow_recovery(
         )
 
 
+class StepPersister:
+    """Append :func:`step` output to a log, persisting each reply before its tools run.
+
+    ``step()`` yields an assistant message only after all of its tools finish,
+    so it can carry tool timings. Without this, a long-running tool leaves the
+    reply invisible to anyone reading the log live (e.g. the TUI inspecting a
+    running thread-mode subagent), and an interrupt or crash mid-tool loses the
+    step record entirely.
+
+    Pass :meth:`before_tools` as ``step(on_before_tool_execution=...)`` and
+    :meth:`append` every message ``step()`` yields. The reply is saved once,
+    with generation timings only; the completed copy is not appended or used
+    to rewrite history. Tool results are appended normally. Buffered consumers
+    of ``step()`` still receive the completed reply with tool timings.
+    """
+
+    def __init__(self, manager: LogManager) -> None:
+        self.manager = manager
+        self._early: Message | None = None
+
+    def before_tools(self, msg: Message) -> None:
+        self.manager.append(msg)
+        self._early = msg
+
+    def append(self, msg: Message) -> None:
+        early = self._early
+        if (
+            early is not None
+            and msg.role == "assistant"
+            and msg.timestamp == early.timestamp
+        ):
+            self._early = None
+            # Already saved before execution. Do not rewrite it for timings,
+            # or reintroduce it if a tool compacted it out of the active view.
+            return
+        self.manager.append(msg)
+
+
 @trace_function(name="chat.step", attributes={"component": "chat"})
 def step(
     log: Log | list[Message],
@@ -1566,14 +1662,18 @@ def step(
         # log response and run tools
         if msg_response:
             tool_timings: dict[str, float] = {}
+            # Text streaming already rendered the assistant response token by
+            # token, so suppress the later LogManager print in that mode. JSON
+            # output is non-streaming and needs this structured assistant event.
+            msg_response = msg_response.replace(quiet=not is_output_json())
             # Buffer tool outputs so we can attach per-step timing to the
-            # assistant message *before* it is yielded (and written to the log).
-            # Trade-off: the assistant message (and any tool output) isn't
-            # exposed or persisted until all tools in this step complete, so a
-            # crash or interrupt mid-tool-execution can lose the step record.
-            # Accepted for the CLI path since most tools finish quickly; the
-            # server path instead persists immediately and patches timings in
-            # after the fact via _attach_tool_timings().
+            # assistant message *before* it is yielded. The yielded message is
+            # therefore only available once all tools in this step complete.
+            # Callers whose log is observed live, or must survive an interrupt
+            # mid-tool, persist the reply once from on_before_tool_execution
+            # and skip the completed copy (see StepPersister). Only buffered
+            # consumers receive tool timings on the reply; adding persistent
+            # timing updates would need an explicit append-only event contract.
             # Notify caller before tool execution so UIs can update state
             # (e.g. clear stream preview, show "running tool" indicator)
             # before a potentially long-running tool blocks the thread.
@@ -1590,8 +1690,9 @@ def step(
                 )
             )
             if tool_timings:
-                # Attach aggregated tool timing to the assistant message metadata
-                # so it is persisted in the session record alongside LLM timings.
+                # Preserve aggregates for buffered step() consumers. CLI/TUI
+                # persist the early reply unchanged; durable per-call timings
+                # are already attached to the completed tool results.
                 from typing import cast
 
                 from .message import (
@@ -1614,10 +1715,7 @@ def step(
                 msg_response = msg_response.replace(
                     metadata=cast(MessageMetadata, existing_meta)
                 )
-            # Text streaming already rendered the assistant response token by
-            # token, so suppress the later LogManager print in that mode. JSON
-            # output is non-streaming and needs this structured assistant event.
-            yield msg_response.replace(quiet=not is_output_json())
+            yield msg_response
             yield from tool_outputs
 
     finally:

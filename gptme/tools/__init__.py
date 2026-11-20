@@ -796,20 +796,55 @@ def execute_msg(
                 on_tool_execution(index, tooluse)
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 t0 = time.monotonic()
+                outputs: list[Message] = []
+                elapsed_ms: float | None = None
                 try:
-                    yield from tooluse.execute(
+                    for output in tooluse.execute(
                         log=log, workspace=workspace, call_index=index
-                    )
+                    ):
+                        # Preserve partial output if execution is interrupted.
+                        outputs.append(output)  # noqa: PERF402
+                    elapsed_ms = (time.monotonic() - t0) * 1000
+                    # Only the final own result gets the duration. Progress and
+                    # hook messages must not multiply the measured call time.
+                    for i in range(len(outputs) - 1, -1, -1):
+                        output = outputs[i]
+                        if (
+                            output.call_id == tooluse.call_id
+                            if tooluse.call_id is not None
+                            else (output.metadata or {}).get("tool_call") == index
+                        ):
+                            outputs[i] = stamp_tool_result_timing(output, elapsed_ms)
+                            break
                 except KeyboardInterrupt:
+                    elapsed_ms = (time.monotonic() - t0) * 1000
                     clear_interruptible()
-                    yield _stamp_call(
-                        Message(
-                            "system",
-                            INTERRUPT_CONTENT,
-                            call_id=tooluse.call_id,
+                    completed_index = next(
+                        (
+                            i
+                            for i in range(len(outputs) - 1, -1, -1)
+                            if tooluse.call_id is not None
+                            and outputs[i].call_id == tooluse.call_id
                         ),
-                        index,
+                        None,
                     )
+                    if completed_index is not None:
+                        outputs[completed_index] = stamp_tool_result_timing(
+                            outputs[completed_index], elapsed_ms
+                        )
+                    yield from outputs
+                    if completed_index is None:
+                        yield stamp_tool_result_timing(
+                            _stamp_call(
+                                Message(
+                                    "system",
+                                    INTERRUPT_CONTENT,
+                                    call_id=tooluse.call_id,
+                                ),
+                                index,
+                            ),
+                            elapsed_ms,
+                        )
                     # Drain the rest: any structured tool_use that's left in the
                     # message still needs a paired tool_result or the next API
                     # request will 400 with a dangling tool_use.
@@ -823,10 +858,18 @@ def execute_msg(
                                 ),
                                 rem_index,
                             )
+                    # Control flow is separate from native results: a call-ID
+                    # result cannot also be the return-to-prompt marker.
+                    yield Message(
+                        "system", INTERRUPT_CONTENT, metadata={"interrupt_marker": True}
+                    )
                     return
+                else:
+                    yield from outputs
                 finally:
                     if tool_timings is not None:
-                        elapsed_ms = (time.monotonic() - t0) * 1000
+                        if elapsed_ms is None:
+                            elapsed_ms = (time.monotonic() - t0) * 1000
                         tool_timings[tooluse.tool] = (
                             tool_timings.get(tooluse.tool, 0.0) + elapsed_ms
                         )
@@ -847,6 +890,22 @@ def execute_msg(
             yield _stamp_call(
                 Message("system", error_msg, call_id=tooluse.call_id), index
             )
+
+
+def stamp_tool_result_timing(msg: Message, elapsed_ms: float) -> Message:
+    """Attach a call's duration before its result is first persisted.
+
+    Native results retain their call_id; markdown/XML results use tool_call.
+    Callers must select the final own result, not progress or hook messages.
+    """
+    from ..message import MessageMetadata
+
+    metadata: MessageMetadata = {**(msg.metadata or {})}
+    metadata["timings"] = {
+        **metadata.get("timings", {}),
+        "tool_ms": round(elapsed_ms, 1),
+    }
+    return msg.replace(metadata=metadata)
 
 
 def _stamp_call(msg: Message, index: int) -> Message:
