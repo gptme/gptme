@@ -107,6 +107,8 @@ from .base import (
 )
 from .pruner import plan_tool_output_prune
 from .shell_background import (
+    BackgroundJob,
+    _current_conversation_id,
     adopt_foreground_capture,
     background_job_completion_hook,
     background_job_wait_hook,
@@ -690,6 +692,8 @@ class ShellSession:
         self._lifecycle_lock = threading.RLock()
         self._active_output = None
         self._capture_segments = None
+        self._foreground_capture: BackgroundJob | None = None
+        self._capture_chars = 0
         self._output_lock = threading.Lock()
         # Snapshot at construction: promotion runs ``shell.run()`` on a worker
         # thread, and ``threading.Thread`` does not copy ContextVars, so a
@@ -868,6 +872,17 @@ class ShellSession:
         """Capture one output chunk and optionally stream it to the terminal."""
         with self._output_lock:
             target.append(text)
+        capture = self._foreground_capture
+        if capture is not None and not self._restarting:
+            self._capture_chars += len(text)
+            # Cheap capture trigger, independent of tokenizer/presentation settings.
+            # Small results stay RAM-only; the existing feeder replays the prefix
+            # exactly once and sanitizes before the bounded writer sees it.
+            if self._capture_chars > 64 * 1024 and not capture._spool_from_reader:
+                if not adopt_foreground_capture(
+                    capture, self.capture_segments(), origin="foreground_budget"
+                ):
+                    self._foreground_capture = None  # do not retry every chunk
         if output:
             print(text, end="", file=stream)
 
@@ -914,15 +929,52 @@ class ShellSession:
         )
 
     def run(
-        self, code: str, output=True, timeout: float | None = None
+        self,
+        code: str,
+        output=True,
+        timeout: float | None = None,
+        *,
+        capture: BackgroundJob | None = None,
     ) -> tuple[int | None, str, str]:
         """Runs a command in the shell and returns the output."""
         # Establish ownership before parsing, which can outlast promotion.
         # The adopter holds this list independently after run() releases it.
         self._capture_segments = []
+        self._foreground_capture = capture
+        self._capture_chars = 0
+        result: tuple[int | None, str, str] | None = None
+        error_text: str | None = None
         try:
-            return self._run_commands(code, output=output, timeout=timeout)
+            result = self._run_commands(code, output=output, timeout=timeout)
+            return result
+        except BaseException as exc:
+            # Finalization seals the capture before a promoted worker publishes.
+            error_text = str(exc)
+            raise
         finally:
+            self._foreground_capture = None
+            if capture is not None:
+                with capture._capture_lock:
+                    if capture._spool_from_reader:
+                        capture.process.finish(
+                            result[0]
+                            if result is not None and result[0] is not None
+                            else -1
+                        )
+                        complete_adopted_job(
+                            capture,
+                            error_text=error_text,
+                            partial_reason=(
+                                "foreground_error"
+                                if result is None
+                                else "foreground_byte_cap"
+                                if result[0] == -125
+                                else "foreground_timeout"
+                                if result[0] == -124
+                                else None
+                            ),
+                            notify=False,
+                        )
             self._capture_segments = None
 
     def _run_commands(
@@ -2274,9 +2326,7 @@ class ShellSession:
                 data = self._decode_output(fd, raw)
                 target = stdout if fd == self.stdout_fd else stderr
                 stream = sys.stdout if fd == self.stdout_fd else sys.stderr
-                target.append(data)
-                if output:
-                    print(data, end="", file=stream)
+                self._capture_output(target, data, stream=stream, output=output)
             if _is_windows and not read_any:
                 time.sleep(0.1)
         return captured_bytes
@@ -2326,9 +2376,7 @@ class ShellSession:
         """
         cap_mib = max_output_bytes / (1024 * 1024)
         trunc_msg = f"\n[output truncated at {cap_mib:.0f} MiB, process killed]\n"
-        stdout.append(trunc_msg)
-        if output:
-            print(trunc_msg, end="", file=sys.stdout)
+        self._capture_output(stdout, trunc_msg, stream=sys.stdout, output=output)
         logger.warning(
             "Shell output cap (%d MiB) exceeded; killing process",
             int(cap_mib),
@@ -2370,14 +2418,12 @@ class ShellSession:
                 drain_empty_count = 0
                 drain_budget -= len(drain_raw)
                 drain_data = self._decode_output(drain_fd, drain_raw)
-                if drain_fd == self.stdout_fd:
-                    stdout.append(drain_data)
-                    if output:
-                        print(drain_data, end="", file=sys.stdout)
-                else:
-                    stderr.append(drain_data)
-                    if output:
-                        print(drain_data, end="", file=sys.stderr)
+                self._capture_output(
+                    stdout if drain_fd == self.stdout_fd else stderr,
+                    drain_data,
+                    stream=sys.stdout if drain_fd == self.stdout_fd else sys.stderr,
+                    output=output,
+                )
         return (
             -125,
             trim_blank_lines("".join(stdout)),
@@ -2815,13 +2861,15 @@ def _matches_gh_list(cmd: str) -> bool:
     return True
 
 
-def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+def _format_git_log_preview(
+    cmd: str, stdout: str, logdir: Path | None, *, retained_path: Path | None = None
+) -> str | None:
     lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
     if len(lines) <= _GIT_LOG_PREVIEW_LINES:
         return None
 
-    saved_path: Path | None = None
-    if logdir:
+    saved_path = retained_path
+    if logdir and saved_path is None:
         _, saved_path = save_large_output(
             content=stdout,
             logdir=logdir,
@@ -2865,14 +2913,16 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
     return body
 
 
-def _format_gh_list_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+def _format_gh_list_preview(
+    cmd: str, stdout: str, logdir: Path | None, *, retained_path: Path | None = None
+) -> str | None:
     """Format a compact preview for ``gh issue list`` / ``gh pr list`` output."""
     lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
     if len(lines) <= _GH_LIST_PREVIEW_LINES:
         return None
 
-    saved_path: Path | None = None
-    if logdir:
+    saved_path = retained_path
+    if logdir and saved_path is None:
         _, saved_path = save_large_output(
             content=stdout,
             logdir=logdir,
@@ -2920,6 +2970,8 @@ def _format_query_pruned_output(
     cmd: str,
     stdout: str,
     logdir: Path | None,
+    *,
+    retained_path: Path | None = None,
 ) -> str | None:
     plan = plan_tool_output_prune("shell", stdout, context_label=cmd)
     if not plan:
@@ -2929,8 +2981,8 @@ def _format_query_pruned_output(
     pruned_stdout = plan.apply(lines)
     effective_logdir = logdir or get_path_fn()
 
-    saved_path: Path | None = None
-    if effective_logdir:
+    saved_path = retained_path
+    if effective_logdir and saved_path is None:
         _, saved_path = save_large_output(
             content=stdout,
             logdir=effective_logdir,
@@ -2975,6 +3027,7 @@ def _format_shell_output(
     logdir: Path | None = None,
     byte_cap_exceeded: bool = False,
     cap_bytes: int | None = None,
+    capture: BackgroundJob | None = None,
 ) -> str:
     """Format shell command output into a message."""
     # Strip ANSI escape sequences from output
@@ -2991,9 +3044,30 @@ def _format_shell_output(
         stderr, n_err = redact_secret_values_from_output(stderr)
         redacted_lines = n_out + n_err
 
+    # Keep configured foreground previews, naming the one sanitized capture
+    # instead of writing a second post-hoc representation.
+    captured_output = (
+        format_job_output(capture, "", "", omit_evicted_prefix=False, complete=True)
+        if capture is not None and capture._spool_from_reader
+        else "Output capture unavailable: conversation retained-stream quota exhausted."
+        if capture is not None and capture._spool_quota_refused
+        else None
+    )
+    # Selected previews may reuse a complete spool, but must not claim full
+    # retention or bypass the quota when capture is partial/unavailable.
+    retained_path = (
+        capture.log_path
+        if capture is not None
+        and capture._spool_from_reader
+        and capture._capture_finished.is_set()
+        and not capture._capture_partial
+        else None
+    )
+    can_select_preview = captured_output is None or retained_path is not None
     compact_stdout = None
     if (
-        returncode == 0
+        can_select_preview
+        and returncode == 0
         and stdout
         and not stderr
         and not interrupted
@@ -3002,7 +3076,9 @@ def _format_shell_output(
         and _matches_git_log_oneline(cmd)
     ):
         try:
-            compact_stdout = _format_git_log_preview(cmd, stdout, logdir)
+            compact_stdout = _format_git_log_preview(
+                cmd, stdout, logdir, retained_path=retained_path
+            )
         except OSError as e:
             logger.warning("Failed to format compact shell output: %s", e)
 
@@ -3013,10 +3089,13 @@ def _format_shell_output(
         and not interrupted
         and not timed_out
         and not byte_cap_exceeded
+        and can_select_preview
         and _matches_gh_list(cmd)
     ):
         try:
-            compact_stdout = _format_gh_list_preview(cmd, stdout, logdir)
+            compact_stdout = _format_gh_list_preview(
+                cmd, stdout, logdir, retained_path=retained_path
+            )
         except OSError as e:
             logger.warning("Failed to format compact shell output: %s", e)
 
@@ -3029,7 +3108,10 @@ def _format_shell_output(
         and not byte_cap_exceeded
     ):
         try:
-            compact_stdout = _format_query_pruned_output(cmd, stdout, logdir)
+            if can_select_preview:
+                compact_stdout = _format_query_pruned_output(
+                    cmd, stdout, logdir, retained_path=retained_path
+                )
         except OSError as e:
             logger.warning("Failed to format query-pruned shell output: %s", e)
 
@@ -3053,6 +3135,10 @@ def _format_shell_output(
             post_tokens=post_tokens,
             logdir=logdir,
             cmd=cmd,
+            retained_capture=capture if captured_output is not None else None,
+            retained_path=capture.log_path
+            if captured_output is not None and capture
+            else None,
         )
         stderr = _shorten_stdout(
             stderr,
@@ -3060,6 +3146,10 @@ def _format_shell_output(
             post_tokens=stderr_post_tokens,
             logdir=logdir,
             cmd=f"{cmd} (stderr)",
+            retained_capture=capture if captured_output is not None else None,
+            retained_path=capture.stderr_log_path
+            if captured_output is not None and capture
+            else None,
         )
 
     # Format header
@@ -3098,7 +3188,9 @@ def _format_shell_output(
         msg += _format_block_smart("", stdout, "stdout").lstrip() + "\n\n"
     if stderr:
         msg += _format_block_smart("", stderr, "stderr").lstrip() + "\n\n"
-    if not compact_stdout and not stdout and not stderr:
+    if captured_output is not None:
+        msg += captured_output + "\n\n"
+    if captured_output is None and not compact_stdout and not stdout and not stderr:
         if byte_cap_exceeded:
             msg += "No output before byte cap\n"
         elif timed_out:
@@ -3137,6 +3229,19 @@ def execute_shell_impl(
     allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
+    capture = None
+    if logdir is not None and not _is_windows and not shell._needs_tty(cmd):
+        from uuid import uuid4
+
+        capture = BackgroundJob(
+            0,
+            cmd,
+            PromotedJobProcess(),
+            time.time(),
+            conversation_id=_current_conversation_id(),
+            log_dir=logdir,
+            capture_id=f"foreground-{uuid4().hex}",
+        )
     foreground_timeout = _get_foreground_timeout()
     explicit_timeout = _explicit_timeout_seconds(cmd)
     if foreground_timeout is not None and explicit_timeout is not None:
@@ -3160,7 +3265,9 @@ def execute_shell_impl(
 
         def run_foreground() -> None:
             try:
-                result["value"] = shell.run(cmd, output=False, timeout=timeout)
+                result["value"] = shell.run(
+                    cmd, output=False, timeout=timeout, capture=capture
+                )
             except BaseException as exc:
                 error.append(exc)
 
@@ -3221,6 +3328,7 @@ def execute_shell_impl(
                     kill_callback=kill_promoted,
                     close_callback=shell.close,
                     output_callback=shell.active_output,
+                    capture=capture,
                 )
                 # Converge on the direct-job capture: the job follows the
                 # chunks this command already captured (and keeps capturing)
@@ -3237,7 +3345,9 @@ def execute_shell_impl(
                     else:
                         job_returncode, stdout, stderr = result["value"]
                     process.finish(job_returncode if job_returncode is not None else -1)
-                    if adopted:
+                    if adopted or job._spool_from_reader:
+                        # Promotion can beat run()'s parsing/setup; the budget
+                        # trigger may have opened the shared capture afterwards.
                         complete_adopted_job(
                             job,
                             error_text=str(error[0]) if error else None,
@@ -3281,7 +3391,9 @@ def execute_shell_impl(
                 print(stderr, file=sys.stderr)
     else:
         try:
-            returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
+            returncode, stdout, stderr = shell.run(
+                cmd, timeout=timeout, capture=capture
+            )
         except KeyboardInterrupt as e:
             # Extract partial output and handle subprocess termination
             stdout = stderr = ""
@@ -3320,6 +3432,7 @@ def execute_shell_impl(
         logdir=logdir,
         byte_cap_exceeded=byte_cap_exceeded,
         cap_bytes=_get_max_output_bytes() if byte_cap_exceeded else None,
+        capture=capture,
     )
     # Workspace-awareness: notify when cd enters a directory with gptme.toml.
     # Append hint text directly to the command output (single yield) so no
@@ -3842,6 +3955,8 @@ def _shorten_stdout(
     strip_common_prefix_lines=0,
     logdir: Path | None = None,
     cmd: str | None = None,
+    retained_capture: BackgroundJob | None = None,
+    retained_path: Path | None = None,
 ) -> str:
     lines = stdout.split("\n")
 
@@ -3873,8 +3988,15 @@ def _shorten_stdout(
             will_truncate_by_tokens = len(stdout) > (pre_tokens + post_tokens) * 4
 
     # If truncation will happen, save full output to file
-    saved_path = None
-    if will_truncate_by_lines or will_truncate_by_tokens:
+    saved_path = (
+        retained_path
+        if retained_capture
+        and not retained_capture._capture_partial
+        and retained_capture._capture_finished.is_set()
+        and (will_truncate_by_lines or will_truncate_by_tokens)
+        else None
+    )
+    if (will_truncate_by_lines or will_truncate_by_tokens) and retained_capture is None:
         # Fallback: if the caller didn't pass logdir (e.g. a code path that
         # bypassed execute_shell's get_path_fn), try the current LogManager
         # context directly. This avoids silent telemetry loss in cases where

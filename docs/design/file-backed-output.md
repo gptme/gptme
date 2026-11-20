@@ -13,9 +13,20 @@ promotion boundary — the job follows the shell's append-only chunk lists, so
 output from before and after promotion is ingested once, in stream order, with
 the same live files, quota, receipt (`capture_origin: foreground_promotion`)
 and byte cursors as a direct job, and no second combined log at completion.
-Without a conversation logdir the promoted job keeps the RAM-only path. A
-foreground command that finishes before the soft timeout is unchanged: it still
-spills through `save_large_output` after the fact, not through a streaming spool.
+Without a conversation logdir the promoted job keeps the RAM-only path.
+
+Non-TTY POSIX foreground calls with a conversation logdir now open that same
+sanitized spool once their combined decoded output exceeds 64 Ki characters,
+including when promotion is disabled or the command completes below its soft
+timeout. This is a cheap capture trigger, not a token/byte accounting claim or
+a change to the configured foreground head/tail preview budgets. Small calls
+stay RAM-only. A UUID capture identity names both stream files and the receipt
+before any background job exists. Promotion registers that capture in place;
+normal foreground completion finalizes it without publishing a background
+completion event. Both paths retain one representation and one receipt. The
+existing shell RAM/output ceiling still applies; this slice does not replace
+its chunk lists with a bounded tail. TTY/Windows and no-logdir calls keep the
+existing post-hoc storage/preview path.
 
 The current receipt's `byte_count_basis` is `sanitized_utf8_representation`:
 committed, accepted, discarded and cursor counts describe transformed output,

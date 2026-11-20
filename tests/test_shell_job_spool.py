@@ -271,6 +271,9 @@ def test_live_spool_with_pending_line_does_not_claim_full_output(tmp_path) -> No
         assert "Full output" not in preview
         assert "pending sanitation" in preview
         job._spool_text(True, "", final=True)
+        # Flushing a line is not capture completion: a later chunk can arrive.
+        assert "Live output" in format_job_output(job, "x" * 10000, "", complete=True)
+        job._capture_finished.set()
         assert "Full output" in format_job_output(job, "x" * 10000, "", complete=True)
     finally:
         stream.close()

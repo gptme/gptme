@@ -928,6 +928,54 @@ def test_kill_promoted_job_during_recovery_prevents_later_commands(
     assert job.is_output_complete()
 
 
+@pytest.mark.parametrize("budget_spill", [False, True])
+def test_promoted_worker_error_survives_capture_finalization(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, budget_spill: bool
+) -> None:
+    import json
+
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    gate = tmp_path / "release"
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.2")
+
+    def fail_recovery() -> None:
+        raise RuntimeError("synthetic shell recovery failure")
+
+    monkeypatch.setattr(shell, "_init", fail_recovery)
+    prefix = "yes 'output line' | head -n 12000; " if budget_spill else ""
+    messages = list(
+        execute_shell_impl(
+            prefix + f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.02; done; "
+            "printf 'BEFORE-ERROR\\n'; exit 0",
+            logdir=tmp_path,
+            timeout=10,
+        )
+    )
+    try:
+        assert "Promoted" in messages[-1].content
+        job = list_background_jobs()[0]
+    finally:
+        gate.touch()
+    completions = _wait_for_completion(10)
+    assert len(completions) == 1
+    assert "exit code -1" in completions[0].content
+    assert "synthetic shell recovery failure" in completions[0].content
+    assert job.stderr_log_path is not None
+    assert job.stderr_log_path.read_text() == "synthetic shell recovery failure"
+    assert job.log_path is not None
+    assert job.log_path.read_text().count("BEFORE-ERROR") == 1
+    assert job.receipt_path is not None
+    receipt = json.loads(job.receipt_path.read_text())
+    assert receipt["exit_code"] == -1
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_error" in receipt["partial_reasons"]
+    before = (job.stderr_log_path.read_bytes(), job.receipt_path.read_bytes())
+    assert not list(background_job_completion_hook([], False))
+    list(execute_output_command(str(job.id)))
+    assert (job.stderr_log_path.read_bytes(), job.receipt_path.read_bytes()) == before
+
+
 def test_promoted_byte_cap_receipt_is_partial(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -994,3 +1042,470 @@ def test_adopted_reads_do_not_wait_for_feeder_and_completion_is_final(
     assert job.is_output_complete()
     assert job.receipt_path is not None
     assert job.log_path is not None and job.log_path.read_text() == "last"
+
+
+@pytest.mark.parametrize("soft_timeout", ["0", "10"])
+def test_large_foreground_output_spools_before_completion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, soft_timeout: str
+) -> None:
+    """A below-timeout command exposes sanitized files before it exits."""
+    import json
+    import sys
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", soft_timeout)
+    release = tmp_path / "release"
+    script = (
+        "import pathlib,time,sys; "
+        "print('BEGIN-MARKER'); print('line of output\\n'*10000, end=''); "
+        "print('API_SECRET=Zq8x7WmK2pL9vR4tY6uN3bH5jC1'); sys.stdout.flush(); "
+        f"p=pathlib.Path({str(release)!r}); "
+        "exec('while not p.exists(): time.sleep(0.02)'); "
+        "print('END-MARKER'); print('ERROR-END', file=sys.stderr); sys.exit(7)"
+    )
+    messages: list[Message] = []
+    errors: list[BaseException] = []
+
+    def execute() -> None:
+        shell = ShellSession(cwd=str(tmp_path))
+        set_shell(shell)
+        try:
+            messages.extend(
+                execute_shell_impl(
+                    f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",
+                    logdir=tmp_path,
+                    timeout=15,
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            shell.close()
+
+    worker = threading.Thread(target=execute)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5
+        live: list[Path] = []
+        while time.monotonic() < deadline:
+            live = list(tmp_path.glob("tool-outputs/shell-jobs/*.stdout.live"))
+            if live and "BEGIN-MARKER" in live[0].read_text():
+                break
+            time.sleep(0.02)
+        assert worker.is_alive()
+        assert live, "large foreground output must spill while the command is running"
+        assert "BEGIN-MARKER" in live[0].read_text()
+        assert "Zq8x7WmK2pL9vR4tY6uN3bH5jC1" not in live[0].read_text()
+        # Wait for the secret's sanitized line, not just the earlier prefix.
+        while time.monotonic() < deadline and "API_SECRET=" not in live[0].read_text():
+            time.sleep(0.02)
+        assert "API_SECRET=[REDACTED]" in live[0].read_text()
+        assert "Zq8x7WmK2pL9vR4tY6uN3bH5jC1" not in live[0].read_text()
+    finally:
+        release.touch()
+        worker.join(15)
+    assert not worker.is_alive()
+    assert not errors
+    content = messages[-1].content
+    assert "Return code: 7" in content
+    assert "ERROR-END" in content
+    assert "Zq8x7WmK2pL9vR4tY6uN3bH5jC1" not in content
+    assert str(live[0]) in content
+    assert live[0].read_text().count("BEGIN-MARKER") == 1
+    assert live[0].read_text().count("END-MARKER") == 1
+    assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    receipts = list(tmp_path.glob("tool-outputs/shell-jobs/*.json"))
+    assert len(receipts) == 1
+    assert json.loads(receipts[0].read_text())["exit_code"] == 7
+    assert not list_background_jobs()
+    assert not list(background_job_completion_hook([], False))
+
+
+def test_budget_spool_survives_promotion_without_second_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "1")
+    gate = tmp_path / "release"
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(
+        execute_shell_impl(
+            "printf 'BEGIN\\n'; yes 'noisy line' | head -n 12000; "
+            f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.02; done; "
+            "printf 'END\\n'; printf 'ERR-END\\n' >&2; (exit 3)",
+            logdir=tmp_path,
+            timeout=15,
+        )
+    )
+    try:
+        assert "Promoted to background shell job #1" in messages[-1].content
+        job = list_background_jobs()[0]
+        assert job.log_path is not None
+        path = job.log_path
+        assert path.name.startswith("foreground-")
+        assert path.read_text().count("BEGIN") == 1
+        assert len(list(path.parent.glob("*.stdout.live"))) == 1
+    finally:
+        gate.touch()
+    assert len(_wait_for_completion(timeout=10)) == 1
+    assert job.log_path == path
+    assert path.read_text().count("BEGIN") == 1
+    assert path.read_text().count("END") == 1
+    assert job.stderr_log_path is not None
+    assert job.stderr_log_path.read_text() == "ERR-END\n"
+    assert job.receipt_path is not None
+    receipt = json.loads(job.receipt_path.read_text())
+    assert receipt["capture_origin"] == "foreground_budget"
+    assert receipt["exit_code"] == 3
+    assert len(list(path.parent.glob("*.json"))) == 1
+    assert not list(background_job_completion_hook([], False))
+
+
+def test_small_foreground_output_has_no_spool_or_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "5")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(execute_shell_impl("printf 'small'", logdir=tmp_path, timeout=10))
+    assert "small" in messages[-1].content
+    assert not list(tmp_path.rglob("*.live"))
+    assert not list(tmp_path.rglob("*.json"))
+    assert not list_background_jobs()
+
+
+@pytest.mark.parametrize("failure", ["quota", "write"])
+def test_foreground_spool_failure_is_partial_without_second_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    import json
+
+    from gptme.tools.shell_background import BackgroundJob
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0")
+    if failure == "quota":
+        monkeypatch.setattr("gptme.tools.shell_background._SPOOL_STREAM_QUOTA", 1024)
+    else:
+
+        def fail_write(
+            self: BackgroundJob, stream, is_stdout: bool, data: bytes
+        ) -> int:
+            raise OSError("synthetic write failure")
+
+        monkeypatch.setattr(BackgroundJob, "_write_spool_payload", fail_write)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(
+        execute_shell_impl(
+            "yes 'output line' | head -n 12000; printf 'ERR-END' >&2; (exit 2)",
+            logdir=tmp_path,
+            timeout=10,
+        )
+    )
+    content = messages[-1].content
+    assert "Partial output" in content
+    assert "Full output" not in content
+    assert "full output saved to" not in content
+    assert "Return code: 2" in content
+    assert "ERR-END" in content
+    assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    receipts = list(tmp_path.glob("tool-outputs/shell-jobs/*.json"))
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text())
+    assert receipt["capture_state"] == "partial"
+    assert ("quota" if failure == "quota" else "write_error") in receipt[
+        "partial_reasons"
+    ]
+
+
+def test_stderr_only_foreground_capture_and_sequential_calls(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    for _ in range(2):
+        messages = list(
+            execute_shell_impl(
+                "printf 'BEGIN\\n' >&2; yes 'error line' | head -n 12000 >&2; "
+                "printf 'END' >&2; (exit 2)",
+                logdir=tmp_path,
+                timeout=10,
+            )
+        )
+        assert "Return code: 2" in messages[-1].content
+        assert "END" in messages[-1].content
+    streams = list(tmp_path.glob("tool-outputs/shell-jobs/*.stderr.live"))
+    assert len(streams) == 2
+    for stream in streams:
+        assert stream.read_text() == "BEGIN\n" + "error line\n" * 12000 + "END"
+    receipts = list(tmp_path.glob("tool-outputs/shell-jobs/*.json"))
+    assert len(receipts) == 2
+    identities = {json.loads(p.read_text())["capture_id"] for p in receipts}
+    assert len(identities) == 2
+
+
+def test_foreground_budget_capture_timeout_preserves_partial_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(
+        execute_shell_impl(
+            "printf 'BEGIN\\n'; yes 'output line' | head -n 12000; sleep 10",
+            logdir=tmp_path,
+            timeout=1,
+        )
+    )
+    content = messages[-1].content
+    assert "Command timed out" in content
+    streams = list(tmp_path.glob("tool-outputs/shell-jobs/*.stdout.live"))
+    assert len(streams) == 1
+    assert streams[0].read_text().startswith("BEGIN\n")
+    receipts = list(tmp_path.glob("tool-outputs/shell-jobs/*.json"))
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text())
+    assert receipt["exit_code"] == -124
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_timeout" in receipt["partial_reasons"]
+    assert not list_background_jobs()
+
+
+def test_foreground_conversation_quota_refusal_does_not_bypass_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0")
+    monkeypatch.setattr("gptme.tools.shell_background._SPOOL_CONVERSATION_QUOTA", 0)
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(
+        execute_shell_impl(
+            "yes 'output line' | head -n 12000",
+            logdir=tmp_path,
+            timeout=10,
+        )
+    )
+    assert "capture unavailable" in messages[-1].content
+    assert "quota exhausted" in messages[-1].content
+    assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    assert not list(tmp_path.glob("tool-outputs/shell-jobs/*.live"))
+
+
+def test_promotion_before_run_setup_keeps_later_budget_spool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Even promotion before run() creates its segments must not replay a spool."""
+    original_run = ShellSession.run
+    release = threading.Event()
+
+    def delayed_run(self: ShellSession, code: str, *args, **kwargs):
+        if "LATE-BEGIN" in code:
+            assert release.wait(5)
+        return original_run(self, code, *args, **kwargs)
+
+    monkeypatch.setattr(ShellSession, "run", delayed_run)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.05")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(
+        execute_shell_impl(
+            "printf 'LATE-BEGIN\\n'; yes 'output line' | head -n 12000; printf 'LATE-END'",
+            logdir=tmp_path,
+            timeout=10,
+        )
+    )
+    assert "Promoted" in messages[-1].content
+    release.set()
+    assert len(_wait_for_completion(timeout=10)) == 1
+    job = list_background_jobs()[0]
+    assert job.log_path is not None
+    assert (
+        job.log_path.read_text()
+        == "LATE-BEGIN\n" + "output line\n" * 12000 + "LATE-END"
+    )
+    assert not list(job.log_path.parent.glob("*.log"))
+
+
+def test_live_capture_never_claims_final_retention(tmp_path: Path) -> None:
+    from gptme.tools.shell import _shorten_stdout
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+        format_job_output,
+    )
+
+    job = BackgroundJob(
+        0, "synthetic", PromotedJobProcess(), time.time(), log_dir=tmp_path
+    )
+    assert adopt_foreground_capture(job, [(["one\ntwo\nthree\n"], [])])
+    try:
+        assert job.log_path is not None
+        content = format_job_output(job, "", "")
+        assert "Live output" in content
+        assert "Full output" not in content
+        shortened = _shorten_stdout(
+            "one\ntwo\nthree",
+            pre_lines=1,
+            post_lines=1,
+            retained_capture=job,
+            retained_path=job.log_path,
+        )
+        assert "full output saved" not in shortened
+        assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    finally:
+        job.process.finish(0)
+        complete_adopted_job(job, notify=False)
+    assert "Full output" in format_job_output(job, "", "", complete=True)
+
+
+def test_adoption_keeps_first_capture_origin(tmp_path: Path) -> None:
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    job = BackgroundJob(
+        0, "synthetic", PromotedJobProcess(), time.time(), log_dir=tmp_path
+    )
+    segments: list[tuple[list[str], list[str]]] = [(["one\n"], [])]
+    assert adopt_foreground_capture(job, segments)
+    try:
+        assert adopt_foreground_capture(job, segments, origin="foreground_budget")
+        assert job._capture_origin == "foreground_promotion"
+    finally:
+        job.process.finish(0)
+        complete_adopted_job(job, notify=False)
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected"),
+    [
+        ("git log --oneline", "Showing first 20 of 1000 commits."),
+        ("gh issue list", "Showing first 10 of 1000 items."),
+        ("rg selected .", "Pruned to 1 of 1000 lines"),
+    ],
+)
+def test_budget_capture_keeps_selected_preview(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cmd: str, expected: str
+) -> None:
+    from gptme.tools.pruner import PrunePlan
+    from gptme.tools.shell import _format_shell_output
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    lines = [f"{i:07x} {'output ' * 15}" for i in range(1000)]
+    lines[500] = "SELECTED-MIDDLE-LINE"
+    stdout = "\n".join(lines) + "\n"
+    assert len(stdout) > 64 * 1024
+    capture = BackgroundJob(0, cmd, PromotedJobProcess(), time.time(), log_dir=tmp_path)
+    assert adopt_foreground_capture(
+        capture, [([stdout], [])], origin="foreground_budget"
+    )
+    capture.process.finish(0)
+    complete_adopted_job(capture, notify=False)
+    assert capture.log_path is not None
+    plan = PrunePlan(
+        ranges=((501, 501),),
+        total_lines=1000,
+        kept_lines=1,
+        original_tokens=30000,
+        kept_tokens=10,
+        model="mock/echo",
+    )
+    monkeypatch.setattr(
+        "gptme.tools.shell.plan_tool_output_prune", lambda *a, **kw: plan
+    )
+    content = _format_shell_output(
+        cmd, stdout, "", 0, False, False, logdir=tmp_path, capture=capture
+    )
+    assert expected in content
+    assert str(capture.log_path) in content
+    assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    if cmd.startswith("rg"):
+        assert "SELECTED-MIDDLE-LINE" in content
+        assert lines[0] not in content
+
+
+def test_budget_capture_interrupt_is_partial(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An interrupt raised by the pipe reader seals an error receipt, not success."""
+    import json
+    import sys
+
+    from gptme.tools.shell_background import BackgroundJob
+
+    shell = ShellSession(cwd=str(tmp_path))
+    set_shell(shell)
+    capture = BackgroundJob(
+        0, "interrupted", PromotedJobProcess(), time.time(), log_dir=tmp_path
+    )
+
+    def interrupt(
+        code: str, output: bool, timeout: float | None
+    ) -> tuple[int | None, str, str]:
+        stdout: list[str] = []
+        assert shell._capture_segments is not None
+        shell._capture_segments.append((stdout, []))
+        shell._capture_output(
+            stdout, "output\n" * 12000, stream=sys.stdout, output=False
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(shell, "_run_commands", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        shell.run("interrupted", output=False, capture=capture)
+    assert capture.receipt_path is not None
+    receipt = json.loads(capture.receipt_path.read_text())
+    assert receipt["capture_state"] == "partial"
+    assert "foreground_error" in receipt["partial_reasons"]
+    assert receipt["exit_code"] == -1
+    assert capture.process.poll() == -1
+
+
+@pytest.mark.parametrize("state", ["live", "partial", "quota_refused"])
+def test_selected_preview_does_not_bypass_incomplete_capture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: str
+) -> None:
+    from gptme.tools.shell import _format_shell_output
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        adopt_foreground_capture,
+        complete_adopted_job,
+    )
+
+    stdout = "a commit subject\n" * 5000
+    capture = BackgroundJob(
+        0, "git log --oneline", PromotedJobProcess(), time.time(), log_dir=tmp_path
+    )
+    if state == "quota_refused":
+        monkeypatch.setattr("gptme.tools.shell_background._SPOOL_CONVERSATION_QUOTA", 0)
+        assert not adopt_foreground_capture(capture, [([stdout], [])])
+    else:
+        assert adopt_foreground_capture(capture, [([stdout], [])])
+    try:
+        if state == "partial":
+            capture.process.finish(0)
+            complete_adopted_job(capture, partial_reason="write_error", notify=False)
+        content = _format_shell_output(
+            "git log --oneline",
+            stdout,
+            "",
+            0,
+            False,
+            False,
+            logdir=tmp_path,
+            capture=capture,
+        )
+        assert "Showing first" not in content
+        assert "Full output saved" not in content
+        assert "full output saved" not in content
+        assert not list(tmp_path.glob("tool-outputs/shell/*.txt"))
+    finally:
+        if state == "live":
+            capture.process.finish(0)
+            complete_adopted_job(capture, notify=False)
