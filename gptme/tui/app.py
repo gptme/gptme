@@ -4903,12 +4903,15 @@ class GptmeApp(App):
                             persister.append(msg)
                             if msg.role == "assistant":
                                 response = msg
-                            if msg.role == "system" and not msg.call_id:
-                                if msg.content == DECLINED_CONTENT:
-                                    declined = True
-                                elif msg.content == INTERRUPT_CONTENT:
-                                    interrupted = True
-                                    interrupt_recorded = True
+                            if msg.content == DECLINED_CONTENT:
+                                declined = True
+                            if (
+                                msg.role == "system"
+                                and not msg.call_id
+                                and msg.content == INTERRUPT_CONTENT
+                            ):
+                                interrupted = True
+                                interrupt_recorded = True
                             self.call_from_thread(self._on_step_message, msg)
                             if msg.role == "assistant":
                                 pending_reply = None

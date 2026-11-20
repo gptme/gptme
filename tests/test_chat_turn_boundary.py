@@ -17,7 +17,9 @@ from gptme.tools.complete import SessionCompleteException
 chat = importlib.import_module("gptme.chat")
 
 
-@pytest.mark.parametrize("outcome", ["normal", "declined", "interrupt", "budget"])
+@pytest.mark.parametrize(
+    "outcome", ["normal", "declined", "native-declined", "interrupt", "budget"]
+)
 def test_turn_result_and_post_hooks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
 ) -> None:
@@ -37,8 +39,12 @@ def test_turn_result_and_post_hooks(
         if outcome == "interrupt":
             raise KeyboardInterrupt
         return [
-            Message("system", DECLINED_CONTENT)
-            if outcome == "declined"
+            Message(
+                "system",
+                DECLINED_CONTENT,
+                call_id="call_declined" if outcome == "native-declined" else None,
+            )
+            if outcome in ("declined", "native-declined")
             else Message("assistant", "done")
         ]
 
@@ -54,7 +60,7 @@ def test_turn_result_and_post_hooks(
         assert raised.value is completion
     else:
         result = chat._process_message_conversation(manager, False, "markdown", None)
-        assert result is (outcome in ("declined", "interrupt"))
+        assert result is (outcome in ("declined", "native-declined", "interrupt"))
 
     assert post_calls == [HookType.TURN_POST]
     assert manager.log[-1].content == "post-turn output"

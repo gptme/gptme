@@ -974,9 +974,12 @@ def _process_message_conversation(
         # Tool execution can consume Ctrl-C itself and yield paired results.
         # Stop before compaction or another generation, just as for a decline.
         if any(
-            msg.role == "system"
-            and not msg.call_id
-            and msg.content in (DECLINED_CONTENT, INTERRUPT_CONTENT)
+            msg.content == DECLINED_CONTENT
+            or (
+                msg.role == "system"
+                and not msg.call_id
+                and msg.content == INTERRUPT_CONTENT
+            )
             for msg in response_msgs
         ):
             if not is_output_json() and not is_output_quiet():
