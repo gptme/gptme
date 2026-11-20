@@ -25,6 +25,7 @@ reliable SIGINT interrupts and project-environment isolation
 """
 
 import ast
+import atexit
 import dataclasses
 import functools
 import importlib.util
@@ -39,10 +40,15 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from logging import getLogger
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..constants import DECLINED_CONTENT
-from ..hooks import ConfirmAction, current_conversation_id, get_confirmation
+from ..hooks import (
+    ConfirmAction,
+    StopPropagation,
+    current_conversation_id,
+    get_confirmation,
+)
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.interrupt import (
@@ -68,6 +74,7 @@ if TYPE_CHECKING:
         InteractiveShell,  # fmt: skip
     )
 
+    from ..logmanager import LogManager
     from ..message import ArtifactDescriptor, MessageMetadata
     from ..util.output_storage import PrivateOutputFile
     from .python_kernel import KernelExecResult
@@ -77,6 +84,12 @@ logger = getLogger(__name__)
 
 # "auto" | "kernel" | "inprocess"
 _IPYTHON_BACKEND = os.environ.get("GPTME_IPYTHON_BACKEND", "auto").lower()
+
+# In-process backend state. CLI sessions share the process-global `_ipython`;
+# server conversations get one shell each, held in `_conversation_ipython` so
+# SESSION_END can drop it.
+_conversation_ipython: dict[str, Any] = {}
+_conv_ipython_lock = threading.Lock()
 
 # Cached result of auto-detection; None means not yet determined.
 _kernel_mode_cache: bool | None = None
@@ -406,6 +419,9 @@ def register_function(func: T, *, tool_name: str | None = None) -> T:
     # if ipython is already initialized, push the function to it to make it available
     if _ipython is not None:
         _ipython.push({func.__name__: func})
+    with _conv_ipython_lock:
+        for shell in _conversation_ipython.values():
+            shell.push({func.__name__: func})
     # Do not select a backend here: tool initialization runs before chat()
     # switches into the selected workspace. Bridge stubs are synced at execution.
     return func
@@ -490,37 +506,109 @@ def _setup_venv_paths(env_only: bool = False) -> None:
         logger.info("Added user venv site-packages to sys.path: %s", sp_resolved)
 
 
-def _get_ipython():
-    global _ipython
+def _new_ipython():
+    """Build a fresh in-process IPython shell with the registered functions."""
+    from IPython.core.displayhook import DisplayHook
     from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
 
-    if _ipython is None:
-        from IPython.core.displayhook import DisplayHook
+    class ResultDisplayHook(DisplayHook):
+        """Collect results without writing them; the caller renders them once."""
 
-        class ResultDisplayHook(DisplayHook):
-            """Collect results without writing them; the caller renders them once."""
+        def write_output_prompt(self) -> None:
+            pass
 
-            def write_output_prompt(self) -> None:
-                pass
+        def write_format_data(
+            self, format_dict: dict, md_dict: dict | None = None
+        ) -> None:
+            pass
 
-            def write_format_data(
-                self, format_dict: dict, md_dict: dict | None = None
-            ) -> None:
-                pass
+        def finish_displayhook(self) -> None:
+            pass
 
-            def finish_displayhook(self) -> None:
-                pass
+    _setup_venv_paths()
 
-        _setup_venv_paths()
+    # Disable colors in IPython to avoid ANSI escape codes in output
+    # Note: We set IPython's colors mode directly rather than using NO_COLOR
+    # globally, as that would affect other parts of the application (like Rich)
+    shell = InteractiveShell(displayhook_class=ResultDisplayHook)
+    shell.colors = "NoColor"
+    shell.push(registered_functions)
+    return shell
 
-        # Disable colors in IPython to avoid ANSI escape codes in output
-        # Note: We set IPython's colors mode directly rather than using NO_COLOR
-        # globally, as that would affect other parts of the application (like Rich)
-        _ipython = InteractiveShell(displayhook_class=ResultDisplayHook)
-        _ipython.colors = "NoColor"
-        _ipython.push(registered_functions)
 
-    return _ipython
+def _get_ipython():
+    """Return the in-process IPython shell for this context.
+
+    The server serves several conversations from one process. A single shared
+    ``InteractiveShell`` let a name defined in one conversation resolve in
+    another (gptme/gptme#4951), so each conversation gets its own shell. CLI
+    sessions have no conversation id and keep the process-global shell, which
+    is what ``chat()`` and the ``gptme`` REPL expect.
+
+    The working directory is still process-wide: ``os.chdir`` cannot be scoped
+    to a shell, so in-process cells that depend on a relative cwd are only
+    isolated in kernel mode.
+    """
+    from ..hooks import current_conversation_id  # avoid an import cycle
+
+    conversation_id = current_conversation_id.get()
+    if conversation_id is None:
+        global _ipython
+        if _ipython is None:
+            _ipython = _new_ipython()
+        return _ipython
+
+    with _conv_ipython_lock:
+        shell = _conversation_ipython.get(conversation_id)
+        if shell is None:
+            shell = _new_ipython()
+            _conversation_ipython[conversation_id] = shell
+    return shell
+
+
+def reset_conversation_ipython(conversation_id: str) -> None:
+    """Drop a finished conversation's in-process shell.
+
+    Keeps a long-lived server from retaining one ``InteractiveShell`` (and
+    everything its namespace holds) per conversation that ever ran Python.
+    """
+    close_conversation_ipython(detach_conversation_ipython(conversation_id))
+
+
+def detach_conversation_ipython(conversation_id: str) -> Any:
+    """Detach state while the caller excludes new server sessions."""
+    with _conv_ipython_lock:
+        return _conversation_ipython.pop(conversation_id, None)
+
+
+def close_conversation_ipython(shell: Any) -> None:
+    """Close an already detached shell without touching its replacement."""
+    if shell is not None:
+        # Older IPython versions end the history session but do not stop its
+        # saving thread or close its database. Keep the manager before shell
+        # cleanup clears it, and stop the writer before closing its resources.
+        history = shell.history_manager
+        if history is not None and history.save_thread is not None:
+            history.save_thread.stop()
+        # IPython registers a bound atexit callback, which otherwise keeps the
+        # shell alive even after removing it from our registry.
+        atexit.unregister(shell.atexit_operations)
+        try:
+            shell.atexit_operations()
+        finally:
+            if history is not None:
+                history.db.close()
+
+
+def _session_end_ipython_cleanup(
+    manager: "LogManager", **kwargs
+) -> Generator[Message | StopPropagation, None, None]:
+    """Release Python state even when the shell tool is not loaded."""
+    # Server cleanup is serialized with reconnects by SessionManager; a delayed
+    # SESSION_END hook must not clear a replacement session's live namespace.
+    if manager.logdir and not kwargs.get("server_managed"):
+        reset_conversation_ipython(manager.logdir.name)
+    yield from ()
 
 
 def _open_spill_file(label: str) -> "PrivateOutputFile | None":
@@ -876,7 +964,9 @@ def execute_python(
     # Create an IPython instance if it doesn't exist yet
     _ipython = _get_ipython()
 
-    # Snapshot image files before execution so we can detect newly created plots
+    # Snapshot image files before execution so we can detect newly created plots.
+    # Match where the in-process cell actually executes. Workspace-scoped cwd
+    # execution is separate work; changing only the snapshot loses attachments.
     cwd = Path.cwd()
     pre_images = _snapshot_images(cwd)
 
@@ -1184,6 +1274,7 @@ tool = ToolSpec(
         ),
     ],
     load_priority=10,
+    hooks={"session_end": ("session.end", _session_end_ipython_cleanup, 0)},
     hints=frozenset({"code-exec", "destructive"}),
 )
 __doc__ = tool.get_doc(__doc__)
