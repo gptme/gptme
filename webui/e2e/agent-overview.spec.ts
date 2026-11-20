@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 
+// Cold Vite transforms and reconnecting both server clients can outlast the
+// default five-second assertion window, especially on full-page reloads.
+test.use({ actionTimeout: 15_000 });
+test.setTimeout(60_000);
+
 // Exercise the real router/layout against two servers with colliding names,
 // paths and conversation IDs. No live server or private agent data is needed.
 test.beforeEach(async ({ page }) => {
@@ -83,7 +88,7 @@ for (const theme of ['light', 'dark'] as const) {
     const card = page
       .getByRole('link', { name: 'Overview for Builder on Remote' })
       .filter({ hasText: '/agents/builder' });
-    await expect(card).toBeVisible();
+    await expect(card).toBeVisible({ timeout: 15_000 });
     await card.click();
     await expect(page).toHaveURL(/\/agents\/overview\?path=%2Fagents%2Fbuilder&server=two$/);
     await expect(
@@ -117,11 +122,29 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('link', { name: 'View conversations' }).click();
     await expect(page).toHaveURL(/\/chat\?agentPath=%2Fagents%2Fbuilder&server=two$/);
     await expect(page.getByRole('heading', { name: 'Recent conversations' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Agent conversation history' })).toBeVisible();
+    const content = page.getByRole('main', { name: 'Chat content' });
+    await expect(content.getByRole('textbox')).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Agent conversation history' })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(content.getByRole('textbox')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Back to agent overview' })).toHaveAttribute(
+      'href',
+      '/agents/overview?path=%2Fagents%2Fbuilder&server=two'
+    );
     const sidebar = page.getByRole('navigation', { name: 'Conversations' });
-    await expect(sidebar.getByText('Remote planning', { exact: true })).toBeVisible();
+    await expect(sidebar.getByText('Remote planning', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(sidebar.getByText('Local planning', { exact: true })).toHaveCount(0);
     await expect(sidebar.getByText('Other agent conversation', { exact: true })).toHaveCount(0);
-    await page.goBack();
+    await page.screenshot({
+      path: testInfo.outputPath(`agent-history-${theme}.png`),
+      fullPage: true,
+    });
+    await page.getByRole('link', { name: 'Back to agent overview' }).click();
     await expect(
       page.getByRole('heading', { name: 'Builder', exact: true, level: 1 })
     ).toBeVisible();

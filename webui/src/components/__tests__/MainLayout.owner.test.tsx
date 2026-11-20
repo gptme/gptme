@@ -103,7 +103,9 @@ jest.mock('@/components/RightSidebar', () => ({ RightSidebar: () => null }));
 jest.mock('@/components/SettingsModal', () => ({ SettingsModal: () => null }));
 jest.mock('@/components/MobileBottomNav', () => ({ MobileBottomNav: () => null }));
 jest.mock('@/components/TaskCreationDialog', () => ({ TaskCreationDialog: () => null }));
-jest.mock('@/components/WelcomeView', () => ({ WelcomeView: () => null }));
+jest.mock('@/components/WelcomeView', () => ({
+  WelcomeView: () => <div data-testid="new-chat-composer" />,
+}));
 jest.mock('@/components/ExternalSessionDetail', () => ({
   ExternalSessionDetail: () => null,
 }));
@@ -128,10 +130,10 @@ jest.mock('../ConversationSettings', () => ({
 const SERVER_ID = 'server-1';
 const SECONDARY_SERVER_ID = 'server-2';
 
-function renderLayout(path: string) {
+function renderLayout(path: string, conversationId: string | undefined = 'conv-1') {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <MainLayout conversationId="conv-1" />
+      <MainLayout conversationId={conversationId || undefined} />
     </MemoryRouter>
   );
 }
@@ -166,6 +168,32 @@ describe('MainLayout right sidebar owner threading', () => {
       activeServerId: SERVER_ID,
       connectedServerIds: [SERVER_ID, SECONDARY_SERVER_ID],
     });
+  });
+
+  it.each([SERVER_ID, SECONDARY_SERVER_ID, 'unknown'])(
+    'keeps deep-linked agent history off the new-chat composer on %s',
+    (serverId) => {
+      renderLayout(`/chat?agentPath=%2Fagents%2Fbuilder&server=${serverId}`, '');
+
+      expect(screen.getByRole('heading', { name: 'Agent conversation history' })).toBeVisible();
+      expect(screen.queryByTestId('new-chat-composer')).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Back to agent overview' })).toHaveAttribute(
+        'href',
+        `/agents/overview?path=%2Fagents%2Fbuilder&server=${serverId}`
+      );
+    }
+  );
+
+  it('retains the ordinary new-chat composer without an agent history filter', () => {
+    renderLayout('/chat', '');
+    expect(screen.getByTestId('new-chat-composer')).toBeInTheDocument();
+  });
+
+  it('opens an existing conversation instead of the history landing page', async () => {
+    renderLayout(`/chat/conv-1?agentPath=%2Fagents%2Fbuilder&server=${SECONDARY_SERVER_ID}`);
+    await waitFor(() => expect(screen.getByTestId('conversation-content')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'Agent conversation history' })).toBeNull();
+    expect(screen.queryByTestId('new-chat-composer')).toBeNull();
   });
 
   it('passes the conversation owner to the right sidebar', async () => {

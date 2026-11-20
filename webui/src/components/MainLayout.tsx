@@ -21,7 +21,7 @@ import { WorkspacesView } from '@/components/WorkspacesView';
 import { useToast } from '@/components/ui/use-toast';
 import { setDocumentTitle } from '@/utils/title';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
-import { chatRoute } from '@/utils/routes';
+import { agentRoute, chatRoute } from '@/utils/routes';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
@@ -30,7 +30,7 @@ import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { serverRegistry$, setActiveServer } from '@/stores/servers';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { shouldShowDemoContent } from '@/utils/connectionConfig';
-import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { Loader2, GitBranch, Columns2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -626,6 +626,29 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       return (
         <div className="h-full overflow-hidden">
           <ExternalSessionDetail key={externalParam} sessionId={externalParam} />
+        </div>
+      );
+    }
+
+    // An agent filter is a history destination, not a new-chat selection.
+    // The generic composer uses the active API/workspace, which may belong to
+    // a different server or agent than this deep link.
+    const agentPath = searchParams.get('agentPath');
+    if (agentPath) {
+      return (
+        <div className="flex h-full items-center justify-center p-6">
+          <section className="max-w-lg space-y-4 rounded-lg border bg-card p-6">
+            <h1 className="text-xl font-semibold">Agent conversation history</h1>
+            <p className="text-sm text-muted-foreground">
+              Select a conversation from the sidebar to open it on its owning server. This view only
+              browses existing conversations; it does not start a new chat.
+            </p>
+            <Button variant="outline" asChild>
+              <Link to={agentRoute({ path: agentPath, serverId: serverParam || undefined })}>
+                Back to agent overview
+              </Link>
+            </Button>
+          </section>
         </div>
       );
     }
