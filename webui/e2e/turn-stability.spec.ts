@@ -831,8 +831,12 @@ async function streamNativeFixture(
   fixture: NativeFixture,
   start: 'empty' | 'mounted',
   mode: '20-char' | 'boundary',
-  fault?: { kind: Fault; atPhase: string }
+  fault?: { kind: Fault; atPhase: string },
+  hideUntilComplete = false
 ) {
+  const hidden = hideUntilComplete
+    ? await page.addStyleTag({ content: '.chat-message { visibility: hidden !important; }' })
+    : null;
   const full = NATIVE_PROSE + nativeCall(fixture);
   const splits = nativeSplits(fixture, mode);
   // 'mounted' mounts the message mid-stream: prose plus a partial header.
@@ -872,6 +876,8 @@ async function streamNativeFixture(
       faulted = true;
     }
   }
+  // Negative control: revealing only at completion must not satisfy streaming coverage.
+  await hidden?.evaluate((element) => element.remove());
   // Completion: the server finalizes the message and supplies its timestamp.
   await markChunk(page, chunk, 'complete');
   await page.evaluate(async (id) => {
@@ -883,6 +889,51 @@ async function streamNativeFixture(
   await nextFrames(page, 4);
   return stopFrameOracle(page);
 }
+
+function nativeVisibilityViolations(result: OracleResult, start: 'empty' | 'mounted'): string[] {
+  const violations: string[] = [];
+  const visible = (sample: OracleResult['samples'][number]) =>
+    sample.tailVisible && sample.tailClip === null && sample.literalVisible === true;
+  // Do not let completion-only rendering pass the once-painted latches. Require
+  // positive evidence while the native header/payload is still streaming.
+  for (const phase of ['header', 'payload', 'call-complete']) {
+    if (!result.samples.some((sample) => sample.phase === phase && visible(sample))) {
+      violations.push(`${phase}: tail and literal never visible together while streaming`);
+    }
+  }
+  // Mounted fixtures already contain the full prose before the first update.
+  if (start === 'mounted' && !result.samples.some((s) => s.chunk === -1 && visible(s))) {
+    violations.push('mounted: initial tail and literal never visible before first update');
+  }
+  return violations;
+}
+
+test('native stream coverage rejects prose hidden until completion', async ({ page }) => {
+  await openTurn(page);
+  for (const start of ['empty', 'mounted'] as const) {
+    const result = await streamNativeFixture(
+      page,
+      NATIVE_FIXTURES[0],
+      start,
+      'boundary',
+      undefined,
+      true
+    );
+    // The final DOM is correct, and the latch-only oracle misses the regression.
+    await expect(page.locator('[data-message-index="1"]')).toContainText(NATIVE_TAIL);
+    expect(result.failures).toEqual([]);
+    const violations = nativeVisibilityViolations(result, start);
+    expect(violations).toContain('header: tail and literal never visible together while streaming');
+    expect(violations).toContain(
+      'payload: tail and literal never visible together while streaming'
+    );
+    if (start === 'mounted') {
+      expect(violations).toContain(
+        'mounted: initial tail and literal never visible before first update'
+      );
+    }
+  }
+});
 
 function describeFailures(result: OracleResult): string {
   return JSON.stringify(result.failures.slice(0, 5), null, 1);
@@ -924,6 +975,10 @@ for (const viewport of [
               expect(result.phases, `${label}: phase ${phase} observed`).toContain(phase);
             }
             expect(result.failures, `${label}: ${describeFailures(result)}`).toEqual([]);
+            expect(
+              nativeVisibilityViolations(result, start),
+              `${label}: visibility coverage`
+            ).toEqual([]);
             // The literal example and the tail survived; the call is one collapsed block.
             const message = page.locator('[data-message-index="1"]');
             await expect(message).toContainText(NATIVE_LITERAL);
