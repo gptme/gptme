@@ -319,7 +319,9 @@ class LessonIndex:
         from pathlib import Path
 
         from ..config import get_config
+        from ..tools.base import current_workspace, resolve_in_workspace
 
+        workspace = current_workspace()
         dirs = []
 
         # === User-level lessons directories ===
@@ -368,35 +370,35 @@ class LessonIndex:
         # === Workspace-level lessons directories ===
 
         # Current workspace lessons
-        workspace_dir = Path.cwd() / "lessons"
+        workspace_dir = workspace / "lessons"
         if workspace_dir.exists():
             dirs.append(workspace_dir)
 
         # Project-local lessons (.gptme/lessons/)
-        gptme_lessons_dir = Path.cwd() / ".gptme" / "lessons"
+        gptme_lessons_dir = workspace / ".gptme" / "lessons"
         if gptme_lessons_dir.exists():
             dirs.append(gptme_lessons_dir)
 
         # === Workspace-level skills directories ===
 
         # Current workspace skills
-        workspace_skills_dir = Path.cwd() / "skills"
+        workspace_skills_dir = workspace / "skills"
         if workspace_skills_dir.exists():
             dirs.append(workspace_skills_dir)
 
         # Project-local skills (.gptme/skills/)
-        gptme_project_skills_dir = Path.cwd() / ".gptme" / "skills"
+        gptme_project_skills_dir = workspace / ".gptme" / "skills"
         if gptme_project_skills_dir.exists():
             dirs.append(gptme_project_skills_dir)
 
         # Cursor rules directory (.cursor/)
-        cursor_dir = Path.cwd() / ".cursor"
+        cursor_dir = workspace / ".cursor"
         if cursor_dir.exists():
             dirs.append(cursor_dir)
             logger.debug("Using Cursor rules from .cursor/ directory")
 
         # Check for legacy .cursorrules file and provide guidance
-        cursorrules_file = Path.cwd() / ".cursorrules"
+        cursorrules_file = workspace / ".cursorrules"
         if cursorrules_file.exists():
             logger.debug(
                 "Found .cursorrules file, consider migrating to .cursor/ directory with .mdc files"
@@ -410,7 +412,7 @@ class LessonIndex:
             for dir_str in extra_dirs_env.split(":"):
                 dir_str = dir_str.strip()
                 if dir_str:
-                    extra_dir = Path(dir_str).expanduser()
+                    extra_dir = resolve_in_workspace(Path(dir_str))
                     if extra_dir.exists():
                         dirs.append(extra_dir)
                         logger.debug(f"Added extra lesson dir from env: {extra_dir}")
@@ -425,7 +427,7 @@ class LessonIndex:
         # User config lessons directories
         if config.user and config.user.lessons and config.user.lessons.dirs:
             for dir_str in config.user.lessons.dirs:
-                lesson_dir = Path(dir_str).expanduser()
+                lesson_dir = resolve_in_workspace(Path(dir_str))
                 if lesson_dir.exists():
                     dirs.append(lesson_dir)
 
@@ -435,7 +437,7 @@ class LessonIndex:
                 lesson_dir = Path(dir_str)
                 # Make relative paths relative to config file location or cwd
                 if not lesson_dir.is_absolute():
-                    lesson_dir = Path.cwd() / lesson_dir
+                    lesson_dir = workspace / lesson_dir
                 if lesson_dir.exists():
                     dirs.append(lesson_dir)
 
@@ -444,7 +446,7 @@ class LessonIndex:
             from ..plugins import discover_plugins
 
             plugin_paths = [
-                Path(p).expanduser().resolve() for p in config.project.plugins.paths
+                resolve_in_workspace(Path(p)) for p in config.project.plugins.paths
             ]
             plugins = discover_plugins(plugin_paths)
             for plugin in plugins:
