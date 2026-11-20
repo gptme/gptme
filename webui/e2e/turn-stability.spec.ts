@@ -505,12 +505,14 @@ for (const viewport of [
     await summary.click();
     await group.click();
     await settle(page);
-    await page.addStyleTag({
+    const unboundedStyle = await page.addStyleTag({
       content: '.chat-message details.tool-block pre { max-height: none !important; }',
     });
     const unbounded = await runDisclosureSequence(page);
     const unboundedViolations = scrollBudgetViolations(short, unbounded);
     expect(unboundedViolations.some((v) => v.startsWith('large output-open: grew'))).toBe(true);
+    await unboundedStyle.evaluate((el) => el.remove());
+    await settle(page);
 
     await page.getByRole('button', { name: /2 steps/ }).click();
     await settle(page);
@@ -521,6 +523,10 @@ for (const viewport of [
           .forEach((details) => (details.open = true));
       })
     );
+    // This control must exercise force-open with the production pane bound,
+    // independently of the unbounded-output control above.
+    const expandedPane = page.locator('[data-message-index="2"] details[open] pre').first();
+    expect(await expandedPane.evaluate((el) => getComputedStyle(el).maxHeight)).not.toBe('none');
     const autoExpandedRun = large.map((stage) =>
       stage.stage === 'group-expanded' ? autoExpanded : stage
     );
@@ -567,6 +573,13 @@ test('rendered result preview stays inside a bounded pane', async ({ page }, tes
   const preview = await disclosureStep(page, 'preview', () => previewTab.click());
   const pane = page.locator('[data-message-index="1"] .preview-content');
   await expect(pane).toContainText('finding 1999');
+  // Pin the selector path as well as geometry: result previews must inherit
+  // the tool-output bound, not happen to scroll for an unrelated reason.
+  expect(await pane.evaluate((el) => el.closest('details')?.classList.contains('tool-block'))).toBe(
+    true
+  );
+  expect(await pane.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+  expect(await pane.evaluate((el) => getComputedStyle(el).maxHeight)).not.toBe('none');
   await testInfo.attach('result-preview-metrics', {
     body: JSON.stringify({ closed, opened, preview }, null, 2),
     contentType: 'application/json',
