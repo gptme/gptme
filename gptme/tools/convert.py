@@ -1001,9 +1001,13 @@ class DocumentToTextConverter(Converter):
                             converter_used="libreoffice",
                             warnings=warnings,
                         )
-                warnings.append(
-                    "libreoffice failed: "
-                    + _diagnostic_preview(result.stderr, "libreoffice", 200)
+                return ConversionResult(
+                    success=False,
+                    output_path=None,
+                    converter_used="libreoffice",
+                    error="libreoffice failed: "
+                    + _diagnostic_preview(result.stderr, "libreoffice", 200),
+                    warnings=warnings,
                 )
 
         if (

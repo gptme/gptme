@@ -85,6 +85,49 @@ def test_video_failure_retains_stderr(
     assert diagnostic.decode() in saved[0].read_text()
 
 
+@pytest.mark.parametrize("diagnostic_size", [20, 2000])
+@pytest.mark.parametrize("has_logdir", [False, True])
+def test_libreoffice_failure_exposes_diagnostic_in_summary(
+    tmp_path: Path, diagnostic_size: int, has_logdir: bool
+) -> None:
+    src = tmp_path / "document.doc"
+    src.write_bytes(b"fixture")
+    diagnostic = b"BEGIN\n" + b"x" * diagnostic_size + b"\nEND"
+    logdir = tmp_path / "conversation"
+    with (
+        patch(
+            "gptme.tools.convert.get_availability",
+            return_value=SimpleNamespace(python_docx=False, libreoffice=True),
+        ),
+        patch(
+            "gptme.tools.convert.subprocess.run",
+            return_value=SimpleNamespace(returncode=2, stderr=diagnostic),
+        ),
+        patch(
+            "gptme.logmanager.LogManager.get_current_log",
+            return_value=SimpleNamespace(logdir=logdir) if has_logdir else None,
+        ),
+    ):
+        result = convert.DocumentToTextConverter().convert(src, tmp_path / "out.txt")
+    assert not result.success
+    summary = result.summary()
+    assert "libreoffice failed: " in summary
+    assert diagnostic.decode()[:200] in summary
+    assert "No document" not in summary
+    saved = list((logdir / "tool-outputs" / "convert").glob("*.txt"))
+    if diagnostic_size > 200:
+        assert "diagnostic characters omitted" in summary
+        if has_logdir:
+            assert len(saved) == 1
+            assert str(saved[0]) in summary
+            assert diagnostic.decode() in saved[0].read_text()
+        else:
+            assert "saved to" not in summary
+    else:
+        assert "omitted" not in summary
+    assert len(saved) == int(has_logdir and diagnostic_size > 200)
+
+
 def test_exact_limit_does_not_spill() -> None:
     with patch("gptme.logmanager.LogManager.get_current_log") as current:
         assert convert._diagnostic_preview(b"x" * 300, "ffmpeg", 300) == "x" * 300
