@@ -1005,7 +1005,11 @@ class DocumentToTextConverter(Converter):
                     success=False,
                     output_path=None,
                     converter_used="libreoffice",
-                    error="libreoffice failed: "
+                    error=(
+                        "libreoffice completed but produced no output: "
+                        if result.returncode == 0
+                        else "libreoffice failed: "
+                    )
                     + _diagnostic_preview(result.stderr, "libreoffice", 200),
                     warnings=warnings,
                 )

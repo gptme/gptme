@@ -128,6 +128,44 @@ def test_libreoffice_failure_exposes_diagnostic_in_summary(
     assert len(saved) == int(has_logdir and diagnostic_size > 200)
 
 
+@pytest.mark.parametrize("diagnostic", [b"", b"x" * 2000])
+def test_libreoffice_zero_exit_without_output(
+    tmp_path: Path, diagnostic: bytes
+) -> None:
+    src = tmp_path / "document.doc"
+    src.write_bytes(b"fixture")
+    dest = tmp_path / "out.txt"
+    logdir = tmp_path / "conversation"
+    with (
+        patch(
+            "gptme.tools.convert.get_availability",
+            return_value=SimpleNamespace(python_docx=False, libreoffice=True),
+        ),
+        patch(
+            "gptme.tools.convert.subprocess.run",
+            return_value=SimpleNamespace(returncode=0, stderr=diagnostic),
+        ),
+        patch(
+            "gptme.logmanager.LogManager.get_current_log",
+            return_value=SimpleNamespace(logdir=logdir),
+        ),
+    ):
+        result = convert.DocumentToTextConverter().convert(src, dest)
+    assert not result.success
+    assert result.output_path is None
+    assert not dest.exists()
+    summary = result.summary()
+    assert "libreoffice completed but produced no output" in summary
+    assert "libreoffice failed:" not in summary
+    if diagnostic:
+        saved = list((logdir / "tool-outputs" / "convert").glob("*.txt"))
+        assert len(saved) == 1
+        assert str(saved[0]) in summary
+        assert diagnostic.decode() in saved[0].read_text()
+    else:
+        assert "saved to" not in summary
+
+
 def test_exact_limit_does_not_spill() -> None:
     with patch("gptme.logmanager.LogManager.get_current_log") as current:
         assert convert._diagnostic_preview(b"x" * 300, "ffmpeg", 300) == "x" * 300
