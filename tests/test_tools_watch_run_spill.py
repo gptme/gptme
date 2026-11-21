@@ -188,17 +188,29 @@ def test_run_worker_inherits_chat_redaction_policy(
             proc=proc,
         )
         try:
-            watch_module._spawn(watch, watch_module._poll_run, proc)
+            try:
+                watch_module._spawn(watch, watch_module._poll_run, proc)
+            finally:
+                _config_var.reset(token)
+            assert watch.thread is not None
+            watch.thread.join(timeout=10)
+            assert not watch.thread.is_alive()
+            assert watch.fired
+            saved = next(
+                tmp_path.glob("tool-outputs/shell-jobs/*.stdout.live")
+            ).read_text()
+            assert "API_SECRET=" in saved
+            assert secret not in saved
+            assert secret not in watch.events[-1]
         finally:
-            _config_var.reset(token)
-        assert watch.thread is not None
-        watch.thread.join(timeout=10)
-        assert not watch.thread.is_alive()
-        assert watch.fired
-        saved = next(tmp_path.glob("tool-outputs/shell-jobs/*.stdout.live")).read_text()
-        assert "API_SECRET=" in saved
-        assert secret not in saved
-        assert secret not in watch.events[-1]
+            watch.cancelled = True
+            watch.cancel_event.set()
+            watch_module._kill_proc(proc)
+            if watch.thread is not None:
+                watch.thread.join(timeout=5)
+            with watch_module._watches_lock:
+                watch_module._watches.pop(watch.id, None)
+            watch_module.take_queued_watch_events(tmp_path)
 
 
 def test_run_capture_failure_is_partial(
