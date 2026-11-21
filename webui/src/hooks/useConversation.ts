@@ -796,22 +796,19 @@ export function useConversation(conversationId: string, serverId?: string) {
             onReconnectState: (state) => {
               const recovery = conversation$?.disconnectedGenerationPrompt.peek();
               const log = conversation$?.data.log.peek() ?? [];
-              // Timestamps are millisecond-precision, so two sends can share
-              // one. Recovery must target the newest such message, not the
-              // first, or a 402 is attributed to an already-finished prompt.
-              let index = -1;
-              for (let i = log.length - 1; i >= 0; i -= 1) {
-                if (log[i].timestamp === recovery) {
-                  index = i;
-                  break;
-                }
-              }
+              // Timestamp-only identity cannot distinguish colliding prompts.
+              // Withhold recovery rather than attach a refusal/Retry snapshot
+              // to either message when the local history is ambiguous.
+              const index = log.findIndex((message) => message.timestamp === recovery);
+              const uniqueOwner =
+                index >= 0 &&
+                !log.slice(index + 1).some((message) => message.timestamp === recovery);
               if (
                 !stopRequestedRef.current &&
                 (state.generating || state.pendingTools.length > 0) &&
                 !conversation$?.generationPrompt.peek() &&
                 !conversation$?.pendingGenerationPrompt.peek() &&
-                index >= 0 &&
+                uniqueOwner &&
                 // Local history can miss a newer peer prompt during an outage.
                 // Older servers without turn identity cannot safely recover it.
                 !!state.latestUserTimestamp &&

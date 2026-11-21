@@ -2112,6 +2112,40 @@ describe('useConversation', () => {
     expect(result.current).toBeDefined();
   });
 
+  it('withholds reconnect ownership when two prompts have the exact same timestamp', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const timestamp = '2026-11-20T10:00:00.123Z';
+    conv$.data.log.set(
+      ['Completed old turn', 'New peer turn'].map((content) => ({
+        role: 'user' as const,
+        content,
+        timestamp,
+        _status: 'sent' as const,
+        _retry: { persistence: 'saved' as const, options: {} },
+      }))
+    );
+    conv$.generationPrompt.set(timestamp);
+    act(() => {
+      eventHandlers!.onError!('Connection lost and max reconnects reached');
+      eventHandlers!.onReconnectState!({
+        generating: true,
+        latestUserTimestamp: timestamp,
+        pendingTools: [],
+      });
+    });
+    expect(conv$.generationPrompt.peek()).toBeUndefined();
+    act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+    for (const prompt of conv$.data.log.peek()) {
+      expect(prompt._status).toBe('sent');
+      expect(prompt._error).toBeUndefined();
+      expect(prompt._retry?.continuation).toBeUndefined();
+    }
+    expect(conv$.disconnectedGenerationPrompt.peek()).toBeUndefined();
+  });
+
   it('restores ownership for a still-generating turn after reconnect', async () => {
     const conv$ = conversations$.get('chat-placeholder')!;
     conv$.needsInitialStep.set(false);
