@@ -1068,3 +1068,25 @@ def test_toml_roundtrip_metadata_non_string_scalars():
     assert restored.metadata["compaction_checkpoint_needs_continuation"] is False
     # TOML has no null literal: the key is dropped, which reads back as None.
     assert restored.metadata["panel_hints"] == [{"id": "p1", "src": "/panel"}]
+
+
+def test_msgs_to_toml_roundtrip_preserves_ephemeral_ttl():
+    """A whole-file round-trip keeps ephemeral_ttl, which /edit relies on.
+
+    ``msgs_to_toml``/``toml_to_msgs`` are the pair behind ``/edit``: the editor
+    gets every message, parses the result back and replaces the log. Dropping
+    the ttl there would silently stop ephemeral messages (thinking blocks) from
+    being pruned later.
+    """
+    ts = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    msgs = [
+        Message("user", "hello", timestamp=ts),
+        Message("assistant", "thinking out loud", timestamp=ts, ephemeral_ttl=2),
+    ]
+
+    toml_str = msgs_to_toml(msgs)
+    assert "ephemeral_ttl = 2" in toml_str
+
+    restored = toml_to_msgs(toml_str)
+
+    assert [m.ephemeral_ttl for m in restored] == [None, 2]

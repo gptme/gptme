@@ -942,6 +942,7 @@ def toml_to_msgs(toml: str) -> list[Message]:
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
             ui_only=msg.get("ui_only", False),
+            ephemeral_ttl=msg.get("ephemeral_ttl"),
             timestamp=isoparse(msg["timestamp"]),
             files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=dict(msg.get("file_hashes", {})),
