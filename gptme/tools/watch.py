@@ -21,9 +21,11 @@ import threading
 import time
 from collections import deque
 from collections.abc import Generator
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -45,7 +47,7 @@ _STREAM_LINE_QUEUE = 256
 # Each stream event includes its loss marker within this UTF-8 byte budget.
 _STREAM_LINE_BYTES = 64 * 1024
 _STREAM_TRUNCATED = " [line truncated at 64 KiB]"
-# `run` only reports a tail; never retain the child's full stdout.
+# `run` reports a tail; full sanitized output uses the bounded shell spool.
 _RUN_TAIL_CHARS = 1000
 
 # Union of watch option names. Production parsing is verb-specific via
@@ -642,24 +644,34 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
 
 
 def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
-    """Wait for a process to exit, keeping only a bounded output tail.
+    """Drain a run into the shell's bounded sanitized spool before previewing."""
+    from .shell_background import (
+        BackgroundJob,
+        _omit_evicted_line,
+        _sanitize_job_output,
+    )
 
-    Reading concurrently avoids the stdout-pipe deadlock; dropping older
-    chunks keeps a verbose child's full output out of memory.
-    """
     assert proc.stdout is not None
     stdout = proc.stdout
-    tail = ""
+    capture = BackgroundJob(
+        id=0,
+        command=watch.description,
+        process=proc,
+        start_time=watch.created,
+        conversation_id=watch.logdir.name if watch.logdir else None,
+        log_dir=watch.logdir,
+        capture_id=f"watch-{uuid4().hex}",
+    )
+    capture._capture_origin = "watch-run"
+    capture._open_spools(adopted=True)
     read_error: str | None = None
-    buf_lock = threading.Lock()
     reader_done = threading.Event()
     # Stop the reader *before* closing stdout: close() vs read() deadlocks
     # on TextIOWrapper. select() timeout lets the reader notice this.
     stop = threading.Event()
 
     def _reader() -> None:
-        nonlocal tail, read_error
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        nonlocal read_error
         try:
             fd = stdout.fileno()
             while not stop.is_set() and not watch.cancelled:
@@ -669,52 +681,92 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 if not ready:
                     continue
                 piece = os.read(fd, 4096)
-                # Pipe reads can split a character; flush incomplete input only at EOF.
-                text = decoder.decode(piece, final=not piece)
-                with buf_lock:
-                    tail = (tail + text)[-_RUN_TAIL_CHARS:]
+                if not piece and (
+                    stop.is_set()
+                    or watch.cancelled
+                    or "deadline" in capture._partial_reasons
+                ):
+                    # Killing a source can produce EOF on an unfinished secret.
+                    # Keep that line pending rather than flushing it as complete.
+                    return
+                # Shared capture preserves split UTF-8, sanitizes full lines and
+                # continues draining after quota/queue/write failures.
+                capture._append_output(fd, fd, piece, final=not piece)
                 if not piece:
                     return
         except Exception as exc:
             read_error = str(exc)
             logger.debug("watch %s run reader failed", watch.id, exc_info=True)
         finally:
+            # Only EOF closes an incomplete line. Cancellation/drain cutoffs
+            # leave it pending in the partial receipt, never publish a possibly
+            # unfinished secret as though the source had completed it.
             reader_done.set()
 
-    reader = threading.Thread(target=_reader, daemon=True)
+    context = copy_context()
+    reader = threading.Thread(target=context.run, args=(_reader,), daemon=True)
     reader.start()
     exited_at: float | None = None
+    outcome: str | None = None
+    expired = False
     try:
         while True:
             if watch.cancelled:
+                capture._note_partial("cancelled")
                 _kill_proc(proc)
                 return
             if read_error:
+                capture._note_partial("reader_error")
                 _kill_proc(proc)
-                _fire(watch, f"watch errored: {read_error}")
-                return
+                outcome = f"watch errored: {read_error}"
+                break
             if proc.poll() is not None:
                 # EOF can precede child exit; an inherited write handle can
                 # also outlive it. Bound draining only *after* the child exits.
                 if exited_at is None:
                     exited_at = time.monotonic()
-                if reader_done.is_set() or time.monotonic() - exited_at >= 2:
+                if reader_done.is_set():
+                    break
+                if time.monotonic() - exited_at >= 2:
+                    capture._note_partial("post_exit_drain")
                     break
             elif watch.deadline is not None and time.time() > watch.deadline:
                 # Completion wins over a deadline crossed between polls. The
                 # deadline governs child work, not the bounded post-exit drain.
+                capture._note_partial("deadline")
                 _kill_proc(proc)
-                _expire(watch, f"expired without exit ({watch.description})")
-                return
+                outcome = f"expired without exit ({watch.description})"
+                expired = True
+                break
             # Unlike reader_done.wait(), this does not spin after early EOF.
             watch.cancel_event.wait(timeout=0.2)
     finally:
         stop.set()
         reader.join(timeout=2)
         _close_stdout(proc)
-    with buf_lock:
-        out = tail
-    _fire(watch, f"process exited rc={proc.returncode} {out}".strip())
+        capture._capture_finished.set()
+        capture._finalize_spools()
+    out, err = _omit_evicted_line(capture, *capture.get_output())
+    out, _, _ = _sanitize_job_output(out, err, complete=not capture._capture_partial)
+    preview = out[-_RUN_TAIL_CHARS:]
+    omitted = capture._stdout_buffer_start > 0 or len(out) > _RUN_TAIL_CHARS
+    if omitted or outcome is not None or capture._capture_partial:
+        if capture.log_path is not None:
+            label = (
+                "Partial output (capture omitted data)"
+                if capture._capture_partial
+                else "Full output"
+            )
+            preview += f"\n{label}: `{capture.log_path}`"
+            if capture.receipt_path is not None:
+                preview += f"\nCapture receipt: `{capture.receipt_path}`"
+        else:
+            preview += "\n[Output omitted from preview; full output not retained.]"
+    text = f"{outcome or f'process exited rc={proc.returncode}'} {preview}".strip()
+    if expired:
+        _expire(watch, text)
+    else:
+        _fire(watch, text)
 
 
 def _poll_timer(watch: Watch, seconds: float) -> None:
@@ -782,7 +834,10 @@ def _poll_tmux(
 
 def _spawn(watch: Watch, target, *args) -> "Message":
     _register(watch)
-    t = threading.Thread(target=_watch_thread, args=(watch, target, *args), daemon=True)
+    context = copy_context()
+    t = threading.Thread(
+        target=context.run, args=(_watch_thread, watch, target, *args), daemon=True
+    )
     watch.thread = t
     t.start()
     return Message(
@@ -1377,7 +1432,11 @@ tool = ToolSpec(
         "is loaded).\n"
         "Arming a source:\n"
         "- `watch until <cmd> --every 30s`: fire once when cmd exits 0 (e.g. `gh pr checks`)\n"
-        "- `watch run <cmd>`: fire when the process exits, with rc + output tail\n"
+        "- `watch run <cmd>`: fire when the process exits, with rc + a sanitized "
+        "1,000-character tail. Omitted output is retained under the conversation's "
+        "tool-outputs using shell capture quotas; the event names the file and "
+        "capture receipt. Quota, sanitation-window or capture loss is marked partial; "
+        "without a logdir or writable storage, omitted output is not recoverable.\n"
         "- `watch stream <cmd>`: each stdout line is an event (Monitor); "
         "lines over 64 KiB of UTF-8 are visibly truncated within that limit, "
         "discarding the remainder until newline\n"

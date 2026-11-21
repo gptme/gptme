@@ -1321,7 +1321,10 @@ def test_run_exits_when_grandchild_holds_pipe(tmp_path: Path, with_deadline: boo
         worker.join(timeout=6)
         assert not worker.is_alive()
         assert proc.returncode == 0
-        assert list(w.events) == ["process exited rc=0 parent done"]
+        assert len(w.events) == 1
+        assert w.events[0].startswith("process exited rc=0 parent done")
+        assert "Partial output" in w.events[0]
+        assert "Capture receipt:" in w.events[0]
         assert proc.stdout is not None and proc.stdout.closed
     finally:
         w.cancelled = True
