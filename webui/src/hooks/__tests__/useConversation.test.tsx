@@ -1475,6 +1475,34 @@ describe('useConversation', () => {
     });
   });
 
+  it('attributes an SSE refusal to the pending prompt, not an older accepted one', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(true);
+    const prompt = conv$.data.log.get()[0];
+    // The initial step (started from the connect handshake, outside the
+    // generation chain) owns the conversation while a new prompt's step is
+    // still awaiting its HTTP response.
+    step.mockImplementation(() => new Promise(() => {}));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onConnected!());
+    await act(async () => {
+      void result.current.sendMessage({ message: 'Prompt B' });
+    });
+    const log = conv$.data.log.get();
+    const a = prompt;
+    const b = log.find((message) => message.content === 'Prompt B');
+    expect(b).toBeDefined();
+    expect(conv$.generationPrompt.get()).toBe(a!.timestamp);
+    expect(conv$.pendingGenerationPrompt.get()).toBe(b!.timestamp);
+
+    act(() => eventHandlers!.onError!('Error code: 402 - Payment required'));
+
+    const after = conv$.data.log.get();
+    expect(after.find((message) => message.timestamp === a!.timestamp)!._status).not.toBe('failed');
+    expect(after.find((message) => message.timestamp === b!.timestamp)!._status).toBe('failed');
+  });
+
   it('keeps Retry when initial HTTP refusal precedes its SSE diagnostic', async () => {
     const log$ = conversations$.get('chat-placeholder')!.data.log;
     log$[0]._retry.set({ persistence: 'saved', options: { stream: false } });

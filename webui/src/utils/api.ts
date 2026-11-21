@@ -1920,6 +1920,7 @@ export class ApiClient {
             persistence: 'saved',
             options: {
               model: options?.model,
+              reasoningEffort: options?.reasoningEffort,
               stream: options?.stream,
               maxTokens: options?.maxTokens,
               temperature: options?.temperature,
@@ -1994,6 +1995,7 @@ export class ApiClient {
             persistence: 'saved',
             options: {
               model: options?.model,
+              reasoningEffort: options?.reasoningEffort,
               stream: options?.stream,
               maxTokens: options?.maxTokens,
               temperature: options?.temperature,

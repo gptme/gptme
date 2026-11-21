@@ -665,8 +665,13 @@ export function useConversation(conversationId: string, serverId?: string) {
               // generation was refused. The server may still be working.
               if (title === 'Payment required' || title === 'Authentication failed') {
                 // The server persists a system error before emitting `error`.
+                // A step whose HTTP response has not landed yet is still the
+                // newest request the server could be failing, so prefer the
+                // pending owner over an older accepted one.
                 const log = messages$?.peek() ?? [];
-                const owner = conversation$?.generationPrompt.peek();
+                const owner =
+                  conversation$?.pendingGenerationPrompt.peek() ??
+                  conversation$?.generationPrompt.peek();
                 const index = owner ? log.findIndex((message) => message.timestamp === owner) : -1;
                 const userMessage = log[index];
                 const timestamp = userMessage?.timestamp;
@@ -791,7 +796,16 @@ export function useConversation(conversationId: string, serverId?: string) {
             onReconnectState: (state) => {
               const recovery = conversation$?.disconnectedGenerationPrompt.peek();
               const log = conversation$?.data.log.peek() ?? [];
-              const index = log.findIndex((message) => message.timestamp === recovery);
+              // Timestamps are millisecond-precision, so two sends can share
+              // one. Recovery must target the newest such message, not the
+              // first, or a 402 is attributed to an already-finished prompt.
+              let index = -1;
+              for (let i = log.length - 1; i >= 0; i -= 1) {
+                if (log[i].timestamp === recovery) {
+                  index = i;
+                  break;
+                }
+              }
               if (
                 !stopRequestedRef.current &&
                 (state.generating || state.pendingTools.length > 0) &&
@@ -978,6 +992,11 @@ export function useConversation(conversationId: string, serverId?: string) {
       const index = log.findIndex((message) => message.timestamp === userMessage.timestamp);
       // The persisted diagnostic for this refusal is not a newer turn. Keep
       // it in history, but withhold Retry for any unrelated/newer activity.
+      // Diagnostics are stored with an `Error: ` prefix while the persisted
+      // system message may carry only the description (or a provider variant),
+      // so compare normalized text instead of raw strings.
+      const normalizeDiagnostic = (text: string) => text.trim().replace(/^Error:\s*/i, '');
+      const refusalDiagnostics = (userMessage._retry?.diagnostics ?? []).map(normalizeDiagnostic);
       const onlyRefusalDiagnostics =
         index >= 0 &&
         log
@@ -985,7 +1004,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           .every(
             (message) =>
               message.role === 'system' &&
-              (userMessage._retry?.diagnostics ?? []).includes(message.content)
+              refusalDiagnostics.includes(normalizeDiagnostic(message.content))
           );
       const continuation = userMessage._retry?.continuation;
       const trailing = log.slice(index + 1);
@@ -1002,7 +1021,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           .every(
             (message) =>
               message.role === 'system' &&
-              (userMessage._retry?.diagnostics ?? []).includes(message.content)
+              refusalDiagnostics.includes(normalizeDiagnostic(message.content))
           );
       if (resumingSavedMessage && !onlyRefusalDiagnostics && !sameRefusedTurn) {
         throw new Error(
@@ -1209,11 +1228,13 @@ export function useConversation(conversationId: string, serverId?: string) {
       } catch (error) {
         console.error('Error confirming tool:', error);
 
-        // A rejected Skip never started its continuation; release its reservation.
+        // A rejected Skip never started its continuation; release its reservation
+        // and restore the confirmation UI. The server still holds the pending
+        // tool, so dropping it locally would strand the tool until a reload.
         if (action === 'skip') {
           setGenerating(conversationId, false);
-          if (conversation$?.pendingTool.get()?.id === confirmedToolId) {
-            setPendingTool(conversationId, null, null);
+          if (conversation$?.pendingTool.get()?.id !== confirmedToolId) {
+            setPendingTool(conversationId, pendingTool.id, pendingTool.tooluse);
           }
         }
 
