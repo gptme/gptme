@@ -1030,6 +1030,33 @@ describe('ApiClient event stream reconnection', () => {
     expect(callbacks.onError).not.toHaveBeenCalled();
   });
 
+  it('reports an idle handshake so reconnect recovery can discard stale ownership', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const onReconnectState = jest.fn();
+    await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onReconnectState });
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 'session-1' });
+    expect(onReconnectState).toHaveBeenCalledWith({ generating: false, pendingTools: [] });
+    client.closeEventStream('conv-1');
+  });
+
+  it('forwards the authoritative reconnect prompt identity', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const onReconnectState = jest.fn();
+    await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onReconnectState });
+    MockEventSource.instances[0].emitMessage({
+      type: 'connected',
+      session_id: 'session-1',
+      generating: true,
+      latest_user_timestamp: '2026-11-19T23:00:00+00:00',
+    });
+    expect(onReconnectState).toHaveBeenCalledWith({
+      generating: true,
+      latestUserTimestamp: '2026-11-19T23:00:00+00:00',
+      pendingTools: [],
+    });
+    client.closeEventStream('conv-1');
+  });
+
   // gptme-cloud#1063 follow-up: a tab left open through an outage exhausted its
   // reconnect budget, never got a session id, and every later send failed with
   // "Session ID not found for conversation" until a manual reload.
@@ -1452,6 +1479,46 @@ describe('getApiErrorPresentation', () => {
     ).toEqual({
       title: 'Payment required',
       description: 'Insufficient credits. Visit gptme.ai to add more.',
+    });
+  });
+
+  it.each([
+    [401, 'Authentication failed'],
+    [402, 'Payment required'],
+  ])('classifies provider %s consistently across SSE and HTTP wrappers', (status, title) => {
+    const message = `Error code: ${status} - Provider refused`;
+    for (const error of [message, new Error(message), new ApiClientError(message, 500)]) {
+      expect(getApiErrorPresentation(error)).toEqual({ title, description: message });
+    }
+  });
+
+  it.each([
+    'Error: subprocess exited with code 402',
+    'Error: python exited with error code 402 - Payment required',
+    'Build failed, subprocess returned error code 402',
+    'Tool stderr mentioned HTTP status 401 - invalid token',
+    'Error: port 401 in use',
+    'Tool output: unauthorized file access',
+    'The log mentioned payment required yesterday',
+  ])('does not classify unrelated diagnostic text as a refusal: %s', (message) => {
+    for (const error of [message, new Error(message), new ApiClientError(message, 500)]) {
+      expect(getApiErrorPresentation(error)).toEqual({ title: 'Error', description: message });
+    }
+  });
+
+  it.each([
+    ['Error: Payment required', 'Payment required'],
+    ['Unauthorized', 'Authentication failed'],
+    ['HTTP 402: credit balance exhausted', 'Payment required'],
+    ['HTTP status 401 - invalid token', 'Authentication failed'],
+  ])('recognizes explicit refusal text: %s', (message, title) => {
+    expect(getApiErrorPresentation(message)).toEqual({ title, description: message });
+  });
+
+  it('keeps an explicit auth status ahead of provider-like message text', () => {
+    expect(getApiErrorPresentation(new ApiClientError('Unauthorized request 402', 401))).toEqual({
+      title: 'Authentication failed',
+      description: 'Unauthorized request 402',
     });
   });
 

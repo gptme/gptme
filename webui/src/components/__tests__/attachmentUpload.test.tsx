@@ -77,6 +77,29 @@ function CreatedConversation({ id }: { id: string }) {
   useConversation(id);
   return null;
 }
+it('marks failed text-only creation as unconfirmed instead of permanently pending', async () => {
+  let rejectCreation!: (error: Error) => void;
+  jest.spyOn(mockClient, 'createConversation').mockReturnValueOnce(
+    new Promise((_resolve, reject) => {
+      rejectCreation = reject;
+    })
+  );
+  const id = await mockClient.createConversationWithPlaceholder('Unconfirmed initial prompt');
+  const state = conversations$.get(id)!;
+  expect(state.data.log.get()[0]._status).toBe('pending');
+  await act(async () => {
+    rejectCreation(new ApiClientError('Creation failed', 500));
+    await Promise.resolve();
+  });
+  expect(state.data.log.get()[0]).toMatchObject({
+    _status: 'failed',
+    _error: 'Creation failed',
+    _retry: { persistence: 'unknown' },
+  });
+  expect(state.needsInitialStep.get()).toBe(false);
+  expect(state.isGenerating.get()).toBe(false);
+});
+
 function NewComposer() {
   const [id, setId] = useState('');
   return (
@@ -634,6 +657,97 @@ it('hands a new-chat rejected POST to existing message Retry without uploading a
   );
 });
 
+it.each([false, true])(
+  'retries a confirmed initial prompt with its original settings (files=%s)',
+  async (withFiles) => {
+    const { renderHook } = await import('@testing-library/react');
+    const upload = jest.spyOn(mockClient, 'uploadFiles').mockResolvedValue({
+      files: [{ path: 'attachments/initial.txt' }],
+    } as any);
+    const post = jest.spyOn(mockClient, 'sendMessage');
+    let handlers!: Parameters<ApiClient['subscribeToEvents']>[1];
+    jest.mocked(mockClient.subscribeToEvents).mockImplementation(async (_id, callbacks) => {
+      handlers = callbacks;
+      conversations$.get(_id)!.maxTokens.set(64);
+      callbacks.onConnected?.();
+    });
+    const options = {
+      model: 'test/original',
+      stream: false,
+      maxTokens: 123,
+      temperature: 0.4,
+      topP: 0.8,
+    };
+    const id = await mockClient.createConversationWithPlaceholder('Initial refusal', {
+      ...options,
+      ...(withFiles ? { pendingFiles: [new File(['initial'], 'initial.txt')] } : {}),
+    });
+    await mockClient.waitForConversationCreation(id);
+    const { result } = renderHook(() => useConversation(id));
+    await waitFor(() => expect(mockClient.step).toHaveBeenCalledTimes(1));
+    act(() => {
+      handlers.onError('Error code: 402 - Payment required');
+    });
+    const failed = conversations$.get(id)!.data.log.get()[0];
+    expect(failed).toMatchObject({
+      _status: 'failed',
+      _retry: { persistence: 'saved', options: { ...options, maxTokens: 64 } },
+    });
+    jest.mocked(mockClient.step).mockClear();
+    await act(async () => {
+      await result.current.retryMessage(failed);
+    });
+    expect(mockClient.step).toHaveBeenCalledTimes(1);
+    expect(mockClient.step).toHaveBeenCalledWith(
+      id,
+      options.model,
+      false,
+      'main',
+      64,
+      0.4,
+      0.8,
+      undefined
+    );
+    expect(post).toHaveBeenCalledTimes(withFiles ? 1 : 0);
+    expect(upload).toHaveBeenCalledTimes(withFiles ? 1 : 0);
+    expect(conversations$.get(id)!.data.log.get()).toHaveLength(1);
+  }
+);
+
+it.each(['edit', 'delete'])(
+  'withholds %s while text creation acknowledgment is pending',
+  async (action) => {
+    const { renderHook } = await import('@testing-library/react');
+    let finishCreation!: () => void;
+    jest.spyOn(mockClient, 'createConversation').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishCreation = () => resolve({} as any);
+        })
+    );
+    jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+    const edit = jest.spyOn(mockClient, 'editMessage').mockResolvedValue({ log: [] } as any);
+    const remove = jest.spyOn(mockClient, 'deleteMessage').mockResolvedValue({ log: [] } as any);
+    const id = await mockClient.createConversationWithPlaceholder('Pending text');
+    const { result } = renderHook(() => useConversation(id));
+    await act(async () => {
+      await result.current.interruptGeneration();
+      if (action === 'edit') await result.current.editMessage(0, 'Changed');
+      else await result.current.deleteMessage(0);
+    });
+    expect(edit).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    await act(async () => {
+      finishCreation();
+      await mockClient.waitForConversationCreation(id);
+    });
+    expect(conversations$.get(id)!.data.log.get()[0]).toMatchObject({
+      content: 'Pending text',
+      _status: 'sent',
+    });
+  }
+);
+
 it('clears the unsent placeholder log after new-chat upload rejection', async () => {
   const create = jest.spyOn(mockClient, 'createConversation');
   jest.spyOn(mockClient, 'uploadFiles').mockRejectedValue(new ApiClientError('Too large', 413));
@@ -1026,7 +1140,7 @@ it('preserves Retry metadata and sends started during upload-order reconciliatio
   await creation;
   expect(state.data.log.get()).toEqual([
     saved,
-    attached,
+    { ...attached, _retry: { persistence: 'saved', options: {} } },
     persistedDuringGet,
     responseDuringGet,
     pending,
@@ -1059,7 +1173,12 @@ it('does not mark a saved upload failed or idle newer generation when order refr
   await creation;
   expect(state.data.log.get()).toEqual([
     newer,
-    { ...original, files: ['attachments/one.txt'], _status: 'sent' },
+    {
+      ...original,
+      files: ['attachments/one.txt'],
+      _status: 'sent',
+      _retry: { persistence: 'saved', options: {} },
+    },
   ]);
   expect(post).toHaveBeenCalledTimes(1);
   expect(state.isGenerating.get()).toBe(true);
@@ -1618,7 +1737,11 @@ it('keeps sub-millisecond distinct entries and their own Retry metadata during r
   });
   resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
   await creation;
-  expect(state.data.log.get()).toEqual([earlier, attached, later]);
+  expect(state.data.log.get()).toEqual([
+    earlier,
+    { ...attached, _retry: { persistence: 'saved', options: {} } },
+    later,
+  ]);
   expect(state.data.log.get()[0]._retry).toBeUndefined();
 });
 

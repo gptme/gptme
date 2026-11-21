@@ -244,6 +244,7 @@ class ConnectedEvent(BaseEvent):
 
     session_id: str
     generating: NotRequired[bool]
+    latest_user_timestamp: NotRequired[str | None]
     pending_tools: NotRequired[list]
 
 

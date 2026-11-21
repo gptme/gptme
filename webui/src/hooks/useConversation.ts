@@ -43,6 +43,7 @@ import {
   AttachmentUploadError,
   getApiErrorPresentation,
   getClientGeneration,
+  sameLogMessage,
 } from '@/utils/api';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 
@@ -80,6 +81,86 @@ export function useConversation(conversationId: string, serverId?: string) {
   const isLoadingOlderMessages = use$(isLoadingOlderMessages$);
   // Bumped by retryLoad() to re-run the load+connect effect after a failure.
   const [retryNonce, setRetryNonce] = useState(0);
+
+  // Share ownership with the retained subscription, not the hook that sends.
+  // Keep an active turn's owner during 409 backoff. When idle, publish the
+  // candidate before awaiting HTTP: SSE can report an early refusal first.
+  const stepForPrompt = useCallback(
+    async (
+      timestamp: string | undefined,
+      model?: string,
+      stream?: boolean,
+      branch = 'main',
+      maxTokens?: number,
+      temperature?: number,
+      topP?: number,
+      reasoningEffort?: string
+    ) => {
+      // Retrying the same saved prompt must not erase its outage recovery
+      // candidate. A different prompt still invalidates the old candidate.
+      if (conversation$?.disconnectedGenerationPrompt.peek() !== timestamp) {
+        conversation$?.disconnectedGenerationPrompt.set(undefined);
+      }
+      const previous = conversation$?.generationPrompt.peek();
+      const revision = conversation$?.generationRevision.peek();
+      conversation$?.pendingGenerationPrompt.set(timestamp);
+      if (!previous) conversation$?.generationPrompt.set(timestamp);
+      try {
+        await api.step(
+          conversationId,
+          model,
+          stream,
+          branch,
+          maxTokens,
+          temperature,
+          topP,
+          reasoningEffort
+        );
+        // Completion, refusal or Stop may arrive before this HTTP response.
+        // An acknowledgment must not resurrect ownership released by that event.
+        if (
+          conversation$?.generationRevision.peek() === revision &&
+          conversation$?.pendingGenerationPrompt.peek() === timestamp
+        ) {
+          conversation$?.generationPrompt.set(timestamp);
+        }
+      } catch (error) {
+        const { title, description } = getApiErrorPresentation(error);
+        if (timestamp && (title === 'Payment required' || title === 'Authentication failed')) {
+          const log$ = conversation$?.data.log;
+          const index = log$?.peek().findIndex((message) => message.timestamp === timestamp) ?? -1;
+          const retry = index >= 0 ? log$?.[index]._retry.peek() : undefined;
+          if (retry && log$) {
+            log$[index]._retry.set({
+              ...retry,
+              diagnostics: [...new Set([...(retry.diagnostics ?? []), `Error: ${description}`])],
+              continuation: log$
+                .peek()
+                .slice(index + 1)
+                .some((message) => message.role === 'user')
+                ? undefined
+                : log$
+                    .peek()
+                    .slice(index + 1)
+                    .map(({ role, content, timestamp }) => ({ role, content, timestamp })),
+            });
+          }
+          setMessageStatus(conversationId, timestamp, 'failed', description);
+        }
+        if (conversation$?.generationPrompt.peek() === timestamp) {
+          conversation$?.generationPrompt.set(
+            conversation$?.generationRevision.peek() === revision ? previous : undefined
+          );
+        }
+        throw error;
+      } finally {
+        if (conversation$?.pendingGenerationPrompt.peek() === timestamp) {
+          conversation$?.pendingGenerationPrompt.set(undefined);
+        }
+      }
+    },
+    [api, conversation$, conversationId]
+  );
 
   // Initialize conversation in store if needed
   useEffect(() => {
@@ -385,6 +466,15 @@ export function useConversation(conversationId: string, serverId?: string) {
               }, 100);
             },
             onStepComplete: () => {
+              // A step can end at a manual-confirmation pause. The next model
+              // call belongs to the same prompt and starts without stepForPrompt.
+              if (!conversation$?.pendingTool.peek() && !conversation$?.executingTool.peek()) {
+                conversation$?.disconnectedGenerationPrompt.set(undefined);
+                conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+                const pending = conversation$?.pendingGenerationPrompt.peek();
+                const owner = conversation$?.generationPrompt.peek();
+                conversation$?.generationPrompt.set(pending !== owner ? pending : undefined);
+              }
               // step_complete fires after session.generating=False on the server,
               // so it's safe to clear generating immediately — no need to guess.
               // Cancel the 100ms fallback timer from onMessageComplete if still pending;
@@ -514,6 +604,10 @@ export function useConversation(conversationId: string, serverId?: string) {
               setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
+              conversation$?.disconnectedGenerationPrompt.set(undefined);
+              conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+              conversation$?.generationPrompt.set(undefined);
+              conversation$?.pendingGenerationPrompt.set(undefined);
               setGenerating(conversationId, false);
               setPendingTool(conversationId, null, null);
               setExecutingTool(conversationId, null, null);
@@ -556,10 +650,72 @@ export function useConversation(conversationId: string, serverId?: string) {
                 }
               }
 
+              // Classify so a refusal the user must act on (HTTP 402 payment
+              // required, 401) is labelled as such instead of a generic
+              // "Error", and keep it visible after the toast is dismissed by
+              // attaching it to the user message that triggered the generation.
+              // ChatMessage renders `_error` inline with a Retry button, which
+              // keeps the refusal diagnosable after the transient toast closes.
+              const { title, description } = getApiErrorPresentation(error, {
+                fallbackTitle: 'Generation failed',
+                fallbackDescription: error,
+              });
+
+              // Transport errors share this callback but do not mean the
+              // generation was refused. The server may still be working.
+              if (title === 'Payment required' || title === 'Authentication failed') {
+                // The server persists a system error before emitting `error`.
+                // A step whose HTTP response has not landed yet is still the
+                // newest request the server could be failing, so prefer the
+                // pending owner over an older accepted one.
+                const log = messages$?.peek() ?? [];
+                const owner =
+                  conversation$?.pendingGenerationPrompt.peek() ??
+                  conversation$?.generationPrompt.peek();
+                const index = owner ? log.findIndex((message) => message.timestamp === owner) : -1;
+                const userMessage = log[index];
+                const timestamp = userMessage?.timestamp;
+                if (timestamp) {
+                  if (userMessage._retry) {
+                    messages$![index]._retry.set({
+                      ...userMessage._retry,
+                      // Snapshot only the active turn. A newer queued user prompt
+                      // must never become part of an earlier prompt's Retry.
+                      continuation: log.slice(index + 1).some((message) => message.role === 'user')
+                        ? undefined
+                        : log
+                            .slice(index + 1)
+                            .map(({ role, content, timestamp }) => ({ role, content, timestamp })),
+                      diagnostics: [
+                        ...new Set([
+                          ...(userMessage._retry.diagnostics ?? []),
+                          `Error: ${description}`,
+                        ]),
+                      ],
+                    });
+                  }
+                  setMessageStatus(conversationId, timestamp, 'failed', description);
+                }
+              }
+              // Keep a recovery candidate separate from active ownership. Only a
+              // reconnect handshake reporting an active turn may restore it; a new
+              // send/Stop invalidates it. Repeated connection errors retain it.
+              const refused = title === 'Payment required' || title === 'Authentication failed';
+              conversation$?.disconnectedGenerationPrompt.set(
+                refused
+                  ? undefined
+                  : (conversation$?.generationPrompt.peek() ??
+                      conversation$?.disconnectedGenerationPrompt.peek())
+              );
+              // Prevent late HTTP acknowledgments from restoring active ownership.
+              conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+              conversation$?.generationPrompt.set(undefined);
+              conversation$?.pendingGenerationPrompt.set(undefined);
+
               toast({
                 variant: 'destructive',
-                title: 'Error',
-                description: error,
+                title,
+                description,
               });
             },
             onConfigChanged: (config, changedFields) => {
@@ -580,25 +736,42 @@ export function useConversation(conversationId: string, serverId?: string) {
                 return;
               }
               const initialStepStream = conversation$?.initialStepStream?.get();
+              const log = conversation$?.data.log.get() ?? [];
+              const index = log.length - 1;
+              const prompt = log[index];
+              if (prompt?._retry) {
+                conversation$!.data.log[index]._retry.options.set({
+                  ...prompt._retry.options,
+                  stream: initialStepStream ?? true,
+                  maxTokens: conversation$?.maxTokens?.get(),
+                  temperature: conversation$?.temperature?.get(),
+                  topP: conversation$?.topP?.get(),
+                });
+              }
               clearInitialStepState(conversationId);
               // The handshake snapshot precedes this request. Keep Stop available
               // while step() starts, before the first generation_started event.
               setGenerating(conversationId, true);
-              api
-                .step(
-                  conversationId,
-                  undefined,
-                  initialStepStream ?? true,
-                  'main',
-                  conversation$?.maxTokens?.get(),
-                  conversation$?.temperature?.get(),
-                  conversation$?.topP?.get()
-                )
-                .catch((error) => {
-                  console.error('[useConversation] Error triggering initial step:', error);
-                  setGenerating(conversationId, false);
-                  toastStepStartError(toast, error);
-                });
+              stepForPrompt(
+                prompt?.role === 'user' ? prompt.timestamp : undefined,
+                undefined,
+                initialStepStream ?? true,
+                'main',
+                conversation$?.maxTokens?.get(),
+                conversation$?.temperature?.get(),
+                conversation$?.topP?.get()
+              ).catch((error) => {
+                console.error('[useConversation] Error triggering initial step:', error);
+                setGenerating(conversationId, false);
+                const { title, description } = getApiErrorPresentation(error);
+                if (
+                  prompt?.timestamp &&
+                  (title === 'Payment required' || title === 'Authentication failed')
+                ) {
+                  setMessageStatus(conversationId, prompt.timestamp, 'failed', description);
+                }
+                toastStepStartError(toast, error);
+              });
             },
             onConnectionState: (state) => {
               switch (state.status) {
@@ -621,6 +794,36 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onReconnectState: (state) => {
+              const recovery = conversation$?.disconnectedGenerationPrompt.peek();
+              const log = conversation$?.data.log.peek() ?? [];
+              // Timestamp-only identity cannot distinguish colliding prompts.
+              // Withhold recovery rather than attach a refusal/Retry snapshot
+              // to either message when the local history is ambiguous.
+              const index = log.findIndex((message) => message.timestamp === recovery);
+              const uniqueOwner =
+                index >= 0 &&
+                !log.slice(index + 1).some((message) => message.timestamp === recovery);
+              if (
+                !stopRequestedRef.current &&
+                (state.generating || state.pendingTools.length > 0) &&
+                !conversation$?.generationPrompt.peek() &&
+                !conversation$?.pendingGenerationPrompt.peek() &&
+                uniqueOwner &&
+                // Local history can miss a newer peer prompt during an outage.
+                // Older servers without turn identity cannot safely recover it.
+                !!state.latestUserTimestamp &&
+                !!recovery &&
+                sameLogMessage(log[index], {
+                  role: 'user',
+                  content: '',
+                  timestamp: state.latestUserTimestamp,
+                }) &&
+                log[index]._retry?.persistence === 'saved' &&
+                !log.slice(index + 1).some((message) => message.role === 'user')
+              ) {
+                conversation$?.generationPrompt.set(recovery);
+              }
+              conversation$?.disconnectedGenerationPrompt.set(undefined);
               setGenerating(conversationId, state.generating);
               setPendingTool(conversationId, null, null);
               // Restore first pending tool (if any)
@@ -672,7 +875,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         setConnected(conversationId, false);
       }
     };
-  }, [conversationId, isConnected, api, conversation$, toast, retryNonce]);
+  }, [conversationId, isConnected, api, conversation$, toast, retryNonce, stepForPrompt]);
 
   // A new user-initiated generation supersedes any prior Stop. Without this,
   // onMessageStart treats the next edit/rerun/regenerate as part of the
@@ -782,10 +985,48 @@ export function useConversation(conversationId: string, serverId?: string) {
     const checkRetryTurn = () => {
       // step() always uses current history, not the message selected for Retry.
       // Never truncate newer turns or silently answer them with older settings.
-      if (
-        resumingSavedMessage &&
-        conversation$?.data.log.get().at(-1)?.timestamp !== userMessage.timestamp
-      ) {
+      const log = conversation$?.data.log.get() ?? [];
+      const index = log.findIndex((message) => message.timestamp === userMessage.timestamp);
+      // The persisted diagnostic for this refusal is not a newer turn. Keep
+      // it in history, but withhold Retry for any unrelated/newer activity.
+      // Diagnostics are stored with an `Error: ` prefix while the persisted
+      // system message may carry only the description (or a provider variant),
+      // so compare normalized text instead of raw strings.
+      const normalizeDiagnostic = (text: string) => text.trim().replace(/^Error:\s*/i, '');
+      const refusalDiagnostics = (userMessage._retry?.diagnostics ?? []).map(normalizeDiagnostic);
+      const onlyRefusalDiagnostics =
+        index >= 0 &&
+        log
+          .slice(index + 1)
+          .every(
+            (message) =>
+              message.role === 'system' &&
+              refusalDiagnostics.includes(normalizeDiagnostic(message.content))
+          );
+      const continuation = userMessage._retry?.continuation;
+      const trailing = log.slice(index + 1);
+      const sameRefusedTurn =
+        index >= 0 &&
+        continuation !== undefined &&
+        trailing.length >= continuation.length &&
+        continuation.every((saved, offset) => {
+          const current = trailing[offset];
+          // A history refresh can reserialize the same instant. Preserve
+          // microsecond identity and exact content without rewriting history.
+          return (
+            current.role === saved.role &&
+            current.content === saved.content &&
+            (current.timestamp === saved.timestamp || sameLogMessage(current, saved))
+          );
+        }) &&
+        trailing
+          .slice(continuation.length)
+          .every(
+            (message) =>
+              message.role === 'system' &&
+              refusalDiagnostics.includes(normalizeDiagnostic(message.content))
+          );
+      if (resumingSavedMessage && !onlyRefusalDiagnostics && !sameRefusedTurn) {
         throw new Error(
           'Conversation has moved on. Resend this prompt as a new message, or use Edit and regenerate to explicitly rerun the earlier turn.'
         );
@@ -803,7 +1044,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       const log = conversation$?.data.log;
       const index = log?.get().findIndex((m) => m.timestamp === userMessage.timestamp);
       if (log && index !== undefined && index >= 0) {
-        log[index]._retry.set({ persistence, options: retryOptions });
+        log[index]._retry.set({ ...log[index]._retry.get(), persistence, options: retryOptions });
       }
     };
     try {
@@ -820,6 +1061,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       // positional-mutation guard.
       if (
         !requeueOnBusy &&
+        !resumingSavedMessage &&
         userMessage.timestamp &&
         (conversations$.get(conversationId)?.data.log.get() ?? []).some(
           (entry) => entry.timestamp !== userMessage.timestamp
@@ -855,8 +1097,8 @@ export function useConversation(conversationId: string, serverId?: string) {
       for (let attempt = 0; ; attempt++) {
         try {
           checkRetryTurn();
-          await api.step(
-            conversationId,
+          await stepForPrompt(
+            userMessage.timestamp,
             options?.model,
             options?.stream,
             'main',
@@ -885,8 +1127,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 toast({ variant: 'destructive', title: 'Retry withheld', description });
                 return Promise.resolve();
               }
-              return api.step(
-                conversationId,
+              return stepForPrompt(
+                userMessage.timestamp,
                 options?.model,
                 options?.stream,
                 'main',
@@ -947,6 +1189,13 @@ export function useConversation(conversationId: string, serverId?: string) {
       return;
     }
 
+    // Skip has no tool_executing event. Reserve the continuation before clearing
+    // pendingTool so ChatInput cannot flush its queue in the HTTP/SSE gap.
+    // Completion/error events release isGenerating, even before HTTP returns.
+    if (action === 'skip') {
+      setGenerating(conversationId, true);
+      setPendingTool(conversationId, null, null);
+    }
     const confirmedToolId = pendingTool.id;
     const confirmOnce = async (): Promise<void> => {
       try {
@@ -964,12 +1213,32 @@ export function useConversation(conversationId: string, serverId?: string) {
         ) {
           setPendingTool(conversationId, null, null);
         }
+        if (action === 'skip' && alreadyHandled) {
+          // No continuation was dispatched for this duplicate. Reconcile with
+          // the server instead of waiting for an event that may already have
+          // passed, or declaring an actually running peer continuation idle.
+          const revision = conversation$?.generationRevision.peek();
+          const sessions = await api.getSessions();
+          if (conversation$?.generationRevision.peek() === revision) {
+            setGenerating(
+              conversationId,
+              sessions.some(
+                (session) => session.conversation_id === conversationId && session.generating
+              )
+            );
+          }
+        }
       } catch (error) {
         console.error('Error confirming tool:', error);
 
-        // Clear pending tool state on final failure, but only for actions that won't execute
-        if (action === 'skip' && conversation$?.pendingTool.get()?.id === confirmedToolId) {
-          setPendingTool(conversationId, null, null);
+        // A rejected Skip never started its continuation; release its reservation
+        // and restore the confirmation UI. The server still holds the pending
+        // tool, so dropping it locally would strand the tool until a reload.
+        if (action === 'skip') {
+          setGenerating(conversationId, false);
+          if (conversation$?.pendingTool.get()?.id !== confirmedToolId) {
+            setPendingTool(conversationId, pendingTool.id, pendingTool.tooluse);
+          }
         }
 
         const { title, description } = getApiErrorPresentation(error, {
@@ -995,6 +1264,10 @@ export function useConversation(conversationId: string, serverId?: string) {
     // without a session id yet. The API interrupt is best-effort and no-ops
     // until a session exists.
     stopRequestedRef.current = true;
+    conversation$?.disconnectedGenerationPrompt.set(undefined);
+    conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
+    conversation$?.generationPrompt.set(undefined);
+    conversation$?.pendingGenerationPrompt.set(undefined);
     clearInitialStepState(conversationId);
     setGenerating(conversationId, false);
 
@@ -1034,9 +1307,11 @@ export function useConversation(conversationId: string, serverId?: string) {
         current._retry.persistence === 'unknown'
       )
         return;
+      // Snapshot the refusal diagnostic before clearing the observable error.
+      const retryMessage = { ...current };
       setMessageStatus(conversationId, failedMessage.timestamp!, 'pending', '');
       await sendOrResumeMessage(
-        current,
+        retryMessage,
         current._retry.options,
         epoch,
         current._retry.persistence === 'saved',
@@ -1067,6 +1342,32 @@ export function useConversation(conversationId: string, serverId?: string) {
     });
     return true;
   };
+
+  const prepareHistoryGeneration = () => {
+    const log$ = conversation$?.data.log;
+    const log = log$?.peek() ?? [];
+    let index = log.length - 1;
+    while (index >= 0 && log[index].role !== 'user') index--;
+    const prompt = log[index];
+    if (prompt && log$) {
+      log$[index]._retry.set({
+        persistence: 'saved',
+        options: { stream: true, maxTokens, temperature, topP },
+      });
+    }
+    return prompt?.timestamp;
+  };
+
+  const stepFromHistory = () =>
+    stepForPrompt(
+      prepareHistoryGeneration(),
+      undefined,
+      true,
+      'main',
+      maxTokens,
+      temperature,
+      topP
+    );
 
   const editMessage = async (
     index: number,
@@ -1099,7 +1400,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         // the edit request was in flight, or a newer action superseded it.
         if (truncate) {
           if (epoch === undefined || generationIsStale(epoch)) return;
-          await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+          await stepFromHistory();
         }
       } catch (error) {
         console.error('Error editing message:', error);
@@ -1156,7 +1457,12 @@ export function useConversation(conversationId: string, serverId?: string) {
         // This parses tool uses and sets them as pending, without calling the LLM.
         // Auto-confirm tools can start executing on the server before this
         // request returns, so a Stop that lands in-flight may interrupt nothing.
+        const previousOwner = conv$.generationPrompt.peek();
+        const revision = conv$.generationRevision.peek();
+        const rerunOwner = prepareHistoryGeneration();
         try {
+          conv$.disconnectedGenerationPrompt.set(undefined);
+          conv$.generationPrompt.set(rerunOwner);
           await api.rerunTools(conversationId);
           if (generationIsStale(epoch)) {
             setGenerating(conversationId, false);
@@ -1168,9 +1474,17 @@ export function useConversation(conversationId: string, serverId?: string) {
             return;
           }
         } catch {
+          // Undo the speculative rerun owner before stepForPrompt captures its
+          // rollback state. Never restore an owner released by a terminal event.
+          if (
+            conv$.generationRevision.peek() === revision &&
+            conv$.generationPrompt.peek() === rerunOwner
+          ) {
+            conv$.generationPrompt.set(previousOwner);
+          }
           // No tools found — fall back to step() (regenerate)
           if (generationIsStale(epoch)) return;
-          await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+          await stepFromHistory();
         }
       } catch (error) {
         console.error('Error re-running from message:', error);
@@ -1196,7 +1510,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           updateBranches(conversationId, result.branches);
         }
         if (generationIsStale(epoch)) return;
-        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
+        await stepFromHistory();
       } catch (error) {
         console.error('Error regenerating message:', error);
         const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';

@@ -32,6 +32,10 @@ export interface Message {
   _error?: string;
   /** Client-only: persistence outcome and generation settings for explicit Retry. */
   _retry?: {
+    /** Persisted system diagnostics belonging to attempts of this prompt. */
+    diagnostics?: string[];
+    /** Exact same-turn history at refusal; Retry must not include newer activity. */
+    continuation?: Pick<Message, 'role' | 'content' | 'timestamp'>[];
     persistence: 'saved' | 'rejected' | 'unknown';
     options: {
       model?: string;

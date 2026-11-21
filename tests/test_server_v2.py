@@ -81,6 +81,31 @@ def v2_conv_with_config(client: FlaskClient, config: ChatConfig):
     return create_conversation(client, config)
 
 
+def test_reconnect_identifies_latest_server_prompt(client: FlaskClient, v2_conv):
+    """The browser may have missed a peer prompt while its stream was down."""
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    cid = v2_conv["conversation_id"]
+    with LogManager.load(cid, lock=True) as manager:
+        manager.append(Message("user", "Old browser prompt"))
+        peer_prompt = Message("user", "New peer prompt")
+        manager.append(peer_prompt)
+        manager.append(Message("assistant", "Working on peer prompt"))
+        manager.write()
+    response = client.get(
+        f"/api/v2/conversations/{cid}/events?session_id={v2_conv['session_id']}",
+        buffered=False,
+    )
+    try:
+        event = json.loads(
+            next(response.iter_encoded()).decode().removeprefix("data: ")
+        )
+        assert event["latest_user_timestamp"] == peer_prompt.timestamp.isoformat()
+    finally:
+        response.close()
+
+
 def test_v2_api_root(client: FlaskClient, monkeypatch):
     """Test the V2 API root endpoint."""
     monkeypatch.setattr(
