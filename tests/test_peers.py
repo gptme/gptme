@@ -1,6 +1,7 @@
 """Real durable queue tests for local peer messages."""
 
 import os
+from collections.abc import Generator
 from pathlib import Path
 from uuid import UUID
 
@@ -167,3 +168,180 @@ def test_same_workspace_processes_not_deduplicated(
         finally:
             LogManager._platform_unlock(first)
             LogManager._platform_unlock(second)
+
+
+@pytest.fixture
+def external_peer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Path, None, None]:
+    """A separate process holds a real conversation lock outside our logs root."""
+    import subprocess
+    import sys
+
+    from gptme.hooks.workspace_agents import AgentInfo
+
+    if not Path("/proc/self/fd").is_dir():
+        pytest.skip("Cross-root process FD discovery requires procfs")
+    target = tmp_path / "other-root" / "external"
+    target.mkdir(parents=True)
+    (target / "conversation.jsonl").touch()
+    code = """
+import os, sys
+from pathlib import Path
+from gptme.logmanager import LogManager
+with (Path(sys.argv[1]) / '.lock').open('w+') as fd:
+    fd.write(str(os.getpid()))
+    fd.flush()
+    LogManager._platform_lock(fd)
+    print('ready', flush=True)
+    sys.stdin.read()
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", code, str(target)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as process:
+        try:
+            assert process.stdout is not None
+            assert process.stdout.readline().strip() == "ready"
+            agent = AgentInfo(pid=process.pid, runtime="gptme", cwd=str(tmp_path))
+            monkeypatch.setattr(
+                "gptme.hooks.workspace_agents.scan_agents", lambda **kwargs: [agent]
+            )
+            yield target
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+
+
+@pytest.mark.parametrize("steer", [True, False])
+def test_cross_root_discovery_and_name_delivery(
+    conversations: tuple[Path, Path], external_peer: Path, steer: bool
+) -> None:
+    sender, _ = conversations
+    peers = list_peers()
+    assert len(peers) == 1
+    assert peers[0]["log_dir"] == str(external_peer)
+    assert peers[0]["conversation_id"] == "external"
+    assert peers[0]["addressable"] is True
+    nonce = send_peer_message(
+        "external", "cross-root", sender_logdir=sender, branch="review", steer=steer
+    )
+    assert drain_peer_prompts(external_peer) == []
+    (message,) = drain_peer_prompts(external_peer, branch="review")
+    assert message.metadata is not None
+    assert message.metadata["peer_message_id"] == nonce
+
+
+def test_cross_root_absolute_delivery(conversations: tuple[Path, Path]) -> None:
+    sender, _ = conversations
+    target = sender.parent.parent / "separate-root" / "sender"
+    target.mkdir(parents=True)
+    (target / "conversation.jsonl").touch()
+    (sender / "conversation.jsonl").touch()
+    # Identical basenames in distinct roots are not the same conversation.
+    nonce = send_peer_message(str(target), "explicit path", sender_logdir=sender)
+    (message,) = drain_peer_prompts(target)
+    assert message.metadata is not None
+    assert message.metadata["peer_message_id"] == nonce
+    with pytest.raises(ValueError, match="same conversation"):
+        send_peer_message(str(sender), "self", sender_logdir=sender)
+
+
+@pytest.mark.parametrize(
+    "kind", ["directory", "symlink", "parent-symlink", "traversal", "log-symlink"]
+)
+def test_explicit_target_validation(
+    conversations: tuple[Path, Path], kind: str
+) -> None:
+    sender, target = conversations
+    (target / "conversation.jsonl").touch()
+    if kind == "directory":
+        path = sender.parent / "not-a-conversation"
+        path.mkdir()
+    elif kind == "symlink":
+        path = sender.parent / "alias"
+        path.symlink_to(target, target_is_directory=True)
+    elif kind == "parent-symlink":
+        alias = sender.parent / "alias"
+        alias.symlink_to(sender.parent, target_is_directory=True)
+        path = alias / "target"
+    elif kind == "traversal":
+        path = target / ".." / "target"
+    else:
+        path = sender.parent / "log-alias"
+        path.mkdir()
+        (path / "conversation.jsonl").symlink_to(target / "conversation.jsonl")
+    with pytest.raises(ValueError, match="conversation"):
+        send_peer_message(str(path), "no", sender_logdir=sender)
+    assert not get_prompt_queue_path(target).exists()
+
+
+def test_ambiguous_external_name_and_local_precedence(
+    conversations: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sender, target = conversations
+    peers = [
+        {
+            "conversation_id": "duplicate",
+            "log_dir": str(sender.parent / root / "duplicate"),
+            "addressable": True,
+        }
+        for root in ("run-a", "run-b")
+    ]
+    monkeypatch.setattr("gptme.peers.list_peers", lambda: peers)
+    with pytest.raises(ValueError, match="Ambiguous"):
+        send_peer_message("duplicate", "no", sender_logdir=sender)
+    for peer in peers:
+        peer["conversation_id"] = "target"
+    send_peer_message("target", "local wins", sender_logdir=sender)
+    assert len(drain_peer_prompts(target)) == 1
+
+
+def test_proc_fd_open_but_unlocked_is_not_a_peer(
+    conversations: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.hooks.workspace_agents import AgentInfo
+
+    target = tmp_path / "external-root" / "unlocked"
+    target.mkdir(parents=True)
+    agent = AgentInfo(pid=os.getpid(), runtime="gptme", cwd=str(tmp_path))
+    monkeypatch.setattr(
+        "gptme.hooks.workspace_agents.scan_agents", lambda **kwargs: [agent]
+    )
+    with (target / ".lock").open("w+") as fd:
+        fd.write(str(os.getpid()))
+        fd.flush()
+        assert list_peers() == []
+
+
+def test_local_discovery_survives_denied_procfs(
+    conversations: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.hooks.workspace_agents import AgentInfo
+    from gptme.logmanager import LogManager
+
+    _, target = conversations
+    pid = os.getpid()
+    agent = AgentInfo(pid=pid, runtime="gptme", cwd=str(target.parent))
+    monkeypatch.setattr(
+        "gptme.hooks.workspace_agents.scan_agents", lambda **kwargs: [agent]
+    )
+    original_iterdir = Path.iterdir
+
+    def iterdir(path: Path):
+        if str(path).startswith("/proc/"):
+            raise PermissionError("procfs denied")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    with (target / ".lock").open("w+") as fd:
+        fd.write(str(pid))
+        fd.flush()
+        LogManager._platform_lock(fd)
+        try:
+            peers = list_peers()
+            assert [peer["conversation_id"] for peer in peers] == ["target"]
+        finally:
+            LogManager._platform_unlock(fd)
