@@ -1842,6 +1842,48 @@ describe('useConversation', () => {
     expect(editMessageApi).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['equivalent timestamp', '2026-11-21T02:00:00.123456+00:00', '/workspace', 2],
+    ['different microsecond', '2026-11-21T02:00:00.123457+00:00', '/workspace', 1],
+    ['changed content', '2026-11-21T02:00:00.123456+00:00', '/other', 1],
+  ] as const)(
+    'revalidates a refused continuation after history refresh: %s',
+    async (_scenario, refreshedTimestamp, refreshedContent, stepCount) => {
+      conversations$.get('chat-placeholder')!.needsInitialStep.set(false);
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Run a tool' });
+      });
+      const log$ = conversations$.get('chat-placeholder')!.data.log;
+      const prompt = log$.get().at(-1)!;
+      act(() => {
+        eventHandlers!.onMessageAdded!({
+          role: 'tool',
+          content: '/workspace',
+          timestamp: '2026-11-21T02:00:00.123456Z',
+        });
+        eventHandlers!.onError!('Error code: 402 - Payment required');
+        const index = log$.get().findIndex((message) => message.role === 'tool');
+        log$[index].timestamp.set(refreshedTimestamp);
+        log$[index].content.set(refreshedContent);
+      });
+      const history = log$
+        .get()
+        .map(({ role, content, timestamp }) => ({ role, content, timestamp }));
+      await act(async () => {
+        await result.current.retryMessage(
+          log$.get().find((message) => message.timestamp === prompt.timestamp)!
+        );
+      });
+      expect(step).toHaveBeenCalledTimes(stepCount);
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      expect(
+        log$.get().map(({ role, content, timestamp }) => ({ role, content, timestamp }))
+      ).toEqual(history);
+      expect(editMessageApi).not.toHaveBeenCalled();
+    }
+  );
+
   it('does not resurrect a superseded step owner after the newer HTTP acknowledgment', async () => {
     const conv$ = conversations$.get('chat-placeholder')!;
     conv$.needsInitialStep.set(false);

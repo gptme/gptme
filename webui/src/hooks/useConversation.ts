@@ -1011,11 +1011,17 @@ export function useConversation(conversationId: string, serverId?: string) {
       const sameRefusedTurn =
         index >= 0 &&
         continuation !== undefined &&
-        JSON.stringify(
-          trailing
-            .slice(0, continuation.length)
-            .map(({ role, content, timestamp }) => ({ role, content, timestamp }))
-        ) === JSON.stringify(continuation) &&
+        trailing.length >= continuation.length &&
+        continuation.every((saved, offset) => {
+          const current = trailing[offset];
+          // A history refresh can reserialize the same instant. Preserve
+          // microsecond identity and exact content without rewriting history.
+          return (
+            current.role === saved.role &&
+            current.content === saved.content &&
+            (current.timestamp === saved.timestamp || sameLogMessage(current, saved))
+          );
+        }) &&
         trailing
           .slice(continuation.length)
           .every(
