@@ -54,6 +54,16 @@ This is deliberate. A total-length cap would subtract the marker from the
 content budget, and at a small configured limit the marker would crowd out the
 content and the recovery path. The MCP bound below uses the same rule.
 
+Model-facing converter failure diagnostics now use the same private whole-text
+writer before shortening stderr to their existing 200/300-character head or tail. When a
+conversation logdir exists, the marker names `tool-outputs/convert/`; without a
+logdir or after a failed save, the preview still reports omitted characters but
+makes no saved-file claim. Short diagnostics are unchanged. This retains the
+supplied UTF-8-decoded stderr, not raw bytes, stdout, or successful-conversion
+logs. Logger-only fallback diagnostics are unchanged. It does not bound
+subprocess capture memory, add streaming, or redact
+converter diagnostics; the private file and re-read contents remain untrusted.
+
 **Request:** [gptme/gptme#4663](https://github.com/gptme/gptme/issues/4663).
 
 **Source inventory:** `15f20e44c96acdd035da81213b9e9f5bb54ac98d` (2026-10-30).

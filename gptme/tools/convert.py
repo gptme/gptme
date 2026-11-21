@@ -42,6 +42,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _diagnostic_preview(
+    stderr: bytes, converter: str, limit: int, *, tail: bool = False
+) -> str:
+    """Spill supplied stderr before shortening; this is not streaming capture.
+
+    The character limit counts retained diagnostic text, with the recovery marker
+    added on top. The generic writer does not redact converter diagnostics.
+    """
+    text = stderr.decode(errors="replace")
+    if len(text) <= limit:
+        return text
+    saved_path = None
+    try:
+        from ..logmanager import LogManager
+        from ..util.output_storage import save_large_output
+
+        manager = LogManager.get_current_log()
+        if manager and manager.logdir:
+            _, saved_path = save_large_output(
+                content=text,
+                logdir=manager.logdir,
+                output_type="convert",
+                command_info=f"{converter} stderr",
+            )
+    except Exception as exc:
+        logger.warning("Could not save converter diagnostic: %s", exc)
+    preview = text[-limit:] if tail else text[:limit]
+    marker = f"[... {len(text) - limit} diagnostic characters omitted"
+    if saved_path:
+        marker += f", full stderr saved to {saved_path}"
+    marker += "]"
+    return f"{marker}\n{preview}" if tail else f"{preview}\n{marker}"
+
+
 def _arg(path: Path) -> str:
     """Render a path as a subprocess argument that cannot be read as an option.
 
@@ -492,7 +526,7 @@ class PDFToImageConverter(Converter):
                 success=False,
                 output_path=None,
                 converter_used="imagemagick",
-                error=result.stderr.decode(errors="replace")[:300],
+                error=_diagnostic_preview(result.stderr, "imagemagick", 300),
                 warnings=warnings,
             )
 
@@ -672,7 +706,7 @@ class ImageConverter(Converter):
                 success=False,
                 output_path=None,
                 converter_used="imagemagick",
-                error=result.stderr.decode(errors="replace")[:300],
+                error=_diagnostic_preview(result.stderr, "imagemagick", 300),
             )
 
         return ConversionResult(
@@ -754,7 +788,7 @@ class PDFToTextConverter(Converter):
                 success=False,
                 output_path=None,
                 converter_used="pdftotext",
-                error=result.stderr.decode(errors="replace")[:300],
+                error=_diagnostic_preview(result.stderr, "pdftotext", 300),
                 warnings=warnings,
             )
 
@@ -967,8 +1001,17 @@ class DocumentToTextConverter(Converter):
                             converter_used="libreoffice",
                             warnings=warnings,
                         )
-                warnings.append(
-                    f"libreoffice failed: {result.stderr.decode(errors='replace')[:200]}"
+                return ConversionResult(
+                    success=False,
+                    output_path=None,
+                    converter_used="libreoffice",
+                    error=(
+                        "libreoffice completed but produced no output: "
+                        if result.returncode == 0
+                        else "libreoffice failed: "
+                    )
+                    + _diagnostic_preview(result.stderr, "libreoffice", 200),
+                    warnings=warnings,
                 )
 
         if (
@@ -1058,7 +1101,7 @@ class VideoThumbnailConverter(Converter):
             success=False,
             output_path=None,
             converter_used="ffmpeg",
-            error=result.stderr.decode(errors="replace")[-300:],
+            error=_diagnostic_preview(result.stderr, "ffmpeg", 300, tail=True),
         )
 
 
