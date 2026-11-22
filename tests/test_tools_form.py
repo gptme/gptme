@@ -10,6 +10,19 @@ from gptme.tools import init_tools
 from gptme.tools.form import execute_form, parse_field, parse_form_content
 
 
+@pytest.fixture(autouse=True)
+def cli_elicit_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the tool through ``elicit()``'s terminal fallback (no hooks, a TTY)."""
+    monkeypatch.setattr("gptme.hooks.get_hooks", lambda *a, **k: [])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+
+def _install_elicit_hook(monkeypatch: pytest.MonkeyPatch, func) -> None:
+    """Install ``func`` as the only ELICIT hook, like the TUI or server do."""
+    hook = SimpleNamespace(name="test_elicit", enabled=True, func=func)
+    monkeypatch.setattr("gptme.hooks.get_hooks", lambda *a, **k: [hook])
+
+
 def test_parse_field_text():
     """Test parsing a simple text field."""
     field = parse_field("name: What is your name?")
@@ -194,9 +207,8 @@ def test_execute_mixed_field_controls(
     monkeypatch: pytest.MonkeyPatch, input_format: str
 ) -> None:
     responses = iter(["demo", "12"])
-    monkeypatch.setattr(
-        "questionary.text", lambda *a, **k: SimpleNamespace(ask=lambda: next(responses))
-    )
+    # elicit()'s terminal fallback reads text/number fields with input()
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(responses))
     select = Mock(return_value=SimpleNamespace(ask=lambda: "https://example.test"))
     monkeypatch.setattr("questionary.select", select)
     monkeypatch.setattr(
@@ -218,5 +230,59 @@ def test_execute_mixed_field_controls(
         "confirm": False,
     }
     select.assert_called_once_with(
-        "Target", choices=["https://example.test", "/tmp/data"], use_shortcuts=True
+        "Target",
+        choices=["https://example.test", "/tmp/data"],
+        default=None,
+        use_shortcuts=True,
     )
+
+
+def test_form_uses_elicit_hook(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registered ELICIT hook (TUI, server) receives the whole form at once."""
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    seen = []
+
+    def hook(request):
+        seen.append(request)
+        return ElicitationResponse.text(json.dumps({"name": "demo", "ok": True}))
+
+    _install_elicit_hook(monkeypatch, hook)
+    monkeypatch.setattr(
+        "builtins.input", Mock(side_effect=AssertionError("must not prompt"))
+    )
+    messages = list(execute_form("name: Name?\nok: Proceed? [yes/no]", None, None))
+    assert messages[0].content == (
+        'Form submitted:\n```json\n{\n  "name": "demo",\n  "ok": true\n}\n```'
+    )
+    (request,) = seen
+    assert request.type == "form"
+    assert [(f.name, f.type, f.default, f.required) for f in request.fields or []] == [
+        ("name", "text", None, False),
+        ("ok", "boolean", False, True),
+    ]
+
+
+@pytest.mark.parametrize("declined", [False, True])
+def test_form_hook_cancel_or_decline(
+    monkeypatch: pytest.MonkeyPatch, declined: bool
+) -> None:
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    response = ElicitationResponse() if declined else ElicitationResponse.cancel()
+    _install_elicit_hook(monkeypatch, lambda request: response)
+    messages = list(execute_form("name: Name?", None, None))
+    assert [m.content for m in messages] == ["Form cancelled"]
+
+
+@pytest.mark.parametrize("payload", ["not json", "[1, 2]"])
+def test_form_hook_invalid_payload(
+    monkeypatch: pytest.MonkeyPatch, payload: str
+) -> None:
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    _install_elicit_hook(monkeypatch, lambda request: ElicitationResponse.text(payload))
+    messages = list(execute_form("name: Name?", None, None))
+    assert [m.content for m in messages] == [
+        "Error during form input: invalid form response"
+    ]

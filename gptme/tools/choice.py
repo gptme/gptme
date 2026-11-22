@@ -5,6 +5,7 @@ Gives the assistant the ability to present multiple-choice options to the user f
 import re
 from collections.abc import Generator
 
+from ..hooks.elicitation import ElicitationRequest, elicit
 from ..message import Message
 from .base import (
     Parameter,
@@ -114,19 +115,6 @@ def execute_choice(
         yield Message("system", "No options provided for selection")
         return
 
-    # Import questionary here to handle import errors gracefully
-    try:
-        import questionary
-    except ImportError:
-        from ..util.install import get_package_install_command
-
-        install_cmd = get_package_install_command("questionary")
-        yield Message(
-            "system",
-            f"questionary library not available. Please install it with: {install_cmd}",
-        )
-        return
-
     # Strip out 1., 2., 3., etc numbers from options if they are present
     def _strip_numbering(opt: str) -> str:
         """Strip leading '1.', '2.' etc numbering from option text."""
@@ -134,25 +122,30 @@ def execute_choice(
 
     options = [_strip_numbering(opt) if opt and opt.strip() else opt for opt in options]
 
-    # Create the interactive selection
+    # Ask through the elicitation hooks so every surface (CLI, TUI, server/web UI)
+    # renders the question in its own UI instead of the tool prompting the
+    # terminal directly.
     try:
-        # Use questionary to create interactive selection
-        selection = questionary.select(
-            question or DEFAULT_QUESTION,
-            choices=options,
-            use_shortcuts=True,  # Allow number shortcuts
-        ).ask()
-
-        if selection is None:
-            yield Message("system", "Selection cancelled")
-            return
-
-        yield Message("system", f"User selected: {selection}")
-
+        response = elicit(
+            ElicitationRequest(
+                type="choice",
+                prompt=question or DEFAULT_QUESTION,
+                options=options,
+            )
+        )
     except (KeyboardInterrupt, EOFError):
         yield Message("system", "Selection cancelled")
+        return
     except Exception as e:
         yield Message("system", f"Error during selection: {e}")
+        return
+
+    # ``value is None`` covers a declined (not cancelled) response from the server
+    if response.cancelled or response.value is None:
+        yield Message("system", "Selection cancelled")
+        return
+
+    yield Message("system", f"User selected: {response.value}")
 
 
 tool_choice = ToolSpec(

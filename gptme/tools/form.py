@@ -9,6 +9,7 @@ import json
 import re
 from collections.abc import Generator
 
+from ..hooks.elicitation import ElicitationRequest, FormField, elicit
 from ..message import Message
 from .base import (
     Parameter,
@@ -153,6 +154,29 @@ def parse_form_content(content: str) -> list[dict]:
     return fields
 
 
+def _to_form_field(field: dict) -> FormField:
+    """Convert a parsed field spec into an elicitation ``FormField``."""
+    field_type = field["type"]
+    if field_type == "select":
+        return FormField(
+            name=field["name"],
+            prompt=field["prompt"],
+            type="choice",
+            options=field["options"],
+        )
+    if field_type == "boolean":
+        # Unanswered booleans default to "no", never an implicit approval
+        return FormField(
+            name=field["name"], prompt=field["prompt"], type="boolean", default=False
+        )
+    if field_type == "number":
+        return FormField(name=field["name"], prompt=field["prompt"], type="number")
+    # Text fields may be left empty
+    return FormField(
+        name=field["name"], prompt=field["prompt"], type="text", required=False
+    )
+
+
 def execute_form(
     code: str | None,
     args: list[str] | None,
@@ -170,67 +194,37 @@ def execute_form(
         yield Message("system", "No valid fields found in form definition")
         return
 
-    # Import questionary here to handle import errors gracefully
+    # Ask through the elicitation hooks so every surface (CLI, TUI, server/web UI)
+    # renders the form in its own UI instead of the tool prompting the terminal.
+    request = ElicitationRequest(
+        type="form",
+        prompt="",
+        fields=[_to_form_field(field) for field in fields],
+    )
     try:
-        import questionary
-    except ImportError:
-        from ..util.install import get_package_install_command
-
-        install_cmd = get_package_install_command("questionary")
-        yield Message(
-            "system",
-            f"questionary library not available. Please install it with: {install_cmd}",
-        )
-        return
-
-    results: dict = {}
-
-    try:
-        for field in fields:
-            name = field["name"]
-            prompt = field["prompt"]
-            field_type = field["type"]
-
-            if field_type == "select":
-                value = questionary.select(
-                    prompt,
-                    choices=field["options"],
-                    use_shortcuts=True,
-                ).ask()
-            elif field_type == "boolean":
-                value = questionary.confirm(prompt, default=False).ask()
-            elif field_type == "number":
-                while True:
-                    value_str = questionary.text(prompt).ask()
-                    if value_str is None:
-                        value = None
-                        break
-                    try:
-                        # Try int first, then float
-                        if "." in value_str:
-                            value = float(value_str)
-                        else:
-                            value = int(value_str)
-                        break
-                    except ValueError:
-                        questionary.print("Please enter a valid number")
-            else:  # text
-                value = questionary.text(prompt).ask()
-
-            if value is None:
-                yield Message("system", "Form cancelled")
-                return
-
-            results[name] = value
-
-        # Format results as JSON
-        results_json = json.dumps(results, indent=2)
-        yield Message("system", f"Form submitted:\n```json\n{results_json}\n```")
-
+        response = elicit(request)
     except (KeyboardInterrupt, EOFError):
         yield Message("system", "Form cancelled")
+        return
     except Exception as e:
         yield Message("system", f"Error during form input: {e}")
+        return
+
+    if response.cancelled or response.value is None:
+        yield Message("system", "Form cancelled")
+        return
+
+    try:
+        results = json.loads(response.value)
+    except json.JSONDecodeError:
+        yield Message("system", "Error during form input: invalid form response")
+        return
+    if not isinstance(results, dict):
+        yield Message("system", "Error during form input: invalid form response")
+        return
+
+    results_json = json.dumps(results, indent=2)
+    yield Message("system", f"Form submitted:\n```json\n{results_json}\n```")
 
 
 tool_form = ToolSpec(

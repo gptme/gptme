@@ -11,6 +11,20 @@ from gptme.tools.choice import (
     parse_options_from_kwargs,
 )
 
+
+@pytest.fixture(autouse=True)
+def cli_elicit_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the tool through ``elicit()``'s terminal fallback (no hooks, a TTY)."""
+    monkeypatch.setattr("gptme.hooks.get_hooks", lambda *a, **k: [])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+
+def _install_elicit_hook(monkeypatch: pytest.MonkeyPatch, func) -> None:
+    """Install ``func`` as the only ELICIT hook, like the TUI or server do."""
+    hook = SimpleNamespace(name="test_elicit", enabled=True, func=func)
+    monkeypatch.setattr("gptme.hooks.get_hooks", lambda *a, **k: [hook])
+
+
 # --- parse_options_from_content ---
 
 
@@ -207,7 +221,9 @@ def test_execute_preserves_labels(
                 {"question": "Pick one?", "options": separator.join(options)},
             )
         )
-    select.assert_called_once_with("Pick one?", choices=expected, use_shortcuts=True)
+    select.assert_called_once_with(
+        "Pick one?", choices=expected, default=None, use_shortcuts=True
+    )
     assert [message.content for message in messages] == [
         f"User selected: {expected[0]}"
     ]
@@ -243,6 +259,50 @@ def test_execute_blank_options_does_not_prompt(
     assert [message.content for message in messages] == [
         "No options provided for selection"
     ]
+
+
+# --- Routing through elicit() hooks ---
+
+
+def test_choice_uses_elicit_hook(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registered ELICIT hook (TUI, server) answers; questionary is never touched."""
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    seen = []
+
+    def hook(request):
+        seen.append(request)
+        return ElicitationResponse.text("Beta")
+
+    _install_elicit_hook(monkeypatch, hook)
+    monkeypatch.setattr(
+        "questionary.select", Mock(side_effect=AssertionError("must not prompt"))
+    )
+    messages = list(execute_choice("Pick one?\n1. Alpha\n2. Beta", None, None))
+    assert [m.content for m in messages] == ["User selected: Beta"]
+    assert len(seen) == 1
+    assert seen[0].type == "choice"
+    assert seen[0].prompt == "Pick one?"
+    assert seen[0].options == ["Alpha", "Beta"]
+
+
+@pytest.mark.parametrize("declined", [False, True])
+def test_choice_hook_cancel_or_decline(
+    monkeypatch: pytest.MonkeyPatch, declined: bool
+) -> None:
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    # The server reports a declined request as a non-cancelled response without value
+    response = ElicitationResponse() if declined else ElicitationResponse.cancel()
+    _install_elicit_hook(monkeypatch, lambda request: response)
+    messages = list(execute_choice("Pick one?\nA\nB", None, None))
+    assert [m.content for m in messages] == ["Selection cancelled"]
+
+
+def test_choice_without_hook_or_tty_cancels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    messages = list(execute_choice("Pick one?\nA\nB", None, None))
+    assert [m.content for m in messages] == ["Selection cancelled"]
 
 
 # --- Tool registration ---
