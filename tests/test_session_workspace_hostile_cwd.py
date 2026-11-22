@@ -55,6 +55,7 @@ CHILD = textwrap.dedent(
     def session(name):
         ws = ROOT / name
         out = results[name]
+        shell = None
         try:
             set_workspace_cwd(str(ws))
             shell = get_shell()
@@ -102,6 +103,9 @@ CHILD = textwrap.dedent(
         except BaseException as e:  # noqa: BLE001
             errors[name] = repr(e)
             barrier.abort()
+        finally:
+            if shell is not None:
+                shell.close()
 
     threads = []
     for name in SESSIONS:
@@ -137,8 +141,13 @@ def _run_child(tmp_path: Path, mutate: str = "") -> dict:
     (host / "saved.txt").write_text("HOST SAVED\n")
     (host / "deep.txt").write_text("HOST DEEP\n")
 
+    shell_tmp = tmp_path / "shell-tmp"
+    shell_tmp.mkdir()
     env = {
         **os.environ,
+        "TMPDIR": str(shell_tmp),
+        "TEMP": str(shell_tmp),
+        "TMP": str(shell_tmp),
         "GPTME_SHELL_MEMORY_GUARD": "0",
         "GPTME_SANDBOX": "none",
         "GPTME_PYTHON_KERNEL": "0",
@@ -153,6 +162,7 @@ def _run_child(tmp_path: Path, mutate: str = "") -> dict:
         timeout=180,
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
+    assert not list(shell_tmp.glob("gptme-shell-state-*")), "shell state files leaked"
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     payload["root"], payload["host"] = str(root), str(host)
     return payload
