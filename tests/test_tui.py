@@ -4384,6 +4384,43 @@ async def test_stream_marks_text_like_the_finished_message(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_stream_mount_replay_does_not_wait_for_a_screen_refresh(
+    tmp_path, monkeypatch
+):
+    """The replay of tokens buffered before mount must run in the widget's own
+    queue, not behind the screen's next refresh (gptme/gptme#5053).
+
+    CI saw `has-text` missing because a refresh-driven callback can land after
+    the test's pause under load. Make every refresh-driven callback a no-op
+    here: the class must still be set once the widget processed its own queue.
+    """
+    deferred: list[object] = []
+
+    def _defer(self, callback, *args, **kwargs):
+        deferred.append(callback)
+
+    monkeypatch.setattr(StreamingMessage, "call_after_refresh", _defer)
+    for show_thinking in (False, True):
+        app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+        app.show_thinking = show_thinking
+        async with app.run_test() as pilot:
+            app._begin_stream()
+            app._on_stream_token(" thinkinghm</think>The answer")
+            app._flush_stream()
+            await pilot.pause()
+            widget = app._stream_widget
+            assert widget is not None
+            assert widget.has_class("has-text"), show_thinking
+            # Textual itself defers some work this way; only the replay matters.
+            assert not [
+                cb
+                for cb in deferred
+                if getattr(cb, "__self__", None) is widget
+                and getattr(cb, "__name__", "") == "_update_hidden_segments"
+            ], "mount replay waited on a screen refresh"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("delivery", ["send", "steer"])
 @pytest.mark.parametrize("explicit", [False, True])
 async def test_prompt_attachment_policy_at_delivery(
