@@ -80,9 +80,7 @@ class ToolExecution:
     started_at: float | None = None
     branch: str = "main"
     # Timestamp of the assistant message that requested this tool. Used to
-    # target the correct message when persisting timing data, since by the
-    # time execution completes a later assistant message may already exist
-    # (see _attach_tool_timings in session_step.py).
+    # rebind parser provenance and find the call's position for result metadata.
     assistant_msg_timestamp: datetime | None = None
     # Request-scoped response limit from the originating /step call. Forwarded
     # through confirm/edit/skip continuations so a later provider call still

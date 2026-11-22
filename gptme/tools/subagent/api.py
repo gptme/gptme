@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
 
@@ -68,6 +68,9 @@ from .types import (
     update_subagent_result_with_branch,
 )
 
+if TYPE_CHECKING:
+    from ...message import Message
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,6 +89,45 @@ def _caller_owner() -> Path | None:
     log = LogManager.get_current_log()
     logdir = getattr(log, "logdir", None) if log is not None else None
     return Path(logdir).resolve() if logdir is not None else None
+
+
+def _without_in_flight_step(msgs: list["Message"]) -> list["Message"]:
+    """Drop the parent step that is running this ``subagent()`` call.
+
+    Chat loops persist a reply before running its tools (#4956), so the parent
+    log ends with the reply carrying this very call (and, on the server path,
+    results of earlier calls from the same reply) but not this call's result.
+    Forwarding it would hand the child an unanswered tool call: native-tool
+    providers reject the request (``tool_use`` without ``tool_result``), and in
+    any format the child would see an instruction to spawn itself.
+    """
+    from ...tools import ToolUse  # fmt: skip
+
+    for i in range(len(msgs) - 1, -1, -1):
+        # A newer user turn is never part of the launching step. Buffered
+        # step() consumers and direct callers may not have logged that step.
+        if msgs[i].role == "user":
+            break
+        if msgs[i].role != "assistant":
+            continue
+        results = msgs[i + 1 :]
+        result_ids = {msg.call_id for msg in results if msg.call_id}
+        result_indices = {(msg.metadata or {}).get("tool_call") for msg in results}
+        for index, tooluse in enumerate(
+            ToolUse.iter_from_content(
+                msgs[i].content,
+                # step() records the parser the reply was executed with.
+                (msgs[i].metadata or {}).get("tool_format"),
+            )
+        ):
+            if tooluse.call_id:
+                completed = tooluse.call_id in result_ids
+            else:
+                completed = index in result_indices
+            if (tooluse.is_runnable or tooluse.call_id) and not completed:
+                return msgs[:i]
+        break
+    return msgs
 
 
 def _find_subagent(
@@ -760,7 +802,7 @@ def subagent(
     parent_messages = None
     if context_turns is not None:
         if parent_log is not None:
-            msgs = parent_log.log
+            msgs = _without_in_flight_step(list(parent_log.log))
             # Slice from the N-th-from-last user message so tool-result system
             # messages within a turn are included and the count is exact.
             # Fallback to user_indices[0] (not 0) so leading system bootstrap
@@ -788,7 +830,7 @@ def subagent(
     fork_messages = None
     if context_mode == "fork":
         if parent_log is not None:
-            fork_messages = list(parent_log.log)
+            fork_messages = _without_in_flight_step(list(parent_log.log))
         else:
             logger.warning(
                 "context_mode='fork' set but no active LogManager found; "

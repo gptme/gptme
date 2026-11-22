@@ -1,6 +1,7 @@
 """TUI retry boundaries discard previews, not committed conversation state."""
 
 import asyncio
+import importlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -258,3 +259,160 @@ async def test_real_recovery_exhaustion_or_backoff_cancel_never_completes(
         terminal = read_skill_events(manager.logdir)[-1]
         assert terminal.phase == ("abandoned" if cancel_backoff else "failed")
         assert terminal.error_type == (None if cancel_backoff else "Timeout")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answered", [False, True])
+async def test_cancel_after_persisting_reply_pairs_native_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answered: bool
+) -> None:
+    """Cancellation in the before-tools UI callback bypasses execute_msg's handler."""
+    from gptme.constants import INTERRUPT_CONTENT
+    from gptme.tools import init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+    manager = LogManager(
+        [Message("user", "work")], logdir=tmp_path / "conversation", lock=False
+    )
+    app = GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+    reply = Message(
+        "assistant",
+        '@shell(call_1): {"command": "pwd"}\n@shell(call_2): {"command": "pwd"}',
+        metadata={"tool_format": "tool"},
+    )
+    # gptme.chat is lazily exported as the chat() function, so a dotted-string
+    # target can resolve to the function instead of the module.
+    monkeypatch.setattr(
+        importlib.import_module("gptme.chat"), "reply", lambda *a, **kw: reply
+    )
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr(app, "_restore_terminal", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+    displayed: list[Message] = []
+
+    call_from_thread = app.call_from_thread
+
+    def cancel_before_execution(callback: Any, *args: Any, **kwargs: Any) -> Any:
+        if callback == app._on_before_tool_execution:
+            assert manager.log[-1].content == reply.content
+            if answered:
+                # Results already committed before an interrupt must not be duplicated.
+                for call_id in ("call_1", "call_2"):
+                    manager.append(Message("system", "completed", call_id=call_id))
+            # Inject into the worker, not the UI event handler: this is the
+            # same boundary action_interrupt can reach while waiting for UI.
+            raise KeyboardInterrupt
+        return call_from_thread(callback, *args, **kwargs)
+
+    monkeypatch.setattr(app, "call_from_thread", cancel_before_execution)
+    monkeypatch.setattr(app, "_on_step_message", displayed.append)
+    async with app.run_test():
+        await asyncio.to_thread(app._generation_body)
+        assert not app._in_step
+        assert app._terminal_outcome == "idle"
+        assert [m.content for m in displayed if m.role == "assistant"] == [
+            reply.content
+        ]
+        assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
+        assert sum(m.content == INTERRUPT_CONTENT for m in manager.log) == 1
+        assert displayed[-1].content == INTERRUPT_CONTENT
+        if not answered:
+            assert [m.call_id for m in displayed if m.call_id] == ["call_1", "call_2"]
+        manager.append(Message("user", "continue"))
+        reloaded = LogManager.load(manager.logdir, lock=False)
+        assert [m.call_id for m in reloaded.log if m.call_id] == ["call_1", "call_2"]
+        assert reloaded.log[-1].content == "continue"
+
+
+@pytest.mark.parametrize("answered", [False, True])
+def test_tui_resume_pairs_crashed_tool_call_before_accepting_prompt(
+    tmp_path: Path, answered: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Repair saved native calls before a new user prompt hides the trailing step."""
+    messages = [
+        Message("user", "work"),
+        Message(
+            "assistant",
+            '@shell(call_1): {"command": "sleep 99"}',
+            metadata={"tool_format": "tool"},
+        ),
+    ]
+    if answered:
+        messages.append(Message("system", "completed", call_id="call_1"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+
+    capsys.readouterr()
+    GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+    # Construction precedes on_mount's stdout redirection. Recovery belongs
+    # in the transcript/UI, not as stray output on the raw terminal.
+    assert capsys.readouterr().out == ""
+
+    results = [m for m in manager.log if m.call_id == "call_1"]
+    assert len(results) == 1
+    assert results[0].role == "system"
+    if answered:
+        assert len(manager.log) == 3
+        assert results[0].content == "completed"
+    else:
+        from gptme.constants import INTERRUPT_CONTENT
+
+        assert "interrupted" in results[0].content
+        assert manager.log[-1].content == INTERRUPT_CONTENT
+        reloaded = LogManager.load(manager.logdir, lock=False)
+        assert reloaded.log[-2].call_id == "call_1"
+        assert reloaded.log[-1].content == INTERRUPT_CONTENT
+        # Reopening the same conversation must not synthesize duplicate results.
+        GptmeApp(reloaded, workspace=tmp_path, tool_format="tool")
+        assert len(reloaded.log) == 4
+
+
+@pytest.mark.asyncio
+async def test_tool_internal_interrupt_returns_tui_to_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The executor's caught interrupt must stop the TUI without a step cap."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import INTERRUPT_CONTENT
+    from gptme.tools import ToolUse, init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(allowlist=["shell"])
+    set_tool_format("tool")
+    manager = LogManager(
+        [Message("user", "work")], logdir=tmp_path / "conversation", lock=False
+    )
+    app = GptmeApp(manager, workspace=tmp_path, tool_format="tool")
+    reply = Message(
+        "assistant",
+        '@shell(call_1): {"command": "sleep 99"}\n@shell(call_2): {"command": "pwd"}',
+        metadata={"tool_format": "tool"},
+    )
+    replies = 0
+
+    def reply_once(*args: Any, **kwargs: Any) -> Message:
+        nonlocal replies
+        replies += 1
+        assert replies == 1, "Tool interruption must not generate another reply"
+        return reply
+
+    def interrupted_tool(self: ToolUse, **kwargs: Any) -> Iterator[Message]:
+        raise KeyboardInterrupt
+        yield
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "reply", reply_once)
+    monkeypatch.setattr(ToolUse, "execute", interrupted_tool)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setattr("gptme.tui.app.maybe_start_auto_naming", lambda *a: None)
+    monkeypatch.setattr(app, "_restore_terminal", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+    async with app.run_test():
+        await asyncio.to_thread(app._generation_body)
+        assert replies == 1
+        assert app._terminal_outcome == "idle"
+        assert _should_prompt_for_input(manager.log)
+        assert [m.call_id for m in manager.log if m.call_id] == ["call_1", "call_2"]
+        assert manager.log[-1].content == INTERRUPT_CONTENT
+        assert manager.log[-1].call_id is None
+        assert _should_prompt_for_input(LogManager.load(manager.logdir, lock=False).log)

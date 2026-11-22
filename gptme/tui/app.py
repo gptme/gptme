@@ -60,7 +60,12 @@ from textual.widgets import (
 from textual.widgets.text_area import Edit, EditResult, Selection
 from textual.worker import Worker, WorkerState
 
-from ..chat import maybe_start_auto_naming, step
+from ..chat import (
+    StepPersister,
+    _close_interrupted_tool_calls,
+    maybe_start_auto_naming,
+    step,
+)
 from ..commands import execute_cmd, get_command_completer, get_user_commands
 from ..config import ChatConfig, get_config
 from ..constants import (
@@ -3081,6 +3086,9 @@ class GptmeApp(App):
             if not isinstance(filter_, ANSIToTruecolor)
         ]
         self.manager = manager
+        # Repair a process death before accepting another prompt: a new user
+        # message would hide the trailing unanswered native call from recovery.
+        _close_interrupted_tool_calls(manager, quiet=True)
         # Inspection never replaces the parent manager, context or widgets.
         self._child_view: Widget | None = None
         self._child_drafts: dict[str, tuple[str, Selection, dict[str, str]]] = {}
@@ -4821,6 +4829,16 @@ class GptmeApp(App):
     def _generation_body(self) -> None:
         """Runs the step loop until no more runnable tools."""
         manager = self.manager
+        persister = StepPersister(manager)
+        pending_reply: Message | None = None
+
+        def before_tools(msg: Message) -> None:
+            nonlocal pending_reply
+            # Persist the reply while its tools run, then update the view.
+            pending_reply = msg
+            persister.before_tools(msg)
+            self.call_from_thread(self._on_before_tool_execution, msg)
+
         max_steps: int | None = None
         if max_steps_str := os.environ.get("GPTME_MAX_STEPS"):
             with contextlib.suppress(ValueError):
@@ -4852,6 +4870,7 @@ class GptmeApp(App):
                     break
                 self.call_from_thread(self._begin_stream)
                 interrupted = False
+                interrupt_recorded = False
                 declined = False
                 response: Message | None = None
                 # Ctrl+C raises KeyboardInterrupt into this thread while in
@@ -4874,31 +4893,52 @@ class GptmeApp(App):
                             logdir=manager.logdir,
                             on_token=self._on_token,
                             on_thinking=self._on_thinking,
-                            on_before_tool_execution=lambda m: self.call_from_thread(
-                                self._on_before_tool_execution, m
-                            ),
+                            on_before_tool_execution=before_tools,
                         ):
                             # each yield may follow a tool execution that reset
                             # the tty (e.g. ipython init) — reassert raw mode
                             # immediately, not just at end of step, so later
                             # confirmations in the same step get a sane terminal
                             self._restore_terminal()
-                            manager.append(msg)
+                            persister.append(msg)
                             if msg.role == "assistant":
                                 response = msg
                             if msg.content == DECLINED_CONTENT:
                                 declined = True
+                            if (
+                                msg.role == "system"
+                                and not msg.call_id
+                                and (msg.metadata or {}).get("interrupt_marker") is True
+                            ):
+                                interrupted = True
+                                interrupt_recorded = True
                             self.call_from_thread(self._on_step_message, msg)
+                            if msg.role == "assistant":
+                                pending_reply = None
                 except KeyboardInterrupt:
                     interrupted = True
                 finally:
                     self._leave_step()
                     # tools (e.g. ipython) may have reset the tty out of raw mode
                     self._restore_terminal()
-                if interrupted:  # recorded outside the window Ctrl+C can reach
-                    msg = Message("system", INTERRUPT_CONTENT)
-                    manager.append(msg)
-                    self.call_from_thread(self._on_step_message, msg)
+                if interrupted and not interrupt_recorded:
+                    # Record outside the window Ctrl+C can reach. An executor
+                    # interrupt already yielded paired results and its marker.
+                    # Ctrl+C can hit after early persistence but before the
+                    # executor's own interrupt handler starts (e.g. waiting
+                    # for the before-tools UI callback). Pair those calls
+                    # before another user prompt hides the trailing reply.
+                    if pending_reply is not None:
+                        # The UI callback may not have run yet. The normal
+                        # step renderer also handles an already-rendered reply
+                        # without duplicating it.
+                        self.call_from_thread(self._on_step_message, pending_reply)
+                        pending_reply = None
+                    first_repair = len(manager.log)
+                    if not _close_interrupted_tool_calls(manager, quiet=True):
+                        manager.append(Message("system", INTERRUPT_CONTENT))
+                    for msg in manager.log.messages[first_repair:]:
+                        self.call_from_thread(self._on_step_message, msg)
 
                 if interrupted or declined:
                     # Back at the prompt waiting for the user, not done.
