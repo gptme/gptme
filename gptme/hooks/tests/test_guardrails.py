@@ -526,8 +526,8 @@ class TestGuardrailHookEnforceMode:
     def test_read_literal_traversal_uses_execution_workspace(
         self, monkeypatch, tmp_path
     ):
-        from ...tools import shell
         from ...tools.read import execute_read
+        from ...util import workspace
         from ..guardrails import guardrail_pre_hook
         from ..types import ToolExecutePreData
 
@@ -541,7 +541,7 @@ class TestGuardrailHookEnforceMode:
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
         monkeypatch.delenv("GPTME_READ_ROOT", raising=False)
         monkeypatch.chdir(server)
-        monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(home))
+        monkeypatch.setattr(workspace, "get_workspace_cwd", lambda: str(home))
         path = "work$/../.ssh/config"
         messages = list(execute_read(path, None, None))
         assert any("synthetic-secret" in message.content for message in messages)
