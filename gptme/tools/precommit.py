@@ -46,7 +46,10 @@ from ..logmanager import check_for_modifications
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.git_cmd import GIT_CMD
-from .base import ToolSpec, current_workspace
+from ..util.workspace import current_workspace
+from .base import (
+    ToolSpec,
+)
 
 if TYPE_CHECKING:
     from ..logmanager import Log, LogManager

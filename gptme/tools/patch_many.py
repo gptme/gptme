@@ -17,7 +17,11 @@ from typing import TYPE_CHECKING
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec, current_workspace, resolve_in_workspace
+from ..util.workspace import current_workspace, resolve_in_workspace
+from .base import (
+    Parameter,
+    ToolSpec,
+)
 from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 
 if TYPE_CHECKING:

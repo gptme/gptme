@@ -42,7 +42,11 @@ from typing import TYPE_CHECKING
 
 from ..hooks import HookType
 from ..message import Message
-from .base import Parameter, ToolSpec, current_workspace
+from ..util.workspace import current_workspace
+from .base import (
+    Parameter,
+    ToolSpec,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator

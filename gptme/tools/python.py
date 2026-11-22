@@ -59,13 +59,13 @@ from ..util.interrupt import (
     start_tracking,
     stop_tracking,
 )
+from ..util.workspace import current_workspace
 from . import get_tools
 from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
     callable_signature,
-    current_workspace,
 )
 
 if TYPE_CHECKING:
@@ -236,7 +236,7 @@ def _inprocess_session_cwd() -> Generator[None, None, None]:
     The lock is held only for this cell, not a model turn. Other threads can
     still observe the temporary cwd while a cell runs (gptme/gptme#4951).
     """
-    from .shell import get_workspace_cwd
+    from ..util.workspace import get_workspace_cwd
 
     if get_workspace_cwd() is None:
         yield

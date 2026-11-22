@@ -171,14 +171,14 @@ def test_new_session_launches_in_checked_directory(
     pane_tree, monkeypatch, use_workspace, session_name
 ):
     """The guard and a real tmux shell must agree even on an existing server."""
-    from gptme.tools import shell
     from gptme.tools.tmux import get_tmux_pane_cwd, new_session
+    from gptme.util import workspace
 
     process, _ = pane_tree
     session = process.parent / session_name
     session.mkdir()
     monkeypatch.setattr(
-        shell, "get_workspace_cwd", lambda: str(session) if use_workspace else None
+        workspace, "get_workspace_cwd", lambda: str(session) if use_workspace else None
     )
     directory = session if use_workspace else process
     (directory / "notes.txt").write_text("checked directory\n")
@@ -203,19 +203,19 @@ def test_new_session_checks_the_session_workspace(pane_tree, monkeypatch):
     A server serves several conversations and chdir's the whole process for one
     of them, so the process cwd names another conversation's directory.
     """
-    from gptme.tools import shell
+    from gptme.util import workspace
 
     process, _ = pane_tree
     session = process.parent / "session"
     (session / "config").mkdir(parents=True)
     (session / "config" / "client.pem").write_text("synthetic\n")
-    monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(session))
+    monkeypatch.setattr(workspace, "get_workspace_cwd", lambda: str(session))
     assert blocked(ToolUse("tmux", [], "new-session cat config/*"))
 
 
 def test_new_session_ignores_a_foreign_process_cwd(pane_tree, monkeypatch):
     """A secret in the process cwd but not the session workspace is not a hit."""
-    from gptme.tools import shell
+    from gptme.util import workspace
 
     process, _ = pane_tree
     session = process.parent / "session"
@@ -223,5 +223,5 @@ def test_new_session_ignores_a_foreign_process_cwd(pane_tree, monkeypatch):
     (session / "config" / "notes.txt").write_text("ordinary\n")
     (process / "config").mkdir()
     (process / "config" / "client.pem").write_text("synthetic\n")
-    monkeypatch.setattr(shell, "get_workspace_cwd", lambda: str(session))
+    monkeypatch.setattr(workspace, "get_workspace_cwd", lambda: str(session))
     assert not blocked(ToolUse("tmux", [], "new-session cat config/*"))

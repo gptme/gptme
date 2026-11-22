@@ -39,7 +39,10 @@ from ..lessons.selector import (
     refine_matches,
 )
 from ..message import Message
-from .base import ToolSpec, current_workspace
+from ..util.workspace import current_workspace
+from .base import (
+    ToolSpec,
+)
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager

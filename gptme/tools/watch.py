@@ -29,7 +29,11 @@ from uuid import uuid4
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec, current_workspace
+from ..util.workspace import current_workspace
+from .base import (
+    Parameter,
+    ToolSpec,
+)
 from .shell_validation import is_allowlisted, is_denylisted
 
 logger = logging.getLogger(__name__)

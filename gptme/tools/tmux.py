@@ -22,11 +22,11 @@ from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.output_storage import save_large_output
+from ..util.workspace import current_workspace
 from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
-    current_workspace,
 )
 
 logger = logging.getLogger(__name__)

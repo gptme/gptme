@@ -37,7 +37,7 @@ def _session_dir() -> str:
     directory (and inject its AGENTS.md) into the wrong conversation. CLI
     sessions have no session workspace and fall back to the process cwd.
     """
-    from ..tools.base import current_workspace  # tools import hooks
+    from ..util.workspace import current_workspace
 
     return str(current_workspace())
 

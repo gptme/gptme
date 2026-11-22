@@ -13,14 +13,13 @@ from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
 from ..util.file_write import write_text_preserving_original
+from ..util.workspace import current_workspace, resolve_in_workspace
 from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
-    current_workspace,
     file_newline,
     get_path,
-    resolve_in_workspace,
 )
 from .patch import Patch
 

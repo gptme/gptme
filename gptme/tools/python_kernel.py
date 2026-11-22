@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .base import current_workspace
+from ..util.workspace import current_workspace
 from .shell_memory import Target as MemoryTarget
 from .shell_memory import group_alive, kill_group
 from .shell_memory import watch as watch_memory
@@ -274,7 +274,7 @@ class BridgeServer:
                 try:
                     from gptme.message import Message
 
-                    from .base import current_workspace
+                    from ..util.workspace import current_workspace
 
                     # Helpers run in the host process: never change its global cwd
                     # for work that can outlive an interrupted kernel cell. They
@@ -928,7 +928,7 @@ class KernelBackend:
         """Execute a code cell and return captured outputs; None disables timeout."""
         self._ensure_started()
 
-        from .base import current_workspace
+        from ..util.workspace import current_workspace
 
         # A previous cell may itself have used %cd/os.chdir, so synchronize on
         # every execution, not only when the host directory changes. Use the

@@ -110,8 +110,13 @@ from enum import Enum
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Literal, TypedDict
 
+from ..util.workspace import current_workspace
 from ._computer_gate import action_risk_level, sensitive_action_gate
-from .base import ToolFunction, ToolSpec, ToolUse, current_workspace
+from .base import (
+    ToolFunction,
+    ToolSpec,
+    ToolUse,
+)
 from .computer_transport import ComputerTransport, _resize_image, get_transport
 from .screenshot import screenshot
 from .vision import view_image

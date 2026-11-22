@@ -15,14 +15,13 @@ from pathlib import Path
 from ..llm import _chat_complete, list_available_providers
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
+from ..util.workspace import current_workspace, resolve_in_workspace
 from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
-    current_workspace,
     file_newline,
     get_path,
-    resolve_in_workspace,
 )
 
 # Prompt from Morph Fast Apply v2 documentation

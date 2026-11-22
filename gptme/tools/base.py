@@ -46,6 +46,12 @@ if _LXML_AVAILABLE:
 from ..codeblock import Codeblock
 from ..message import Message
 from ..util import clean_example, transform_examples_to_chat_directives
+from ..util.workspace import (
+    current_workspace as current_workspace,
+)
+from ..util.workspace import (
+    resolve_in_workspace as resolve_in_workspace,
+)
 
 if TYPE_CHECKING:
     from ..hooks import HookFunc
@@ -1646,27 +1652,6 @@ def get_path(
         raise ValueError("No filename provided")
 
     return Path(fn).expanduser()
-
-
-def current_workspace() -> Path:
-    """The directory relative file paths resolve against in this context.
-
-    A server session sets a per-context workspace (``set_workspace_cwd``), so
-    concurrent conversations in one process each resolve relative paths in their
-    own workspace; everywhere else this is the process cwd, as before.
-    """
-    from .shell import get_workspace_cwd  # shell imports base
-
-    workspace = get_workspace_cwd()
-    return Path(workspace).resolve() if workspace else Path.cwd().resolve()
-
-
-def resolve_in_workspace(path: Path) -> Path:
-    """``path.expanduser().resolve()`` with relative paths anchored at :func:`current_workspace`."""
-    path = path.expanduser()
-    if not path.is_absolute():
-        path = current_workspace() / path
-    return path.resolve()
 
 
 def file_newline(path: Path) -> str:

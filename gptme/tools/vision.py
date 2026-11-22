@@ -12,7 +12,11 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from ..message import Message
-from .base import ToolFunction, ToolSpec, current_workspace, resolve_in_workspace
+from ..util.workspace import current_workspace, resolve_in_workspace
+from .base import (
+    ToolFunction,
+    ToolSpec,
+)
 
 # Track temp files for cleanup on exit
 _temp_files: list[Path] = []

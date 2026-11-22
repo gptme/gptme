@@ -40,7 +40,7 @@ def _without_inprocess_cwd_pin(fn: _F) -> _F:
     return wrapper  # type: ignore[return-value]
 
 
-from ..base import current_workspace, resolve_in_workspace
+from ...util.workspace import current_workspace, resolve_in_workspace
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .control import append_control_op, discard_control_ops

@@ -115,8 +115,13 @@ from ..util.gh import (
     parse_github_url,
     transform_github_url,
 )
+from ..util.workspace import current_workspace
 from ._url_safety import _validate_url_scheme
-from .base import ToolFunction, ToolSpec, ToolUse, current_workspace
+from .base import (
+    ToolFunction,
+    ToolSpec,
+    ToolUse,
+)
 
 _MAX_REDIRECT_HOPS = 10
 
