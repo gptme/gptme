@@ -19,7 +19,7 @@ const NATIVE_HEADER = /^@([^\r\n]+?)\(([\w.:-]+)\):[ \t]*(?=\{)/gm;
 
 /** Hold a trailing native header before `{` arrives. */
 const PARTIAL_NATIVE_HEADER =
-  /(?:^|\n)@(?:[^\r\n]*\([\w.:-]*\)?:?[ \t]*|[\w./:-]*\.[\w./:-]*|[\w.-]+)$/;
+  /(^|\n)@(?:[^\r\n]*\([\w.:-]*\)?:?[ \t]*|[\w./:-]*\.[\w./:-]*|[\w.-]*)$/;
 
 /** Native transcript syntax, excluding literal examples inside fenced blocks. */
 export function nativeToolCalls(content: string): NativeToolCall[] {
@@ -69,7 +69,10 @@ export function renderNativeToolCalls(content: string, streaming = false): strin
   if (streaming) {
     // The backend can flush a header before its opening JSON brace arrives.
     // Hold this suffix out of prose instead of flashing a long call ID.
-    content = content.replace(PARTIAL_NATIVE_HEADER, '');
+    // Keep the preceding newline: the held output must stay an append-only
+    // extension of what was already rendered, or ChatMessage rebuilds the
+    // parser and the painted reply tail is re-parsed mid-stream (#5023).
+    content = content.replace(PARTIAL_NATIVE_HEADER, '$1');
   }
   let output = '';
   let offset = 0;
