@@ -5310,3 +5310,16 @@ def test_autocompact_summarize_native_path_prepares_messages(monkeypatch):
         "stale startup prompt instead of the current instructions"
     )
     assert all(m.role != "system" for m in prepared[1:])
+
+
+def test_create_tool_result_summary_save_failure_is_honest(tmp_path):
+    """A failed save must not name a file and must not raise (#4663)."""
+    from unittest.mock import patch
+
+    with patch(
+        "gptme.util.output_storage.save_large_output", side_effect=OSError("disk full")
+    ):
+        summary = create_tool_result_summary("x" * 5000, 1500, tmp_path, "autocompact")
+    assert "could not be saved" in summary
+    assert "Full output saved to" not in summary
+    assert not (tmp_path / "tool-outputs").exists()

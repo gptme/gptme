@@ -448,14 +448,23 @@ def create_tool_result_summary(
         base_msg += "."
         return f"{base_msg} Output was automatically removed due to size to allow conversation continuation."
 
-    # Save the output
-    _, saved_path = save_large_output(
-        content=content,
-        logdir=logdir,
-        output_type=tool_name,
-        command_info=command_info,
-        original_tokens=original_tokens,
-    )
+    # Save the output. A failed save must not abort compaction or promise a
+    # file that does not exist: say the text was removed and not retained.
+    try:
+        _, saved_path = save_large_output(
+            content=content,
+            logdir=logdir,
+            output_type=tool_name,
+            command_info=command_info,
+            original_tokens=original_tokens,
+        )
+    except Exception as e:
+        logger.warning("Could not save removed %s output: %s", tool_name, e)
+        base_msg += "."
+        return (
+            f"{base_msg} Output was automatically removed due to size to allow "
+            "conversation continuation and could not be saved to a file."
+        )
 
     summary_msg = f"{base_msg}. Full output saved to: {saved_path}\nYou can read or grep this file if needed."
 
