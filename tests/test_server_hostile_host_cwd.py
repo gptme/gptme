@@ -100,6 +100,7 @@ CHILD = textwrap.dedent(
         ])
 
     barrier = threading.Barrier(len(NAMES))
+    overlapped = threading.Event()
 
     def mock_stream(messages, model, tools=None, max_tokens=None, temperature=None, top_p=None):
         cwd_seen.append(os.getcwd())
@@ -115,10 +116,16 @@ CHILD = textwrap.dedent(
             try:
                 barrier.wait(timeout=20)  # both generations in flight together
             except threading.BrokenBarrierError:
-                pass
+                errors["concurrency"] = "generations did not overlap at the barrier"
+                raise
+            overlapped.set()
             yield [script(name)]
         elif kind == "slow":
-            yield ["Sleeping.\n\n" + tool("shell", [], "sleep 8")]
+            # The real shell signals entry, then stays active until the driver
+            # releases it after /interrupt; no scheduling-dependent sleep.
+            yield ["Waiting.\n\n" + tool("shell", [],
+                "touch tool-started; for i in $(seq 1 600); do "
+                "test -f tool-release && break; sleep 0.1; done")]
         else:  # "resume"
             yield [tool("save", ["after.txt"], "after interrupt") ]
 
@@ -193,20 +200,35 @@ CHILD = textwrap.dedent(
                     },
                 )
                 assert r.status_code == 200, r.text
+            # A broken barrier must fail the driver, not silently serialize the
+            # workspace scripts (background generation errors aren't propagated).
+            deadline = time.monotonic() + 25
+            while not overlapped.wait(timeout=0.1):
+                assert not barrier.broken, errors
+                assert time.monotonic() < deadline, "generations never overlapped"
             for name in NAMES:
                 logs[name] = wait_done(convs[name], f"Done {name}")
+            assert not barrier.broken, errors
 
-            # Interrupt a long-running tool in b, then keep using the session.
+            # Interrupt a running tool in b, then keep using the session.
             send("b", "slow b")
-            wait_for(convs["b"], lambda log: any("sleep 8" in m["content"] for m in log))
-            time.sleep(1.5)  # let the shell tool actually start
-            r = http.post(
-                f"{BASE}/conversations/{convs['b']}/interrupt",
-                headers=H,
-                json={"session_id": sessions["b"]},
-            )
-            assert r.status_code == 200, r.text
-            time.sleep(1.0)
+            # A new step starts its shell at the configured workspace root.
+            started = ROOT / "b" / "tool-started"
+            release = ROOT / "b" / "tool-release"
+            try:
+                deadline = time.monotonic() + 30
+                while not started.exists():
+                    assert time.monotonic() < deadline, "shell tool never started"
+                    time.sleep(0.1)
+                r = http.post(
+                    f"{BASE}/conversations/{convs['b']}/interrupt",
+                    headers=H,
+                    json={"session_id": sessions["b"]},
+                )
+                assert r.status_code == 200, r.text
+                assert r.json()["message"] == "Interrupted", r.text
+            finally:
+                release.touch()
             send("b", "resume b")
             logs["b"] = wait_done(convs["b"], "Resumed b", timeout=60)
     except BaseException as e:  # noqa: BLE001
