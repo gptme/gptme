@@ -214,8 +214,10 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
     """EPIPE mid-payload must not re-send: the statement may have run.
 
     Tests the no-retry invariant directly: after BrokenPipeError fires on the
-    second write (the end-marker part of the shell protocol), the command bytes
-    must never be re-sent to the restarted shell's stdin.
+    second write (the rest of the shell protocol), the command bytes must never
+    be re-sent to the restarted shell's stdin. With the quoted eval transport,
+    bash is still parsing the argument at this point; the recovery path remains
+    conservative about any partial delivery.
 
     Whether bash actually executed the delivered command before being restarted
     is inherently racy (bash scheduling), so the assertion watches stdin writes
@@ -241,7 +243,7 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
         return bool(stdin) and not stdin.closed and fd == stdin.fileno()
 
     def write_fd(fd, data):
-        # First write: deliver through the command's newline (partial write).
+        # First write: deliver through the command text inside the payload.
         if fd == stdin_fd and not state["partial"]:
             state["partial"] = True
             end = data.index(cmd_bytes) + len(cmd_bytes) + 1

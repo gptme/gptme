@@ -1645,6 +1645,38 @@ def test_stdin_reading_command_does_not_consume_protocol(shell):
     assert "__gptme_rc" not in out2
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bash semantics")
+@pytest.mark.parametrize("command", ["return 0", "return 7"])
+def test_top_level_return_does_not_skip_completion(shell, command):
+    """A return outside a function must not skip the protocol or restart bash."""
+    pid = shell.process.pid
+    ret, out, err = shell.run(command, output=False, timeout=1.0)
+    assert ret == 2, (ret, out, err)
+    assert "return" in err
+    assert shell.process.pid == pid
+    assert shell.run("echo SURVIVED", output=False, timeout=1.0)[:2] == (
+        0,
+        "SURVIVED",
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bash transport")
+def test_command_payload_does_not_require_host_temp_file(shell):
+    """Sandbox-private /tmp must not hide a file needed to run the payload."""
+    payload = shell._encode_command_payload(
+        "printf 'standalone\\n'\n", "utf-8", "strict"
+    )
+    # Simulate a sandbox's filesystem view: any host command file is absent.
+    path = getattr(shell, "_command_path", None)
+    if path:
+        os.unlink(path)
+    result = subprocess.run(
+        ["bash"], input=payload, capture_output=True, timeout=3, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b"standalone\n"
+
+
 def test_pipe_with_stderr_redirect(shell):
     """Test that piping commands with stderr redirects doesn't hang (issue #684).
 
