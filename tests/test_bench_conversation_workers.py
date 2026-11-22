@@ -156,7 +156,41 @@ def test_sigint_cancels_busy_loop_and_worker_survives(tmp_path):
         w.close()
 
 
+def test_non_linux_cleanup_skips_without_psutil(tmp_path):
+    code = """
+import builtins, runpy, sys
+from pathlib import Path
+import pytest
+namespace = runpy.run_path(sys.argv[1])
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name == 'psutil':
+        raise ImportError('psutil deliberately unavailable')
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded_import
+sys.platform = 'darwin'
+def unexpected_worker(*args, **kwargs):
+    raise AssertionError('cleanup probe spawned a worker before dependency check')
+namespace['bench'].Worker = unexpected_worker
+try:
+    namespace['test_exit_detected_despite_orphan_holding_stdout'](Path(sys.argv[2]))
+except pytest.skip.Exception:
+    pass
+else:
+    raise AssertionError('cleanup probe did not skip without psutil')
+"""
+    subprocess.run(
+        [sys.executable, "-c", code, __file__, str(tmp_path)], check=True, timeout=10
+    )
+
+
 def test_exit_detected_despite_orphan_holding_stdout(tmp_path):
+    if sys.platform != "linux":
+        pytest.importorskip(
+            "psutil",
+            reason="non-Linux process-state probes require psutil",
+            exc_type=ImportError,
+        )
     w = bench.Worker(str(tmp_path))
     try:
         child = w.turn(bench.ORPHAN_CODE)["result"]
