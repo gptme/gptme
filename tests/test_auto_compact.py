@@ -939,6 +939,119 @@ def test_load_context_files_existing(tmp_path):
     assert "print('hello')" in loaded[0][1]
 
 
+def test_load_context_files_skips_credential_files(tmp_path):
+    """Credential-bearing files are never re-injected on resume."""
+    from gptme.tools.autocompact import _load_context_files
+
+    (tmp_path / ".env").write_text("TOKEN=abc\n")
+    (tmp_path / "posthog.env").write_text("KEY=abc\n")
+    (tmp_path / ".env.example").write_text("KEY=\n")
+    key_dir = tmp_path / ".ssh"
+    key_dir.mkdir()
+    (key_dir / "id_ed25519").write_text("private\n")
+    cfg = tmp_path / ".config" / "secrets"
+    cfg.mkdir(parents=True)
+    (cfg / "x.txt").write_text("v\n")
+
+    loaded = _load_context_files(
+        [
+            ".env",
+            "posthog.env",
+            ".env.example",
+            ".ssh/id_ed25519",
+            ".config/secrets/x.txt",
+        ],
+        workspace=tmp_path,
+    )
+    assert [p for p, _ in loaded] == [".env.example"]
+
+
+@pytest.mark.parametrize(
+    "credential_path", ["config.env.local", "staging.env.production"]
+)
+def test_load_context_files_rejects_named_dotenv_variants(tmp_path, credential_path):
+    """Service-prefixed dotenv variants hold credentials just like .env.local."""
+    from gptme.tools.autocompact import _load_context_files
+
+    (tmp_path / credential_path).write_text("TOKEN=private\n")
+    template = tmp_path / f"{credential_path}.example"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([credential_path, template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
+@pytest.mark.parametrize(
+    "credential_path",
+    [
+        ".ENV",
+        ".Env.Local",
+        "Posthog.Env",
+        ".SSH/id_ed25519",
+        ".GnuPG/private.key",
+        ".AWS/credentials",
+        ".Config/Secrets/token.txt",
+        ".SSH/service.env.TEMPLATE",
+    ],
+)
+def test_load_context_files_rejects_mixed_case_credentials(tmp_path, credential_path):
+    """Credential checks are conservative regardless of filesystem casing rules."""
+    from gptme.tools.autocompact import _load_context_files
+
+    credential = tmp_path / credential_path
+    credential.parent.mkdir(parents=True, exist_ok=True)
+    credential.write_text("TOKEN=private\n")
+    template = tmp_path / ".ENV.Example"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([credential_path, template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
+@pytest.mark.parametrize("directory", [".ssh", ".gnupg", ".aws", ".config/secrets"])
+@pytest.mark.parametrize("suffix", [".example", ".sample", ".template", ".dist"])
+def test_load_context_files_rejects_templates_in_credential_directories(
+    tmp_path, directory, suffix
+):
+    """Template suffixes must not override credential-directory protection."""
+    from gptme.tools.autocompact import _load_context_files
+
+    protected = tmp_path / directory / f"service.env{suffix}"
+    protected.parent.mkdir(parents=True)
+    protected.write_text("TOKEN=private\n")
+    template = tmp_path / f".env{suffix}"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([str(protected), template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
+@pytest.mark.parametrize("credential_path", [".env", ".config/secrets/posthog.env"])
+@pytest.mark.parametrize("credential_is_link", [True, False])
+def test_load_context_files_rejects_credential_symlinks(
+    tmp_path, credential_path, credential_is_link
+):
+    """Both the suggested name and its resolved target must be safe."""
+    from gptme.tools.autocompact import _load_context_files
+
+    credential = tmp_path / credential_path
+    credential.parent.mkdir(parents=True, exist_ok=True)
+    ordinary = tmp_path / "ordinary.txt"
+    link, target = (
+        (credential, ordinary) if credential_is_link else (ordinary, credential)
+    )
+    target.write_text("TOKEN=private\n")
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink not permitted")
+    template = tmp_path / ".env.example"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([str(link), template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
 def test_load_context_files_nonexistent(tmp_path):
     """Test that nonexistent files are skipped gracefully."""
     from gptme.tools.autocompact import _load_context_files
