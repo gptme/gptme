@@ -161,15 +161,15 @@ def _is_secret_bearing_path(path: Path) -> bool:
     that merely inspected ``secrets/posthog.env`` would otherwise ship every
     value in it to the provider and into the saved log.
     """
+    parts = path.parts
+    if _SECRET_DIR_PARTS.intersection(parts) or any(
+        a == ".config" and b == "secrets" for a, b in zip(parts, parts[1:])
+    ):
+        return True
     name = path.name
     if name.endswith(_ENV_TEMPLATE_SUFFIXES):
         return False
-    if name == ".env" or name.startswith(".env.") or name.endswith(".env"):
-        return True
-    parts = path.parts
-    if _SECRET_DIR_PARTS.intersection(parts):
-        return True
-    return any(a == ".config" and b == "secrets" for a, b in zip(parts, parts[1:]))
+    return name == ".env" or name.startswith(".env.") or name.endswith(".env")
 
 
 def _load_context_files(

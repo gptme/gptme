@@ -966,6 +966,24 @@ def test_load_context_files_skips_credential_files(tmp_path):
     assert [p for p, _ in loaded] == [".env.example"]
 
 
+@pytest.mark.parametrize("directory", [".ssh", ".gnupg", ".aws", ".config/secrets"])
+@pytest.mark.parametrize("suffix", [".example", ".sample", ".template", ".dist"])
+def test_load_context_files_rejects_templates_in_credential_directories(
+    tmp_path, directory, suffix
+):
+    """Template suffixes must not override credential-directory protection."""
+    from gptme.tools.autocompact import _load_context_files
+
+    protected = tmp_path / directory / f"service.env{suffix}"
+    protected.parent.mkdir(parents=True)
+    protected.write_text("TOKEN=private\n")
+    template = tmp_path / f".env{suffix}"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([str(protected), template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
 def test_load_context_files_nonexistent(tmp_path):
     """Test that nonexistent files are skipped gracefully."""
     from gptme.tools.autocompact import _load_context_files
