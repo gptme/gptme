@@ -286,6 +286,22 @@ def test_choice_uses_elicit_hook(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen[0].options == ["Alpha", "Beta"]
 
 
+@pytest.mark.parametrize(
+    "value", ["Gamma", "", "1. Alpha", 1, ["Alpha"], {"value": "Alpha"}]
+)
+def test_choice_hook_rejects_invalid_answer(
+    monkeypatch: pytest.MonkeyPatch, value: object
+) -> None:
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    response = ElicitationResponse(value=value)  # type: ignore[arg-type]
+    _install_elicit_hook(monkeypatch, lambda request: response)
+    messages = list(execute_choice("Pick one?\n1. Alpha\n2. Beta", None, None))
+    assert [m.content for m in messages] == [
+        "Error during selection: invalid choice response"
+    ]
+
+
 @pytest.mark.parametrize("declined", [False, True])
 def test_choice_hook_cancel_or_decline(
     monkeypatch: pytest.MonkeyPatch, declined: bool

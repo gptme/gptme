@@ -145,6 +145,10 @@ def execute_choice(
         yield Message("system", "Selection cancelled")
         return
 
+    if not isinstance(response.value, str) or response.value not in options:
+        yield Message("system", "Error during selection: invalid choice response")
+        return
+
     yield Message("system", f"User selected: {response.value}")
 
 
