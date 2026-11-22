@@ -136,7 +136,8 @@ jobs:
       uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        flags: no-api
+        # `code` groups every test-coverage upload; see .github/codecov.yml
+        flags: code,no-api
 
     - name: Upload test results to Codecov
       if: ${{ !cancelled() }}
@@ -387,7 +388,7 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         env_vars: MODEL
-        flags: ${{ matrix.model }}
+        flags: code,${{ matrix.model }}
 
     - name: Upload test results to Codecov
       if: ${{ !cancelled() }}

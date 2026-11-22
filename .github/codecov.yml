@@ -20,3 +20,27 @@ component_management:
       name: eval
       paths:
         - gptme/eval/**
+
+# Codecov merges every upload into one line report, including mypy's
+# type-precision report (lint.yml, flag `type-coverage`). Left alone, that
+# report decides the pass/fail statuses: it covers tests/ and scripts/, so
+# test-only PRs fail patch coverage on "missed" (imprecisely typed) test
+# lines, and type-precise lines in gptme/ count as covered even if no test
+# runs them. Gate on test coverage only; keep type coverage as its own,
+# informational status.
+coverage:
+  status:
+    project:
+      default:
+        flags: [code]
+      type-coverage:
+        flags: [type-coverage]
+        informational: true
+    patch:
+      default:
+        flags: [code]
+
+# Only mypy's report includes these (tests run with --cov=gptme).
+ignore:
+  - "tests/**"
+  - "scripts/**"
