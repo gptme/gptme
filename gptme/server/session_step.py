@@ -35,10 +35,10 @@ from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools, stamp_tool_result_timing
 from ..tools._url_safety import set_session_allow_hosts
 from ..tools.autocompact.recovery import recover_reply
-from ..tools.shell import set_workspace_cwd
 from ..util.context_measurement import anchor_context_usage, input_log_digest
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.reduce import ContextLimitError
+from ..util.workspace import set_workspace_cwd
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
 from .session_models import (
     ConversationSession,

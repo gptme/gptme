@@ -100,6 +100,21 @@ from ..util.context_savings import record_context_savings
 from ..util.output_storage import save_large_output
 from ..util.redact import redact_secret_values_from_output
 from ..util.tokens import get_tokenizer, len_tokens
+from ..util.workspace import (
+    _promoted_next_cwd as _promoted_next_cwd,
+)
+from ..util.workspace import (
+    _shell_var as _shell_var,
+)
+from ..util.workspace import (
+    _workspace_cwd as _workspace_cwd,
+)
+from ..util.workspace import (
+    get_workspace_cwd as get_workspace_cwd,
+)
+from ..util.workspace import (
+    set_workspace_cwd as set_workspace_cwd,
+)
 from .base import (
     Parameter,
     ToolSpec,
@@ -2507,14 +2522,6 @@ class ShellSession:
             self._restarting = False
 
 
-_shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
-_workspace_cwd: ContextVar[str | None] = ContextVar("workspace_cwd", default=None)
-# One-shot seed for the shell that replaces a promoted command. Separate from
-# `_workspace_cwd`, which is the server skip-chdir flag and must not change
-# when a long `cd dest; sleep` is promoted.
-_promoted_next_cwd: ContextVar[str | None] = ContextVar(
-    "promoted_next_cwd", default=None
-)
 _promoted_next_state: ContextVar[str | None] = ContextVar(
     "promoted_next_state", default=None
 )
@@ -2524,28 +2531,6 @@ _promoted_next_state: ContextVar[str | None] = ContextVar(
 # shells that would otherwise leak when their thread's ContextVar goes out of scope.
 _conversation_shells: dict[str, ShellSession] = {}
 _conv_shell_lock: threading.Lock = threading.Lock()
-
-
-def set_workspace_cwd(cwd: str) -> None:
-    """Set the workspace directory for the current context (thread-safe).
-
-    Call this before any shell creation to ensure the shell subprocess
-    starts in the correct directory, even with concurrent sessions.
-    This is the thread-safe replacement for os.chdir() in server contexts.
-    """
-    _workspace_cwd.set(cwd)
-
-
-def get_workspace_cwd() -> str | None:
-    """Get the session's current directory, following its shell after ``cd``."""
-    workspace = _workspace_cwd.get()
-    shell = _shell_var.get()
-    if workspace is not None:
-        if shell is not None and shell._cwd:
-            return shell._cwd
-        # Promotion releases the shell before lazily creating its replacement.
-        return _promoted_next_cwd.get() or workspace
-    return workspace
 
 
 def get_shell() -> ShellSession:

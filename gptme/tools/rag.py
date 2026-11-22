@@ -69,7 +69,12 @@ from ..config import RagConfig, get_project_config
 from ..dirs import get_data_dir, get_logs_dir, get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
-from .base import ToolFunction, ToolSpec, ToolUse, current_workspace
+from ..util.workspace import current_workspace
+from .base import (
+    ToolFunction,
+    ToolSpec,
+    ToolUse,
+)
 
 logger = logging.getLogger(__name__)
 

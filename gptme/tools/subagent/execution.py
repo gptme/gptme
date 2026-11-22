@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO, Literal
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
 from ...prompt_queue import drain_steer_prompts
+from ...util.workspace import current_workspace
 from .. import (
     clear_tools,
     get_available_tools,
@@ -42,7 +43,10 @@ from .._allowlist import (
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
-from ..base import ToolFormat, ToolSpec, current_workspace
+from ..base import (
+    ToolFormat,
+    ToolSpec,
+)
 from .concurrency import get_slot_sem
 from .hooks import _remember_progress, notify_completion, notify_progress
 from .persistence import persist_subagent_meta

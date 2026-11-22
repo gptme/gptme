@@ -18,12 +18,11 @@ from ..util.context import md_codeblock
 from ..util.context_savings import record_context_savings
 from ..util.output_storage import save_large_output
 from ..util.tokens import len_tokens
+from ..util.workspace import current_workspace, resolve_in_workspace
 from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
-    current_workspace,
-    resolve_in_workspace,
 )
 from .pruner import plan_tool_output_prune
 

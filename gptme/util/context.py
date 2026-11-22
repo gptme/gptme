@@ -25,7 +25,7 @@ from ..constants import (
 )
 from ..message import Message
 from ..tools import has_tool
-from ..tools.base import current_workspace
+from ..util.workspace import current_workspace
 from .gh import (
     get_github_issue_content,
     get_github_pr_content,

@@ -119,7 +119,7 @@ def _lesson_search_dirs(
     """Existing lesson dirs, resolved so differently spelled aliases collapse."""
     from ..config import get_config, get_project_config
     from ..lessons.index import LessonIndex
-    from ..tools.base import current_workspace
+    from ..util.workspace import current_workspace
 
     dirs: list[Path] = []
     if include_default:

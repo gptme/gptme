@@ -53,8 +53,14 @@ from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
 from ..util.git_cmd import GIT_CMD
+from ..util.workspace import resolve_in_workspace
 from ._hashline_snapshot import lookup_snapshot, store_snapshot
-from .base import Parameter, ToolSpec, ToolUse, file_newline, resolve_in_workspace
+from .base import (
+    Parameter,
+    ToolSpec,
+    ToolUse,
+    file_newline,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator

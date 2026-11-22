@@ -319,7 +319,7 @@ class LessonIndex:
         from pathlib import Path
 
         from ..config import get_config
-        from ..tools.base import current_workspace, resolve_in_workspace
+        from ..util.workspace import current_workspace, resolve_in_workspace
 
         workspace = current_workspace()
         dirs = []

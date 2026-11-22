@@ -125,7 +125,7 @@ def context_hook(
     if not sections:
         return
 
-    from ..tools.base import current_workspace  # tools import hooks
+    from ..util.workspace import current_workspace
 
     cwd = current_workspace()
     content = f"""# Context

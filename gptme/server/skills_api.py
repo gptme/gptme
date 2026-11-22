@@ -12,7 +12,7 @@ import flask
 from pydantic import BaseModel, Field
 
 from ..lessons.index import LessonIndex
-from ..tools.base import current_workspace
+from ..util.workspace import current_workspace
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 

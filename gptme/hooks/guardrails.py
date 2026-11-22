@@ -284,8 +284,8 @@ def _read_secret_path_reason(
             for line in preview.splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-    from ..tools.base import current_workspace
     from ..tools.read import _configured_read_root
+    from ..util.workspace import current_workspace
 
     for path_arg in path_candidates:
         # read expands ~, not shell variables or substitutions. Check its
@@ -385,7 +385,7 @@ def _tmux_block_reason(tool_use: "ToolUse") -> str | None:
         if verb == "new-session":
             # new_session passes this workspace explicitly via tmux's -c option;
             # the server process cwd may belong to a different conversation.
-            from ..tools.base import current_workspace  # tools import hooks
+            from ..util.workspace import current_workspace
 
             text = arguments
             try:

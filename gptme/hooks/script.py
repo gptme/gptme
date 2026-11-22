@@ -177,7 +177,7 @@ def _register_script_hook(
             initial_msgs: list[Message],
         ) -> Generator:
             del initial_msgs
-            from ..tools.base import current_workspace  # tools import hooks
+            from ..util.workspace import current_workspace
 
             hook_workspace = workspace or current_workspace()
             _run_script_hook(

@@ -23,6 +23,7 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
+from ..util.workspace import current_workspace
 from ._browser_format import format_snapshot as _format_snapshot
 from ._browser_thread import (
     BrowserThread,
@@ -32,7 +33,6 @@ from ._browser_thread import (
 )
 from ._computer_gate import sensitive_action_gate
 from ._url_safety import _validate_entry_url, _validate_page_url
-from .base import current_workspace
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
