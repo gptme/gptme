@@ -141,23 +141,39 @@ MARKUP_OPTIONS = ["[bold]x[/bold]", "[/bold]y", "z"]
 
 
 @pytest.mark.asyncio
-async def test_choice_options_render_literally(tmp_path):
+@pytest.mark.parametrize("kind", ["choice", "multi_choice"])
+async def test_options_render_literally(tmp_path, kind):
+    from rich.text import Text
+    from textual.content import Content
+    from textual.widgets import OptionList
+
     app = _app(tmp_path)
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
-        req = ElicitationRequest("choice", "Pick", options=MARKUP_OPTIONS)
-        r = await _ask(app, pilot, req, ["down", "enter"])
-        assert r.value == "[/bold]y"
-
-
-@pytest.mark.asyncio
-async def test_multi_choice_options_render_literally(tmp_path):
-    app = _app(tmp_path)
-    async with app.run_test(size=(100, 30)) as pilot:
+        req = ElicitationRequest(kind, "Pick", options=MARKUP_OPTIONS)
+        screen = ElicitScreen(req)
+        answers: list[ElicitationResponse | None] = []
+        app.push_screen(screen, answers.append)
         await pilot.pause()
-        req = ElicitationRequest("multi_choice", "Pick", options=MARKUP_OPTIONS)
-        r = await _ask(app, pilot, req, ["space", "down", "space", "enter"])
-        assert r.values == ["[bold]x[/bold]", "[/bold]y"]
+        widget = screen.query_one(OptionList)
+        for i, label in enumerate(MARKUP_OPTIONS):
+            prompt = widget.get_option_at_index(i).prompt
+            assert isinstance(prompt, (Text, Content))
+            assert prompt.plain == (f"{i + 1}. {label}" if kind == "choice" else label)
+            assert not prompt.spans
+        keys = (
+            ["down", "enter"]
+            if kind == "choice"
+            else ["space", "down", "space", "enter"]
+        )
+        await pilot.press(*keys)
+        await pilot.pause()
+        assert len(answers) == 1
+        assert answers[0] is not None
+        if kind == "choice":
+            assert answers[0].value == "[/bold]y"
+        else:
+            assert answers[0].values == ["[bold]x[/bold]", "[/bold]y"]
 
 
 @pytest.mark.asyncio
