@@ -3441,3 +3441,95 @@ def test_memory_rerun_loads_conversation_workspace_dotenv(
         assert not (workspace / "memories").exists()
     finally:
         session.pending_tools.clear()
+
+
+# --- Persisted generation-error classification -----------------------------
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        (
+            "Error code: 402 - {'type': 'error', 'error': {'type': "
+            "'payment_required', 'message': 'Insufficient credits.'}}"
+        ),
+        "HTTP status: 402",
+        "Error: payment required",
+        "gateway error: insufficient_credits",
+        "no_subscription: upgrade required",
+    ],
+)
+def test_classify_generation_error_payment(raw):
+    from gptme.server.session_step import classify_generation_error
+
+    classified = classify_generation_error(raw)
+    assert classified.startswith("Payment required")
+    assert raw not in classified
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Error code: 401 - Incorrect API key provided",
+        "Error: Unauthorized",
+        "authentication_error: invalid token",
+        "invalid_api_key",
+    ],
+)
+def test_classify_generation_error_auth(raw):
+    from gptme.server.session_step import classify_generation_error
+
+    assert classify_generation_error(raw).startswith("Authentication failed")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "command not found: gptme-typo",
+        "No such file or directory",
+        "Error: workspace /tmp/x does not exist",
+        "Error code: 500 - internal server error",
+        "",
+    ],
+)
+def test_classify_generation_error_passthrough(raw):
+    from gptme.server.session_step import classify_generation_error
+
+    assert classify_generation_error(raw) == raw
+
+
+def test_persisted_generation_error_is_classified(tmp_path):
+    """A refused generation must not leave a raw provider dump after reload."""
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _persist_generation_error
+
+    manager = LogManager(logdir=tmp_path)
+    session = MagicMock()
+    session.conversation_id = "test-classified-generation-error"
+    raw = (
+        "Error code: 402 - {'type': 'error', 'error': {'type': "
+        "'payment_required', 'message': 'Insufficient credits. Please add more "
+        "credits to your account.'}}"
+    )
+
+    _persist_generation_error(manager, session, raw)
+
+    persisted = manager.log.messages[-1]
+    assert persisted.role == "system"
+    assert persisted.content.startswith("Error: Payment required")
+    assert "Insufficient credits" not in persisted.content
+
+
+def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path):
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _persist_generation_error
+
+    manager = LogManager(logdir=tmp_path)
+    session = MagicMock()
+    session.conversation_id = "test-unclassified-generation-error"
+
+    _persist_generation_error(manager, session, "workspace /tmp/moved does not exist")
+
+    assert manager.log.messages[-1].content == (
+        "Error: workspace /tmp/moved does not exist"
+    )
