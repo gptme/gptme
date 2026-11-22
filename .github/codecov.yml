@@ -26,19 +26,29 @@ component_management:
 # report decides the pass/fail statuses: it covers tests/ and scripts/, so
 # test-only PRs fail patch coverage on "missed" (imprecisely typed) test
 # lines, and type-precise lines in gptme/ count as covered even if no test
-# runs them. Gate on test coverage only; keep type coverage as its own,
-# informational status.
+# runs them.
+#
+# Gate on the `no-api` flag only. It is the one test-coverage upload that runs
+# on every master push and on every PR that touches code (test.yml), so a PR
+# is compared against a base built from the same job. Pooling the model-run
+# flags (test-api runs on master but only on api-related PRs) would make the
+# base cover more than a typical PR and report spurious drops. Type coverage
+# stays visible as its own informational status.
 coverage:
   status:
     project:
       default:
-        flags: [code]
+        flags: [no-api]
+        if_no_uploads: success
+        if_not_found: success
       type-coverage:
         flags: [type-coverage]
         informational: true
     patch:
       default:
-        flags: [code]
+        flags: [no-api]
+        if_no_uploads: success
+        if_not_found: success
 
 # Only mypy's report includes these (tests run with --cov=gptme).
 ignore:
