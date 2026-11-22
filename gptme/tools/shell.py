@@ -847,6 +847,20 @@ class ShellSession:
         except OSError:
             return False
 
+    def _encode_command_payload(
+        self, full_command: str, encoding: str, errors: str
+    ) -> bytes:
+        """Parse the whole block before executing it with stdin disconnected.
+
+        Bash must consume the entire quoted argument before running ``eval``.
+        All commands then inherit EOF rather than the queued completion protocol
+        (gptme/gptme#5045). Unlike sourcing a host temporary file, this works in
+        a sandbox's private /tmp and keeps top-level ``return`` invalid.
+        """
+        return f"builtin eval -- {shlex.quote(full_command)} </dev/null\n".encode(
+            encoding, errors
+        )
+
     def active_output(self) -> tuple[str, str]:
         """Return the output captured so far by the active pipe command."""
         with self._output_lock:
@@ -1430,7 +1444,7 @@ class ShellSession:
         # which would look like "never received" after a partial delivery.
         encoding = getattr(self.process.stdin, "encoding", None) or "utf-8"
         errors = getattr(self.process.stdin, "errors", None) or "strict"
-        payload = full_command.encode(encoding, errors)
+        payload = self._encode_command_payload(full_command, encoding, errors)
         sent = 0
         fd = self.process.stdin.fileno()
         try:

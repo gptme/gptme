@@ -1622,6 +1622,94 @@ else:
     assert "Assistant" in stdout
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX source + /dev/null")
+def test_stdin_reading_command_does_not_consume_protocol(shell):
+    """A later stdin-reading command must not steal the completion marker.
+
+    gptme/gptme#5045: the persistent shell used to put the command protocol
+    (including ``printf 'ReturnCode:... delimiter'``) on bash's stdin. The
+    shlex ``< /dev/null`` stopgap skips commands that already contain ``<``,
+    so ``cat </dev/null; cat`` let the second ``cat`` eat the marker. The
+    reader can then false-match the printed printf *source* as a delimiter
+    (return code None) or hang until timeout if that line is split.
+    """
+    ret, out, err = shell.run("cat </dev/null; cat", timeout=8.0)
+    assert ret == 0, (ret, out, err)
+    assert "__gptme_rc" not in out
+    assert "ReturnCode:" not in out
+    assert "END_OF_COMMAND_OUTPUT" not in out
+
+    ret2, out2, err2 = shell.run("echo SURVIVED", timeout=5.0)
+    assert ret2 == 0, (ret2, out2, err2)
+    assert out2.strip() == "SURVIVED"
+    assert "__gptme_rc" not in out2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bash semantics")
+@pytest.mark.parametrize("command", ["return 0", "return 7"])
+def test_top_level_return_does_not_skip_completion(shell, command):
+    """A return outside a function must not skip the protocol or restart bash."""
+    pid = shell.process.pid
+    ret, out, err = shell.run(command, output=False, timeout=1.0)
+    assert ret == 2, (ret, out, err)
+    assert "return" in err
+    assert shell.process.pid == pid
+    assert shell.run("echo SURVIVED", output=False, timeout=1.0)[:2] == (
+        0,
+        "SURVIVED",
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bubblewrap sandbox")
+def test_shell_starts_with_sandbox_private_tmp():
+    """Exercise real startup and command transport with host /tmp hidden."""
+    import sys
+
+    from gptme.sandbox import SandboxConfig, wrap_shell_cmd
+
+    config = SandboxConfig(backend="bwrap", workspace=Path.cwd())
+    available, reason = config.check_available()
+    if not available:
+        pytest.skip(reason)
+    probe = subprocess.run(
+        wrap_shell_cmd(config, ["true"]),
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    if probe.returncode:
+        pytest.skip(f"bubblewrap unavailable: {probe.stderr.decode(errors='replace')}")
+
+    # Bound the entire child, including ShellSession._init(), which otherwise
+    # waits indefinitely when the transport sources a hidden host command file.
+    script = """
+import shlex
+import tempfile
+from gptme.tools.shell import ShellSession
+
+with tempfile.NamedTemporaryFile(dir='/tmp') as host_file:
+    shell = ShellSession()
+    try:
+        assert shell.run('test ! -e ' + shlex.quote(host_file.name),
+                         output=False, timeout=2)[0] == 0
+        assert shell.run('cat </dev/null; cat; echo READY',
+                         output=False, timeout=2)[:2] == (0, 'READY')
+        assert shell.run('return 7', output=False, timeout=2)[0] == 2
+        assert shell.run('echo SURVIVED', output=False,
+                         timeout=2)[:2] == (0, 'SURVIVED')
+    finally:
+        shell.close()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "GPTME_SANDBOX": "bwrap", "TMPDIR": "/tmp"},
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+
+
 def test_pipe_with_stderr_redirect(shell):
     """Test that piping commands with stderr redirects doesn't hang (issue #684).
 
