@@ -984,6 +984,32 @@ def test_load_context_files_rejects_templates_in_credential_directories(
     assert loaded == [(template.name, "TOKEN=\n")]
 
 
+@pytest.mark.parametrize("credential_path", [".env", ".config/secrets/posthog.env"])
+@pytest.mark.parametrize("credential_is_link", [True, False])
+def test_load_context_files_rejects_credential_symlinks(
+    tmp_path, credential_path, credential_is_link
+):
+    """Both the suggested name and its resolved target must be safe."""
+    from gptme.tools.autocompact import _load_context_files
+
+    credential = tmp_path / credential_path
+    credential.parent.mkdir(parents=True, exist_ok=True)
+    ordinary = tmp_path / "ordinary.txt"
+    link, target = (
+        (credential, ordinary) if credential_is_link else (ordinary, credential)
+    )
+    target.write_text("TOKEN=private\n")
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink not permitted")
+    template = tmp_path / ".env.example"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([str(link), template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
 def test_load_context_files_nonexistent(tmp_path):
     """Test that nonexistent files are skipped gracefully."""
     from gptme.tools.autocompact import _load_context_files

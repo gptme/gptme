@@ -222,7 +222,7 @@ def _load_context_files(
             )
             continue
 
-        if _is_secret_bearing_path(full_path):
+        if _is_secret_bearing_path(candidate) or _is_secret_bearing_path(full_path):
             logger.warning("Skipping credential-bearing context file: %s", file_path)
             continue
 
