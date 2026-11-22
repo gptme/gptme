@@ -54,6 +54,7 @@ MCP Elicitation:
 
 import getpass
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol, cast
 
@@ -343,10 +344,21 @@ def _cli_confirmation(request: ElicitationRequest) -> ElicitationResponse:
             print("Please enter yes or no")
 
 
-def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
-    """CLI handler for multi-field form elicitation."""
+def _cli_form(
+    request: ElicitationRequest,
+    ask: Callable[[ElicitationRequest], ElicitationResponse] | None = None,
+    say: Callable[[str], None] = print,
+) -> ElicitationResponse:
+    """Multi-field form elicitation, one field at a time.
+
+    ``ask`` answers each field's sub-request (default: the terminal) and
+    ``say`` shows validation messages, so a UI other than the terminal
+    (the TUI) can reuse the field handling, validation and output format.
+    """
     import json
     import math
+
+    ask = ask or cli_elicit
 
     fields = request.fields or []
     if not fields:
@@ -354,7 +366,7 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
         return _cli_text(request)
 
     if request.prompt:
-        print(f"\n{request.prompt}")
+        say(f"\n{request.prompt}")
 
     results: dict[str, object] = {}
     secret_fields: set[str] = set()
@@ -378,13 +390,13 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
         )
 
         while True:
-            response = cli_elicit(sub_request)
+            response = ask(sub_request)
             if response.cancelled:
                 return ElicitationResponse.cancel()
 
             raw = response.value or ""
             if f.required and not raw.strip():
-                print("This field is required")
+                say("This field is required")
                 continue
 
             val: object = raw
@@ -403,7 +415,7 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
                             if not math.isfinite(val):
                                 raise ValueError
                         except ValueError:
-                            print("Please enter a finite number")
+                            say("Please enter a finite number")
                             continue
             break
 

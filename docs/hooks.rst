@@ -602,7 +602,7 @@ gptme ships with several built-in hooks that provide core functionality:
 
 **User Input**
 
-- ``elicitation``: Structured user input (forms, choices) in CLI
+- ``elicitation``: Structured user input (forms, choices) in CLI (the TUI answers in a dialog docked above the prompt)
 - ``server_elicit``: Elicitation via WebUI/API for server mode
 - ``form_autodetect``: Detects when assistant output contains form-like choices
 
