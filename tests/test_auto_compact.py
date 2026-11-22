@@ -966,6 +966,33 @@ def test_load_context_files_skips_credential_files(tmp_path):
     assert [p for p, _ in loaded] == [".env.example"]
 
 
+@pytest.mark.parametrize(
+    "credential_path",
+    [
+        ".ENV",
+        ".Env.Local",
+        "Posthog.Env",
+        ".SSH/id_ed25519",
+        ".GnuPG/private.key",
+        ".AWS/credentials",
+        ".Config/Secrets/token.txt",
+        ".SSH/service.env.TEMPLATE",
+    ],
+)
+def test_load_context_files_rejects_mixed_case_credentials(tmp_path, credential_path):
+    """Credential checks are conservative regardless of filesystem casing rules."""
+    from gptme.tools.autocompact import _load_context_files
+
+    credential = tmp_path / credential_path
+    credential.parent.mkdir(parents=True, exist_ok=True)
+    credential.write_text("TOKEN=private\n")
+    template = tmp_path / ".ENV.Example"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([credential_path, template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
 @pytest.mark.parametrize("directory", [".ssh", ".gnupg", ".aws", ".config/secrets"])
 @pytest.mark.parametrize("suffix", [".example", ".sample", ".template", ".dist"])
 def test_load_context_files_rejects_templates_in_credential_directories(
