@@ -243,20 +243,23 @@ CHILD = textwrap.dedent(
                 assert r.json()["message"] == "Interrupted", r.text
             finally:
                 release.touch()
-            # The shell exits on release; wait for its own exit marker before
-            # judging the interrupt, so a broken handler's continuation has run.
+            # The shell exits on release, but its exit marker does not establish
+            # that the server has processed its result or continued the turn.
             deadline = time.monotonic() + 10
             while not finished.exists():
                 assert time.monotonic() < deadline, "shell tool never exited"
                 time.sleep(0.05)
-            time.sleep(2.0)
-            # A no-op /interrupt would leave the slow step's continuation
-            # alive: once the released shell exits it produces this marker. A
-            # real interrupt revokes the epoch, so the marker must be absent.
-            assert not any(
-                m["role"] == "assistant" and m["content"].strip() == "Slow continued b"
-                for m in get_log(convs["b"])
-            ), "slow step continued after /interrupt — interrupt did not cancel it"
+            # Observe a bounded window, not a single sample: a delayed server
+            # continuation must still fail before a new user turn can hide it.
+            deadline = time.monotonic() + 10
+            while True:
+                assert not any(
+                    m["role"] == "assistant" and m["content"].strip() == "Slow continued b"
+                    for m in get_log(convs["b"])
+                ), "slow step continued after /interrupt — interrupt did not cancel it"
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.1)
             send("b", "resume b")
             logs["b"] = wait_done(convs["b"], "Resumed b", timeout=60)
     except BaseException as e:  # noqa: BLE001
