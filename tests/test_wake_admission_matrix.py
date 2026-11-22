@@ -190,16 +190,14 @@ def test_shell_background_completion_has_no_idle_wake(
     signal = unittest.mock.MagicMock()
     monkeypatch.setattr("gptme.util.notification_ready.signal", signal)
 
+    job = None
     token = current_conversation_id.set("matrix-shell-job")
     try:
         job = start_background_job("printf done")
         assert job._reader_thread is not None
         job._reader_thread.join(timeout=10)
         assert not job._reader_thread.is_alive()
-    finally:
-        current_conversation_id.reset(token)
 
-    try:
         deadline = time.monotonic() + 5
         while not job._completion_notified and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -210,4 +208,13 @@ def test_shell_background_completion_has_no_idle_wake(
         wake.assert_not_called()
         signal.assert_not_called()
     finally:
-        shell_background._purge_completion_queue({"matrix-shell-job"})
+        current_conversation_id.reset(token)
+        shell_background.reset_background_jobs(
+            "matrix-shell-job", all_conversations=False
+        )
+        if job is not None:
+            # Join even a completed job's reader before closing its pipes.
+            job.kill()
+            for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
+                if pipe is not None:
+                    pipe.close()
