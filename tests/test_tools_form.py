@@ -286,3 +286,80 @@ def test_form_hook_invalid_payload(
     assert [m.content for m in messages] == [
         "Error during form input: invalid form response"
     ]
+
+
+def _hook_returning(monkeypatch: pytest.MonkeyPatch, answer: dict) -> None:
+    from gptme.hooks.elicitation import ElicitationResponse
+
+    _install_elicit_hook(
+        monkeypatch, lambda request: ElicitationResponse.text(json.dumps(answer))
+    )
+
+
+def test_form_hook_missing_required_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hook answer that skips a required field is not reported as submitted."""
+    _hook_returning(monkeypatch, {"name": "demo"})
+    messages = list(execute_form("name: Name?\ncount: Count? (number)", None, None))
+    assert [m.content for m in messages] == [
+        "Error during form input: missing required field 'count'"
+    ]
+
+
+def test_form_hook_missing_required_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    _hook_returning(monkeypatch, {})
+    messages = list(execute_form("priority: Priority [low, medium, high]", None, None))
+    assert [m.content for m in messages] == [
+        "Error during form input: missing required field 'priority'"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fields", "answer", "expected"),
+    [
+        (
+            "count: Count? (number)",
+            {"count": "abc"},
+            "Error during form input: field 'count' must be a number, got str",
+        ),
+        (
+            "count: Count? (number)",
+            {"count": True},
+            "Error during form input: field 'count' must be a number, got bool",
+        ),
+        (
+            "confirm: Proceed? [yes/no]",
+            {"confirm": "false"},
+            "Error during form input: field 'confirm' must be a boolean, got str",
+        ),
+        (
+            "priority: Priority [low, medium, high]",
+            {"priority": "urgent"},
+            (
+                "Error during form input: field 'priority' must be one of "
+                "['low', 'medium', 'high']"
+            ),
+        ),
+    ],
+)
+def test_form_hook_wrong_field_type(
+    monkeypatch: pytest.MonkeyPatch, fields: str, answer: dict, expected: str
+) -> None:
+    """Values with the wrong JSON type or an off-list choice are rejected."""
+    _hook_returning(monkeypatch, answer)
+    messages = list(execute_form(fields, None, None))
+    assert [m.content for m in messages] == [expected]
+
+
+def test_form_hook_accepts_typed_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A well-typed hook answer, including an empty optional text field, submits."""
+    _hook_returning(monkeypatch, {"name": "", "count": 12, "confirm": False})
+    messages = list(
+        execute_form(
+            "name: Name?\ncount: Count? (number)\nconfirm: Proceed? [yes/no]",
+            None,
+            None,
+        )
+    )
+    assert [m.content for m in messages] == [
+        'Form submitted:\n```json\n{\n  "name": "",\n  "count": 12,\n  "confirm": false\n}\n```'
+    ]

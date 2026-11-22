@@ -6,6 +6,7 @@ with support for different field types: text, select, boolean, and number.
 """
 
 import json
+import math
 import re
 from collections.abc import Generator
 
@@ -177,6 +178,51 @@ def _to_form_field(field: dict) -> FormField:
     )
 
 
+def _field_type_error(value: object, field: FormField) -> str | None:
+    """Return an error description if ``value`` does not fit ``field``'s type."""
+    if field.type == "number":
+        # bool is a subclass of int, but a boolean is not a number here.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return f"must be a number, got {type(value).__name__}"
+        if isinstance(value, float) and not math.isfinite(value):
+            return "must be a finite number"
+    elif field.type == "boolean":
+        if not isinstance(value, bool):
+            return f"must be a boolean, got {type(value).__name__}"
+    elif field.type == "choice":
+        if not isinstance(value, str):
+            return f"must be a string, got {type(value).__name__}"
+        if field.options and value not in field.options:
+            return f"must be one of {field.options}"
+    elif not isinstance(value, str):
+        return f"must be a string, got {type(value).__name__}"
+    return None
+
+
+def _validate_form_results(
+    results: dict[str, object], fields: list[FormField]
+) -> str | None:
+    """Check a client-supplied form answer against the requested fields.
+
+    An interface answers with its own JSON, so nothing guarantees it honoured the
+    field names or types. Reporting an unchecked payload as "Form submitted"
+    would hand the model values it never asked for (``{}`` skipping a required
+    field, ``"false"`` as a boolean, ``"abc"`` as a number).
+
+    Returns a human-readable error, or ``None`` when the answer is complete.
+    """
+    for field in fields:
+        value = results.get(field.name)
+        if value is None:
+            if field.required:
+                return f"missing required field '{field.name}'"
+            continue
+        error = _field_type_error(value, field)
+        if error:
+            return f"field '{field.name}' {error}"
+    return None
+
+
 def execute_form(
     code: str | None,
     args: list[str] | None,
@@ -221,6 +267,11 @@ def execute_form(
         return
     if not isinstance(results, dict):
         yield Message("system", "Error during form input: invalid form response")
+        return
+
+    validation_error = _validate_form_results(results, request.fields or [])
+    if validation_error:
+        yield Message("system", f"Error during form input: {validation_error}")
         return
 
     results_json = json.dumps(results, indent=2)
