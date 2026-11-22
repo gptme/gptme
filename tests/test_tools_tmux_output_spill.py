@@ -1,7 +1,12 @@
 """tmux pane output is bounded and spills to the conversation's tool-outputs (#4663)."""
 
+import shutil
+import subprocess
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from gptme.tools import tmux
 from gptme.tools.tmux import (
@@ -184,6 +189,71 @@ def test_short_pane_credentials_are_redacted_too(tmp_path):
     with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
         out = _truncate_output(f"ANTHROPIC_API_KEY={secret}\nok")
     assert secret not in out and out.endswith("ok")
+
+
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not available")
+@pytest.mark.parametrize("max_chars", [MAX_OUTPUT_CHARS, 120])
+def test_wrapped_credentials_are_redacted_after_real_capture(
+    tmp_path, monkeypatch, max_chars
+):
+    """Join soft wraps, not real newlines, before redacting previews and spills."""
+    secret = "sk-ant-api03-" + "A1b2C3d4" * 40
+    payload = tmp_path / "payload"
+    payload.write_text(
+        f"ANTHROPIC_API_KEY={secret}\n"
+        + "ordinary output\n" * 20
+        + "first\nsecond\nCAPTURE_READY\n"
+    )
+    # A private socket keeps this test away from users' and parallel tests' panes.
+    prefix = ["tmux", "-S", str(tmp_path / "socket")]
+    run = subprocess.run
+
+    def isolated_run(cmd, **kwargs):
+        assert cmd[0] == "tmux"
+        return run(prefix + cmd[1:], **kwargs)
+
+    monkeypatch.setattr(tmux.subprocess, "run", isolated_run)
+    run(
+        prefix
+        + [
+            "new-session",
+            "-d",
+            "-s",
+            "wrap",
+            "-x",
+            "120",
+            "-y",
+            "40",
+            f"cat {payload}; sleep 30",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            captured = tmux._capture_pane("wrap")
+            if "CAPTURE_READY" in captured:
+                break
+            assert time.monotonic() < deadline, "pane did not finish printing"
+            time.sleep(0.02)
+
+        preview = _truncate_output(captured, logdir=tmp_path, max_chars=max_chars)
+        assert "A1b2C3d4" not in preview
+        assert "[REDACTED]" in preview
+        files = _saved(tmp_path)
+        if max_chars == 120:
+            (saved,) = files
+            assert "A1b2C3d4" not in saved.read_text()
+            assert "[REDACTED]" in saved.read_text()
+            assert "first\nsecond\nCAPTURE_READY" in saved.read_text()
+        else:
+            assert not files
+            assert "first\nsecond\nCAPTURE_READY" in preview
+        assert f"ANTHROPIC_API_KEY={secret}\n" in captured
+    finally:
+        run(prefix + ["kill-server"], check=False, capture_output=True, timeout=10)
 
 
 def test_pane_redaction_respects_opt_out(tmp_path, monkeypatch):

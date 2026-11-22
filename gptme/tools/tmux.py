@@ -231,9 +231,10 @@ def _capture_pane(pane_id: str) -> str:
     try:
         result = subprocess.run(
             # -p: print to stdout
+            # -J: join soft-wrapped lines so credential redaction sees full values
             # -S -: start from beginning of scrollback
             # -E -: end at bottom of scrollback
-            ["tmux", "capture-pane", "-p", "-S", "-", "-E", "-", "-t", pane_id],
+            ["tmux", "capture-pane", "-p", "-J", "-S", "-", "-E", "-", "-t", pane_id],
             check=False,
             capture_output=True,
             text=True,
