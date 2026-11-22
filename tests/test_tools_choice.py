@@ -316,3 +316,22 @@ def test_choice_tool_registered():
     available = get_available_tools()
     available_names = [t.name for t in available]
     assert "choice" in available_names
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (KeyboardInterrupt(), "Selection cancelled"),
+        (EOFError(), "Selection cancelled"),
+        (
+            RuntimeError("input unavailable"),
+            "Error during selection: input unavailable",
+        ),
+    ],
+)
+def test_choice_elicit_error(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException, expected: str
+) -> None:
+    monkeypatch.setattr("gptme.tools.choice.elicit", Mock(side_effect=error))
+    messages = list(execute_choice("Pick one?\nA\nB", None, None))
+    assert [m.content for m in messages] == [expected]

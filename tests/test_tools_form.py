@@ -2,6 +2,7 @@
 
 import json
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -275,13 +276,16 @@ def test_form_hook_cancel_or_decline(
     assert [m.content for m in messages] == ["Form cancelled"]
 
 
-@pytest.mark.parametrize("payload", ["not json", "[1, 2]"])
+@pytest.mark.parametrize("payload", ["not json", "[1, 2]", {}, 42])
 def test_form_hook_invalid_payload(
-    monkeypatch: pytest.MonkeyPatch, payload: str
+    monkeypatch: pytest.MonkeyPatch, payload: object
 ) -> None:
     from gptme.hooks.elicitation import ElicitationResponse
 
-    _install_elicit_hook(monkeypatch, lambda request: ElicitationResponse.text(payload))
+    # Deliberately violate the response annotation to model a malformed hook.
+    _install_elicit_hook(
+        monkeypatch, lambda request: ElicitationResponse(value=cast(str, payload))
+    )
     messages = list(execute_form("name: Name?", None, None))
     assert [m.content for m in messages] == [
         "Error during form input: invalid form response"
@@ -326,6 +330,24 @@ def test_form_hook_missing_required_choice(monkeypatch: pytest.MonkeyPatch) -> N
             {"count": True},
             "Error during form input: field 'count' must be a number, got bool",
         ),
+        *[
+            (
+                "count: Count? (number)",
+                {"count": value},
+                "Error during form input: field 'count' must be a finite number",
+            )
+            for value in [float("nan"), float("inf"), float("-inf")]
+        ],
+        (
+            "priority: Priority [low, medium, high]",
+            {"priority": 1},
+            "Error during form input: field 'priority' must be a string, got int",
+        ),
+        (
+            "name: Name?",
+            {"name": 1},
+            "Error during form input: field 'name' must be a string, got int",
+        ),
         (
             "confirm: Proceed? [yes/no]",
             {"confirm": "false"},
@@ -363,3 +385,33 @@ def test_form_hook_accepts_typed_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     assert [m.content for m in messages] == [
         'Form submitted:\n```json\n{\n  "name": "",\n  "count": 12,\n  "confirm": false\n}\n```'
     ]
+
+
+@pytest.mark.parametrize("answer", [{}, {"name": None}])
+def test_form_hook_omits_optional_text(
+    monkeypatch: pytest.MonkeyPatch, answer: dict
+) -> None:
+    _hook_returning(monkeypatch, answer)
+    messages = list(execute_form("name: Name?", None, None))
+    assert messages[0].content == (
+        f"Form submitted:\n```json\n{json.dumps(answer, indent=2)}\n```"
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (KeyboardInterrupt(), "Form cancelled"),
+        (EOFError(), "Form cancelled"),
+        (
+            RuntimeError("input unavailable"),
+            "Error during form input: input unavailable",
+        ),
+    ],
+)
+def test_form_elicit_error(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException, expected: str
+) -> None:
+    monkeypatch.setattr("gptme.tools.form.elicit", Mock(side_effect=error))
+    messages = list(execute_form("name: Name?", None, None))
+    assert [m.content for m in messages] == [expected]
