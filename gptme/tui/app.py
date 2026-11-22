@@ -28,7 +28,7 @@ except ImportError:
 import threading
 import time
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, TypeVar, cast
+from typing import IO, TYPE_CHECKING, Any, TypeVar, cast
 from uuid import uuid4
 
 from rich.cells import cell_len, set_cell_size
@@ -53,7 +53,10 @@ from textual.screen import ModalScreen, Screen
 from textual.widget import Widget
 from textual.widgets import (
     Collapsible,
+    Input,
     Markdown,
+    OptionList,
+    SelectionList,
     Static,
     TextArea,
 )
@@ -78,6 +81,12 @@ from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
+from ..hooks.elicitation import (
+    ElicitationRequest,
+    ElicitationResponse,
+    _cli_form,
+    _confirmation_default,
+)
 from ..hooks.types import ToolExecutePreData
 from ..lessons.skill_events import (
     SkillPhase,
@@ -2254,6 +2263,137 @@ class UrlConfirmScreen(DialogScreen[list[str]]):
         self.dismiss([])
 
 
+class ElicitScreen(DialogScreen[ElicitationResponse]):
+    """Docked dialog answering an agent's ``elicit`` request.
+
+    Handles the single-question types: text, secret, choice (arrows or number
+    keys), multi_choice (space toggles) and confirmation (y/n). Forms are a
+    sequence of these, driven by ``GptmeApp._tui_elicit_hook``.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        # SelectionList toggles on enter; here enter submits the selection
+        Binding("enter", "done_multi", "Done", priority=True),
+    ]
+
+    def __init__(self, request: ElicitationRequest) -> None:
+        super().__init__()
+        self.request = request
+
+    @property
+    def _confirm_default(self) -> bool:
+        return _confirmation_default(self.request)
+
+    def compose(self) -> ComposeResult:
+        req = self.request
+        options = req.options or []
+        with Vertical(id="confirm-dialog"):
+            yield Static(Text(req.prompt, style="bold"), id="confirm-title")
+            if req.type == "confirmation":
+                hint = "[y] yes   [n] no   [enter] " + (
+                    "yes" if self._confirm_default else "no"
+                )
+            elif req.type == "choice" and options:
+                hint = "[↑/↓ or 1-9] select   [enter] choose   [esc] cancel"
+            elif req.type == "multi_choice" and options:
+                hint = "[↑/↓] move   [space] toggle   [enter] done   [esc] cancel"
+            else:
+                hint = "[enter] submit   [esc] cancel"
+            yield Static(Text(hint), id="confirm-help")
+            if req.description:
+                yield Static(Text(req.description), id="confirm-header")
+            if req.type == "choice" and options:
+                # Labels are markup-enabled by default: an option containing
+                # "[bold]x[/bold]" would render differently from its value, and
+                # an unmatched closing tag raises instead of showing the
+                # question. Text renders option contents literally.
+                yield OptionList(
+                    *(Text(f"{i}. {opt}") for i, opt in enumerate(options, 1)),
+                    id="elicit-choice",
+                )
+            elif req.type == "multi_choice" and options:
+                yield SelectionList[int](
+                    *((Text(opt), i) for i, opt in enumerate(options)),
+                    id="elicit-multi",
+                )
+            elif req.type != "confirmation":
+                default = "" if req.default is None else str(req.default)
+                yield Input(
+                    value=default,
+                    password=req.type == "secret",
+                    id="elicit-input",
+                )
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        cast("GptmeApp", self.app)._report_program_status("blocked", "question")
+        for widget_id in ("#elicit-choice", "#elicit-multi", "#elicit-input"):
+            for widget in self.query(widget_id):
+                widget.focus()
+        for widget in self.query("#elicit-choice"):
+            options = self.request.options or []
+            if self.request.default in options:
+                cast(OptionList, widget).highlighted = options.index(
+                    cast(str, self.request.default)
+                )
+            else:
+                cast(OptionList, widget).highlighted = 0
+
+    def on_unmount(self) -> None:
+        super().on_unmount()
+        app = cast("GptmeApp", self.app)
+        app.call_later(app._sync_program_status)
+
+    def on_key(self, event: events.Key) -> None:
+        req = self.request
+        if req.type == "confirmation":
+            if event.key == "y":
+                self._answer_yes_no(True)
+            elif event.key == "n":
+                self._answer_yes_no(False)
+            elif event.key == "enter":
+                self._answer_yes_no(self._confirm_default)
+            else:
+                return
+            event.stop()
+        elif req.type == "choice" and event.character and event.character.isdigit():
+            idx = int(event.character) - 1
+            if 0 <= idx < len(req.options or []):
+                self.dismiss(ElicitationResponse.text((req.options or [])[idx]))
+                event.stop()
+
+    def _answer_yes_no(self, yes: bool) -> None:
+        self.dismiss(ElicitationResponse.text("yes" if yes else "no"))
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        event.stop()
+        options = self.request.options or []
+        self.dismiss(ElicitationResponse.text(options[event.option_index]))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        value = event.value if self.request.type == "secret" else event.value.strip()
+        if not value and self.request.default is not None:
+            value = str(self.request.default)
+        self.dismiss(
+            ElicitationResponse.text(value, sensitive=self.request.type == "secret")
+        )
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "done_multi":
+            return self.request.type == "multi_choice" and bool(self.request.options)
+        return True
+
+    def action_done_multi(self) -> None:
+        options = self.request.options or []
+        selected = self.query_one("#elicit-multi", SelectionList).selected
+        self.dismiss(ElicitationResponse.multi([options[i] for i in sorted(selected)]))
+
+    def action_cancel(self) -> None:
+        self.dismiss(ElicitationResponse.cancel())
+
+
 @dataclass
 class _CommandResult:
     """Outcome of a registry command, handed back to the UI thread."""
@@ -3193,7 +3333,7 @@ class GptmeApp(App):
         self._child_drafts: dict[str, tuple[str, Selection, dict[str, str]]] = {}
         self._child_sends: set[tuple[str, float]] = set()
         self._pending_parent_confirm: (
-            tuple[ConfirmScreen, Callable[[ConfirmationResult | None], None]] | None
+            tuple[DialogScreen[Any], Callable[[Any], None]] | None
         ) = None
         self._parent_visibility: list[tuple[Widget, bool]] = []
         self._parent_scroll: tuple[float, float, bool, bool] | None = None
@@ -3473,6 +3613,14 @@ class GptmeApp(App):
             func=self._tui_confirm_hook,
             priority=100,
         )
+        # same for agent questions (elicit): without this they fall back to
+        # input()/getpass on a terminal Textual owns
+        register_hook(
+            name="tui_elicit",
+            hook_type=HookType.ELICIT,
+            func=self._tui_elicit_hook,
+            priority=100,
+        )
         # show each tool call as it starts: step() yields the assistant message
         # only after all of its tools have finished
         register_hook(
@@ -3724,6 +3872,7 @@ class GptmeApp(App):
             self.manager.logdir, self._active_skill_invocation_id, "abandoned"
         )
         unregister_hook("tui_confirm", HookType.TOOL_CONFIRM)
+        unregister_hook("tui_elicit", HookType.ELICIT)
         unregister_hook("tui_tool_start", HookType.TOOL_EXECUTE_PRE)
         # The saved streams are Textual's stdout/stderr captures, and unmount
         # can run after Textual has already restored the real streams:
@@ -4346,7 +4495,9 @@ class GptmeApp(App):
         self._last_program_status = report
 
     def _sync_program_status(self) -> None:
-        if isinstance(self.screen, (ConfirmScreen, UrlConfirmScreen)):
+        if isinstance(self.screen, ElicitScreen):
+            self._report_program_status("blocked", "question")
+        elif isinstance(self.screen, (ConfirmScreen, UrlConfirmScreen)):
             self._report_program_status("blocked", "permission")
         elif self.state == "awaiting confirmation":
             self._report_program_status("blocked", "permission")
@@ -5520,6 +5671,58 @@ class GptmeApp(App):
         self.call_from_thread(self._after_confirm)
         return result["r"]
 
+    # ---------------------------------------------------------- elicitation
+
+    def _tui_elicit_hook(self, request: ElicitationRequest) -> ElicitationResponse:
+        """ELICIT hook; called from the worker thread, blocks on the dialog."""
+        if request.type == "form":
+            return _cli_form(request, ask=self._ask_elicit, say=self._elicit_notice)
+        return self._ask_elicit(request)
+
+    def _elicit_notice(self, message: str) -> None:
+        if message := message.strip():
+            self.call_from_thread(self.notify, message, severity="warning")
+
+    def _ask_elicit(self, request: ElicitationRequest) -> ElicitationResponse:
+        if request.type == "confirmation":
+            try:
+                _confirmation_default(request)
+            except ValueError:
+                logger.warning("confirmation elicitation has an unsupported default")
+                return ElicitationResponse.cancel()
+        elif (
+            request.type == "choice"
+            and request.options
+            and request.default is not None
+            and request.default not in request.options
+        ):
+            logger.warning("choice elicitation has a default outside its options")
+            return ElicitationResponse.cancel()
+        self._restore_terminal()
+        result: dict[str, ElicitationResponse] = {}
+        done = threading.Event()
+
+        def show() -> None:
+            self._set_state("awaiting input")
+
+            def on_result(r: ElicitationResponse | None) -> None:
+                result["r"] = r or ElicitationResponse.cancel()
+                done.set()
+
+            dialog = ElicitScreen(request)
+            if self._child_view is not None:
+                self._pending_parent_confirm = (dialog, on_result)
+            else:
+                self.push_screen(dialog, on_result)
+
+        self.call_from_thread(show)
+        while not done.wait(timeout=0.5):
+            if self._quitting:
+                return ElicitationResponse.cancel()
+        self._restore_terminal()
+        self.call_from_thread(self._after_confirm)
+        return result["r"]
+
     # ------------------------------------------------------------ actions
 
     def _dismiss_dialog(self) -> bool:
@@ -5533,6 +5736,8 @@ class GptmeApp(App):
             screen.dismiss(ConfirmationResult.skip(INTERRUPT_CONTENT))
         elif isinstance(screen, UrlConfirmScreen):
             screen.dismiss([])
+        elif isinstance(screen, ElicitScreen):
+            screen.dismiss(ElicitationResponse.cancel())
         else:
             return False
         return True

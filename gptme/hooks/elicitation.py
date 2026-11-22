@@ -54,7 +54,8 @@ MCP Elicitation:
 
 import getpass
 import logging
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol, cast
 
 from ..util.program_status import program_status
@@ -297,28 +298,29 @@ def _cli_multi_choice(request: ElicitationRequest) -> ElicitationResponse:
         return ElicitationResponse.multi(selected)
 
 
+def _confirmation_default(request: ElicitationRequest) -> bool:
+    """Normalize a confirmation default, rejecting unsupported explicit values."""
+    default = request.default
+    if default is None:
+        return True
+    if isinstance(default, bool):
+        return default
+    if isinstance(default, str):
+        normalized = default.strip().lower()
+        if normalized in ("yes", "true", "1", "y", "no", "false", "0", "n"):
+            return normalized in ("yes", "true", "1", "y")
+    raise ValueError("confirmation elicitation has an unsupported default")
+
+
 def _cli_confirmation(request: ElicitationRequest) -> ElicitationResponse:
     """Confirm with bool or yes/no, true/false, y/n, 1/0 string defaults.
 
     Missing defaults retain the historical affirmative choice. Unsupported
     explicit defaults cancel rather than silently selecting yes.
     """
-    if request.default is None:
-        default = True
-    elif isinstance(request.default, bool):
-        default = request.default
-    elif isinstance(request.default, str) and request.default.strip().lower() in (
-        "yes",
-        "true",
-        "1",
-        "y",
-        "no",
-        "false",
-        "0",
-        "n",
-    ):
-        default = request.default.strip().lower() in ("yes", "true", "1", "y")
-    else:
+    try:
+        default = _confirmation_default(request)
+    except ValueError:
         logger.warning("confirmation elicitation has an unsupported default")
         return ElicitationResponse.cancel()
 
@@ -343,18 +345,29 @@ def _cli_confirmation(request: ElicitationRequest) -> ElicitationResponse:
             print("Please enter yes or no")
 
 
-def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
-    """CLI handler for multi-field form elicitation."""
+def _cli_form(
+    request: ElicitationRequest,
+    ask: Callable[[ElicitationRequest], ElicitationResponse] | None = None,
+    say: Callable[[str], None] = print,
+) -> ElicitationResponse:
+    """Multi-field form elicitation, one field at a time.
+
+    ``ask`` answers each field's sub-request (default: the terminal) and
+    ``say`` shows validation messages, so a UI other than the terminal
+    (the TUI) can reuse the field handling, validation and output format.
+    """
     import json
     import math
+
+    ask = ask or cli_elicit
 
     fields = request.fields or []
     if not fields:
         logger.warning("form elicitation without fields, falling back to text")
-        return _cli_text(request)
+        return ask(replace(request, type="text"))
 
     if request.prompt:
-        print(f"\n{request.prompt}")
+        say(f"\n{request.prompt}")
 
     results: dict[str, object] = {}
     secret_fields: set[str] = set()
@@ -378,13 +391,13 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
         )
 
         while True:
-            response = cli_elicit(sub_request)
+            response = ask(sub_request)
             if response.cancelled:
                 return ElicitationResponse.cancel()
 
             raw = response.value or ""
             if f.required and not raw.strip():
-                print("This field is required")
+                say("This field is required")
                 continue
 
             val: object = raw
@@ -403,7 +416,7 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
                             if not math.isfinite(val):
                                 raise ValueError
                         except ValueError:
-                            print("Please enter a finite number")
+                            say("Please enter a finite number")
                             continue
             break
 
