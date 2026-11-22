@@ -3457,6 +3457,8 @@ def test_memory_rerun_loads_conversation_workspace_dotenv(
         "Error: payment required",
         "gateway error: insufficient_credits",
         "no_subscription: upgrade required",
+        '{"error": {"code": "insufficient_credits"}}',
+        "{'error': {'type': 'payment_required'}}",
     ],
 )
 def test_classify_generation_error_payment(raw):
@@ -3474,6 +3476,8 @@ def test_classify_generation_error_payment(raw):
         "Error: Unauthorized",
         "authentication_error: invalid token",
         "invalid_api_key",
+        '{"error": {"type": "authentication_error"}}',
+        "{'error': {'code': 'invalid_api_key'}}",
     ],
 )
 def test_classify_generation_error_auth(raw):
@@ -3488,6 +3492,15 @@ def test_classify_generation_error_auth(raw):
         "command not found: gptme-typo",
         "No such file or directory",
         "Error: workspace /tmp/x does not exist",
+        "Error: workspace /projects/no_subscription does not exist",
+        "Error: workspace /projects/invalid_api_key does not exist",
+        "No such file or directory: '/projects/payment_required'",
+        "Cannot read /projects/authentication_error/config.toml",
+        "Tool output mentions insufficient_credits but is not a provider refusal",
+        "no_subscription/project does not exist",
+        "invalid_api_key.txt is missing",
+        '{"error": {"message": "Cannot read /projects/no_subscription"}}',
+        '{"error": {"code": "invalid_api_key.txt"}}',
         "Error code: 500 - internal server error",
         "",
     ],
@@ -3520,7 +3533,15 @@ def test_persisted_generation_error_is_classified(tmp_path):
     assert "Insufficient credits" not in persisted.content
 
 
-def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path):
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "workspace /tmp/moved does not exist",
+        "workspace /projects/no_subscription does not exist",
+        "workspace /projects/invalid_api_key does not exist",
+    ],
+)
+def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path, raw):
     from gptme.logmanager import LogManager
     from gptme.server.session_step import _persist_generation_error
 
@@ -3528,8 +3549,6 @@ def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path):
     session = MagicMock()
     session.conversation_id = "test-unclassified-generation-error"
 
-    _persist_generation_error(manager, session, "workspace /tmp/moved does not exist")
+    _persist_generation_error(manager, session, raw)
 
-    assert manager.log.messages[-1].content == (
-        "Error: workspace /tmp/moved does not exist"
-    )
+    assert manager.log.messages[-1].content == f"Error: {raw}"

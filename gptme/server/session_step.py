@@ -476,6 +476,21 @@ _STATUS_LABEL_RE = re.compile(
 )
 
 
+def _has_provider_error_hint(error_message: str, hints: tuple[str, ...]) -> bool:
+    """Match leading error labels or exact quoted provider type/code fields."""
+    labels = "|".join(re.escape(hint) for hint in hints)
+    return bool(
+        re.match(
+            rf"^(?:(?:gateway )?error:\s*)?(?:{labels})(?=\s|:|$)",
+            error_message,
+        )
+        or re.search(
+            rf"['\"](?:type|code)['\"]\s*:\s*['\"](?:{labels})['\"]",
+            error_message,
+        )
+    )
+
+
 def classify_generation_error(error_message: str) -> str:
     """Return the user-facing line for a provider generation failure.
 
@@ -492,7 +507,7 @@ def classify_generation_error(error_message: str) -> str:
     if (
         status_code == "402"
         or re.match(r"^(?:error:\s*)?payment required\b", lowered)
-        or any(hint in lowered for hint in _PAYMENT_ERROR_HINTS)
+        or _has_provider_error_hint(lowered, _PAYMENT_ERROR_HINTS)
     ):
         return (
             "Payment required — the model account has no credits left. "
@@ -501,7 +516,7 @@ def classify_generation_error(error_message: str) -> str:
     if (
         status_code == "401"
         or re.match(r"^(?:error:\s*)?unauthori[sz]ed\b", lowered)
-        or any(hint in lowered for hint in _AUTH_ERROR_HINTS)
+        or _has_provider_error_hint(lowered, _AUTH_ERROR_HINTS)
     ):
         return (
             "Authentication failed — the model provider rejected the request "
