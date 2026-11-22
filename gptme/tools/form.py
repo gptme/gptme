@@ -207,10 +207,16 @@ def _validate_form_results(
     An interface answers with its own JSON, so nothing guarantees it honoured the
     field names or types. Reporting an unchecked payload as "Form submitted"
     would hand the model values it never asked for (``{}`` skipping a required
-    field, ``"false"`` as a boolean, ``"abc"`` as a number).
+    field, ``"false"`` as a boolean, ``"abc"`` as a number). Keys outside the
+    requested fields are rejected too: the answer becomes model-visible tool
+    output, so an unchecked extra key is a prompt-injection boundary.
 
     Returns a human-readable error, or ``None`` when the answer is complete.
     """
+    declared = {field.name for field in fields}
+    unknown = sorted(set(results) - declared)
+    if unknown:
+        return f"unexpected field(s): {', '.join(unknown)}"
     for field in fields:
         value = results.get(field.name)
         if value is None:
