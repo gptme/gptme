@@ -55,7 +55,7 @@ MCP Elicitation:
 import getpass
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol, cast
 
 from ..util.program_status import program_status
@@ -363,7 +363,7 @@ def _cli_form(
     fields = request.fields or []
     if not fields:
         logger.warning("form elicitation without fields, falling back to text")
-        return _cli_text(request)
+        return ask(replace(request, type="text"))
 
     if request.prompt:
         say(f"\n{request.prompt}")
