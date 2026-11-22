@@ -215,15 +215,29 @@ LOOP_CONTINUE hook only when some other event starts a step (and
 for job exit). This is a parity gap versus subagent completion, independent of worker
 processes, and is the cheapest concrete consolidation: make job completion call the
 same `request_watch_wake` path (event-specific message, same busy/autowake policy).
-I audited the code, I did not reproduce it against a live server; treat as "verify
-before fixing".
+**Verified** (follow-up pass): `tests/test_wake_admission_matrix.py::test_shell_background_completion_has_no_idle_wake`
+starts a real `printf` job through `start_background_job`; on exit the job is queued
+(`_completion_notified`, present in `_completion_queue`) but `request_watch_wake` and
+`notification_ready.signal` are never called. This is a unit-level reproduction against
+the real module, not a live-server run.
 
 Shared already: `_conversation_busy` and `_dispatch_reserved_step` (admission +
 dispatch) are used by both the watch and peer paths, and `use_acp` conversations
 explicitly defer both (so a wake never answers a conversation whose input cursor a
 different runtime owns). `session.interrupted` suppresses peer wakes (a user-stopped
-conversation is not restarted); `request_watch_wake` does not check it, which I did
-not investigate further.
+conversation is not restarted). **`request_watch_wake` does not check it and clears it**
+(`session.interrupted = False` at reservation), so a subagent completion or watch event
+restarts a conversation the user stopped. Pinned by
+`test_interrupted_watch_wake_restarts_conversation_today` next to
+`test_interrupted_peer_wake_leaves_conversation_stopped`. Whether that is intended (a
+finished child is something the user asked for) is a maintainer decision; either way the
+unified admission step of §5.1 must make it one explicit rule per `kind` rather than two
+code paths that drifted.
+
+The idle/busy/ACP/interrupted matrix for peer and watch wakes is exercised against the
+real `SessionManager` (dispatcher and config mocked) in
+`tests/test_wake_admission_matrix.py`; run it with
+`pytest tests/test_wake_admission_matrix.py`.
 
 ### 5.1 Proposed conversation-addressed inbox (design only)
 
@@ -324,9 +338,11 @@ host today and would have to be re-homed or proxied — see gaps).
 * Prototype exec's code strings; it does **not** run real gptme tools, an LLM turn, or a
   third-party plugin end to end. The `open`/`Path.exists`/`subprocess`/native-`getcwd`
   isolation result is real, but "plugin unmodified" was demonstrated with a stand-in.
-* Not demonstrated end to end: peer arrival and child/job completion during busy/idle
-  states, and interrupted-session non-wake. §5 is an audit of existing code plus a
-  design, not a demo.
+* Peer/watch wake during busy/idle/ACP/interrupted states and the shell-job no-wake gap
+  are now demonstrated against the real admission code (§5,
+  `tests/test_wake_admission_matrix.py`), with the step dispatcher mocked. Still not
+  demonstrated: those events crossing a *process* boundary into a worker, and a live
+  server run. §5.1 remains a design.
 * Host-resident state that does not obviously survive a process boundary and needs an
   owner decision: browser tool thread, MCP client connections, `watch` registrations,
   subagent execution (not audited in this pass whether children run as threads of the parent; that decides whether they stay inside the parent's worker).
