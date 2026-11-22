@@ -132,19 +132,24 @@ CHILD = textwrap.dedent(
     def get_log(conv):
         return http.get(f"{BASE}/conversations/{conv}", headers=H).json().get("log", [])
 
-    def wait_for(conv, pred, timeout=90):
+    def wait_done(conv, text, timeout=90):
+        # Wait for the assistant text AND for the server to leave generating.
+        # The server persists the assistant message before the step's finally
+        # block clears session.generating; returning on the text alone lets the
+        # next /step race the still-active step and get a 409.
         deadline = time.time() + timeout
         while time.time() < deadline:
-            log = get_log(conv)
-            if pred(log):
+            data = http.get(f"{BASE}/conversations/{conv}", headers=H).json()
+            log = data.get("log", [])
+            done = any(
+                m["role"] == "assistant" and m["content"].strip() == text
+                for m in log
+            )
+            generating = bool((data.get("session") or {}).get("generating"))
+            if done and not generating:
                 return log
             time.sleep(0.2)
         return get_log(conv)
-
-    def wait_done(conv, text, timeout=90):
-        return wait_for(
-            conv, lambda log: any(m["role"] == "assistant" and m["content"].strip() == text for m in log), timeout
-        )
 
     def send(name, content):
         r = http.post(f"{BASE}/conversations/{convs[name]}", headers=H, json={"role": "user", "content": content})
