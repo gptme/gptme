@@ -165,3 +165,30 @@ def test_execute_tmux_inspect_does_not_write_user_cache(tmp_path, monkeypatch):
     assert "full captured scrollback saved to" in msgs[0].content
     assert not (tmp_path / "cache").exists()
     assert (tmp_path / "conv" / "tool-outputs" / "tmux").is_dir()
+
+
+def test_pane_credentials_are_redacted_before_save_and_preview(tmp_path):
+    secret = "sk-ant-api03-" + "A1b2C3d4" * 6
+    content = f"ANTHROPIC_API_KEY={secret}\n" + _long_pane()
+    with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
+        preview = _truncate_output(content, context="inspect-pane gptme_1")
+
+    (saved,) = _saved(tmp_path)
+    assert secret not in saved.read_text()
+    assert secret not in preview
+    assert "line-499" in saved.read_text()  # the rest is retained
+
+
+def test_short_pane_credentials_are_redacted_too(tmp_path):
+    secret = "sk-ant-api03-" + "A1b2C3d4" * 6
+    with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
+        out = _truncate_output(f"ANTHROPIC_API_KEY={secret}\nok")
+    assert secret not in out and out.endswith("ok")
+
+
+def test_pane_redaction_respects_opt_out(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
+    secret = "sk-ant-api03-" + "A1b2C3d4" * 6
+    with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
+        out = _truncate_output(f"ANTHROPIC_API_KEY={secret}\nok")
+    assert secret in out

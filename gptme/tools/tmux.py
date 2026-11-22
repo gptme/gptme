@@ -55,6 +55,22 @@ def _conversation_logdir() -> Path | None:
     return manager.logdir if manager and manager.logdir else None
 
 
+def _redact_pane_output(content: str) -> str:
+    """Apply the shell's credential-redaction policy to pane text.
+
+    The saved capture and the inline preview both derive from the returned
+    text, so a ``cat .env`` in a pane is not written to ``tool-outputs/`` or
+    shown unredacted. Same switch and heuristic as shell output
+    (``GPTME_SHELL_REDACT_SECRETS``); this is not a general secret scanner.
+    """
+    from ..config import get_config
+    from ..util.redact import redact_secret_values_from_output
+
+    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        return content
+    return redact_secret_values_from_output(content)[0]
+
+
 def _truncate_output(
     content: str,
     pre_lines: int = DEFAULT_PRE_LINES,
@@ -70,6 +86,7 @@ def _truncate_output(
     (which can name the saved file) is added on top of that bound, so the
     returned string can exceed ``max_chars`` by the marker length. When
     anything is omitted, the full captured text
+    (after the shell's credential redaction, ``GPTME_SHELL_REDACT_SECRETS``)
     is saved under the conversation's ``tool-outputs/tmux/`` and the marker
     names the file. The saved file is the pane scrollback tmux still held at
     capture time; history beyond tmux's ``history-limit`` was never captured.
@@ -86,6 +103,7 @@ def _truncate_output(
     Returns:
         Truncated content with message about truncation, or original if short enough
     """
+    content = _redact_pane_output(content)
     lines = content.split("\n")
     total_lines = len(lines)
     over_lines = total_lines > pre_lines + post_lines
