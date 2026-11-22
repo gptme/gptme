@@ -53,8 +53,9 @@ reachable from `src/`.
   of replayed faults is matched by phase, not wall-clock.
 
 **Cost**: 210–290 KB per streaming recording, ~750 KB for the 4000-line disclosure
-recording (short-output variant 240 KB). About 170 lines of helper code. Default CI runs
-only the three small replay/pixel tests (~10 s) and keeps no recording artifacts.
+recording (short-output variant 240 KB). About 170 lines of helper code. The three
+replay/pixel tests add ~10 s to default CI. The replay tests always attach their
+recordings; recordings from the other streaming tests are opt-in.
 
 **Verdict**: adopted as an opt-in/diagnostic and cross-check artifact (scrub a failing
 stream in the `Replayer` to see which batch introduced the state). Pass/fail stays with the
