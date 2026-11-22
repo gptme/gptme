@@ -1956,6 +1956,31 @@ def stream(
         )
 
 
+def _is_malformed_finish(native_finish: str) -> bool:
+    """True for provider finish reasons that mean the output was unparseable."""
+    return native_finish.upper().startswith("MALFORMED")
+
+
+def _should_retry_malformed(
+    native_finish: str | None,
+    attempt_output: list[bool],
+    tools_dict: list[Any] | None,
+    optional_kwargs: dict[str, Any],
+) -> bool:
+    """Retry an empty, malformed tool-calling response with a forced tool call.
+
+    Only when nothing was emitted (the retry replaces the response, it does
+    not append to it) and only once (``tool_choice`` not already set).
+    """
+    return (
+        native_finish is not None
+        and _is_malformed_finish(native_finish)
+        and not attempt_output
+        and bool(tools_dict)
+        and "tool_choice" not in optional_kwargs
+    )
+
+
 def _stream_with_client(
     client: Any,
     messages: list[Message],
@@ -2056,7 +2081,10 @@ def _stream_with_client(
     # served_model is declared outside the retry loop so the final value survives.
     served_model: str | None = None
 
-    for _degen_attempt in range(2):
+    # Up to one degeneration retry (first attempt only) plus one malformed
+    # retry (once, guarded by tool_choice): each gets its own iteration, so
+    # a degenerate first attempt cannot use up the forced-tool-call retry.
+    for _degen_attempt in range(3):
         _is_degen_retry = _degen_attempt > 0
         in_reasoning_block = False
         stop_reason = None
@@ -2066,6 +2094,10 @@ def _stream_with_client(
         thought_signatures: dict[str, str] = {}
         # Continuation chunks carry only the index, not the call id.
         tool_call_ids: dict[int, str] = {}
+        # Raw provider finish reason (OpenRouter's native_finish_reason), and
+        # whether this attempt produced any text, for the malformed retry.
+        native_finish: str | None = None
+        attempt_output: list[bool] = []
 
         try:
             _stream_obj = _stream_create(provider_ignore=_ignored_providers)
@@ -2138,6 +2170,7 @@ def _stream_with_client(
             _pending: list[str] = _degen_pending,
             _retry_enabled: bool = _degen_retry_enabled,
             _is_retry: bool = _is_degen_retry,
+            _output: list[bool] = attempt_output,
         ) -> Iterator[str]:
             """Yield streamed text, withholding the prefix while a retry is live.
 
@@ -2149,6 +2182,7 @@ def _stream_with_client(
             nonlocal _degen_emitted
             if not text:
                 return
+            _output.append(True)
             # Consumed synchronously via yield-from within this loop iteration;
             # deliberately read the current buffer, including its later reset.
             if native_pending is not None:  # noqa: B023
@@ -2214,6 +2248,10 @@ def _stream_with_client(
                 choice = chunk.choices[0]
                 if choice.finish_reason is not None:
                     stop_reason = choice.finish_reason
+                if native := (getattr(choice, "model_extra", None) or {}).get(
+                    "native_finish_reason"
+                ):
+                    native_finish = str(native)
                 delta = choice.delta
 
                 # Handle reasoning content
@@ -2322,6 +2360,29 @@ def _stream_with_client(
                 _degen_emitted = True
                 yield from _degen_pending
                 _degen_pending.clear()
+            if _should_retry_malformed(
+                native_finish, attempt_output, tools_dict, optional_kwargs
+            ):
+                # Gemini (seen with gemini-4-neon via OpenRouter) can end a
+                # tool-calling step with MALFORMED_RESPONSE and no output, and
+                # does so deterministically for the same request. Its ANY
+                # function-calling mode (tool_choice="required") constrains
+                # decoding to valid calls; the response broke while emitting
+                # one, so forcing a call keeps the model's intent.
+                logger.warning(
+                    "%s ended with %s and no output; retrying once with "
+                    'tool_choice="required"',
+                    model,
+                    native_finish,
+                )
+                optional_kwargs["tool_choice"] = "required"
+                captured_metadata = None
+                served_model = None
+                continue
+            if native_finish and _is_malformed_finish(native_finish):
+                if captured_metadata is None:
+                    captured_metadata = {"model": model}
+                captured_metadata["native_finish_reason"] = native_finish
             break  # Normal completion — no retry needed.
 
         # Degeneration detected.  Close the abandoned stream before deciding

@@ -239,6 +239,10 @@ class MessageMetadata(TypedDict, total=False):
     # report one. Distinct from `model` (what gptme requested) and from
     # `resolved_model` (OpenRouter subprovider @suffix form), which is unchanged.
     served_model: str
+    # Provider's own finish reason, recorded only when it reports a failed
+    # generation (e.g. Gemini's ``MALFORMED_RESPONSE`` behind OpenRouter's
+    # generic ``stop``), so an empty response can say what went wrong.
+    native_finish_reason: str
     cost: float  # Cost in USD
     # "provider" when ``cost`` is the amount the provider billed (OpenRouter
     # usage accounting); absent when ``cost`` is a catalog-price estimate.

@@ -4901,6 +4901,38 @@ class TestDegenerationStreamBehaviour:
         assert exc_info.value.degenerate_provider == "together"
         assert exc_info.value.score >= 0.85
 
+    def test_degeneration_retry_leaves_room_for_malformed_retry(self, monkeypatch):
+        """A degenerate first attempt must not use up the forced-tool retry."""
+        from gptme.tools.save import tool_save
+
+        monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
+        degen = _degen_chunk(content="REPEAT " * 200, provider="Together")
+        malformed = _degen_chunk(content="", provider="Fireworks")
+        malformed.choices[0].finish_reason = "stop"
+        malformed.choices[0].model_extra = {
+            "native_finish_reason": "MALFORMED_RESPONSE"
+        }
+        clean = _degen_chunk(content="Hello", provider="Fireworks")
+        terminal = _degen_chunk(provider="Fireworks")
+        terminal.choices[0].finish_reason = "stop"
+        streams = [
+            _openrouter_stream([degen], provider="Together"),
+            _openrouter_stream([malformed], provider="Fireworks"),
+            _openrouter_stream([clean, terminal], provider="Fireworks"),
+        ]
+        calls = self._setup(monkeypatch, streams)
+
+        text, _ = _collect_stream_result(
+            llm_openai.stream(
+                [Message(role="user", content="Hi")], _OR_MODEL, [tool_save]
+            )
+        )
+
+        assert len(calls) == 3
+        assert "tool_choice" not in calls[1]
+        assert calls[2]["tool_choice"] == "required"
+        assert text == "Hello"
+
     def test_retry_does_not_append_abandoned_output(self, monkeypatch):
         """With retry opt-in, a clean retry replaces rather than appends output."""
         monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
