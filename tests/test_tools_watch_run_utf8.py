@@ -68,9 +68,13 @@ def test_run_decodes_split_utf8(
     expected = payload.decode("utf-8", errors="replace")[
         -watch_module._RUN_TAIL_CHARS :
     ]
-    assert _run_tail(payload, monkeypatch, tmp_path) == (
+    event = _run_tail(payload, monkeypatch, tmp_path)
+    # Oversized results now append a recovery marker after the unchanged tail.
+    assert event.split("\nFull output:", 1)[0] == (
         f"process exited rc=0 {expected}".strip()
     )
+    if len(payload.decode("utf-8", errors="replace")) > watch_module._RUN_TAIL_CHARS:
+        assert "\nFull output:" in event
 
 
 def test_run_decoder_state_is_not_shared(

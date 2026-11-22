@@ -102,12 +102,21 @@ original process bytes. No generic guarantee applies across these rows.
 | ACP / gptme MCP server | ACP forwards message text, not file-transfer handles; MCP server joins tool output | No verified artifact transfer bridge or universal cap. ACP adapter does not enforce Message.hide as an access boundary. |
 | `tools/recall.py:_lookup_master_result` | Stable current-master-log message positions, paged character retrieval | Recovers what was recorded, not omitted process bytes or missing spill files. A recall result ID is not a filesystem resource ID. |
 
-Adjacent process paths are not covered by shell's contract: `tools/watch.py`
-`_poll_until` uses communicate before emitting a 500-character condition preview;
-`_poll_run` keeps a 1,000-character tail; `_poll_stream` bounds event count but
-accumulates partial-line text separately. `tools/convert.py` also uses subprocess
-capture before reporting diagnostics. Neither offers a general output_storage
-spool. Inventory/adoption is separate from the direct-job pilot; do not duplicate
+`tools/watch.py:_poll_run` now feeds the existing shell capture before RAM
+eviction: merged stdout/stderr uses private `shell-jobs/watch-<uuid>` streams
+and a receipt, the same sanitation, bounded queue, 32 MiB stream and 128 MiB
+conversation quotas, and a 1,000-character sanitized completion tail. Recovery
+markers distinguish complete, partial and unavailable capture. Cancellation,
+deadline expiry and a bounded post-exit drain finalize partial receipts; a
+cancelled watch still emits no wake. The worker inherits the initiating context
+so sanitation uses that conversation's configuration. The spool is not registered
+as a shell background job and does not generate a duplicate completion event.
+
+Other process paths retain separate contracts: `_poll_until` drains bounded
+500-character probe previews without full retention; `_poll_stream` bounds its
+line window and event queue without a general spool. `tools/convert.py` still
+uses subprocess capture before reporting diagnostics. This adapter does not
+change those paths or the shell/tmux/browser preview-size policy. Do not duplicate
 the bounded watch-probe work in gptme/gptme#4639.
 
 Credential guardrails before execution are useful but are not universal output
