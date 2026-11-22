@@ -2371,7 +2371,7 @@ class ElicitScreen(DialogScreen[ElicitationResponse]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
-        value = event.value.strip()
+        value = event.value if self.request.type == "secret" else event.value.strip()
         if not value and self.request.default is not None:
             value = str(self.request.default)
         self.dismiss(

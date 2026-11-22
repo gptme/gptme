@@ -89,7 +89,8 @@ async def test_text_default_on_empty(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_secret_is_masked_and_sensitive(tmp_path):
+@pytest.mark.parametrize("secret", ["x", " pass ", "   "])
+async def test_secret_is_masked_and_sensitive(tmp_path, secret):
     app = _app(tmp_path)
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
@@ -103,10 +104,10 @@ async def test_secret_is_masked_and_sensitive(tmp_path):
                 break
             await asyncio.sleep(0.01)
         assert app.screen.query_one("#elicit-input").password is True  # type: ignore[attr-defined]
-        for key in ("x", "enter"):
+        for key in [*secret, "enter"]:
             await pilot.press(key)
         t.join(timeout=5)
-        assert box["r"].value == "x" and box["r"].sensitive
+        assert box["r"].value == secret and box["r"].sensitive
 
 
 @pytest.mark.asyncio
@@ -219,3 +220,28 @@ async def test_form_runs_fields_through_dialogs(tmp_path):
             "age": 42,
             "ok": True,
         }
+
+
+@pytest.mark.parametrize("fields", [None, []])
+def test_empty_form_uses_supplied_backend(fields, monkeypatch):
+    from gptme.hooks.elicitation import _cli_form
+
+    def no_stdin(*args):
+        pytest.fail("empty form must not read stdin with a supplied backend")
+
+    monkeypatch.setattr("builtins.input", no_stdin)
+    requests = []
+
+    def ask(request):
+        requests.append(request)
+        return ElicitationResponse.text("bob")
+
+    request = ElicitationRequest(
+        "form", "Name?", fields=fields, default="alice", description="Your name"
+    )
+    assert _cli_form(request, ask=ask).value == "bob"
+    assert len(requests) == 1
+    assert requests[0].type == "text"
+    assert requests[0].prompt == request.prompt
+    assert requests[0].default == request.default
+    assert requests[0].description == request.description
