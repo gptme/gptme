@@ -28,7 +28,7 @@ except ImportError:
 import threading
 import time
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, cast
+from typing import IO, TYPE_CHECKING, TypeVar, cast
 from uuid import uuid4
 
 from rich.cells import cell_len, set_cell_size
@@ -47,9 +47,9 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.filter import ANSIToTruecolor
-from textual.geometry import Offset, Size
+from textual.geometry import Offset, Size, Spacing
 from textual.message import Message as TextualMessage
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 from textual.widget import Widget
 from textual.widgets import (
     Collapsible,
@@ -2076,7 +2076,87 @@ class ChatInput(TextArea):
             self.post_message(self.CompletionsChanged([], -1))
 
 
-class ConfirmScreen(ModalScreen[ConfirmationResult]):
+_DialogResult = TypeVar("_DialogResult")
+
+
+class DialogScreen(ModalScreen[_DialogResult]):
+    """A modal docked just above the prompt, with the conversation left visible.
+
+    The screen itself is transparent (see ``GptmeApp.CSS``), so the chat,
+    draft and statusline beneath stay on screen: a pending question keeps the
+    context it is about, instead of blanking the terminal. While it is open
+    the chat gets bottom padding of the dialog's height, so its latest
+    message (usually what the dialog asks about) scrolls into view above it.
+    """
+
+    # the chat we padded and its padding before, restored on close (by
+    # then this screen is off the stack, so the chat can't be looked up)
+    _padded: tuple[ChatScroll, Spacing] | None = None
+
+    def on_mount(self) -> None:
+        self._dock_above_input()
+        self.call_after_refresh(self._reserve_chat_space)
+
+    def on_resize(self) -> None:
+        self._dock_above_input()
+        self.call_after_refresh(self._reserve_chat_space)
+
+    def on_unmount(self) -> None:
+        if self._padded is not None:
+            chat, padding = self._padded
+            chat.styles.padding = padding
+            self._padded = None
+
+    def _base_screen(self) -> Screen | None:
+        stack = self.app.screen_stack
+        if self not in stack[1:]:
+            return None
+        return stack[stack.index(self) - 1]
+
+    def _base_chat(self) -> ChatScroll | None:
+        base = self._base_screen()
+        if base is None:
+            return None
+        try:
+            return base.query_one("#chat", ChatScroll)
+        except NoMatches:  # inline mode has no chat view
+            return None
+
+    def _dock_above_input(self) -> None:
+        """Bottom-margin the dialog so it ends on the row above the composer."""
+        base = self._base_screen()
+        offset = 0
+        # inline mode: the conversation is in terminal scrollback above the
+        # (auto-height) region, which the dialog replaces, so it needs no offset
+        if base is not None and not getattr(self.app, "inline", False):
+            try:
+                row = base.query_one("#input-row")
+            except NoMatches:
+                row = None
+            if row is not None and row.region.height:
+                offset = max(base.size.height - row.region.y, 0)
+        for dialog in self.query("#confirm-dialog"):
+            dialog.styles.margin = (0, 1, offset, 1)
+
+    def _reserve_chat_space(self) -> None:
+        """Pad the chat's end by the dialog's height, keeping it at the end."""
+        chat = self._base_chat()
+        if chat is None or not self.is_attached:
+            return
+        try:
+            dialog = self.query_one("#confirm-dialog")
+        except NoMatches:
+            return
+        if self._padded is None:
+            self._padded = (chat, chat.styles.padding)
+        at_end = chat.scroll_y >= chat.max_scroll_y
+        top, right, _, left = self._padded[1]
+        chat.styles.padding = (top, right, dialog.outer_size.height, left)
+        if at_end:
+            chat.call_after_refresh(chat.scroll_end, animate=False)
+
+
+class ConfirmScreen(DialogScreen[ConfirmationResult]):
     """Modal asking the user to confirm a tool execution."""
 
     BINDINGS = [
@@ -2127,7 +2207,7 @@ class ConfirmScreen(ModalScreen[ConfirmationResult]):
         self.dismiss(ConfirmationResult.confirm())
 
 
-class UrlConfirmScreen(ModalScreen):
+class UrlConfirmScreen(DialogScreen[list[str]]):
     """Modal asking the user to confirm fetching URLs found in their message."""
 
     BINDINGS = [
@@ -3026,21 +3106,31 @@ class GptmeApp(App):
     #keys {
         width: auto;
     }
-    ConfirmScreen {
-        align: center middle;
+    /* dialogs sit above the composer over a see-through screen, so the
+       conversation they are about stays visible (after the Screen rule) */
+    DialogScreen {
+        align: center bottom;
+        background: transparent;
+    }
+    /* inline: the conversation is in scrollback above; replace the region */
+    DialogScreen:inline {
+        background: ansi_default;
     }
     #confirm-dialog {
-        width: 80%;
+        width: 1fr;
         max-height: 80%;
         height: auto;
         border: round $warning;
         background: $surface;
-        padding: 1;
+        padding: 0 1;
+    }
+    #confirm-header {
+        margin-top: 1;
     }
     #confirm-preview {
         height: auto;
         max-height: 20;
-        margin: 1 0;
+        margin: 1 0 0 0;
     }
     #confirm-help {
         color: $text-muted;
