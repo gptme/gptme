@@ -939,6 +939,33 @@ def test_load_context_files_existing(tmp_path):
     assert "print('hello')" in loaded[0][1]
 
 
+def test_load_context_files_skips_credential_files(tmp_path):
+    """Credential-bearing files are never re-injected on resume."""
+    from gptme.tools.autocompact import _load_context_files
+
+    (tmp_path / ".env").write_text("TOKEN=abc\n")
+    (tmp_path / "posthog.env").write_text("KEY=abc\n")
+    (tmp_path / ".env.example").write_text("KEY=\n")
+    key_dir = tmp_path / ".ssh"
+    key_dir.mkdir()
+    (key_dir / "id_ed25519").write_text("private\n")
+    cfg = tmp_path / ".config" / "secrets"
+    cfg.mkdir(parents=True)
+    (cfg / "x.txt").write_text("v\n")
+
+    loaded = _load_context_files(
+        [
+            ".env",
+            "posthog.env",
+            ".env.example",
+            ".ssh/id_ed25519",
+            ".config/secrets/x.txt",
+        ],
+        workspace=tmp_path,
+    )
+    assert [p for p, _ in loaded] == [".env.example"]
+
+
 def test_load_context_files_nonexistent(tmp_path):
     """Test that nonexistent files are skipped gracefully."""
     from gptme.tools.autocompact import _load_context_files

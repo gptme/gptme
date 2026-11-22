@@ -150,6 +150,28 @@ def _parse_context_files(content: str) -> list[str]:
     return unique_paths
 
 
+_SECRET_DIR_PARTS = frozenset({".ssh", ".gnupg", ".aws"})
+_ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
+
+
+def _is_secret_bearing_path(path: Path) -> bool:
+    """True for files that hold credentials (dotenv files, key directories).
+
+    Resume re-injects context files verbatim into the next prompt, so a model
+    that merely inspected ``secrets/posthog.env`` would otherwise ship every
+    value in it to the provider and into the saved log.
+    """
+    name = path.name
+    if name.endswith(_ENV_TEMPLATE_SUFFIXES):
+        return False
+    if name == ".env" or name.startswith(".env.") or name.endswith(".env"):
+        return True
+    parts = path.parts
+    if _SECRET_DIR_PARTS.intersection(parts):
+        return True
+    return any(a == ".config" and b == "secrets" for a, b in zip(parts, parts[1:]))
+
+
 def _load_context_files(
     file_paths: list[str],
     workspace: Path | None = None,
@@ -198,6 +220,10 @@ def _load_context_files(
                 file_path,
                 full_path,
             )
+            continue
+
+        if _is_secret_bearing_path(full_path):
+            logger.warning("Skipping credential-bearing context file: %s", file_path)
             continue
 
         try:
