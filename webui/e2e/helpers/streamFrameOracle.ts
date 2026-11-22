@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { markRecording, startRecording, stopRecording } from './rrwebReplay';
 
 // In-page frame oracle for streamed replies (gptme/gptme#5023).
 //
@@ -255,6 +256,8 @@ export async function markChunk(page: Page, chunk: number, phase: string) {
     },
     { chunk, phase }
   );
+  // A marker in the rrweb timeline (if recording) ties replayed frames to chunks.
+  await markRecording(page, 'chunk', { chunk, phase });
 }
 
 /** Inject a one-painted-frame fault (oracle negative control). */
@@ -286,29 +289,14 @@ export async function stopFrameOracle(page: Page): Promise<OracleResult> {
 }
 
 // Opt-in rrweb recording for diagnosis (gptme/gptme#5023 evaluation).
-// Set RRWEB_UMD to a local rrweb UMD bundle (e.g. node_modules/rrweb/dist/rrweb.umd.min.cjs
-// from a scratch install). It is not a dependency, never runs in default CI, and
-// records only the synthetic test page into a local test artifact. Its event
+// Set RRWEB_RECORD=1 to attach `rrweb-events.json` to the existing streaming tests
+// (RRWEB_UMD may point at another rrweb UMD bundle). The dedicated replay tests in
+// turn-stability.spec.ts always record and replay in rrweb's Replayer. The event
 // stream is diagnostic evidence; pass/fail stays with the frame oracle.
 export async function startRrweb(page: Page): Promise<boolean> {
-  const bundle = process.env.RRWEB_UMD;
-  if (!bundle) return false;
-  await page.addScriptTag({ path: bundle });
-  await page.evaluate(() => {
-    const events: unknown[] = [];
-    const rrweb = (window as unknown as { rrweb: { record: (o: object) => () => void } }).rrweb;
-    const stop = rrweb.record({ emit: (event: unknown) => events.push(event) });
-    Object.assign(window, { __rrweb: { events, stop } });
-  });
+  if (!process.env.RRWEB_RECORD && !process.env.RRWEB_UMD) return false;
+  await startRecording(page);
   return true;
 }
 
-export async function stopRrweb(page: Page): Promise<unknown[]> {
-  return page.evaluate(() => {
-    const state = (window as unknown as { __rrweb?: { events: unknown[]; stop: () => void } })
-      .__rrweb;
-    if (!state) return [];
-    state.stop();
-    return state.events;
-  });
-}
+export const stopRrweb = stopRecording;
