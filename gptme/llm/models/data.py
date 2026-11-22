@@ -80,6 +80,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "xai",
         "grok-subscription",
         "moonshot",
+        "crowllm",
         "requesty",
         "opencode-go",
         "openrouter",
