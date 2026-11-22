@@ -4,7 +4,7 @@ A server hosts many conversations in one process, so a tool that resolves a path
 with ``Path.cwd()`` / ``os.getcwd()`` (or mutates the process cwd with
 ``os.chdir``) silently targets the *host's* directory instead of the session's
 workspace (see #4951, #5051). Session code should use
-``gptme.tools.base.current_workspace`` / ``resolve_in_workspace``.
+``gptme.util.workspace.current_workspace`` / ``resolve_in_workspace``.
 
 This test statically scans ``gptme/{tools,hooks,context}`` for direct calls and
 fails on any not in ``REVIEWED``. It is a maintainers' backstop for core code,
@@ -30,10 +30,6 @@ CWD_CALLS = {"cwd", "getcwd", "getcwdb", "chdir", "fchdir"}
 
 # (file relative to gptme/, enclosing qualname) -> reason
 REVIEWED: dict[tuple[str, str], str] = {
-    (
-        "tools/base.py",
-        "current_workspace",
-    ): "Definition of the workspace: CLI fallback when no session workspace is set.",
     (
         "tools/autocompact/resume.py",
         "_load_context_files",
@@ -149,7 +145,7 @@ def test_no_unreviewed_process_cwd_use():
     assert not unreviewed, (
         "Direct process-cwd use in session-sensitive core code. In a server this "
         "targets the host's cwd, not the session workspace. Use "
-        "gptme.tools.base.current_workspace()/resolve_in_workspace(), or, if the "
+        "gptme.util.workspace.current_workspace()/resolve_in_workspace(), or, if the "
         "call is a reviewed CLI-only fallback, add it to REVIEWED with a reason:\n"
         + "\n".join(f"  {f}::{q}: {', '.join(c)}" for (f, q), c in unreviewed.items())
     )
