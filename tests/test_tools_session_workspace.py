@@ -164,6 +164,34 @@ def test_read_relative_path_reads_session_workspace(workspaces):
     assert "note in b" in _in_session(b, read)
 
 
+def test_hashline_edit_relative_path_uses_session_workspace(workspaces):
+    """The snapshot `read` stores is workspace-resolved, so the edit must be too.
+
+    Otherwise a session whose workspace differs from the process cwd gets
+    "file not found" — or edits a same-named file under the cwd.
+    """
+    a, _, elsewhere = workspaces
+    (a / "f.txt").write_text("hello\nworld\n")
+    (elsewhere / "f.txt").write_text("cwd content\n")
+    from gptme.tools._hashline_snapshot import get_stored_tag
+    from gptme.tools.hashline_edit import execute_hashline_edit
+    from gptme.tools.read import execute_read
+
+    # The contract is read-then-edit: `read` leaves the snapshot for the tag.
+    _in_session(a, lambda: list(execute_read(None, ["f.txt"], None)))
+    tag = get_stored_tag(str((a / "f.txt").resolve()))
+    assert tag is not None
+
+    block = f"[f.txt#{tag}]\nPUT 1.=1:\n+bye\n"
+    messages = _in_session(
+        a, lambda: [m.content for m in execute_hashline_edit(block, ["f.txt"], None)]
+    )
+
+    assert "applied" in messages[0], messages
+    assert (a / "f.txt").read_text() == "bye\nworld\n"
+    assert (elsewhere / "f.txt").read_text() == "cwd content\n"
+
+
 def test_traversal_guard_uses_session_workspace(workspaces):
     a, b, _ = workspaces
     from gptme.tools.save import execute_save_impl
