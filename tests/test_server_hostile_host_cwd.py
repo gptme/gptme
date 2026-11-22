@@ -371,5 +371,18 @@ def test_server_conversations_stay_isolated_from_hostile_host_cwd(
 @pytest.mark.timeout(300)
 def test_harness_catches_process_relative_hashline_edit(tmp_path: Path) -> None:
     """Acceptance oracle: restoring the pre-#5051 bug must make the suite fail."""
-    problems = _check(_run_child(tmp_path, mutate="hashline_process_relative"))
-    assert any("h.txt" in p for p in problems), problems
+    payload = _run_child(tmp_path, mutate="hashline_process_relative")
+    problems = _check(payload)
+    # Only the mutated hashline edits may fail: driver errors, cwd drift, or
+    # unrelated missing files must not masquerade as detecting this regression.
+    assert problems == ["a: h.txt missing or wrong", "b: h.txt missing or wrong"]
+    host_file = Path(payload["host"]) / "h.txt"
+    expected = (
+        f"hashline_edit: no snapshot found for {host_file}. "
+        "Call `read` first to capture a snapshot."
+    )
+    for name in ("a", "b"):
+        assert expected in payload["logs"][name], payload["logs"][name]
+        assert (Path(payload["root"]) / name / "h.txt").read_text() == (
+            f"hash {name}\nline2\n"
+        )
