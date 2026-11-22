@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Literal
 from ..message import Message
 from ..util.git_cmd import GIT_CMD
 from ._hashline_snapshot import lookup_snapshot, store_snapshot
-from .base import Parameter, ToolSpec, ToolUse, file_newline
+from .base import Parameter, ToolSpec, ToolUse, file_newline, resolve_in_workspace
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -878,7 +878,7 @@ def execute_hashline_edit(
         return
 
     # Resolve and read the actual file
-    resolved = path.expanduser().resolve()
+    resolved = resolve_in_workspace(path)
     if not resolved.exists():
         yield Message("system", f"hashline_edit: file not found: {resolved}")
         return
