@@ -712,6 +712,15 @@ appended on top, so the returned text exceeds the limit by the marker length.
 This is deliberate. A total-length cap would subtract the marker from the
 content budget, and at a small configured limit the marker would crowd out the
 content and the recovery path. The MCP bound below uses the same rule.</p>
+<p>Model-facing converter failure diagnostics now use the same private whole-text
+writer before shortening stderr to their existing 200/300-character head or tail. When a
+conversation logdir exists, the marker names <code class="docutils literal notranslate"><span class="pre">tool-outputs/convert/</span></code>; without a
+logdir or after a failed save, the preview still reports omitted characters but
+makes no saved-file claim. Short diagnostics are unchanged. This retains the
+supplied UTF-8-decoded stderr, not raw bytes, stdout, or successful-conversion
+logs. Logger-only fallback diagnostics are unchanged. It does not bound
+subprocess capture memory, add streaming, or redact
+converter diagnostics; the private file and re-read contents remain untrusted.</p>
 <p><strong>Request:</strong> <a class="reference external" href="https://github.com/gptme/gptme/issues/4663">gptme/gptme#4663</a>.</p>
 <p><strong>Source inventory:</strong> <code class="docutils literal notranslate"><span class="pre">15f20e44c96acdd035da81213b9e9f5bb54ac98d</span></code> (2026-10-30).</p>
 <section id="decision">
@@ -785,8 +794,8 @@ original process bytes. No generic guarantee applies across these rows.</p>
 <td><p>Saved selection is not necessarily the whole input. Original file may change later. <code class="docutils literal notranslate"><span class="pre">GPTME_READ_ROOT</span></code> confines resolved paths; default absolute-path access is broader.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/tmux.py:_capture_pane</span></code>, <code class="docutils literal notranslate"><span class="pre">_truncate_output</span></code></p></td>
-<td><p>Captures scrollback into RAM, then 50 head / 150 tail lines; native inspect/wait can spill to user-cache-root tmux-output</p></td>
-<td><p>No byte cap; new/send paths do not supply spill logdir. Pane history may already have lost older output. Cache spill is not conversation-owned.</p></td>
+<td><p>Captures scrollback into RAM, then 50 head / 150 tail lines and a 40k-character bound on retained pane content (the truncation marker is extra). Every pane-reading command (new-session, send-keys, inspect-pane, wait) spills the full capture to the conversation’s <code class="docutils literal notranslate"><span class="pre">tool-outputs/tmux/</span></code> when a logdir exists</p></td>
+<td><p>Saved file is the scrollback tmux still held: history beyond <code class="docutils literal notranslate"><span class="pre">history-limit</span></code> was never captured, and the marker says “captured scrollback”, not full output. No logdir means no spill (no user-cache fallback). Pane text is not redacted before save.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/autocompact/engine.py</span></code>, <code class="docutils literal notranslate"><span class="pre">create_tool_result_summary</span></code></p></td>
 <td><p>Saves received message text when logdir exists, then replaces with pointer; master-log references are another mechanism</p></td>
@@ -811,12 +820,20 @@ original process bytes. No generic guarantee applies across these rows.</p>
 </tbody>
 </table>
 </div>
-<p>Adjacent process paths are not covered by shell’s contract: <code class="docutils literal notranslate"><span class="pre">tools/watch.py</span></code>
-<code class="docutils literal notranslate"><span class="pre">_poll_until</span></code> uses communicate before emitting a 500-character condition preview;
-<code class="docutils literal notranslate"><span class="pre">_poll_run</span></code> keeps a 1,000-character tail; <code class="docutils literal notranslate"><span class="pre">_poll_stream</span></code> bounds event count but
-accumulates partial-line text separately. <code class="docutils literal notranslate"><span class="pre">tools/convert.py</span></code> also uses subprocess
-capture before reporting diagnostics. Neither offers a general output_storage
-spool. Inventory/adoption is separate from the direct-job pilot; do not duplicate
+<p><code class="docutils literal notranslate"><span class="pre">tools/watch.py:_poll_run</span></code> now feeds the existing shell capture before RAM
+eviction: merged stdout/stderr uses private <code class="docutils literal notranslate"><span class="pre">shell-jobs/watch-&lt;uuid&gt;</span></code> streams
+and a receipt, the same sanitation, bounded queue, 32 MiB stream and 128 MiB
+conversation quotas, and a 1,000-character sanitized completion tail. Recovery
+markers distinguish complete, partial and unavailable capture. Cancellation,
+deadline expiry and a bounded post-exit drain finalize partial receipts; a
+cancelled watch still emits no wake. The worker inherits the initiating context
+so sanitation uses that conversation’s configuration. The spool is not registered
+as a shell background job and does not generate a duplicate completion event.</p>
+<p>Other process paths retain separate contracts: <code class="docutils literal notranslate"><span class="pre">_poll_until</span></code> drains bounded
+500-character probe previews without full retention; <code class="docutils literal notranslate"><span class="pre">_poll_stream</span></code> bounds its
+line window and event queue without a general spool. <code class="docutils literal notranslate"><span class="pre">tools/convert.py</span></code> still
+uses subprocess capture before reporting diagnostics. This adapter does not
+change those paths or the shell/tmux/browser preview-size policy. Do not duplicate
 the bounded watch-probe work in gptme/gptme#4639.</p>
 <p>Credential guardrails before execution are useful but are not universal output
 redaction. The generic writer is unsanitized. Shell job sanitation has explicit

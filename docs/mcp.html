@@ -646,6 +646,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#oauth-for-http-servers">OAuth for HTTP servers</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#large-tool-results">Large tool results</a></li>
 </ul>
 </li>
@@ -765,6 +766,26 @@ so approve only project servers you trust.</p>
 </ul>
 </li>
 </ul>
+</section>
+<section id="oauth-for-http-servers">
+<h3>OAuth for HTTP servers<a class="headerlink" href="#oauth-for-http-servers" title="Link to this heading">#</a></h3>
+<p>Some HTTP servers gate access with OAuth instead of a static token. When such a
+server answers <code class="docutils literal notranslate"><span class="pre">401</span></code> with a <code class="docutils literal notranslate"><span class="pre">resource_metadata</span></code> challenge, gptme runs the MCP
+authorization-code flow (PKCE) against the authorization server it advertises,
+including dynamic client registration and token refresh:</p>
+<ul class="simple">
+<li><p>the authorization URL is printed and opened in a browser when one is available,</p></li>
+<li><p>the redirect is captured on a loopback port (<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>), as RFC 8252
+requires for native clients,</p></li>
+<li><p>the issued token and client registration are cached per server under
+<code class="docutils literal notranslate"><span class="pre">mcp-oauth/</span></code> in the config directory, in a <code class="docutils literal notranslate"><span class="pre">0600</span></code> file.</p></li>
+</ul>
+<p>An <code class="docutils literal notranslate"><span class="pre">Authorization</span></code> value in <code class="docutils literal notranslate"><span class="pre">[mcp.servers.headers]</span></code> always wins over the
+flow, so existing static-token setups keep working unchanged. Set
+<code class="docutils literal notranslate"><span class="pre">GPTME_MCP_OAUTH=0</span></code> to disable the flow entirely.</p>
+<p>A session that cannot open a browser (server mode, CI) fails with an actionable
+error instead of waiting for a redirect: authorize once interactively to fill the
+cache, or keep using static headers.</p>
 </section>
 <section id="large-tool-results">
 <h3>Large tool results<a class="headerlink" href="#large-tool-results" title="Link to this heading">#</a></h3>
@@ -965,6 +986,7 @@ across multiple tool calls.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#management-tool">Management Tool</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-options">Configuration Options</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#oauth-for-http-servers">OAuth for HTTP servers</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#large-tool-results">Large tool results</a></li>
 </ul>
 </li>
