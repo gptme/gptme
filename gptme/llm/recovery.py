@@ -235,6 +235,13 @@ def is_transient_provider_error(error: BaseException) -> bool:
 
     if isinstance(error, ResponsesStreamError):
         return error.code in _TRANSIENT_STREAM_CODES
+    from . import EmptyStreamError  # fmt: skip
+
+    if isinstance(error, EmptyStreamError) and error.native_finish_reason:
+        # The provider says the output was malformed; llm_openai already retried
+        # once with a forced tool call, and replaying the same request again
+        # fails the same way (gemini-4-neon: 11/11 attempts).
+        return False
     if isinstance(
         error,
         (

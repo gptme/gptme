@@ -306,8 +306,16 @@ class EmptyStreamError(httpx.RemoteProtocolError):
     def __init__(self, model: str, metadata: MessageMetadata | None):
         self.model = model
         self.metadata = metadata
+        # e.g. Gemini's MALFORMED_RESPONSE: deterministic for the same request,
+        # so not worth replaying (see recovery.is_transient_provider_error)
+        self.native_finish_reason = (metadata or {}).get("native_finish_reason")
         usage = (metadata or {}).get("usage")
         detail = f" (usage: {usage})" if usage else ""
+        if self.native_finish_reason:
+            detail += (
+                f"; provider finish reason {self.native_finish_reason}: the model's"
+                " response could not be parsed, likely a malformed tool call"
+            )
         super().__init__(
             f"Provider stream for {model} ended without any output{detail}"
         )
