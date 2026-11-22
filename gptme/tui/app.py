@@ -2304,13 +2304,17 @@ class ElicitScreen(DialogScreen[ElicitationResponse]):
             if req.description:
                 yield Static(Text(req.description), id="confirm-header")
             if req.type == "choice" and options:
+                # Labels are markup-enabled by default: an option containing
+                # "[bold]x[/bold]" would render differently from its value, and
+                # an unmatched closing tag raises instead of showing the
+                # question. Text renders option contents literally.
                 yield OptionList(
-                    *(f"{i}. {opt}" for i, opt in enumerate(options, 1)),
+                    *(Text(f"{i}. {opt}") for i, opt in enumerate(options, 1)),
                     id="elicit-choice",
                 )
             elif req.type == "multi_choice" and options:
                 yield SelectionList[int](
-                    *((opt, i) for i, opt in enumerate(options)),
+                    *((Text(opt), i) for i, opt in enumerate(options)),
                     id="elicit-multi",
                 )
             elif req.type != "confirmation":

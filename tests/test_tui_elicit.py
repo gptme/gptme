@@ -136,6 +136,30 @@ async def test_multi_choice(tmp_path):
         assert r.values == ["a", "c"]
 
 
+# Option text is data, not Rich markup: "[/bold]" alone would raise on render.
+MARKUP_OPTIONS = ["[bold]x[/bold]", "[/bold]y", "z"]
+
+
+@pytest.mark.asyncio
+async def test_choice_options_render_literally(tmp_path):
+    app = _app(tmp_path)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        req = ElicitationRequest("choice", "Pick", options=MARKUP_OPTIONS)
+        r = await _ask(app, pilot, req, ["down", "enter"])
+        assert r.value == "[/bold]y"
+
+
+@pytest.mark.asyncio
+async def test_multi_choice_options_render_literally(tmp_path):
+    app = _app(tmp_path)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        req = ElicitationRequest("multi_choice", "Pick", options=MARKUP_OPTIONS)
+        r = await _ask(app, pilot, req, ["space", "down", "space", "enter"])
+        assert r.values == ["[bold]x[/bold]", "[/bold]y"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("default", "key", "expected"),
