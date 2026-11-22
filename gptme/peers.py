@@ -29,9 +29,28 @@ def _active_conversations(pids: set[int]) -> dict[int, list[Path]]:
     """
     found: dict[int, list[Path]] = {}
     root = get_logs_dir().resolve()
-    for lockfile in root.glob("*/.lock"):
+    lockfiles = set(root.glob("*/.lock"))
+    # Linux peers may use a different GPTME_LOGS_HOME (e.g. per-run roots).
+    # Inspect only discovered processes, not their environments or the filesystem
+    # tree. Other platforms/denied procfs access retain local-root discovery.
+    for pid in pids:
+        try:
+            for proc_fd in Path(f"/proc/{pid}/fd").iterdir():
+                try:
+                    path = proc_fd.readlink()
+                    if path.is_absolute() and path.name == ".lock":
+                        lockfiles.add(path)
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    for lockfile in sorted(lockfiles):
         logdir = lockfile.parent
-        if logdir.is_symlink() or not is_valid_conversation_id(logdir.name):
+        if (
+            logdir.is_symlink()
+            or lockfile.is_symlink()
+            or not is_valid_conversation_id(logdir.name)
+        ):
             continue
         try:
             with lockfile.open("r+") as fd:
@@ -58,10 +77,13 @@ def list_peers(workspace: str | None = None) -> list[dict[str, object]]:
     """Discover peers; only addressable gptme IDs accept messages.
 
     Reuses workspace_agents.scan_agents for process discovery. gptme IDs are
-    resolved from held lifetime locks under this user's configured logs root,
-    including auto-named sessions. Unresolved gptme observations are omitted
-    (command-line path arguments can produce false positives); other runtimes
-    are explicitly not addressable; process scanning can miss sessions and is not a liveness or
+    resolved from held lifetime locks, including auto-named sessions. On Linux,
+    process file descriptors also locate conversations in other logs roots;
+    otherwise discovery is limited to the configured logs root. Use ``log_dir``
+    as an explicit send target when names collide. Unresolved gptme observations
+    are omitted (command-line path arguments can produce false positives); other
+    runtimes are explicitly not addressable. Process scanning can miss sessions
+    and is not a liveness or
     identity guarantee. ``branch`` from discovery is a git branch, not a
     conversation branch; send defaults to the conversation's main branch.
     """
@@ -88,6 +110,44 @@ def list_peers(workspace: str | None = None) -> list[dict[str, object]]:
     return peers
 
 
+def _resolve_peer_target(conversation_id: str) -> Path:
+    """Resolve local names first, or an explicit path/unique live peer name."""
+    path = Path(conversation_id)
+    root = get_logs_dir().resolve()
+    if path.is_absolute():
+        validate_conversation_id(path.name)
+        if ".." in path.parts or path != path.resolve():
+            raise ValueError("Peer target must be a direct conversation directory")
+        # An explicit path must identify a conversation, not an arbitrary dir.
+        if (
+            not (path / "conversation.jsonl").is_file()
+            or (path / "conversation.jsonl").is_symlink()
+        ):
+            raise ValueError("Peer target must contain a conversation.jsonl file")
+        target = path
+    else:
+        validate_conversation_id(conversation_id)
+        target = root / conversation_id
+        if not target.exists() and not target.is_symlink():
+            matches = {
+                Path(str(peer["log_dir"]))
+                for peer in list_peers()
+                if peer.get("addressable")
+                and peer.get("conversation_id") == conversation_id
+            }
+            if len(matches) > 1:
+                raise ValueError(
+                    "Ambiguous peer conversation name; use its absolute log_dir"
+                )
+            if matches:
+                target = matches.pop()
+    if target.is_symlink():
+        raise ValueError("Peer target must be a direct conversation directory")
+    if not target.is_dir():
+        raise FileNotFoundError(f"Peer conversation does not exist: {conversation_id}")
+    return target.resolve()
+
+
 def send_peer_message(
     conversation_id: str,
     message: str,
@@ -99,12 +159,14 @@ def send_peer_message(
     """Queue peer input; return correlation UUID.
 
     ``sender_logdir`` defaults to the current LogManager's directory. Targets
-    must already exist below the configured logs root. No recipient wake or
+    may be a name below the configured logs root, a unique live peer name from
+    ``list_peers``, or an absolute conversation directory (containing
+    ``conversation.jsonl``). Local names take precedence; ambiguous external
+    names require an explicit path. No recipient wake or
     automated reply is implemented here, and no exactly-once execution is
     promised. A caller retry queues a new message with a new correlation ID.
     The 16 KiB limit measures UTF-8 bytes of the supplied message text.
     """
-    validate_conversation_id(conversation_id)
     validate_conversation_id(branch)
     if not message.strip():
         raise ValueError("Peer message cannot be empty")
@@ -121,14 +183,9 @@ def send_peer_message(
     if not sender_path.is_dir():
         raise FileNotFoundError(f"Sender conversation does not exist: {sender_path}")
 
-    root = get_logs_dir().resolve()
-    target = root / conversation_id
-    if target.is_symlink() or target.resolve().parent != root:
-        raise ValueError("Peer target must be a direct conversation directory")
-    if target.resolve() == sender_path or conversation_id == sender_path.name:
+    target = _resolve_peer_target(conversation_id)
+    if target == sender_path:
         raise ValueError("Cannot send a peer message to the same conversation")
-    if not target.is_dir():
-        raise FileNotFoundError(f"Peer conversation does not exist: {conversation_id}")
 
     message_id = str(uuid4())
     pid = os.getpid()
