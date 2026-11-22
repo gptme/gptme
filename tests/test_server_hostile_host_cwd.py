@@ -108,7 +108,8 @@ CHILD = textwrap.dedent(
         last = turns[-1]
         if last.role == "assistant":
             user = [m for m in turns if m.role == "user"][-1].content.split()
-            yield [("Done " if user[0] == "run" else "Resumed ") + user[1]]
+            prefix = {"run": "Done ", "slow": "Slow continued ", "resume": "Resumed "}[user[0]]
+            yield [prefix + user[1]]
             return
         words = last.content.split()
         kind, name = words[0], words[1]
@@ -121,11 +122,18 @@ CHILD = textwrap.dedent(
             overlapped.set()
             yield [script(name)]
         elif kind == "slow":
+            last_user = max(i for i, m in enumerate(messages) if m.role == "user")
+            if any(m.role == "tool" for m in messages[last_user + 1:]):
+                # Only reachable if /interrupt failed to revoke this step: the
+                # shell returned and the server continued the turn.
+                yield [f"Slow continued {name}"]
+                return
             # The real shell signals entry, then stays active until the driver
             # releases it after /interrupt; no scheduling-dependent sleep.
             yield ["Waiting.\n\n" + tool("shell", [],
                 "touch tool-started; for i in $(seq 1 600); do "
-                "test -f tool-release && break; sleep 0.1; done")]
+                "test -f tool-release && break; sleep 0.1; done; "
+                "touch tool-finished")]
         else:  # "resume"
             yield [tool("save", ["after.txt"], "after interrupt") ]
 
@@ -220,6 +228,7 @@ CHILD = textwrap.dedent(
             # A new step starts its shell at the configured workspace root.
             started = ROOT / "b" / "tool-started"
             release = ROOT / "b" / "tool-release"
+            finished = ROOT / "b" / "tool-finished"
             try:
                 deadline = time.monotonic() + 30
                 while not started.exists():
@@ -234,6 +243,20 @@ CHILD = textwrap.dedent(
                 assert r.json()["message"] == "Interrupted", r.text
             finally:
                 release.touch()
+            # The shell exits on release; wait for its own exit marker before
+            # judging the interrupt, so a broken handler's continuation has run.
+            deadline = time.monotonic() + 10
+            while not finished.exists():
+                assert time.monotonic() < deadline, "shell tool never exited"
+                time.sleep(0.05)
+            time.sleep(2.0)
+            # A no-op /interrupt would leave the slow step's continuation
+            # alive: once the released shell exits it produces this marker. A
+            # real interrupt revokes the epoch, so the marker must be absent.
+            assert not any(
+                m["role"] == "assistant" and m["content"].strip() == "Slow continued b"
+                for m in get_log(convs["b"])
+            ), "slow step continued after /interrupt — interrupt did not cancel it"
             send("b", "resume b")
             logs["b"] = wait_done(convs["b"], "Resumed b", timeout=60)
     except BaseException as e:  # noqa: BLE001
