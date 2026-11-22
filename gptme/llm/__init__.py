@@ -103,6 +103,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "grok-subscription": "grok-subscription/grok-4.6",
     "deepseek": "deepseek/deepseek-v4-flash",
     "moonshot": "moonshot/kimi-k2.6",
+    "crowllm": "crowllm/glm-5.3",
 }
 
 # Mapping from provider name to the environment variable that holds its API key.
@@ -118,6 +119,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "xai": "XAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
+    "crowllm": "CROWLLM_API_KEY",
     "nvidia": "NVIDIA_API_KEY",
     "azure": "AZURE_OPENAI_API_KEY",
 }
