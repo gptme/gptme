@@ -59,7 +59,7 @@ Screenshot artifact paths today (no vision model involved):
 - `e2e/visual-snapshots.spec.ts` writes PNGs to `$SCREENSHOTS_DIR` or `webui/visual-snapshots/`
 - CI uploads those as the `webui-visual-snapshots` artifact; `webui-visual-diff.yml` diffs them against master
 - Playwright HTML report: `webui/playwright-report/` (CI artifacts `playwright-report-stable` / `playwright-report-dev`)
-- Failed-test dumps: `webui/test-results/` (gitignored; config does not currently set `screenshot: 'only-on-failure'`)
+- Failed-test dumps: `webui/test-results/` (gitignored; `screenshot: 'only-on-failure'` saves the final page state on failure)
 
 ## Rendering Paths
 
