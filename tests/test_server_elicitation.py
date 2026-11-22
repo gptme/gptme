@@ -146,6 +146,72 @@ class TestResolveHookElicitation:
 
 
 @pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
+@pytest.mark.parametrize("action", ["accept", "decline", "cancel"])
+@pytest.mark.parametrize("tool", ["choice", "form"])
+def test_tools_through_server_hook(
+    monkeypatch: pytest.MonkeyPatch, tool: str, action: str
+) -> None:
+    """Tools emit real server requests and consume the HTTP resolver's responses."""
+    from types import SimpleNamespace
+
+    from gptme.hooks.server_confirm import current_conversation_id, current_session_id
+    from gptme.hooks.server_elicit import server_elicit_hook
+    from gptme.server.api_v2_sessions import SessionManager
+    from gptme.server.session_step import resolve_hook_elicitation
+    from gptme.tools.choice import execute_choice
+    from gptme.tools.form import execute_form
+
+    hook = SimpleNamespace(name="server_elicit", enabled=True, func=server_elicit_hook)
+    monkeypatch.setattr("gptme.hooks.get_hooks", lambda *a, **k: [hook])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    events = []
+    answer = "Beta" if tool == "choice" else '{"count": 12, "ok": false}'
+
+    def respond(conversation_id, event):
+        assert conversation_id == "tool-contract"
+        events.append(event)
+        resolve_hook_elicitation(event["elicit_id"], action, value=answer)
+
+    monkeypatch.setattr(SessionManager, "add_event", respond)
+    conversation_token = current_conversation_id.set("tool-contract")
+    session_token = current_session_id.set("tool-session")
+    try:
+        if tool == "choice":
+            messages = list(execute_choice("Pick one?\nAlpha\nBeta", None, None))
+            expected = (
+                "User selected: Beta" if action == "accept" else "Selection cancelled"
+            )
+        else:
+            messages = list(
+                execute_form(
+                    "count: Count? (number)\nok: Proceed? [yes/no]", None, None
+                )
+            )
+            expected = (
+                'Form submitted:\n```json\n{\n  "count": 12,\n  "ok": false\n}\n```'
+                if action == "accept"
+                else "Form cancelled"
+            )
+    finally:
+        current_session_id.reset(session_token)
+        current_conversation_id.reset(conversation_token)
+
+    assert [message.content for message in messages] == [expected]
+    (event,) = events
+    assert event["type"] == "elicit_pending"
+    assert event["elicit_type"] == tool
+    assert get_pending(event["elicit_id"]) is None
+    if tool == "choice":
+        assert event["options"] == ["Alpha", "Beta"]
+    else:
+        assert [(f["name"], f["type"]) for f in event["fields"]] == [
+            ("count", "number"),
+            ("ok", "boolean"),
+        ]
+        assert event["fields"][1]["default"] is False
+
+
+@pytest.mark.skipif(not _has_flask, reason="flask not installed (server extra)")
 @pytest.mark.timeout(10)
 def test_elicit_respond_endpoint_validation(init_, setup_conversation, auth_headers):
     """Test that the elicit respond endpoint validates required fields."""
