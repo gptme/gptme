@@ -160,7 +160,9 @@ def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Mess
     if stderr := stderr_capture.get_captured():
         output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
     if error is not None:
-        output += f"Error: {type(error).__name__}: {error}\n"
+        # The exception text is inserted directly (unlike stdout/stderr/result,
+        # which pass through _cap_output), so redact it here too.
+        output += f"Error: {type(error).__name__}: {_cap_output(str(error))}\n"
     if messages:
         return ([Message("system", output.strip())] if output else []) + messages
     if not output:

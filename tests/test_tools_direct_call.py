@@ -373,3 +373,26 @@ def test_load_tool_without_ipython_makes_tool_callable(monkeypatch):
     assert loaded.is_runnable
     chats = get_tool("chats")
     assert chats is loaded
+
+
+LEAKY_VALUE = "AbCdEfGhIjKlMnOpQrStUv0123"
+
+
+def leaky() -> None:
+    """Raise an error that carries a credential."""
+    raise RuntimeError(f"OPENAI_API_KEY={LEAKY_VALUE}")
+
+
+def test_direct_call_error_is_redacted():
+    """The error line bypasses ``_cap_output``; it must be redacted too."""
+    tool = make_direct_call_tool(
+        ToolSpec(
+            name="webby",
+            desc="Test function-only tool",
+            instructions="Use the functions.",
+            functions=[leaky],
+        )
+    )
+    out = _run(tool, "leaky()")
+    assert LEAKY_VALUE not in out
+    assert "OPENAI_API_KEY=[REDACTED]" in out

@@ -792,3 +792,141 @@ def test_cell_output_formatting_redacts_both_streams():
 
     assert SECRET_VALUE not in output
     assert output.count("[REDACTED]") == 2
+
+
+# A credential-shaped value that matches the generic (non-vendor) branch of
+# `_looks_like_output_secret`: 24+ opaque chars with an uppercase letter and a
+# digit.
+LEAKY_VALUE = "AbCdEfGhIjKlMnOpQrStUv0123"
+LEAKY_LINE = f"OPENAI_API_KEY={LEAKY_VALUE}"
+
+
+def _spill_files(tmp_path):
+    return [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+
+
+def test_teeio_overflow_spill_is_redacted(tmp_path):
+    """The retained overflow file is redacted as it is written.
+
+    Regression for the capture contract: ``TeeIO._spill_append`` streamed raw
+    bytes to ``tool-outputs/python/`` during execution, long before
+    ``_cap_output`` and its redaction ever saw the preview, so a credential
+    dropped from the preview stayed in the saved file.
+    """
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    tee = TeeIO(io.StringIO(), "stdout")
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write(LEAKY_LINE + "\n")
+        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        tee.finish()
+
+    files = _spill_files(tmp_path)
+    assert len(files) == 1
+    saved = files[0].read_text()
+    assert LEAKY_VALUE not in saved
+    assert "OPENAI_API_KEY=[REDACTED]" in saved
+
+
+def test_teeio_overflow_spill_redacts_line_split_across_writes(tmp_path):
+    """A secret split across two ``write`` calls is still redacted.
+
+    Redaction is line-based, so the spill holds the trailing partial line until
+    its newline arrives instead of redacting each chunk independently.
+    """
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    tee = TeeIO(io.StringIO(), "stdout")
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write("OPENAI_API_KEY=")
+        tee.write(LEAKY_VALUE + "\n")
+        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        tee.finish()
+
+    files = _spill_files(tmp_path)
+    assert len(files) == 1
+    saved = files[0].read_text()
+    assert LEAKY_VALUE not in saved
+    assert "OPENAI_API_KEY=[REDACTED]" in saved
+
+
+def test_teeio_overflow_spill_respects_shell_switch(monkeypatch, tmp_path):
+    """``GPTME_SHELL_REDACT_SECRETS=0`` keeps raw bytes in the retained file."""
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
+    tee = TeeIO(io.StringIO(), "stdout")
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write(LEAKY_LINE + "\n")
+        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        tee.finish()
+
+    files = _spill_files(tmp_path)
+    assert len(files) == 1
+    assert LEAKY_VALUE in files[0].read_text()
+
+
+def test_teeio_no_logdir_does_not_buffer_overflow():
+    """Without a conversation dir the overflow is dropped, not accumulated."""
+    import io
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    tee = TeeIO(io.StringIO(), "stdout")
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=None):
+        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        tee.write("y" * 4096)
+        tee.finish()
+
+    assert tee._spill_failed
+    assert tee._spill_pending == ""
+
+
+def test_kernel_error_text_is_redacted():
+    """Kernel exception text bypasses ``_cap_output``; it must be redacted too."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import gptme.tools.python as py_tool
+
+    result = SimpleNamespace(
+        stdout="",
+        stderr="",
+        result_text=None,
+        error={
+            "ename": "RuntimeError",
+            "evalue": LEAKY_LINE,
+            "traceback": ["Traceback (most recent call last):", LEAKY_LINE],
+        },
+        images=[],
+        image_notices=[],
+    )
+    backend = SimpleNamespace(
+        _bridge=SimpleNamespace(messages=[], functions={}, _functions={}),
+        execute=lambda code, timeout=None: result,
+    )
+    with (
+        patch("gptme.tools.python_kernel.get_backend", return_value=backend),
+        patch.dict(py_tool.registered_functions, clear=True),
+    ):
+        messages = list(py_tool._execute_python_kernel("raise RuntimeError"))
+
+    content = "\n".join(m.content for m in messages)
+    assert LEAKY_VALUE not in content
+    assert "OPENAI_API_KEY=[REDACTED]" in content

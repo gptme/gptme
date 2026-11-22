@@ -404,7 +404,7 @@ def _spill_full_output(output: str, command_info: str | None) -> Path | None:
         return None
 
 
-def _redact_cell_output(output: str) -> str:
+def _redact_cell_output(output: str, *, live_literals: list[str] | None = None) -> str:
     """Apply the shell's credential-redaction policy to python/kernel output.
 
     The python and kernel backends capture whatever a cell printed, including an
@@ -421,7 +421,7 @@ def _redact_cell_output(output: str) -> str:
         return output
     from ..util.redact import redact_secret_values_from_output
 
-    return redact_secret_values_from_output(output)[0]
+    return redact_secret_values_from_output(output, live_literals=live_literals)[0]
 
 
 def _cap_output(output: str, command_info: str | None = None) -> str:
@@ -770,30 +770,81 @@ class TeeIO(io.StringIO):
         self._spill: PrivateOutputFile | None = None
         self._spill_path: Path | None = None
         self._spill_failed = False
+        # Redaction is line-based, so the spill keeps the trailing partial line
+        # until its newline arrives (or `finish`) before redacting and writing.
+        self._spill_pending = ""
+        self._spill_seeded = False
+        # Policy switch and the process's live secret values are resolved once
+        # per spill instead of once per chunk.
+        self._spill_redact: bool | None = None
+        self._spill_literals: list[str] = []
 
     def _spill_append(self, s: str) -> None:
         if self._spill_failed:
             return
+        if self._spill is None:
+            # Open eagerly: with no conversation dir there is nowhere to retain
+            # bytes, and buffering them in `_spill_pending` would defeat the
+            # bounded-memory capture.
+            self._spill = _open_spill_file(self._label)
+            if self._spill is None:
+                self._spill_failed = True
+                return
+        if not self._spill_seeded:
+            # Everything buffered so far is the head of the full output.
+            self._spill_pending = self.getvalue()
+            self._spill_seeded = True
+        self._spill_pending += s
+        cut = self._spill_pending.rfind("\n")
+        if cut == -1:
+            return
+        complete, self._spill_pending = (
+            self._spill_pending[: cut + 1],
+            self._spill_pending[cut + 1 :],
+        )
+        self._spill_write(complete)
+
+    def _spill_write(self, text: str) -> None:
+        """Append redacted *text* to the retained overflow file."""
+        if self._spill_failed or self._spill is None:
+            return
         from ..util.output_storage import _encode
 
         try:
-            if self._spill is None:
-                self._spill = _open_spill_file(self._label)
-                if self._spill is None:
-                    self._spill_failed = True
-                    return
-                # Everything buffered so far is the head of the full output
-                self._spill.append(_encode(self.getvalue()))
-            self._spill.append(_encode(s))
+            self._spill.append(_encode(self._redact_spill_text(text)))
             self._spill_path = self._spill.path
         except Exception as e:  # spilling is best-effort; capture must continue
             logger.warning("Could not spill python %s overflow: %s", self._label, e)
             self._spill_failed = True
             self._spill_path = None
+            self._spill_pending = ""
             self.finish()
 
+    def _redact_spill_text(self, text: str) -> str:
+        """Redact retained bytes, resolving the policy once per spill."""
+        if self._spill_redact is None:
+            from ..config import get_config  # deferred: avoid import cycle
+
+            self._spill_redact = bool(
+                get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True)
+            )
+            if self._spill_redact:
+                from ..util.redact import live_secret_values
+
+                self._spill_literals = live_secret_values()
+        if not self._spill_redact:
+            return text
+        from ..util.redact import redact_secret_values_from_output
+
+        return redact_secret_values_from_output(
+            text, live_literals=self._spill_literals
+        )[0]
+
     def finish(self) -> None:
-        """Close the spill file, if any. Safe to call repeatedly."""
+        """Flush the pending line and close the spill file, if any."""
+        pending, self._spill_pending = self._spill_pending, ""
+        if pending:
+            self._spill_write(pending)
         spill, self._spill = self._spill, None
         if spill is not None:
             try:
@@ -941,7 +992,7 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     except RuntimeError as exc:
         yield Message(
             "system",
-            f"Kernel error: {exc}\n\nFalling back is not automatic; set GPTME_IPYTHON_BACKEND=inprocess to use in-process mode.",
+            f"Kernel error: {_redact_cell_output(str(exc))}\n\nFalling back is not automatic; set GPTME_IPYTHON_BACKEND=inprocess to use in-process mode.",
         )
         return
     except KeyboardInterrupt:
@@ -984,9 +1035,12 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         )
 
     if result.error:
-        tb_str = "\n".join(result.error.get("traceback", []))
-        ename = result.error.get("ename", "Error")
-        evalue = result.error.get("evalue", "")
+        # Error text is inserted into the Message directly (not through
+        # _cap_output), so it needs the redaction policy too: an exception
+        # carrying a live API key would otherwise reach the provider.
+        tb_str = _redact_cell_output("\n".join(result.error.get("traceback", [])))
+        ename = _redact_cell_output(result.error.get("ename", "Error"))
+        evalue = _redact_cell_output(result.error.get("evalue", ""))
         output += f"Exception: {ename}: {evalue}\n"
         if tb_str:
             output += md_codeblock("traceback", tb_str) + "\n\n"
