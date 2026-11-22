@@ -298,28 +298,29 @@ def _cli_multi_choice(request: ElicitationRequest) -> ElicitationResponse:
         return ElicitationResponse.multi(selected)
 
 
+def _confirmation_default(request: ElicitationRequest) -> bool:
+    """Normalize a confirmation default, rejecting unsupported explicit values."""
+    default = request.default
+    if default is None:
+        return True
+    if isinstance(default, bool):
+        return default
+    if isinstance(default, str):
+        normalized = default.strip().lower()
+        if normalized in ("yes", "true", "1", "y", "no", "false", "0", "n"):
+            return normalized in ("yes", "true", "1", "y")
+    raise ValueError("confirmation elicitation has an unsupported default")
+
+
 def _cli_confirmation(request: ElicitationRequest) -> ElicitationResponse:
     """Confirm with bool or yes/no, true/false, y/n, 1/0 string defaults.
 
     Missing defaults retain the historical affirmative choice. Unsupported
     explicit defaults cancel rather than silently selecting yes.
     """
-    if request.default is None:
-        default = True
-    elif isinstance(request.default, bool):
-        default = request.default
-    elif isinstance(request.default, str) and request.default.strip().lower() in (
-        "yes",
-        "true",
-        "1",
-        "y",
-        "no",
-        "false",
-        "0",
-        "n",
-    ):
-        default = request.default.strip().lower() in ("yes", "true", "1", "y")
-    else:
+    try:
+        default = _confirmation_default(request)
+    except ValueError:
         logger.warning("confirmation elicitation has an unsupported default")
         return ElicitationResponse.cancel()
 

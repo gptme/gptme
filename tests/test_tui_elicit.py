@@ -141,6 +141,8 @@ async def test_multi_choice(tmp_path):
         (None, "n", "no"),
         (None, "enter", "yes"),
         (False, "enter", "no"),
+        (" No ", "enter", "no"),
+        ("1", "enter", "yes"),
     ],
 )
 async def test_confirmation(tmp_path, default, key, expected):
@@ -245,3 +247,57 @@ def test_empty_form_uses_supplied_backend(fields, monkeypatch):
     assert requests[0].prompt == request.prompt
     assert requests[0].default == request.default
     assert requests[0].description == request.description
+
+
+@pytest.mark.parametrize(
+    ("kind", "default", "options"),
+    [
+        ("confirmation", 1, None),
+        ("confirmation", 0, None),
+        ("confirmation", "maybe", None),
+        ("choice", "missing", ["a", "b"]),
+        ("choice", False, ["a", "b"]),
+    ],
+)
+@pytest.mark.parametrize("in_form", [False, True])
+def test_invalid_defaults_cancel_before_opening_dialog(
+    tmp_path, monkeypatch, kind, default, options, in_form
+):
+    app = _app(tmp_path)
+
+    def no_dialog():
+        pytest.fail("invalid default must cancel before opening a dialog")
+
+    monkeypatch.setattr(app, "_restore_terminal", no_dialog)
+    monkeypatch.setattr(app, "_elicit_notice", lambda message: None)
+    request = ElicitationRequest(kind, "Pick", default=default, options=options)
+    if in_form:
+        request = ElicitationRequest(
+            "form",
+            "Setup",
+            fields=[
+                FormField(
+                    "field",
+                    "Pick",
+                    type="boolean" if kind == "confirmation" else "choice",
+                    default=default,
+                    options=options,
+                )
+            ],
+        )
+    assert app._tui_elicit_hook(request).cancelled
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fields", [None, []])
+async def test_empty_form_opens_text_dialog(tmp_path, monkeypatch, fields):
+    def no_stdin(*args):
+        pytest.fail("empty TUI form must not read stdin")
+
+    monkeypatch.setattr("builtins.input", no_stdin)
+    app = _app(tmp_path)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        request = ElicitationRequest("form", "Name?", fields=fields)
+        response = await _ask(app, pilot, request, ["b", "o", "b", "enter"])
+        assert response.value == "bob" and not response.cancelled

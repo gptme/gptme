@@ -85,6 +85,7 @@ from ..hooks.elicitation import (
     ElicitationRequest,
     ElicitationResponse,
     _cli_form,
+    _confirmation_default,
 )
 from ..hooks.types import ToolExecutePreData
 from ..lessons.skill_events import (
@@ -2282,10 +2283,7 @@ class ElicitScreen(DialogScreen[ElicitationResponse]):
 
     @property
     def _confirm_default(self) -> bool:
-        default = self.request.default
-        if isinstance(default, str):
-            return default.strip().lower() in ("yes", "true", "1", "y")
-        return True if default is None else bool(default)
+        return _confirmation_default(self.request)
 
     def compose(self) -> ComposeResult:
         req = self.request
@@ -5682,6 +5680,20 @@ class GptmeApp(App):
             self.call_from_thread(self.notify, message, severity="warning")
 
     def _ask_elicit(self, request: ElicitationRequest) -> ElicitationResponse:
+        if request.type == "confirmation":
+            try:
+                _confirmation_default(request)
+            except ValueError:
+                logger.warning("confirmation elicitation has an unsupported default")
+                return ElicitationResponse.cancel()
+        elif (
+            request.type == "choice"
+            and request.options
+            and request.default is not None
+            and request.default not in request.options
+        ):
+            logger.warning("choice elicitation has a default outside its options")
+            return ElicitationResponse.cancel()
         self._restore_terminal()
         result: dict[str, ElicitationResponse] = {}
         done = threading.Event()
