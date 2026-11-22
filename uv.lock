@@ -291,20 +291,21 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "1.13.0"
+version = "2.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "docstring-parser" },
     { name = "httpx2" },
     { name = "jiter" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0b/ed/e76e50601b7c476bcb9a2a7a4c4dab6f1a9b2c03e3922de8b3ec599ccbc5/anthropic-1.13.0.tar.gz", hash = "sha256:ad11d9bb9adafdfea26113943bcde9973e2a439ebeeda6c89ff3e3d85bb2f5c1", size = 1567362, upload-time = "2026-10-09T15:29:08.803Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/49/e4/42615a688c415bb4a05510c3964c58e04b5b88d574ecf07455371ce758b7/anthropic-2.10.0.tar.gz", hash = "sha256:6f3ffbdc6eb0a09a197be2eabdc62b8395a13d692710b8cdfa0393a80b355585", size = 2011659, upload-time = "2026-11-17T18:28:48.258Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/9a/a835340c91bc9a233bd54c05fc438fe07cbef71ca667f24f3892a268ae20/anthropic-1.13.0-py3-none-any.whl", hash = "sha256:157bd74dbf6a595cf9e5fcac557c791fd297924dc48261f57470c2ed6f4e6671", size = 1958595, upload-time = "2026-10-09T15:29:10.689Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/02/4496b5a84f2b77ff31b25fa573f9fa2ce6a2be4e165db10a63aaa958a6dd/anthropic-2.10.0-py3-none-any.whl", hash = "sha256:1b91b2b4aa2bab44db8712e8a9053454bcff6daa3e6f5f11d85dc38b37d0a2a3", size = 2519451, upload-time = "2026-11-17T18:28:50.04Z" },
 ]
 
 [[package]]
@@ -1668,15 +1669,6 @@ wheels = [
 ]
 
 [[package]]
-name = "distro"
-version = "1.9.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
-]
-
-[[package]]
 name = "docker"
 version = "7.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2301,7 +2293,7 @@ dev = [
 requires-dist = [
     { name = "agent-client-protocol", marker = "python_full_version >= '3.10' and python_full_version < '3.15' and extra == 'acp'", specifier = ">=0.11.0,<2" },
     { name = "agent-client-protocol", marker = "python_full_version >= '3.10' and python_full_version < '3.15' and extra == 'all'", specifier = ">=0.11.0,<2" },
-    { name = "anthropic", specifier = ">=1.8,<=1.13.0" },
+    { name = "anthropic", specifier = ">=1.8,<=2.10.0" },
     { name = "click", specifier = ">=8.4,<9" },
     { name = "click-default-group", specifier = ">=1.2.4,<2" },
     { name = "datasets", marker = "extra == 'eval'", specifier = ">=5.0.0" },
@@ -2325,11 +2317,11 @@ requires-dist = [
     { name = "lxml", marker = "extra == 'docs'" },
     { name = "matplotlib", marker = "extra == 'all'" },
     { name = "matplotlib", marker = "extra == 'datascience'" },
-    { name = "mcp", specifier = ">=1.28.1,<2" },
+    { name = "mcp", specifier = ">=1.28.1,<3" },
     { name = "multiprocessing-logging", specifier = ">=0.3.4,<0.4" },
     { name = "numpy", marker = "extra == 'all'" },
     { name = "numpy", marker = "extra == 'datascience'" },
-    { name = "openai", specifier = ">=2.48,<3" },
+    { name = "openai", specifier = ">=2.48,<4" },
     { name = "opentelemetry-api", marker = "extra == 'all'", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.45.1,<2" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'all'", specifier = ">=1.45.1,<2" },
@@ -2415,7 +2407,7 @@ dev = [
     { name = "python-docx", specifier = ">=1.1,<2" },
     { name = "radon" },
     { name = "ruff" },
-    { name = "sphinx", specifier = ">=8,<9" },
+    { name = "sphinx", specifier = ">=8,<10" },
     { name = "sphinx-autobuild", specifier = ">=2024.10.3,<2026" },
     { name = "sphinx-book-theme", specifier = ">=1.1.4,<2" },
     { name = "sphinx-click", specifier = ">=6.2,<7" },
@@ -2680,15 +2672,6 @@ wheels = [
 [package.optional-dependencies]
 http2 = [
     { name = "h2" },
-]
-
-[[package]]
-name = "httpx-sse"
-version = "0.4.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0f/4c/751061ffa58615a32c31b2d82e8482be8dd4a89154f003147acee90f2be9/httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d", size = 15943, upload-time = "2025-10-10T21:48:22.271Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/fd/6668e5aec43ab844de6fc74927e155a3b37bf40d7c3790e49fc0406b6578/httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc", size = 8960, upload-time = "2025-10-10T21:48:21.158Z" },
 ]
 
 [[package]]
@@ -3990,15 +3973,15 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.30.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
+    { name = "httpx2" },
     { name = "jsonschema" },
+    { name = "mcp-types" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
@@ -4008,9 +3991,22 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/93/0142dc84a666daf8ad51a34268f34c12fd6fda4f3810c4be2504eecc8212/mcp-1.30.0.tar.gz", hash = "sha256:445414625fce5c295faa505bb11bacece661ab6f4028d57c935db57820b7a3e4", size = 680511, upload-time = "2026-09-07T14:34:15.845Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/8d/e0d339616f4810e9051d4aba6887afab289ab1f81875fe908b606cdfd0e3/mcp-2.3.0.tar.gz", hash = "sha256:8b147a50441cf059dc88c684e0aeed3687f0aa0f39c6cde7b90330effd2b34d8", size = 4171955, upload-time = "2026-10-02T22:06:56.091Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/f4/e58bc33317c92a0203664daaf00bf6f41166cc0149e5d6870a03f7cd004a/mcp-1.30.0-py3-none-any.whl", hash = "sha256:666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0", size = 234581, upload-time = "2026-09-07T14:34:14.266Z" },
+    { url = "https://files.pythonhosted.org/packages/20/d7/4a2878f128df729db3ca04e71bfce26405cc2e0c9ebe19c592feeb4c61b9/mcp-2.3.0-py3-none-any.whl", hash = "sha256:dd0c44c089d16453e8ae31a3877a0054d7a2314caaa81f5e0541b9b1734b2377", size = 368664, upload-time = "2026-10-02T22:06:52.119Z" },
+]
+
+[[package]]
+name = "mcp-types"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9e/2d/7c251e34207f6c51000312fc8839111ac45cfe02023f90b44e7f1051dd8e/mcp_types-2.3.0.tar.gz", hash = "sha256:d1e46549edb35ee19a94940fcee6d1addd7e589ab7ea92dda83f5d84781fc362", size = 65898, upload-time = "2026-10-02T22:06:57.863Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/48/32583066b155bb5d4507e7887dc88ee23118cc4de8e2a12870c49719e2a8/mcp_types-2.3.0-py3-none-any.whl", hash = "sha256:968efdbdaedfab06adae40d378a34395f1090c5921d4be3c9cde283aaf76d91d", size = 69108, upload-time = "2026-10-02T22:06:54.099Z" },
 ]
 
 [[package]]
@@ -4717,21 +4713,19 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "2.54.0"
+version = "3.55.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "distro" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "jiter" },
     { name = "pydantic" },
     { name = "sniffio" },
-    { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/50/9a/8c75e8c8a5b407a0586faeb2afac91674ff955c191ecc1d6d3b6669f6788/openai-2.54.0.tar.gz", hash = "sha256:e3e6f8bc1ba30ddf381ace1a14340eed381cb984a1a59bd0f34b5be3b5d49cfa", size = 1100285, upload-time = "2026-08-11T18:46:59.035Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/9d/bbc069c02b07420e590e240673e40efbf423e6d7eb6c52493b7ab78f5d7d/openai-3.55.1.tar.gz", hash = "sha256:db5a9ae65d21e5a51ef7fa395e5418942b04120cc73f2ab25bd2fc22db101ecd", size = 2424302, upload-time = "2026-11-18T16:05:20.446Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/a8/bb76c7356de8ad57f59d5ff993d434df0607f07f08bcc9c9a5c275e399c0/openai-2.54.0-py3-none-any.whl", hash = "sha256:89089789197ccdb87f173a03145ed1598d00795220c93e96cf712b1cbf5e5f2b", size = 1660351, upload-time = "2026-08-11T18:46:56.684Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/c3/e7572f192d705c89c3dd475693640c529df289a98c94306bd724b73ed6ca/openai-3.55.1-py3-none-any.whl", hash = "sha256:9136b1a760401aa150d084b0a673a4eca5b434917f3afe0378321cf544d5bdc2", size = 2451088, upload-time = "2026-11-18T16:05:17.896Z" },
 ]
 
 [[package]]
@@ -6597,18 +6591,6 @@ wheels = [
 ]
 
 [[package]]
-name = "roman-numerals-py"
-version = "4.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "roman-numerals" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/cb/b5/de96fca640f4f656eb79bbee0e79aeec52e3e0e359f8a3e6a0d366378b64/roman_numerals_py-4.1.0.tar.gz", hash = "sha256:f5d7b2b4ca52dd855ef7ab8eb3590f428c0b1ea480736ce32b01fef2a5f8daf9", size = 4274, upload-time = "2025-12-17T18:25:41.153Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/2c/daca29684cbe9fd4bc711f8246da3c10adca1ccc4d24436b17572eb2590e/roman_numerals_py-4.1.0-py3-none-any.whl", hash = "sha256:553114c1167141c1283a51743759723ecd05604a1b6b507225e91dc1a6df0780", size = 4547, upload-time = "2025-12-17T18:25:40.136Z" },
-]
-
-[[package]]
 name = "rpds-py"
 version = "2026.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -7153,7 +7135,7 @@ wheels = [
 
 [[package]]
 name = "sphinx"
-version = "8.2.3"
+version = "9.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alabaster" },
@@ -7165,7 +7147,7 @@ dependencies = [
     { name = "packaging" },
     { name = "pygments" },
     { name = "requests" },
-    { name = "roman-numerals-py" },
+    { name = "roman-numerals" },
     { name = "snowballstemmer" },
     { name = "sphinxcontrib-applehelp" },
     { name = "sphinxcontrib-devhelp" },
@@ -7174,9 +7156,9 @@ dependencies = [
     { name = "sphinxcontrib-qthelp" },
     { name = "sphinxcontrib-serializinghtml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/ad/4360e50ed56cb483667b8e6dadf2d3fda62359593faabbe749a27c4eaca6/sphinx-8.2.3.tar.gz", hash = "sha256:398ad29dee7f63a75888314e9424d40f52ce5a6a87ae88e7071e80af296ec348", size = 8321876, upload-time = "2025-03-02T22:31:59.658Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/50/a8c6ccc36d5eacdfd7913ddccd15a9cee03ecafc5ee2bc40e1f168d85022/sphinx-9.0.4.tar.gz", hash = "sha256:594ef59d042972abbc581d8baa577404abe4e6c3b04ef61bd7fc2acbd51f3fa3", size = 8710502, upload-time = "2025-12-04T07:45:27.343Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/53/136e9eca6e0b9dc0e1962e2c908fbea2e5ac000c2a2fbd9a35797958c48b/sphinx-8.2.3-py3-none-any.whl", hash = "sha256:4405915165f13521d875a8c29c8970800a0141c14cc5416a38feca4ea5d9b9c3", size = 3589741, upload-time = "2025-03-02T22:31:56.836Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/3f/4bbd76424c393caead2e1eb89777f575dee5c8653e2d4b6afd7a564f5974/sphinx-9.0.4-py3-none-any.whl", hash = "sha256:5bebc595a5e943ea248b99c13814c1c5e10b3ece718976824ffa7959ff95fffb", size = 3917713, upload-time = "2025-12-04T07:45:24.944Z" },
 ]
 
 [[package]]
