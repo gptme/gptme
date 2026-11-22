@@ -2081,7 +2081,10 @@ def _stream_with_client(
     # served_model is declared outside the retry loop so the final value survives.
     served_model: str | None = None
 
-    for _degen_attempt in range(2):
+    # Up to one degeneration retry (first attempt only) plus one malformed
+    # retry (once, guarded by tool_choice): each gets its own iteration, so
+    # a degenerate first attempt cannot use up the forced-tool-call retry.
+    for _degen_attempt in range(3):
         _is_degen_retry = _degen_attempt > 0
         in_reasoning_block = False
         stop_reason = None
