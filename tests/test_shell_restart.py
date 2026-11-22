@@ -210,7 +210,8 @@ def test_broken_pipe_zero_bytes_retries_command(shell, tmp_path, monkeypatch):
     assert shell.run("echo ok", output=False)[1].strip() == "ok"
 
 
-def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
+@pytest.mark.parametrize("cut", [1, 37, -1])
+def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch, cut):
     """EPIPE mid-payload must not re-send: the statement may have run.
 
     Tests the no-retry invariant directly: after BrokenPipeError fires on the
@@ -223,8 +224,10 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
     is inherently racy (bash scheduling), so the assertion watches stdin writes
     after the restart rather than depending on a marker file.
     """
-    command = f"echo x >> {tmp_path}/ran"
-    cmd_bytes = command.encode()
+    marker = tmp_path / "must-not-replay"
+    command = f"printf '%s\\n' \"it's quoted\" >> {shlex.quote(str(marker))}"
+    # This stable token survives shell quoting, unlike the complete command.
+    cmd_bytes = b"must-not-replay"
     orig_write = os.write
     stdin_fd = shell.process.stdin.fileno()
     state: dict = {
@@ -243,10 +246,13 @@ def test_broken_pipe_partial_write_is_not_retried(shell, tmp_path, monkeypatch):
         return bool(stdin) and not stdin.closed and fd == stdin.fileno()
 
     def write_fd(fd, data):
-        # First write: deliver through the command text inside the payload.
+        # Cut inside the envelope prefix, the quoted block, or immediately
+        # before the terminating newline. No raw-command substring assumptions.
         if fd == stdin_fd and not state["partial"]:
             state["partial"] = True
-            end = data.index(cmd_bytes) + len(cmd_bytes) + 1
+            assert data.startswith(b"builtin eval -- ")
+            assert data.endswith(b" </dev/null\n")
+            end = cut if cut > 0 else len(data) + cut
             return orig_write(fd, data[:end])
         # Second write: simulate mid-payload EPIPE.
         if fd == stdin_fd and not state["raised"]:
