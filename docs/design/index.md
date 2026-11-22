@@ -16,4 +16,5 @@ Generalized Elicitation <elicitation>
 Programmatic Tool Calling (PTC) <ptc-tool-interface>
 Transcript Persistence <transcript-persistence>
 File-Backed Tool Output (proposed) <file-backed-output>
+Conversation Workers and Wake Delivery (research) <conversation-workers>
 ```
