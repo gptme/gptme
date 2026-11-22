@@ -1660,21 +1660,54 @@ def test_top_level_return_does_not_skip_completion(shell, command):
     )
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX bash transport")
-def test_command_payload_does_not_require_host_temp_file(shell):
-    """Sandbox-private /tmp must not hide a file needed to run the payload."""
-    payload = shell._encode_command_payload(
-        "printf 'standalone\\n'\n", "utf-8", "strict"
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bubblewrap sandbox")
+def test_shell_starts_with_sandbox_private_tmp():
+    """Exercise real startup and command transport with host /tmp hidden."""
+    import sys
+
+    from gptme.sandbox import SandboxConfig, wrap_shell_cmd
+
+    config = SandboxConfig(backend="bwrap", workspace=Path.cwd())
+    available, reason = config.check_available()
+    if not available:
+        pytest.skip(reason)
+    probe = subprocess.run(
+        wrap_shell_cmd(config, ["true"]),
+        capture_output=True,
+        timeout=5,
+        check=False,
     )
-    # Simulate a sandbox's filesystem view: any host command file is absent.
-    path = getattr(shell, "_command_path", None)
-    if path:
-        os.unlink(path)
+    if probe.returncode:
+        pytest.skip(f"bubblewrap unavailable: {probe.stderr.decode(errors='replace')}")
+
+    # Bound the entire child, including ShellSession._init(), which otherwise
+    # waits indefinitely when the transport sources a hidden host command file.
+    script = """
+import shlex
+import tempfile
+from gptme.tools.shell import ShellSession
+
+with tempfile.NamedTemporaryFile(dir='/tmp') as host_file:
+    shell = ShellSession()
+    try:
+        assert shell.run('test ! -e ' + shlex.quote(host_file.name),
+                         output=False, timeout=2)[0] == 0
+        assert shell.run('cat </dev/null; cat; echo READY',
+                         output=False, timeout=2)[:2] == (0, 'READY')
+        assert shell.run('return 7', output=False, timeout=2)[0] == 2
+        assert shell.run('echo SURVIVED', output=False,
+                         timeout=2)[:2] == (0, 'SURVIVED')
+    finally:
+        shell.close()
+"""
     result = subprocess.run(
-        ["bash"], input=payload, capture_output=True, timeout=3, check=False
+        [sys.executable, "-c", script],
+        env={**os.environ, "GPTME_SANDBOX": "bwrap", "TMPDIR": "/tmp"},
+        capture_output=True,
+        timeout=15,
+        check=False,
     )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == b"standalone\n"
+    assert result.returncode == 0, (result.stdout, result.stderr)
 
 
 def test_pipe_with_stderr_redirect(shell):
