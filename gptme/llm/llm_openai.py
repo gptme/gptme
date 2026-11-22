@@ -740,6 +740,14 @@ def init(provider: Provider, config: Config):
             base_url="https://api.moonshot.ai/v1",
             timeout=timeout,
         )
+    elif provider == "crowllm":
+        api_key = _get_provider_api_key(config, provider, "CROWLLM_API_KEY")
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url="https://crowllm.com/v1",
+            timeout=timeout,
+        )
     elif provider == "nvidia":
         api_key = _get_provider_api_key(config, provider, "NVIDIA_API_KEY")
         _init_openai_client(
