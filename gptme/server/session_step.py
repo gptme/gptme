@@ -477,11 +477,17 @@ _STATUS_LABEL_RE = re.compile(
 
 
 def _has_provider_error_hint(error_message: str, hints: tuple[str, ...]) -> bool:
-    """Match leading error labels or exact quoted provider type/code fields."""
+    """Match error labels, Responses stream codes, or quoted type/code fields."""
     labels = "|".join(re.escape(hint) for hint in hints)
     return bool(
         re.match(
             rf"^(?:(?:gateway )?error:\s*)?(?:{labels})(?=\s|:|$)",
+            error_message,
+        )
+        # ResponsesStreamError renders the code before the provider's message.
+        # Anchor to that slot, not a hint in the message or a workspace path.
+        or re.match(
+            rf"^responses stream (?:error|response\.failed): (?:{labels}): ",
             error_message,
         )
         or re.search(

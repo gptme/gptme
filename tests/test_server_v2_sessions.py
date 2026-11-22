@@ -3502,6 +3502,9 @@ def test_classify_generation_error_auth(raw):
         '{"error": {"message": "Cannot read /projects/no_subscription"}}',
         '{"error": {"code": "invalid_api_key.txt"}}',
         "Error code: 500 - internal server error",
+        "Responses stream response.failed: unknown_error: invalid_api_key in tool output",
+        "Responses stream response.failed: invalid_api_key.txt: missing file",
+        "Responses stream response.failed: no_subscription/project: missing directory",
         "",
     ],
 )
@@ -3509,6 +3512,39 @@ def test_classify_generation_error_passthrough(raw):
     from gptme.server.session_step import classify_generation_error
 
     assert classify_generation_error(raw) == raw
+
+
+@pytest.mark.parametrize("event_type", ["error", "response.failed"])
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("invalid_api_key", "Authentication failed"),
+        ("authentication_error", "Authentication failed"),
+        ("payment_required", "Payment required"),
+        ("insufficient_credits", "Payment required"),
+        ("no_subscription", "Payment required"),
+    ],
+)
+def test_persisted_responses_stream_refusal_is_classified(
+    tmp_path, event_type, code, expected
+):
+    from gptme.llm.openai_responses import ResponsesStreamError
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _persist_generation_error
+
+    manager = LogManager(logdir=tmp_path)
+    session = MagicMock()
+    session.conversation_id = "test-classified-responses-error"
+    error = ResponsesStreamError(event_type, code, "Provider refused the request")
+
+    _persist_generation_error(manager, session, str(error))
+
+    assert manager.log.messages[-1].content.startswith(f"Error: {expected}")
+    assert (
+        LogManager.load(tmp_path)
+        .log.messages[-1]
+        .content.startswith(f"Error: {expected}")
+    )
 
 
 def test_persisted_generation_error_is_classified(tmp_path):
