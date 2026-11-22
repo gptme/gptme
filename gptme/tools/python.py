@@ -193,6 +193,9 @@ def _resolve_kernel_backend() -> bool:
 _DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
 # Headroom reserved in the capture buffer for the omission marker
 _CAPTURE_MARKER_RESERVE = 256
+# A single line longer than this is flushed to the spill as a fragment, so a
+# newline-free blob cannot accumulate past the capture cap in memory.
+_SPILL_LINE_BUFFER_BYTES = 1024 * 1024
 
 _IMAGE_EXTS: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".svg", ".gif", ".pdf"}
@@ -774,10 +777,11 @@ class TeeIO(io.StringIO):
         # until its newline arrives (or `finish`) before redacting and writing.
         self._spill_pending = ""
         self._spill_seeded = False
-        # Policy switch and the process's live secret values are resolved once
-        # per spill instead of once per chunk.
+        # Policy switch is resolved once per spill; the process's live secret
+        # values are re-resolved only when the environment actually changes.
         self._spill_redact: bool | None = None
         self._spill_literals: list[str] = []
+        self._spill_env: dict[str, str] | None = None
 
     def _spill_append(self, s: str) -> None:
         if self._spill_failed:
@@ -796,13 +800,18 @@ class TeeIO(io.StringIO):
             self._spill_seeded = True
         self._spill_pending += s
         cut = self._spill_pending.rfind("\n")
-        if cut == -1:
-            return
-        complete, self._spill_pending = (
-            self._spill_pending[: cut + 1],
-            self._spill_pending[cut + 1 :],
-        )
-        self._spill_write(complete)
+        if cut != -1:
+            complete, self._spill_pending = (
+                self._spill_pending[: cut + 1],
+                self._spill_pending[cut + 1 :],
+            )
+            self._spill_write(complete)
+        if len(self._spill_pending) >= _SPILL_LINE_BUFFER_BYTES:
+            # A single line longer than the buffer: flush it as a fragment so
+            # capture stays bounded. A credential straddling this exact
+            # boundary is the one case the line-buffered pass cannot see.
+            complete, self._spill_pending = self._spill_pending, ""
+            self._spill_write(complete)
 
     def _spill_write(self, text: str) -> None:
         """Append redacted *text* to the retained overflow file."""
@@ -821,21 +830,27 @@ class TeeIO(io.StringIO):
             self.finish()
 
     def _redact_spill_text(self, text: str) -> str:
-        """Redact retained bytes, resolving the policy once per spill."""
+        """Redact retained bytes, resolving the policy once per spill.
+
+        The live secret values are a snapshot of ``os.environ``, re-resolved
+        whenever the environment changed: a cell that sets
+        ``os.environ["X_TOKEN"]`` and then prints it must not land raw in the
+        retained file while the inline preview redacts it.
+        """
         if self._spill_redact is None:
             from ..config import get_config  # deferred: avoid import cycle
 
             self._spill_redact = bool(
                 get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True)
             )
-            if self._spill_redact:
-                from ..util.redact import live_secret_values
-
-                self._spill_literals = live_secret_values()
         if not self._spill_redact:
             return text
-        from ..util.redact import redact_secret_values_from_output
+        from ..util.redact import live_secret_values, redact_secret_values_from_output
 
+        env = dict(os.environ)
+        if env != self._spill_env:
+            self._spill_env = env
+            self._spill_literals = live_secret_values(env)
         return redact_secret_values_from_output(
             text, live_literals=self._spill_literals
         )[0]

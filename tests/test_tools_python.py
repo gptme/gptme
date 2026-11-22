@@ -930,3 +930,68 @@ def test_kernel_error_text_is_redacted():
     content = "\n".join(m.content for m in messages)
     assert LEAKY_VALUE not in content
     assert "OPENAI_API_KEY=[REDACTED]" in content
+
+
+def test_teeio_spill_bounds_a_line_without_newlines(tmp_path):
+    """A newline-free blob must not accumulate past the line buffer.
+
+    The spill holds the trailing partial line so redaction sees whole lines;
+    without a bound, output that never emits a newline would defeat the
+    bounded-memory capture the spill exists to provide.
+    """
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import (
+        _DEFAULT_MAX_OUTPUT_BYTES,
+        _SPILL_LINE_BUFFER_BYTES,
+        TeeIO,
+    )
+
+    tee = TeeIO(io.StringIO(), "stdout")
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        for _ in range(3):
+            tee.write("y" * (2 * _SPILL_LINE_BUFFER_BYTES))
+        assert len(tee._spill_pending) < _SPILL_LINE_BUFFER_BYTES + 2 * (
+            _SPILL_LINE_BUFFER_BYTES
+        )
+        tee.finish()
+
+    files = _spill_files(tmp_path)
+    assert len(files) == 1
+    saved = files[0].read_text()
+    # Every flushed fragment reached the retained file.
+    assert saved.count("y") == 6 * _SPILL_LINE_BUFFER_BYTES
+
+
+def test_teeio_spill_picks_up_env_changes(monkeypatch, tmp_path):
+    """A secret set mid-execution is redacted from the retained file.
+
+    The live secret values are snapshotted for the spill; a cell that sets a
+    new secret-named env var after the spill opened must not leave its value
+    raw in ``tool-outputs/`` while the preview redacts it.
+    """
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+
+    late_secret = "abcdefghijklmnopqrstuvwxyz"
+    tee = TeeIO(io.StringIO(), "stdout")
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write("first line\n")
+        tee.write("y" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        monkeypatch.setenv("MY_SERVICE_TOKEN", late_secret)
+        tee.write(f"MY_SERVICE_TOKEN={late_secret}\n")
+        tee.finish()
+
+    files = _spill_files(tmp_path)
+    assert len(files) == 1
+    saved = files[0].read_text()
+    assert late_secret not in saved
+    assert "MY_SERVICE_TOKEN=[REDACTED]" in saved
