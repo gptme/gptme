@@ -552,7 +552,7 @@ def test_teeio_spills_overflow_to_tool_outputs(tmp_path):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="requires paths longer than Windows MAX_PATH"
 )
-def test_teeio_long_spill_path_counts_trimmed_head_bytes(tmp_path):
+def test_teeio_long_spill_path_counts_trimmed_head_bytes(tmp_path, monkeypatch):
     """A saved-path marker longer than the reserve trims the head; the marker's
     omitted count must include those trimmed bytes (head + omitted == total)."""
     import io
@@ -567,6 +567,8 @@ def test_teeio_long_spill_path_counts_trimmed_head_bytes(tmp_path):
         _cap_output,
     )
 
+    # This test checks raw retention/counting, not sanitation-window omissions.
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
     logdir = tmp_path / ("d" * 200) / ("e" * 200)
     logdir.mkdir(parents=True)
     assert len(str(logdir)) > _CAPTURE_MARKER_RESERVE
@@ -591,7 +593,7 @@ def test_teeio_long_spill_path_counts_trimmed_head_bytes(tmp_path):
     assert _cap_output(captured) == captured
 
 
-def test_teeio_spill_keeps_small_write_after_multibyte_split(tmp_path):
+def test_teeio_spill_keeps_small_write_after_multibyte_split(tmp_path, monkeypatch):
     """A small write after a split multibyte char must still reach the file,
     and non-UTF-8 filename bytes (surrogateescape) must round-trip."""
     import io
@@ -604,6 +606,7 @@ def test_teeio_spill_keeps_small_write_after_multibyte_split(tmp_path):
         TeeIO,
     )
 
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
     limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
     # Leave 2 bytes of room, then write a 4-byte char: the partial char is
     # dropped from the head, leaving slack a later "\n" would fit into.
@@ -952,17 +955,21 @@ def test_teeio_spill_bounds_a_line_without_newlines(tmp_path, monkeypatch):
     with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
         # The crossing write seeds the spill with the whole in-memory head.
         tee.write("x" * (py_tool._DEFAULT_MAX_OUTPUT_BYTES + 4096))
-        assert len(tee._spill_pending) < 2 * limit
+        assert len(tee._spill_pending) <= limit
         for _ in range(3):
             tee.write("y" * (5 * limit))
-            assert len(tee._spill_pending) < 2 * limit
-        tee.finish()
+            assert len(tee._spill_pending) <= limit
+        tee.write("\nrecoverable line\n")
+        captured = tee.get_captured()
 
     files = _spill_files(tmp_path)
     assert len(files) == 1
     saved = files[0].read_text()
-    # Every flushed fragment reached the retained file.
-    assert saved.count("y") == 15 * limit
+    assert saved == (
+        "[... overlong line omitted before redaction ...]\nrecoverable line\n"
+    )
+    assert f"partial output saved to {files[0]}" in captured
+    assert "full output saved to" not in captured
 
 
 def test_teeio_spill_picks_up_env_changes(monkeypatch, tmp_path):
@@ -983,7 +990,7 @@ def test_teeio_spill_picks_up_env_changes(monkeypatch, tmp_path):
     manager = SimpleNamespace(logdir=tmp_path)
     with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
         tee.write("first line\n")
-        tee.write("y" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        tee.write("y" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096) + "\n")
         monkeypatch.setenv("MY_SERVICE_TOKEN", late_secret)
         tee.write(f"MY_SERVICE_TOKEN={late_secret}\n")
         tee.finish()
@@ -993,3 +1000,131 @@ def test_teeio_spill_picks_up_env_changes(monkeypatch, tmp_path):
     saved = files[0].read_text()
     assert late_secret not in saved
     assert "MY_SERVICE_TOKEN=[REDACTED]" in saved
+
+
+@pytest.mark.parametrize("error", [OSError("disk full"), PermissionError("read only")])
+def test_teeio_spill_creation_failure_keeps_capture_running(monkeypatch, error):
+    """Failure to retain overflow must not interrupt the printing function."""
+    import io
+
+    import gptme.tools.python as py_tool
+
+    monkeypatch.setattr(py_tool, "_DEFAULT_MAX_OUTPUT_BYTES", 4096)
+    stream = io.StringIO()
+    tee = py_tool.TeeIO(stream, "stdout")
+    text = "x" * 8192
+    with patch.object(py_tool, "_open_spill_file", side_effect=error) as open_spill:
+        assert tee.write(text) == len(text)
+        assert tee.write("still running\n") == len("still running\n")
+        captured = tee.get_captured()
+        tee.finish()
+
+    open_spill.assert_called_once_with("stdout")
+    assert stream.getvalue() == text + "still running\n"
+    assert tee._spill_failed
+    assert tee._spill_pending == ""
+    assert tee._spill_path is None
+    assert "capture limit reached" in captured
+    assert "full output saved to" not in captured
+    assert len(captured.encode()) <= 4096
+
+
+@pytest.mark.parametrize("prefix", ["", "SERVICE_TOKEN="])
+def test_teeio_spill_omits_overlong_line_without_leaking_boundary_secret(
+    monkeypatch, tmp_path, prefix
+):
+    """A credential across the line-buffer boundary must never reach disk."""
+    import io
+    from types import SimpleNamespace
+
+    import gptme.tools.python as py_tool
+
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
+    monkeypatch.setenv("SERVICE_TOKEN", LEAKY_VALUE)
+    monkeypatch.setattr(py_tool, "_DEFAULT_MAX_OUTPUT_BYTES", 4096)
+    monkeypatch.setattr(py_tool, "_SPILL_LINE_BUFFER_BYTES", 64)
+    manager = SimpleNamespace(logdir=tmp_path)
+    tee = py_tool.TeeIO(io.StringIO(), "stdout")
+    # Start the secret just before a forced fragment boundary. Neither half
+    # alone is a live literal or a generic credential-shaped assignment.
+    line = prefix + "x" * (60 - len(prefix)) + LEAKY_VALUE + "z" * 8192
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write("safe before\n")
+        tee.write(line[:64])
+        tee.write(line[64:])
+        tee.write("\nsafe after\n" + LEAKY_LINE + "\n")
+        tee.finish()
+
+    saved = _spill_files(tmp_path)[0].read_text()
+    assert LEAKY_VALUE not in saved
+    assert LEAKY_VALUE[:4] not in saved
+    assert LEAKY_VALUE[4:] not in saved
+    assert "overlong line omitted before redaction" in saved
+    assert "safe before\n" in saved
+    assert "safe after\n" in saved
+    assert "OPENAI_API_KEY=[REDACTED]" in saved
+    assert tee._spill_pending == ""
+
+
+@pytest.mark.parametrize("terminator", ["\n", "", "\r\n", "\u2028\n"])
+def test_teeio_overlong_line_discards_suffix_within_same_chunk(
+    monkeypatch, tmp_path, terminator
+):
+    """No suffix is retained before LF, including when discard starts mid-chunk."""
+    import io
+    from types import SimpleNamespace
+
+    import gptme.tools.python as py_tool
+
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
+    monkeypatch.setenv("SERVICE_TOKEN", LEAKY_VALUE)
+    monkeypatch.setattr(py_tool, "_DEFAULT_MAX_OUTPUT_BYTES", 4096)
+    monkeypatch.setattr(py_tool, "_SPILL_LINE_BUFFER_BYTES", 64)
+    tee = py_tool.TeeIO(io.StringIO())
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write("filler\n" * 600)
+        # A pending prefix plus the next chunk crosses the line limit. A CR
+        # inside that chunk must not restart retention of the secret suffix.
+        tee.write("x" * 63)
+        tee.write("y\r" + LEAKY_VALUE + terminator)
+        if terminator.endswith("\n"):
+            tee.write("after\n")
+        tee.finish()
+
+    saved = _spill_files(tmp_path)[0].read_text()
+    assert LEAKY_VALUE not in saved
+    assert "y\r" not in saved
+    assert saved.count("overlong line omitted") == 1
+    expected_tail = (
+        "after\n"
+        if terminator.endswith("\n")
+        else "[... overlong line omitted before redaction ...]\n"
+    )
+    assert saved.endswith(expected_tail)
+
+
+@pytest.mark.parametrize("length", [63, 64, 65])
+def test_teeio_spill_line_limit_at_eof(monkeypatch, tmp_path, length):
+    """A bounded final line is retained; an overlong one is explicitly omitted."""
+    import io
+    from types import SimpleNamespace
+
+    import gptme.tools.python as py_tool
+
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
+    monkeypatch.setattr(py_tool, "_DEFAULT_MAX_OUTPUT_BYTES", 4096)
+    monkeypatch.setattr(py_tool, "_SPILL_LINE_BUFFER_BYTES", 64)
+    tee = py_tool.TeeIO(io.StringIO())
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        tee.write("filler\n" * 600)
+        tee.write("x" * length)
+        tee.finish()
+
+    saved = _spill_files(tmp_path)[0].read_text()
+    if length <= 64:
+        assert saved.endswith("x" * length)
+        assert "overlong line omitted" not in saved
+    else:
+        assert saved.endswith("[... overlong line omitted before redaction ...]\n")

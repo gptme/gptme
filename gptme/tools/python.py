@@ -777,6 +777,8 @@ class TeeIO(io.StringIO):
         # until its newline arrives (or `finish`) before redacting and writing.
         self._spill_pending = ""
         self._spill_seeded = False
+        self._spill_discard_line = False
+        self._spill_omitted_lines = False
         # Policy switch is resolved once per spill; the process's live secret
         # values are re-resolved only when the environment actually changes.
         self._spill_redact: bool | None = None
@@ -790,7 +792,14 @@ class TeeIO(io.StringIO):
             # Open eagerly: with no conversation dir there is nowhere to retain
             # bytes, and buffering them in `_spill_pending` would defeat the
             # bounded-memory capture.
-            self._spill = _open_spill_file(self._label)
+            try:
+                self._spill = _open_spill_file(self._label)
+            except Exception as e:  # retention must never interrupt the cell
+                logger.warning(
+                    "Could not open python %s spill file: %s", self._label, e
+                )
+                self._spill_failed = True
+                return
             if self._spill is None:
                 self._spill_failed = True
                 return
@@ -801,22 +810,48 @@ class TeeIO(io.StringIO):
         self._spill_feed(s)
 
     def _spill_feed(self, text: str) -> None:
-        """Feed *text* through the line buffer, bounded at the buffer size."""
+        """Retain whole redacted lines; omit undecidable overlong lines."""
+        # Resolve the switch even if the first line never terminates. With
+        # redaction disabled there is no need to hold partial lines at all.
+        if self._spill_redact is None:
+            self._redact_spill_text("")
+        if not self._spill_redact:
+            self._spill_write(text)
+            return
         for start in range(0, len(text), _SPILL_LINE_BUFFER_BYTES):
-            self._spill_pending += text[start : start + _SPILL_LINE_BUFFER_BYTES]
-            cut = self._spill_pending.rfind("\n")
-            if cut != -1:
-                complete, self._spill_pending = (
-                    self._spill_pending[: cut + 1],
-                    self._spill_pending[cut + 1 :],
-                )
-                self._spill_write(complete)
-            if len(self._spill_pending) >= _SPILL_LINE_BUFFER_BYTES:
-                # A single line longer than the buffer: flush it as a fragment
-                # so capture stays bounded. A credential straddling this exact
-                # boundary is the one case the line-buffered pass cannot see.
-                complete, self._spill_pending = self._spill_pending, ""
-                self._spill_write(complete)
+            if self._spill_failed:
+                return
+            chunk = text[start : start + _SPILL_LINE_BUFFER_BYTES]
+            # Split only this bounded chunk, never the caller's entire write.
+            # Only LF terminates the redactor's line; CR and Unicode separators
+            # must not let a discarded credential suffix back into the file.
+            parts = chunk.split("\n")
+            complete_lines = []
+            for index, part in enumerate(parts):
+                terminated = index < len(parts) - 1
+                if terminated:
+                    part += "\n"
+                if self._spill_discard_line:
+                    if terminated:
+                        self._spill_discard_line = False
+                    continue
+                if len(self._spill_pending) + len(part) > _SPILL_LINE_BUFFER_BYTES:
+                    # Neither half of a credential split here is necessarily
+                    # recognizable. Do not persist either half or the rest of
+                    # this line, even if a later chunk would look harmless.
+                    self._spill_pending = ""
+                    complete_lines.append(
+                        "[... overlong line omitted before redaction ...]\n"
+                    )
+                    self._spill_omitted_lines = True
+                    self._spill_discard_line = not terminated
+                else:
+                    self._spill_pending += part
+                    if terminated:
+                        complete_lines.append(self._spill_pending)
+                        self._spill_pending = ""
+            if complete_lines:
+                self._spill_write("".join(complete_lines))
 
     def _spill_write(self, text: str) -> None:
         """Append redacted *text* to the retained overflow file."""
@@ -908,7 +943,8 @@ class TeeIO(io.StringIO):
         if not self._truncated:
             return value
         self.finish()
-        saved = f"; full output saved to {self._spill_path}" if self._spill_path else ""
+        retained = "partial output" if self._spill_omitted_lines else "full output"
+        saved = f"; {retained} saved to {self._spill_path}" if self._spill_path else ""
         head = value.encode("utf-8", errors="surrogatepass")
         # The buffer never exceeds cap - marker reserve, so head + marker stays
         # within the cap and downstream _cap_output() will not truncate again.
