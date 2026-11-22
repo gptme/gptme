@@ -193,8 +193,8 @@ def _resolve_kernel_backend() -> bool:
 _DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
 # Headroom reserved in the capture buffer for the omission marker
 _CAPTURE_MARKER_RESERVE = 256
-# A single line longer than this is flushed to the spill as a fragment, so a
-# newline-free blob cannot accumulate past the capture cap in memory.
+# Character window for a pending spill line, including LF when present.
+# Longer lines are omitted, never flushed as unsafe credential fragments.
 _SPILL_LINE_BUFFER_BYTES = 1024 * 1024
 
 _IMAGE_EXTS: frozenset[str] = frozenset(
@@ -435,9 +435,10 @@ def _cap_output(output: str, command_info: str | None = None) -> str:
     is active, the full text is saved under ``tool-outputs/`` and the omission
     marker names the file.
 
-    Credential redaction runs before both the cap and the spill, so the
-    retained file is the same redacted representation the model sees, and the
-    reported byte counts describe that representation.
+    For text materialized here, credential redaction runs before both the cap
+    and the spill, and byte counts describe that redacted representation.
+    A pre-truncated TeeIO preview instead carries its own raw-capture counts
+    and write-time-sanitized spill pointer; those are not file-size counts.
     """
     output = _redact_cell_output(output)
     # surrogatepass: valid Python strings may hold lone surrogates (e.g. from

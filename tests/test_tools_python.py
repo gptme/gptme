@@ -836,7 +836,7 @@ def test_teeio_overflow_spill_is_redacted(tmp_path):
     assert "OPENAI_API_KEY=[REDACTED]" in saved
 
 
-def test_teeio_overflow_spill_redacts_line_split_across_writes(tmp_path):
+def test_teeio_overflow_spill_redacts_line_split_across_writes(tmp_path, monkeypatch):
     """A secret split across two ``write`` calls is still redacted.
 
     Redaction is line-based, so the spill holds the trailing partial line until
@@ -846,14 +846,20 @@ def test_teeio_overflow_spill_redacts_line_split_across_writes(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, TeeIO
+    import gptme.tools.python as py_tool
 
-    tee = TeeIO(io.StringIO(), "stdout")
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
+    monkeypatch.setattr(py_tool, "_DEFAULT_MAX_OUTPUT_BYTES", 4096)
+    tee = py_tool.TeeIO(io.StringIO(), "stdout")
     manager = SimpleNamespace(logdir=tmp_path)
     with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
-        tee.write("OPENAI_API_KEY=")
-        tee.write(LEAKY_VALUE + "\n")
-        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        # Open the spill first: otherwise both writes only enter the head and
+        # are seeded together, never exercising cross-write spill buffering.
+        tee.write("filler\n" * 600)
+        tee.write("OPENAI_API_KEY=" + LEAKY_VALUE[:12])
+        assert tee._spill_pending == "OPENAI_API_KEY=" + LEAKY_VALUE[:12]
+        assert "OPENAI_API_KEY=" not in _spill_files(tmp_path)[0].read_text()
+        tee.write(LEAKY_VALUE[12:] + "\n")
         tee.finish()
 
     files = _spill_files(tmp_path)
@@ -901,8 +907,9 @@ def test_teeio_no_logdir_does_not_buffer_overflow():
     assert tee._spill_pending == ""
 
 
-def test_kernel_error_text_is_redacted():
+def test_kernel_error_text_is_redacted(monkeypatch):
     """Kernel exception text bypasses ``_cap_output``; it must be redacted too."""
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
     from types import SimpleNamespace
     from unittest.mock import patch
 
@@ -949,6 +956,7 @@ def test_teeio_spill_bounds_a_line_without_newlines(tmp_path, monkeypatch):
     import gptme.tools.python as py_tool
 
     limit = 64 * 1024
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
     monkeypatch.setattr(py_tool, "_SPILL_LINE_BUFFER_BYTES", limit)
     tee = py_tool.TeeIO(io.StringIO(), "stdout")
     manager = SimpleNamespace(logdir=tmp_path)
@@ -959,6 +967,14 @@ def test_teeio_spill_bounds_a_line_without_newlines(tmp_path, monkeypatch):
         for _ in range(3):
             tee.write("y" * (5 * limit))
             assert len(tee._spill_pending) <= limit
+        tee.write("\n")
+        # Accumulate a new line across small writes, then cross the bound.
+        for index in range(8):
+            tee.write("z" * (limit // 8))
+            assert len(tee._spill_pending) == (index + 1) * (limit // 8)
+        tee.write("z")
+        assert tee._spill_pending == ""
+        assert tee._spill_discard_line
         tee.write("\nrecoverable line\n")
         captured = tee.get_captured()
 
@@ -966,7 +982,7 @@ def test_teeio_spill_bounds_a_line_without_newlines(tmp_path, monkeypatch):
     assert len(files) == 1
     saved = files[0].read_text()
     assert saved == (
-        "[... overlong line omitted before redaction ...]\nrecoverable line\n"
+        "[... overlong line omitted before redaction ...]\n" * 2 + "recoverable line\n"
     )
     assert f"partial output saved to {files[0]}" in captured
     assert "full output saved to" not in captured
