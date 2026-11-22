@@ -121,10 +121,14 @@ def test_save_failure_still_bounds(tmp_path):
     assert "saved to" not in preview
 
 
-def test_every_pane_reading_command_spills_to_the_conversation(tmp_path):
-    """new-session/send-keys previously had no spill dir; inspect/wait used the
-    user cache root. All four must land in the conversation's tool-outputs."""
-    content = _long_pane()
+@pytest.mark.parametrize("with_secret", [False, True])
+def test_every_pane_reading_command_spills_to_the_conversation(
+    tmp_path, monkeypatch, with_secret
+):
+    """All four commands must redact before preview and conversation-owned spill."""
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
+    secret = "sk-ant-api03-" + "A1b2C3d4" * 6
+    content = (f"ANTHROPIC_API_KEY={secret}\n" if with_secret else "") + _long_pane()
     with (
         patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)),
         patch.object(tmux, "_capture_pane", return_value=content),
@@ -150,7 +154,13 @@ def test_every_pane_reading_command_spills_to_the_conversation(tmp_path):
     files = _saved(tmp_path)
     assert files, "expected spill files under tool-outputs/tmux"
     assert all(f.parent == tmp_path / "tool-outputs" / "tmux" for f in files)
-    assert all(f.read_text() == content for f in files)
+    if with_secret:
+        assert all(secret not in msg.content for msg in msgs)
+        assert all("ANTHROPIC_API_KEY=[REDACTED]" in msg.content for msg in msgs)
+        assert all(secret not in f.read_text() for f in files)
+        assert all("ANTHROPIC_API_KEY=[REDACTED]" in f.read_text() for f in files)
+    else:
+        assert all(f.read_text() == content for f in files)
 
 
 def test_execute_tmux_inspect_does_not_write_user_cache(tmp_path, monkeypatch):
@@ -172,7 +182,8 @@ def test_execute_tmux_inspect_does_not_write_user_cache(tmp_path, monkeypatch):
     assert (tmp_path / "conv" / "tool-outputs" / "tmux").is_dir()
 
 
-def test_pane_credentials_are_redacted_before_save_and_preview(tmp_path):
+def test_pane_credentials_are_redacted_before_save_and_preview(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
     secret = "sk-ant-api03-" + "A1b2C3d4" * 6
     content = f"ANTHROPIC_API_KEY={secret}\n" + _long_pane()
     with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
@@ -184,7 +195,8 @@ def test_pane_credentials_are_redacted_before_save_and_preview(tmp_path):
     assert "line-499" in saved.read_text()  # the rest is retained
 
 
-def test_short_pane_credentials_are_redacted_too(tmp_path):
+def test_short_pane_credentials_are_redacted_too(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
     secret = "sk-ant-api03-" + "A1b2C3d4" * 6
     with patch(_CURRENT_LOG, return_value=SimpleNamespace(logdir=tmp_path)):
         out = _truncate_output(f"ANTHROPIC_API_KEY={secret}\nok")
@@ -197,6 +209,7 @@ def test_wrapped_credentials_are_redacted_after_real_capture(
     tmp_path, monkeypatch, max_chars
 ):
     """Join soft wraps, not real newlines, before redacting previews and spills."""
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "1")
     secret = "sk-ant-api03-" + "A1b2C3d4" * 40
     payload = tmp_path / "payload"
     payload.write_text(
@@ -212,7 +225,13 @@ def test_wrapped_credentials_are_redacted_after_real_capture(
         assert cmd[0] == "tmux"
         return run(prefix + cmd[1:], **kwargs)
 
-    monkeypatch.setattr(tmux.subprocess, "run", isolated_run)
+    # Patch only tmux's module binding, not subprocess.run process-wide.
+    monkeypatch.setattr(
+        tmux,
+        "subprocess",
+        SimpleNamespace(run=isolated_run, TimeoutExpired=subprocess.TimeoutExpired),
+    )
+    assert subprocess.run is run
     run(
         prefix
         + [
