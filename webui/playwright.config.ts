@@ -15,6 +15,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:' + port,
     trace: 'on-first-retry',
+    // Failing frame/geometry oracles (turn-stability.spec.ts) report chunk, phase and
+    // text; the screenshot is the nearest visual evidence of the final page state.
+    screenshot: 'only-on-failure',
     // Skip the first-run setup wizard in all E2E tests by default.
     // Tests that need to verify the wizard itself must override storageState
     // at the test level (e.g. `test.use({ storageState: { cookies: [], origins: [] } })`).
