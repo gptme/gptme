@@ -63,6 +63,7 @@ BuiltinProvider = Literal[
     "grok-subscription",
     "deepseek",
     "moonshot",
+    "crowllm",
     "nvidia",
     "local",
     "mock",
@@ -114,6 +115,7 @@ PROVIDERS_OPENAI = [
     "groq",
     "deepseek",
     "moonshot",
+    "crowllm",
     "nvidia",
     "local",
 ]
