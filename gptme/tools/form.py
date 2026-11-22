@@ -262,7 +262,7 @@ def execute_form(
 
     try:
         results = json.loads(response.value)
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError, RecursionError):
         yield Message("system", "Error during form input: invalid form response")
         return
     if not isinstance(results, dict):

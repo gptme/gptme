@@ -276,7 +276,9 @@ def test_form_hook_cancel_or_decline(
     assert [m.content for m in messages] == ["Form cancelled"]
 
 
-@pytest.mark.parametrize("payload", ["not json", "[1, 2]", {}, 42])
+@pytest.mark.parametrize(
+    "payload", ["not json", "[1, 2]", {}, 42, "[" * 10000 + "0" + "]" * 10000]
+)
 def test_form_hook_invalid_payload(
     monkeypatch: pytest.MonkeyPatch, payload: object
 ) -> None:
