@@ -463,6 +463,7 @@ _PAYMENT_ERROR_HINTS = (
     "payment_required",
     "insufficient_credits",
     "insufficient credit",
+    "insufficient credits",
     "no_subscription",
 )
 _AUTH_ERROR_HINTS = (
