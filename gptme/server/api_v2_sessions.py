@@ -251,8 +251,19 @@ def api_conversation_events(conversation_id: str):
             # Snapshot the same conversation-wide state that live events expose.
             # Capture the cursor BEFORE yielding: execution can finish while the
             # client consumes connected/ping, and those events must not be lost.
+            # Identify the latest saved prompt so reconnect cannot recover an
+            # older owner when a peer submitted a newer prompt during an outage.
             with SessionManager.conversation_lock(conversation_id):
                 last_event_index = session.events_count
+                manager = LogManager.load(conversation_id, lock=False)
+                latest_user = next(
+                    (
+                        msg
+                        for msg in reversed(manager.log.messages)
+                        if msg.role == "user"
+                    ),
+                    None,
+                )
                 connected_event = {
                     "type": "connected",
                     "session_id": session.id,
@@ -260,6 +271,9 @@ def api_conversation_events(conversation_id: str):
                         conversation_id
                     ),
                     "last_error": session.last_error,
+                    "latest_user_timestamp": (
+                        latest_user.timestamp.isoformat() if latest_user else None
+                    ),
                     "pending_tools": [
                         te.to_pending_dict()
                         for owner in SessionManager.get_sessions_for_conversation(

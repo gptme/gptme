@@ -102,7 +102,7 @@ function currentLogRevision(conversationId: string): number {
   return conversations$.get(conversationId)?.logRevision.get() ?? 0;
 }
 
-function sameLogMessage(a: Message, b: Message): boolean {
+export function sameLogMessage(a: Message, b: Message): boolean {
   if (a.timestamp === undefined || b.timestamp === undefined) return false;
   // Date.parse normalizes timezone/formatting but drops sub-millisecond digits.
   // Preserve those digits too: Python logs can contain microsecond timestamps.
@@ -187,6 +187,25 @@ export function getApiErrorPresentation(
     }
   } else if (error instanceof Error && error.message) {
     description = error.message;
+  } else if (typeof error === 'string' && error) {
+    description = error;
+  }
+
+  // SSE sends provider text directly; HTTP can wrap the same text in a 500
+  // ApiClientError. Classify both transports alike, without overriding an
+  // explicit payment/authentication status or inspecting fallback prose.
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (title !== 'Payment required' && title !== 'Authentication failed') {
+    // Require an HTTP/provider status label, not a port or subprocess exit code.
+    // Plain reason phrases are accepted only at the start of the error text.
+    const status = message
+      .trim()
+      .match(/^(?:error:\s*)?(?:error code|http(?: status)?)\s*:?\s*(401|402)\b/i)?.[1];
+    if (status === '402' || /^(?:error:\s*)?payment required\b/i.test(message.trim())) {
+      title = 'Payment required';
+    } else if (status === '401' || /^(?:error:\s*)?unauthori[sz]ed\b/i.test(message.trim())) {
+      title = 'Authentication failed';
+    }
   }
 
   return { title, description };
@@ -1076,6 +1095,7 @@ export class ApiClient {
       onConnectionState?: (state: EventStreamConnectionState) => void;
       onReconnectState?: (state: {
         generating: boolean;
+        latestUserTimestamp?: string;
         pendingTools: Array<{
           tool_id: string;
           tooluse: ToolUse;
@@ -1369,9 +1389,12 @@ export class ApiClient {
             callbacks.onConnectionState?.({ status: 'connected' });
             // Apply the snapshot before onConnected can start new local work;
             // the server captured it before any step requested by that callback.
+            // Report idle handshakes too, so consumers can discard disconnected
+            // turn recovery rather than retaining it for a later unrelated turn.
             if (callbacks.onReconnectState) {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
+                latestUserTimestamp: data.latest_user_timestamp ?? undefined,
                 pendingTools: data.pending_tools ?? [],
               });
             }
@@ -1822,7 +1845,7 @@ export class ApiClient {
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
-      ...(options?.pendingFiles?.length ? { _status: 'pending' as const } : {}),
+      _status: 'pending',
     };
 
     // Create placeholder conversation in store immediately.
@@ -1893,6 +1916,17 @@ export class ApiClient {
         try {
           await this.sendMessage(conversationId, attachedMessage);
           attachedMessage._status = 'sent';
+          attachedMessage._retry = {
+            persistence: 'saved',
+            options: {
+              model: options?.model,
+              reasoningEffort: options?.reasoningEffort,
+              stream: options?.stream,
+              maxTokens: options?.maxTokens,
+              temperature: options?.temperature,
+              topP: options?.topP,
+            },
+          };
           replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
           saved = true;
         } catch (error) {
@@ -1953,6 +1987,22 @@ export class ApiClient {
             workspace: requestWorkspace(options?.workspace),
           },
         });
+        // Only a confirmed save permits Retry without risking a duplicate POST.
+        replaceMessageByTimestamp(conversationId, message.timestamp!, {
+          ...message,
+          _status: 'sent',
+          _retry: {
+            persistence: 'saved',
+            options: {
+              model: options?.model,
+              reasoningEffort: options?.reasoningEffort,
+              stream: options?.stream,
+              maxTokens: options?.maxTokens,
+              temperature: options?.temperature,
+              topP: options?.topP,
+            },
+          },
+        });
       }
     })();
 
@@ -1961,6 +2011,26 @@ export class ApiClient {
     // UnhandledPromiseRejection and the map entry is cleaned up.
     serverCreation.catch((error) => {
       console.warn('[ApiClient] Background server creation failed (no subscriber):', error);
+      if (!options?.pendingFiles?.length) {
+        stopPlaceholderGeneration(conversationId, message.timestamp!);
+        replaceMessageByTimestamp(conversationId, message.timestamp!, {
+          ...message,
+          _status: 'failed',
+          _error: getApiErrorPresentation(error).description,
+          // Creation may have reached the server. Never replay an unconfirmed
+          // initial prompt; refresh history before allowing positional edits.
+          _retry: {
+            persistence: 'unknown',
+            options: {
+              model: options?.model,
+              stream: options?.stream,
+              maxTokens: options?.maxTokens,
+              temperature: options?.temperature,
+              topP: options?.topP,
+            },
+          },
+        });
+      }
       this.pendingServerCreations.delete(conversationId);
     });
 
