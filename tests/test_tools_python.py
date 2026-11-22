@@ -932,7 +932,7 @@ def test_kernel_error_text_is_redacted():
     assert "OPENAI_API_KEY=[REDACTED]" in content
 
 
-def test_teeio_spill_bounds_a_line_without_newlines(tmp_path):
+def test_teeio_spill_bounds_a_line_without_newlines(tmp_path, monkeypatch):
     """A newline-free blob must not accumulate past the line buffer.
 
     The spill holds the trailing partial line so redaction sees whole lines;
@@ -943,28 +943,26 @@ def test_teeio_spill_bounds_a_line_without_newlines(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from gptme.tools.python import (
-        _DEFAULT_MAX_OUTPUT_BYTES,
-        _SPILL_LINE_BUFFER_BYTES,
-        TeeIO,
-    )
+    import gptme.tools.python as py_tool
 
-    tee = TeeIO(io.StringIO(), "stdout")
+    limit = 64 * 1024
+    monkeypatch.setattr(py_tool, "_SPILL_LINE_BUFFER_BYTES", limit)
+    tee = py_tool.TeeIO(io.StringIO(), "stdout")
     manager = SimpleNamespace(logdir=tmp_path)
     with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
-        tee.write("x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        # The crossing write seeds the spill with the whole in-memory head.
+        tee.write("x" * (py_tool._DEFAULT_MAX_OUTPUT_BYTES + 4096))
+        assert len(tee._spill_pending) < 2 * limit
         for _ in range(3):
-            tee.write("y" * (2 * _SPILL_LINE_BUFFER_BYTES))
-        assert len(tee._spill_pending) < _SPILL_LINE_BUFFER_BYTES + 2 * (
-            _SPILL_LINE_BUFFER_BYTES
-        )
+            tee.write("y" * (5 * limit))
+            assert len(tee._spill_pending) < 2 * limit
         tee.finish()
 
     files = _spill_files(tmp_path)
     assert len(files) == 1
     saved = files[0].read_text()
     # Every flushed fragment reached the retained file.
-    assert saved.count("y") == 6 * _SPILL_LINE_BUFFER_BYTES
+    assert saved.count("y") == 15 * limit
 
 
 def test_teeio_spill_picks_up_env_changes(monkeypatch, tmp_path):

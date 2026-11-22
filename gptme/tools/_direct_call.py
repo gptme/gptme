@@ -114,7 +114,11 @@ def _usage(tool: ToolSpec) -> str:
 def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Message]:
     # Reuse ipython's output capture and caps, preserving diagnostics even
     # when the function returns structured messages rather than plain text.
-    from .python import _cap_output, capture_and_display  # fmt: skip
+    from .python import (  # fmt: skip
+        _cap_output,
+        _redact_cell_output,
+        capture_and_display,
+    )
 
     error: Exception | None = None
     result: Any = None
@@ -161,8 +165,10 @@ def _run(tf: ToolFunction, args: list[Any], kwargs: dict[str, Any]) -> list[Mess
         output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
     if error is not None:
         # The exception text is inserted directly (unlike stdout/stderr/result,
-        # which pass through _cap_output), so redact it here too.
-        output += f"Error: {type(error).__name__}: {_cap_output(str(error))}\n"
+        # which pass through _cap_output), so redact it here. Redaction only:
+        # capping here would insert an omission marker mid-error, changing a
+        # message this path previously passed through verbatim.
+        output += f"Error: {type(error).__name__}: {_redact_cell_output(str(error))}\n"
     if messages:
         return ([Message("system", output.strip())] if output else []) + messages
     if not output:

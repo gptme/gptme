@@ -796,22 +796,27 @@ class TeeIO(io.StringIO):
                 return
         if not self._spill_seeded:
             # Everything buffered so far is the head of the full output.
-            self._spill_pending = self.getvalue()
             self._spill_seeded = True
-        self._spill_pending += s
-        cut = self._spill_pending.rfind("\n")
-        if cut != -1:
-            complete, self._spill_pending = (
-                self._spill_pending[: cut + 1],
-                self._spill_pending[cut + 1 :],
-            )
-            self._spill_write(complete)
-        if len(self._spill_pending) >= _SPILL_LINE_BUFFER_BYTES:
-            # A single line longer than the buffer: flush it as a fragment so
-            # capture stays bounded. A credential straddling this exact
-            # boundary is the one case the line-buffered pass cannot see.
-            complete, self._spill_pending = self._spill_pending, ""
-            self._spill_write(complete)
+            self._spill_feed(self.getvalue())
+        self._spill_feed(s)
+
+    def _spill_feed(self, text: str) -> None:
+        """Feed *text* through the line buffer, bounded at the buffer size."""
+        for start in range(0, len(text), _SPILL_LINE_BUFFER_BYTES):
+            self._spill_pending += text[start : start + _SPILL_LINE_BUFFER_BYTES]
+            cut = self._spill_pending.rfind("\n")
+            if cut != -1:
+                complete, self._spill_pending = (
+                    self._spill_pending[: cut + 1],
+                    self._spill_pending[cut + 1 :],
+                )
+                self._spill_write(complete)
+            if len(self._spill_pending) >= _SPILL_LINE_BUFFER_BYTES:
+                # A single line longer than the buffer: flush it as a fragment
+                # so capture stays bounded. A credential straddling this exact
+                # boundary is the one case the line-buffered pass cannot see.
+                complete, self._spill_pending = self._spill_pending, ""
+                self._spill_write(complete)
 
     def _spill_write(self, text: str) -> None:
         """Append redacted *text* to the retained overflow file."""
