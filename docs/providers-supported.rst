@@ -249,6 +249,21 @@ while GLM 5.3 Flash can simply use its official endpoint::
 
 Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.
 
+.. _crowllm:
+
+CrowLLM
+-------
+
+CrowLLM is an OpenAI-compatible gateway: one base URL and one key for models
+from several labs (DeepSeek, Zhipu, Moonshot, Anthropic, Google, xAI).
+Any model id served at ``https://crowllm.com/v1/models`` works::
+
+    export CROWLLM_API_KEY="your-api-key"
+    gptme "hello" -m crowllm/glm-5.3
+
+``crowllm/<model>`` reaches the paid ids; ids ending in ``:free`` are
+zero-rated. See `crowllm.com <https://crowllm.com>`__ for keys and pricing.
+
 .. _requesty:
 
 Requesty
