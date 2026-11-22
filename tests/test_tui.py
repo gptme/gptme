@@ -2406,6 +2406,64 @@ async def test_confirm_help_precedes_preview(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["tool", "url"])
+async def test_dialog_docks_above_input_and_keeps_chat_visible(tmp_path, kind):
+    """Confirm dialogs sit above the composer over the still-visible chat."""
+    from gptme.tui.app import ChatScroll, UrlConfirmScreen
+
+    msgs = [Message("user", f"question {i}") for i in range(30)]
+    app = GptmeApp(make_manager(tmp_path, msgs), workspace=tmp_path)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        chat = app.query_one("#chat", ChatScroll)
+        padding = chat.styles.padding
+        screen = (
+            ConfirmScreen(None, "echo hi")
+            if kind == "tool"
+            else UrlConfirmScreen(["https://example.com"])
+        )
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        dialog = screen.query_one("#confirm-dialog")
+        input_row = app.screen_stack[0].query_one("#input-row")
+        # ends on the row above the composer, not centered or top-left
+        assert dialog.region.bottom == input_row.region.y
+        assert dialog.region.y > 0
+        # the screen is see-through, so the conversation stays on screen
+        assert screen.styles.background.a == 0
+        # the chat's end is padded clear of the dialog and scrolled to
+        assert chat.styles.padding.bottom == dialog.outer_size.height
+        assert chat.scroll_y == chat.max_scroll_y
+        await pilot.press("n")
+        await pilot.pause()
+        assert chat.styles.padding == padding
+
+
+@pytest.mark.asyncio
+async def test_dialog_follows_composer_when_it_moves(tmp_path):
+    """A composer that shrinks while the dialog is open leaves no gap under it."""
+    from gptme.tui.app import UrlConfirmScreen
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.styles.min_height = 6  # as held after sending a multi-line prompt
+        await pilot.pause()
+        screen = UrlConfirmScreen(["https://example.com"])
+        await app.push_screen(screen)
+        await pilot.pause()
+        input_row = app.screen_stack[0].query_one("#input-row")
+        dialog = screen.query_one("#confirm-dialog")
+        assert dialog.region.bottom == input_row.region.y
+        app._release_input_height()
+        await pilot.pause(0.4)
+        await pilot.pause()
+        assert dialog.region.bottom == input_row.region.y
+
+
+@pytest.mark.asyncio
 async def test_restart_command_exits_for_reexec(tmp_path):
     """/restart can't prompt or exec under Textual: exit and let main() re-exec."""
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
