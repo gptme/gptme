@@ -1622,6 +1622,29 @@ else:
     assert "Assistant" in stdout
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX source + /dev/null")
+def test_stdin_reading_command_does_not_consume_protocol(shell):
+    """A later stdin-reading command must not steal the completion marker.
+
+    gptme/gptme#5045: the persistent shell used to put the command protocol
+    (including ``printf 'ReturnCode:... delimiter'``) on bash's stdin. The
+    shlex ``< /dev/null`` stopgap skips commands that already contain ``<``,
+    so ``cat </dev/null; cat`` let the second ``cat`` eat the marker. The
+    reader can then false-match the printed printf *source* as a delimiter
+    (return code None) or hang until timeout if that line is split.
+    """
+    ret, out, err = shell.run("cat </dev/null; cat", timeout=8.0)
+    assert ret == 0, (ret, out, err)
+    assert "__gptme_rc" not in out
+    assert "ReturnCode:" not in out
+    assert "END_OF_COMMAND_OUTPUT" not in out
+
+    ret2, out2, err2 = shell.run("echo SURVIVED", timeout=5.0)
+    assert ret2 == 0, (ret2, out2, err2)
+    assert out2.strip() == "SURVIVED"
+    assert "__gptme_rc" not in out2
+
+
 def test_pipe_with_stderr_redirect(shell):
     """Test that piping commands with stderr redirects doesn't hang (issue #684).
 

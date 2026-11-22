@@ -672,6 +672,7 @@ class ShellSession:
     _cwd: str | None  # Workspace directory for this session (thread-safe)
     _memory_limit: int | None  # Address-space ceiling in bytes (None = off)
     _state_path: str | None  # cwd + exported-env snapshot, restored on restart
+    _command_path: str | None  # per-command script sourced off bash stdin (#5045)
     _restart_notice: str | None  # pending note for the model about a restart
     _restarting: bool
     _closed: bool
@@ -701,6 +702,7 @@ class ShellSession:
         # server-session flag and ``os.chdir`` the whole process.
         self._skip_os_chdir = get_workspace_cwd() is not None
         self._state_path = self._create_state_file()
+        self._command_path = self._create_command_file()
         self._init()
 
         # close on exit
@@ -830,12 +832,22 @@ class ShellSession:
     def _create_state_file() -> str | None:
         if _is_windows:
             return None
+        return ShellSession._create_temp_script("gptme-shell-state-")
+
+    @staticmethod
+    def _create_command_file() -> str | None:
+        if _is_windows:
+            return None
+        return ShellSession._create_temp_script("gptme-shell-cmd-")
+
+    @staticmethod
+    def _create_temp_script(prefix: str) -> str | None:
         try:
-            fd, path = tempfile.mkstemp(prefix="gptme-shell-state-", suffix=".sh")
+            fd, path = tempfile.mkstemp(prefix=prefix, suffix=".sh")
             os.close(fd)
             return path
         except OSError as e:
-            logger.warning(f"Could not create shell state snapshot file: {e}")
+            logger.warning(f"Could not create {prefix} file: {e}")
             return None
 
     def _has_state_snapshot(self) -> bool:
@@ -846,6 +858,29 @@ class ShellSession:
             return os.path.getsize(state_path) > 0
         except OSError:
             return False
+
+    def _encode_command_payload(
+        self, full_command: str, encoding: str, errors: str
+    ) -> bytes:
+        """Send a one-line ``source`` of a temp script, not the script, on stdin.
+
+        A stdin-reading user command otherwise consumes the completion marker
+        still queued on bash's pipe (gptme/gptme#5045). The sourced script
+        inherits ``/dev/null``, so ``cat`` gets EOF instead of the protocol.
+        """
+        path = getattr(self, "_command_path", None)
+        if path:
+            try:
+                with open(path, "w", encoding=encoding, errors=errors) as handle:
+                    handle.write(full_command)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                return f"source {shlex.quote(path)} </dev/null\n".encode(
+                    encoding, errors
+                )
+            except OSError as exc:
+                logger.warning("Could not write shell command file: %s", exc)
+        return full_command.encode(encoding, errors)
 
     def active_output(self) -> tuple[str, str]:
         """Return the output captured so far by the active pipe command."""
@@ -1430,7 +1465,7 @@ class ShellSession:
         # which would look like "never received" after a partial delivery.
         encoding = getattr(self.process.stdin, "encoding", None) or "utf-8"
         errors = getattr(self.process.stdin, "errors", None) or "strict"
-        payload = full_command.encode(encoding, errors)
+        payload = self._encode_command_payload(full_command, encoding, errors)
         sent = 0
         fd = self.process.stdin.fileno()
         try:
@@ -2463,6 +2498,12 @@ class ShellSession:
                     os.unlink(path)
                 except OSError:
                     pass
+        command_path = getattr(self, "_command_path", None)
+        if command_path:
+            try:
+                os.unlink(command_path)
+            except OSError:
+                pass
 
     def _close_process(self) -> None:
         """Clean up the current process without authorizing or cancelling recovery."""
