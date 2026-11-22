@@ -967,6 +967,21 @@ def test_load_context_files_skips_credential_files(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "credential_path", ["config.env.local", "staging.env.production"]
+)
+def test_load_context_files_rejects_named_dotenv_variants(tmp_path, credential_path):
+    """Service-prefixed dotenv variants hold credentials just like .env.local."""
+    from gptme.tools.autocompact import _load_context_files
+
+    (tmp_path / credential_path).write_text("TOKEN=private\n")
+    template = tmp_path / f"{credential_path}.example"
+    template.write_text("TOKEN=\n")
+
+    loaded = _load_context_files([credential_path, template.name], workspace=tmp_path)
+    assert loaded == [(template.name, "TOKEN=\n")]
+
+
+@pytest.mark.parametrize(
     "credential_path",
     [
         ".ENV",

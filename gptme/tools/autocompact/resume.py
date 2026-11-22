@@ -169,7 +169,7 @@ def _is_secret_bearing_path(path: Path) -> bool:
     name = path.name.lower()
     if name.endswith(_ENV_TEMPLATE_SUFFIXES):
         return False
-    return name == ".env" or name.startswith(".env.") or name.endswith(".env")
+    return name == ".env" or ".env." in name or name.endswith(".env")
 
 
 def _load_context_files(
