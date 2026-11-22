@@ -2096,6 +2096,10 @@ class DialogScreen(ModalScreen[_DialogResult]):
     def on_mount(self) -> None:
         self._dock_above_input()
         self.call_after_refresh(self._reserve_chat_space)
+        # the composer can move while the dialog is open without the screen
+        # resizing: a held input height is released, the statusline wraps
+        # ("awaiting confirmation"), the work indicator appears
+        self.set_interval(0.25, self._dock_above_input)
 
     def on_resize(self) -> None:
         self._dock_above_input()
@@ -2136,7 +2140,8 @@ class DialogScreen(ModalScreen[_DialogResult]):
             if row is not None and row.region.height:
                 offset = max(base.size.height - row.region.y, 0)
         for dialog in self.query("#confirm-dialog"):
-            dialog.styles.margin = (0, 1, offset, 1)
+            if dialog.styles.margin != Spacing(0, 1, offset, 1):
+                dialog.styles.margin = (0, 1, offset, 1)
 
     def _reserve_chat_space(self) -> None:
         """Pad the chat's end by the dialog's height, keeping it at the end."""

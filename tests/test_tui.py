@@ -2441,6 +2441,29 @@ async def test_dialog_docks_above_input_and_keeps_chat_visible(tmp_path, kind):
 
 
 @pytest.mark.asyncio
+async def test_dialog_follows_composer_when_it_moves(tmp_path):
+    """A composer that shrinks while the dialog is open leaves no gap under it."""
+    from gptme.tui.app import UrlConfirmScreen
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.styles.min_height = 6  # as held after sending a multi-line prompt
+        await pilot.pause()
+        screen = UrlConfirmScreen(["https://example.com"])
+        await app.push_screen(screen)
+        await pilot.pause()
+        input_row = app.screen_stack[0].query_one("#input-row")
+        dialog = screen.query_one("#confirm-dialog")
+        assert dialog.region.bottom == input_row.region.y
+        app._release_input_height()
+        await pilot.pause(0.4)
+        await pilot.pause()
+        assert dialog.region.bottom == input_row.region.y
+
+
+@pytest.mark.asyncio
 async def test_restart_command_exits_for_reexec(tmp_path):
     """/restart can't prompt or exec under Textual: exit and let main() re-exec."""
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
