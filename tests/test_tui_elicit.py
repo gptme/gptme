@@ -37,7 +37,10 @@ async def _ask(app, pilot, request, keys: list[str]) -> ElicitationResponse:
     thread.start()
     for _ in range(200):
         await pilot.pause()
-        if isinstance(app.screen, ElicitScreen):
+        if (
+            isinstance(app.screen, ElicitScreen)
+            and app.screen.query_one("#confirm-dialog").region.height
+        ):
             break
         await asyncio.sleep(0.01)
     assert isinstance(app.screen, ElicitScreen)
