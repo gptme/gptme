@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import {
   injectFault,
   installFrameOracle,
@@ -10,6 +10,17 @@ import {
   type Fault,
   type OracleResult,
 } from './helpers/streamFrameOracle';
+import { inkPixels, textClip } from './helpers/pixelProbe';
+import {
+  markRecording,
+  mutationOffsets,
+  openReplayer,
+  replayMarkers,
+  startRecording,
+  stopRecording,
+  type ReplayMarker,
+  type RrwebEvent,
+} from './helpers/rrwebReplay';
 
 // Browser counterpart to the TUI frame tests (gptme/gptme#4375, #4376).
 // Drive the real observable store/rendering/virtualizer with deterministic token
@@ -388,6 +399,8 @@ async function disclosureStep(
     return state;
   });
   expect(samples, `${stage}: frame sampler must observe the transition`).toBeGreaterThan(3);
+  // A marker in the rrweb timeline (if recording) at the settled state.
+  await markRecording(page, 'stage', { stage });
   return { stage, ...(await readDisclosureMetrics(page)), peakScrollHeight: peak };
 }
 
@@ -1096,4 +1109,325 @@ test('native tool call inside a grouped step keeps the tail visible when expande
   expect(expanded.failures, describeFailures(expanded)).toEqual([]);
   await toggle.click();
   await expect(page.locator('[data-message-index="3"]')).toContainText('up to date');
+});
+
+// ---------------------------------------------------------------------------
+// rrweb record → real `Replayer` (gptme/gptme#5023). The recording of the
+// synthetic page is replayed in rrweb's own Replayer and the same oracles are
+// evaluated on the *reconstructed* DOM at every recorded state, so a replay
+// artifact is shown to reproduce both a clean run and a controlled regression.
+// ---------------------------------------------------------------------------
+
+type ReplayFrame = { offset: number; phase: string; leak: string | null; tailVisible: boolean };
+
+function lastMarkerAt(markers: ReplayMarker[], tag: string, offset: number): ReplayMarker | null {
+  let found: ReplayMarker | null = null;
+  for (const marker of markers) if (marker.tag === tag && marker.offset <= offset) found = marker;
+  return found;
+}
+
+/** Evaluate the stream oracle on the replayed message at every recorded DOM state. */
+async function scanReplayedStream(
+  context: BrowserContext,
+  events: RrwebEvent[],
+  fixture: NativeFixture
+) {
+  const session = await openReplayer(context, events);
+  try {
+    const markers = replayMarkers(events);
+    const firstChunk = markers.find((m) => m.tag === 'chunk');
+    expect(firstChunk, 'recording carries chunk markers').toBeTruthy();
+    const config = {
+      markers: [fixture.callId.slice(-10), fixture.argMarker],
+      pattern: `@${fixture.tool.slice(0, 2).replace(/[.]/g, '\\.')}`,
+      tail: NATIVE_TAIL,
+    };
+    const frames: ReplayFrame[] = [];
+    for (const offset of mutationOffsets(events)) {
+      if (offset < firstChunk!.offset) continue;
+      await session.seek(offset);
+      const seen = await session.inReplay((doc, config) => {
+        const text = doc.querySelector<HTMLElement>('[data-message-index="1"]')?.innerText ?? '';
+        const pattern = new RegExp(config.pattern);
+        const leak =
+          config.markers.find((m) => text.includes(m)) ?? pattern.exec(text)?.[0] ?? null;
+        return { leak, tailVisible: text.includes(config.tail) };
+      }, config);
+      frames.push({
+        offset,
+        phase: String(lastMarkerAt(markers, 'chunk', offset)?.payload.phase ?? 'init'),
+        ...seen,
+      });
+    }
+    const last = frames.at(-1)!;
+    await session.seek(last.offset);
+    const final = await session.inReplay((doc, literal) => {
+      const message = doc.querySelector<HTMLElement>('[data-message-index="1"]');
+      const details = [...(message?.querySelectorAll('details') ?? [])];
+      return {
+        detailsCount: details.length,
+        anyOpen: details.some((d) => d.open),
+        hasLiteral: (message?.innerText ?? '').includes(literal),
+      };
+    }, NATIVE_LITERAL);
+    return { frames, final };
+  } finally {
+    await session.close();
+  }
+}
+
+test.describe('rrweb Replayer', () => {
+  test('replayed native stream has no flashes or tail loss, and shows a controlled flash', async ({
+    page,
+    context,
+  }, testInfo) => {
+    const fixture = NATIVE_FIXTURES[0];
+    const runs: Record<string, { frames: ReplayFrame[]; live: OracleResult }> = {};
+    for (const kind of ['clean', 'payload-flash'] as const) {
+      await openTurn(page, true);
+      await startRecording(page);
+      const live = await streamNativeFixture(
+        page,
+        fixture,
+        'mounted',
+        'boundary',
+        kind === 'clean' ? undefined : { kind, atPhase: 'payload' }
+      );
+      const events = await stopRecording(page);
+      const path = testInfo.outputPath(`rrweb-${kind}.json`);
+      writeFileSync(path, JSON.stringify(events));
+      await testInfo.attach(`rrweb-${kind}`, { path, contentType: 'application/json' });
+      const replay = await scanReplayedStream(context, events, fixture);
+      runs[kind] = { frames: replay.frames, live };
+      expect(replay.frames.length, `${kind}: replayed states`).toBeGreaterThan(10);
+      // Replay and live agree about what the final message looks like.
+      expect(replay.final).toEqual({ detailsCount: 1, anyOpen: false, hasLiteral: true });
+      expect(replay.frames.at(-1)!.tailVisible, `${kind}: replayed tail`).toBe(true);
+      expect(replay.frames.at(-1)!.leak, `${kind}: replay settles clean`).toBeNull();
+    }
+    // Clean: no replayed state shows raw header text; the tail never disappears once seen.
+    expect(runs.clean.live.failures).toEqual([]);
+    expect(runs.clean.frames.filter((f) => f.leak)).toEqual([]);
+    const firstTail = runs.clean.frames.findIndex((f) => f.tailVisible);
+    expect(firstTail, 'tail replayed').toBeGreaterThanOrEqual(0);
+    expect(runs.clean.frames.slice(firstTail).filter((f) => !f.tailVisible)).toEqual([]);
+    // Fault: the live oracle flags the flash and the Replayer reproduces it in
+    // the same phase, then recovers.
+    const liveFlash = runs['payload-flash'].live.failures;
+    expect(liveFlash.length).toBeGreaterThan(0);
+    const replayedFlash = runs['payload-flash'].frames.filter((f) => f.leak);
+    expect(replayedFlash.length, 'replay reproduces the flash').toBeGreaterThan(0);
+    expect(new Set(replayedFlash.map((f) => f.phase))).toEqual(
+      new Set(liveFlash.map((f) => f.phase))
+    );
+    await testInfo.attach('replay-stream-verdicts', {
+      body: JSON.stringify(
+        {
+          clean: runs.clean.frames.length,
+          flashReplayed: replayedFlash,
+          flashLive: liveFlash.map(({ chunk, phase, leak }) => ({ chunk, phase, leak })),
+        },
+        null,
+        2
+      ),
+      contentType: 'application/json',
+    });
+  });
+});
+
+/** Same measurements as readDisclosureMetrics, taken inside the Replayer's document. */
+async function readReplayedDisclosure(
+  session: Awaited<ReturnType<typeof openReplayer>>
+): Promise<DisclosureMetrics> {
+  return session.inReplay((doc) => {
+    const viewport = doc.querySelector<HTMLElement>('[data-testid="message-scroll-viewport"]')!;
+    const extent = viewport.querySelector<HTMLElement>(':scope > div[style*="position: relative"]');
+    const outputs = [...viewport.querySelectorAll<HTMLDetailsElement>('.chat-message details')];
+    return {
+      scrollHeight: viewport.scrollHeight,
+      clientHeight: viewport.clientHeight,
+      scrollTop: viewport.scrollTop,
+      virtualExtent: extent?.getBoundingClientRect().height ?? -1,
+      docOverflowX: 0,
+      openOutputs: outputs.filter((details) => details.open).length,
+      outputBlocks: outputs.length,
+    };
+  }, undefined);
+}
+
+test.describe('rrweb Replayer', () => {
+  test('recorded disclosure clicks replay to the same bounded scroll extent', async ({
+    page,
+    context,
+  }, testInfo) => {
+    await openTurn(page, true);
+    const live: Record<'short' | 'large', DisclosureStage[]> = { short: [], large: [] };
+    const replayed: Record<'short' | 'large', DisclosureStage[]> = { short: [], large: [] };
+    for (const size of ['short', 'large'] as const) {
+      await renderDisclosureTurn(page, size);
+      await startRecording(page);
+      live[size] = await runDisclosureSequence(page);
+      const events = await stopRecording(page);
+      const path = testInfo.outputPath(`rrweb-disclosure-${size}.json`);
+      writeFileSync(path, JSON.stringify(events));
+      await testInfo.attach(`rrweb-disclosure-${size}`, { path, contentType: 'application/json' });
+
+      const session = await openReplayer(context, events);
+      try {
+        const stages = replayMarkers(events).filter((m) => m.tag === 'stage');
+        expect(
+          stages.map((m) => m.payload.stage),
+          `${size}: stage markers recorded in click order`
+        ).toEqual(live[size].map((s) => s.stage));
+        // The recording must contain the clicks themselves, not only their effects.
+        const clicks = events.filter((e) => e.type === 3 && e.data.source === 2).length;
+        expect(clicks, `${size}: recorded click interactions`).toBeGreaterThanOrEqual(5);
+        for (const marker of stages) {
+          await session.seek(marker.offset);
+          const metrics = await readReplayedDisclosure(session);
+          replayed[size].push({
+            stage: String(marker.payload.stage),
+            ...metrics,
+            peakScrollHeight: metrics.scrollHeight,
+          });
+        }
+      } finally {
+        await session.close();
+      }
+    }
+    await testInfo.attach('replayed-disclosure-metrics', {
+      body: JSON.stringify({ live, replayed }, null, 2),
+      contentType: 'application/json',
+    });
+    for (const size of ['short', 'large'] as const) {
+      live[size].forEach((stage, i) => {
+        const copy = replayed[size][i];
+        // The Replayer reconstructs which outputs are open, step by step.
+        expect(copy.openOutputs, `${size} ${stage.stage}: open outputs`).toBe(stage.openOutputs);
+        expect(copy.outputBlocks, `${size} ${stage.stage}: output blocks`).toBe(stage.outputBlocks);
+        // ...and the scroll extent, which is what the budget is about.
+        expect(
+          Math.abs(copy.scrollHeight - stage.scrollHeight),
+          `${size} ${stage.stage}: replayed scrollHeight ${copy.scrollHeight} vs live ${stage.scrollHeight}`
+        ).toBeLessThanOrEqual(HIDDEN_SLACK);
+      });
+    }
+    // The scroll-growth oracle, evaluated purely on the replayed DOM.
+    expect(scrollBudgetViolations(replayed.short, replayed.large)).toEqual([]);
+
+    // Negative control: record the pre-#5029 unbounded output pane. The replay
+    // alone must be enough to see the scroll blow-up.
+    await renderDisclosureTurn(page, 'large');
+    const unboundedStyle = await page.addStyleTag({
+      content: '.chat-message details.tool-block pre { max-height: none !important; }',
+    });
+    await startRecording(page);
+    await runDisclosureSequence(page);
+    const events = await stopRecording(page);
+    await unboundedStyle.evaluate((el) => el.remove());
+    const session = await openReplayer(context, events);
+    try {
+      const unbounded: DisclosureStage[] = [];
+      for (const marker of replayMarkers(events).filter((m) => m.tag === 'stage')) {
+        await session.seek(marker.offset);
+        const metrics = await readReplayedDisclosure(session);
+        unbounded.push({
+          stage: String(marker.payload.stage),
+          ...metrics,
+          peakScrollHeight: metrics.scrollHeight,
+        });
+      }
+      const violations = scrollBudgetViolations(replayed.short, unbounded);
+      expect(violations.some((v) => v.startsWith('large output-open: grew'))).toBe(true);
+    } finally {
+      await session.close();
+    }
+  });
+});
+
+// Geometry cannot see text that is in the right place but not painted. Probe the
+// pixels where the finished reply's tail should be, then apply controlled faults.
+test('pixel probe sees the painted reply tail and catches clipping/occlusion geometry misses', async ({
+  page,
+}, testInfo) => {
+  await openTurn(page, true);
+  const result = await streamNativeFixture(page, NATIVE_FIXTURES[0], 'empty', 'boundary');
+  expect(result.failures, describeFailures(result)).toEqual([]);
+  const selector = '[data-message-index="1"]';
+  const clip = await textClip(page, selector, NATIVE_TAIL);
+  expect(clip, 'tail located').not.toBeNull();
+  await page.mouse.move(0, 0);
+  await nextFrames(page, 3);
+
+  const baseline = await inkPixels(page, clip!);
+  // A line of text covers hundreds of pixels; require a wide margin over noise.
+  expect(baseline.ink, 'painted tail has ink').toBeGreaterThan(200);
+  await page.screenshot({ path: testInfo.outputPath('tail-painted.png'), clip: clip! });
+
+  // Each fault leaves the tail's box where it was; only the paint changes.
+  const faults = ['collapsed-box', 'transparent-text', 'click-through-overlay'] as const;
+  const report: Record<string, unknown> = { baseline };
+  for (const kind of faults) {
+    await page.evaluate(
+      ({ selector, kind, bg, area }) => {
+        const message = document.querySelector<HTMLElement>(selector)!;
+        if (kind === 'collapsed-box') {
+          // The oracle's own tail-clip fault: the reply box collapses to a sliver.
+          const target = message.querySelector<HTMLElement>('.chat-message, .markdown') ?? message;
+          target.style.maxHeight = '4px';
+          target.style.overflow = 'hidden';
+        } else if (kind === 'transparent-text') {
+          // Geometry-blind: layout and hit-testing are unchanged.
+          message.style.color = 'transparent';
+          message
+            .querySelectorAll<HTMLElement>('*')
+            .forEach((el) => (el.style.color = 'transparent'));
+        } else {
+          // Geometry-blind: elementFromPoint skips a pointer-events:none overlay.
+          const cover = document.createElement('div');
+          Object.assign(cover.style, {
+            position: 'fixed',
+            left: `${area.x - 2}px`,
+            top: `${area.y - 2}px`,
+            width: `${area.width + 4}px`,
+            height: `${area.height + 4}px`,
+            background: bg,
+            pointerEvents: 'none',
+            zIndex: '2147483647',
+          });
+          document.body.appendChild(cover);
+        }
+      },
+      { selector, kind, bg: baseline.background, area: clip! }
+    );
+    await nextFrames(page, 3);
+    const faulty = await inkPixels(page, clip!);
+    report[kind] = faulty;
+    await page.screenshot({ path: testInfo.outputPath(`tail-${kind}.png`), clip: clip! });
+    // Hit-testing at the tail centre: the geometry-only check still passes for
+    // the paint-only faults, which is exactly the gap the probe closes.
+    const hitsMessage = await page.evaluate(
+      ({ selector, area }) => {
+        const hit = document.elementFromPoint(area.x + area.width / 2, area.y + area.height / 2);
+        return !!hit && !!document.querySelector(selector)?.contains(hit);
+      },
+      { selector, area: clip! }
+    );
+    if (kind !== 'collapsed-box') {
+      expect(hitsMessage, `${kind}: geometry hit-test is blind to this fault`).toBe(true);
+    }
+    expect(faulty.ink, `${kind}: pixel probe sees no tail`).toBeLessThan(baseline.ink * 0.05);
+    // Undo: reload the turn so the next fault starts from a painted tail.
+    await openTurn(page, true);
+    await streamNativeFixture(page, NATIVE_FIXTURES[0], 'empty', 'boundary');
+    const again = await textClip(page, selector, NATIVE_TAIL);
+    await page.mouse.move(0, 0);
+    await nextFrames(page, 3);
+    const restored = await inkPixels(page, again!);
+    expect(restored.ink, `${kind}: undo restores ink`).toBeGreaterThan(200);
+  }
+  await testInfo.attach('pixel-probe', {
+    body: JSON.stringify(report, null, 2),
+    contentType: 'application/json',
+  });
 });

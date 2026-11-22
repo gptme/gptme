@@ -2,5 +2,5 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": ["src/panel.tsx"],
   "ignore": ["extension/**", "public/**", "src/**/*.d.ts"],
-  "ignoreDependencies": ["@types/chrome", "jsdom", "simple-icons", "ts-node"]
+  "ignoreDependencies": ["@types/chrome", "jsdom", "rrweb", "simple-icons", "ts-node"]
 }
