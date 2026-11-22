@@ -404,6 +404,26 @@ def _spill_full_output(output: str, command_info: str | None) -> Path | None:
         return None
 
 
+def _redact_cell_output(output: str) -> str:
+    """Apply the shell's credential-redaction policy to python/kernel output.
+
+    The python and kernel backends capture whatever a cell printed, including an
+    accidental ``print(os.environ)`` or a dumped dotenv file. Shell and tmux
+    output already passes this policy before it is shown inline or written to
+    ``tool-outputs/``; python output did not, so a retained spill file could
+    hold credentials the rest of the pipeline redacts. Same switch
+    (``GPTME_SHELL_REDACT_SECRETS``) and same heuristic -- this is not a
+    general secret scanner.
+    """
+    from ..config import get_config  # deferred: avoid import cycle
+
+    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        return output
+    from ..util.redact import redact_secret_values_from_output
+
+    return redact_secret_values_from_output(output)[0]
+
+
 def _cap_output(output: str, command_info: str | None = None) -> str:
     """Cap output to a reasonable size (10 MiB) with head+tail truncation.
 
@@ -411,7 +431,12 @@ def _cap_output(output: str, command_info: str | None = None) -> str:
     are counted correctly. When output is dropped and a conversation directory
     is active, the full text is saved under ``tool-outputs/`` and the omission
     marker names the file.
+
+    Credential redaction runs before both the cap and the spill, so the
+    retained file is the same redacted representation the model sees, and the
+    reported byte counts describe that representation.
     """
+    output = _redact_cell_output(output)
     # surrogatepass: valid Python strings may hold lone surrogates (e.g. from
     # surrogateescape-decoded filenames) that strict UTF-8 encoding rejects
     encoded = output.encode("utf-8", errors="surrogatepass")

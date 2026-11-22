@@ -721,3 +721,74 @@ def test_execute_python_timeout_disabled(monkeypatch):
     assert _get_timeout() is None
     monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "nope")
     assert _get_timeout() == 600
+
+
+SECRET_VALUE = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+SECRET_LINE = f"OPENAI_API_KEY={SECRET_VALUE}"
+
+
+def test_cap_output_redacts_secrets_in_small_output():
+    """A cell that prints a credential must not hand it to the model verbatim."""
+    from gptme.tools.python import _cap_output
+
+    capped = _cap_output(f"{SECRET_LINE}\nhello\n")
+
+    assert SECRET_VALUE not in capped
+    assert "OPENAI_API_KEY=[REDACTED]" in capped
+    assert "hello" in capped
+
+
+def test_cap_output_redacts_secrets_before_spilling_to_tool_outputs(tmp_path):
+    """The retained file must be the same redacted representation as the preview.
+
+    Regression for the capture contract: python/kernel output spilled the raw
+    captured text, so an accidental ``print(os.environ)`` left credentials in
+    ``tool-outputs/`` even though the shell/tmux paths redact before persisting.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    huge = f"{SECRET_LINE}\n" + "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        capped = _cap_output(huge, "kernel stdout")
+
+    files = [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+    assert len(files) == 1
+    saved = files[0].read_text()
+    assert SECRET_VALUE not in saved
+    assert "OPENAI_API_KEY=[REDACTED]" in saved
+    # the surrounding output is still retained in full
+    assert saved.count("x") == _DEFAULT_MAX_OUTPUT_BYTES + 4096
+    assert SECRET_VALUE not in capped
+    assert f"full output saved to {files[0]}" in capped
+
+
+def test_cap_output_redaction_respects_shell_switch(monkeypatch, tmp_path):
+    """``GPTME_SHELL_REDACT_SECRETS=0`` disables it here too, as for shell."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from gptme.tools.python import _DEFAULT_MAX_OUTPUT_BYTES, _cap_output
+
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
+    huge = f"{SECRET_LINE}\n" + "x" * (_DEFAULT_MAX_OUTPUT_BYTES + 4096)
+    manager = SimpleNamespace(logdir=tmp_path)
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        capped = _cap_output(huge, "kernel stdout")
+    files = [f for f in (tmp_path / "tool-outputs").rglob("*") if f.is_file()]
+    assert len(files) == 1
+    assert SECRET_VALUE in files[0].read_text()
+    assert SECRET_VALUE in capped
+
+
+def test_cell_output_formatting_redacts_both_streams():
+    """Both stdout and stderr go through the policy, like shell's two streams."""
+    from gptme.tools.python import _format_cell_output
+
+    output = _format_cell_output(f"{SECRET_LINE}\n", f"warning: {SECRET_LINE}\n")
+
+    assert SECRET_VALUE not in output
+    assert output.count("[REDACTED]") == 2
