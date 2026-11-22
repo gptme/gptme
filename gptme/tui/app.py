@@ -1248,8 +1248,12 @@ class StreamingMessage(Vertical):
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
         if self._buffer:  # tokens that arrived before it was mounted
-            # once mounted (is_mounted is still False in this handler)
-            self.call_after_refresh(self._update_hidden_segments)
+            # Replay once mounted (is_mounted is still False in this handler).
+            # call_later runs right after this handler, in our own queue, so
+            # pilot.pause()/wait_for_idle covers it. call_after_refresh waits
+            # on the screen's next refresh, which under load can land after
+            # the stream is already expected to carry its has-text class.
+            self.call_later(self._update_hidden_segments)
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
