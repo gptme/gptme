@@ -3441,3 +3441,155 @@ def test_memory_rerun_loads_conversation_workspace_dotenv(
         assert not (workspace / "memories").exists()
     finally:
         session.pending_tools.clear()
+
+
+# --- Persisted generation-error classification -----------------------------
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        (
+            "Error code: 402 - {'type': 'error', 'error': {'type': "
+            "'payment_required', 'message': 'Insufficient credits.'}}"
+        ),
+        "HTTP status: 402",
+        "Error: payment required",
+        "gateway error: insufficient_credits",
+        "Insufficient credits",
+        "Error: insufficient credits: please top up",
+        "no_subscription: upgrade required",
+        '{"error": {"code": "insufficient_credits"}}',
+        "{'error': {'type': 'payment_required'}}",
+    ],
+)
+def test_classify_generation_error_payment(raw):
+    from gptme.server.session_step import classify_generation_error
+
+    classified = classify_generation_error(raw)
+    assert classified.startswith("Payment required")
+    assert raw not in classified
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Error code: 401 - Incorrect API key provided",
+        "Error: Unauthorized",
+        "authentication_error: invalid token",
+        "invalid_api_key",
+        '{"error": {"type": "authentication_error"}}',
+        "{'error': {'code': 'invalid_api_key'}}",
+    ],
+)
+def test_classify_generation_error_auth(raw):
+    from gptme.server.session_step import classify_generation_error
+
+    assert classify_generation_error(raw).startswith("Authentication failed")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "command not found: gptme-typo",
+        "No such file or directory",
+        "Error: workspace /tmp/x does not exist",
+        "Error: workspace /projects/no_subscription does not exist",
+        "Error: workspace /projects/invalid_api_key does not exist",
+        "No such file or directory: '/projects/payment_required'",
+        "Cannot read /projects/authentication_error/config.toml",
+        "Tool output mentions insufficient_credits but is not a provider refusal",
+        "no_subscription/project does not exist",
+        "invalid_api_key.txt is missing",
+        "insufficient credits/project does not exist",
+        "insufficient credits.txt is missing",
+        "Cannot read /projects/insufficient credits/config.toml",
+        '{"error": {"message": "Cannot read /projects/no_subscription"}}',
+        '{"error": {"code": "invalid_api_key.txt"}}',
+        "Error code: 500 - internal server error",
+        "Responses stream response.failed: unknown_error: invalid_api_key in tool output",
+        "Responses stream response.failed: invalid_api_key.txt: missing file",
+        "Responses stream response.failed: no_subscription/project: missing directory",
+        "",
+    ],
+)
+def test_classify_generation_error_passthrough(raw):
+    from gptme.server.session_step import classify_generation_error
+
+    assert classify_generation_error(raw) == raw
+
+
+@pytest.mark.parametrize("event_type", ["error", "response.failed"])
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("invalid_api_key", "Authentication failed"),
+        ("authentication_error", "Authentication failed"),
+        ("payment_required", "Payment required"),
+        ("insufficient_credits", "Payment required"),
+        ("no_subscription", "Payment required"),
+    ],
+)
+def test_persisted_responses_stream_refusal_is_classified(
+    tmp_path, event_type, code, expected
+):
+    from gptme.llm.openai_responses import ResponsesStreamError
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _persist_generation_error
+
+    manager = LogManager(logdir=tmp_path)
+    session = MagicMock()
+    session.conversation_id = "test-classified-responses-error"
+    error = ResponsesStreamError(event_type, code, "Provider refused the request")
+
+    _persist_generation_error(manager, session, str(error))
+
+    assert manager.log.messages[-1].content.startswith(f"Error: {expected}")
+    assert (
+        LogManager.load(tmp_path)
+        .log.messages[-1]
+        .content.startswith(f"Error: {expected}")
+    )
+
+
+def test_persisted_generation_error_is_classified(tmp_path):
+    """A refused generation must not leave a raw provider dump after reload."""
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _persist_generation_error
+
+    manager = LogManager(logdir=tmp_path)
+    session = MagicMock()
+    session.conversation_id = "test-classified-generation-error"
+    raw = (
+        "Error code: 402 - {'type': 'error', 'error': {'type': "
+        "'payment_required', 'message': 'Insufficient credits. Please add more "
+        "credits to your account.'}}"
+    )
+
+    _persist_generation_error(manager, session, raw)
+
+    persisted = manager.log.messages[-1]
+    assert persisted.role == "system"
+    assert persisted.content.startswith("Error: Payment required")
+    assert "Insufficient credits" not in persisted.content
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "workspace /tmp/moved does not exist",
+        "workspace /projects/no_subscription does not exist",
+        "workspace /projects/invalid_api_key does not exist",
+    ],
+)
+def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path, raw):
+    from gptme.logmanager import LogManager
+    from gptme.server.session_step import _persist_generation_error
+
+    manager = LogManager(logdir=tmp_path)
+    session = MagicMock()
+    session.conversation_id = "test-unclassified-generation-error"
+
+    _persist_generation_error(manager, session, raw)
+
+    assert manager.log.messages[-1].content == f"Error: {raw}"

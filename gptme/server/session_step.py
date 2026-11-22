@@ -12,6 +12,7 @@ import atexit
 import contextvars
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -455,13 +456,90 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
     )
 
 
+# Provider refusals worth classifying in the durable system message. Mirrors the
+# webui's `getApiErrorPresentation` (webui/src/utils/api.ts) for the transports
+# that only carry text.
+_PAYMENT_ERROR_HINTS = (
+    "payment_required",
+    "insufficient_credits",
+    "insufficient credit",
+    "insufficient credits",
+    "no_subscription",
+)
+_AUTH_ERROR_HINTS = (
+    "authentication_error",
+    "invalid_api_key",
+    "invalid api key",
+)
+_STATUS_LABEL_RE = re.compile(
+    r"^(?:error:\s*)?(?:error code|http(?: status)?)\s*:?\s*(\d{3})\b",
+    re.IGNORECASE,
+)
+
+
+def _has_provider_error_hint(error_message: str, hints: tuple[str, ...]) -> bool:
+    """Match error labels, Responses stream codes, or quoted type/code fields."""
+    labels = "|".join(re.escape(hint) for hint in hints)
+    return bool(
+        re.match(
+            rf"^(?:(?:gateway )?error:\s*)?(?:{labels})(?=\s|:|$)",
+            error_message,
+        )
+        # ResponsesStreamError renders the code before the provider's message.
+        # Anchor to that slot, not a hint in the message or a workspace path.
+        or re.match(
+            rf"^responses stream (?:error|response\.failed): (?:{labels}): ",
+            error_message,
+        )
+        or re.search(
+            rf"['\"](?:type|code)['\"]\s*:\s*['\"](?:{labels})['\"]",
+            error_message,
+        )
+    )
+
+
+def classify_generation_error(error_message: str) -> str:
+    """Return the user-facing line for a provider generation failure.
+
+    The webui classifies transient SSE errors, but the system message written
+    here outlives the toast and the in-memory inline error, so it must carry the
+    same presentation instead of an unclassified provider dump. Only a leading
+    status label or an explicit provider error code is inspected, so ordinary
+    tool failures pass through unchanged.
+    """
+    lowered = error_message.strip().lower()
+    status = _STATUS_LABEL_RE.match(lowered)
+    status_code = status.group(1) if status else None
+
+    if (
+        status_code == "402"
+        or re.match(r"^(?:error:\s*)?payment required\b", lowered)
+        or _has_provider_error_hint(lowered, _PAYMENT_ERROR_HINTS)
+    ):
+        return (
+            "Payment required — the model account has no credits left. "
+            "Add credits or switch models, then retry."
+        )
+    if (
+        status_code == "401"
+        or re.match(r"^(?:error:\s*)?unauthori[sz]ed\b", lowered)
+        or _has_provider_error_hint(lowered, _AUTH_ERROR_HINTS)
+    ):
+        return (
+            "Authentication failed — the model provider rejected the request "
+            "credentials. Check the API key or sign-in, then retry."
+        )
+    return error_message
+
+
 def _persist_generation_error(
     manager: LogManager,
     session: ConversationSession,
     error_message: str,
 ) -> None:
     """Persist a visible generation error message and notify SSE clients."""
-    _append_and_notify(manager, session, Message("system", f"Error: {error_message}"))
+    message = classify_generation_error(error_message)
+    _append_and_notify(manager, session, Message("system", f"Error: {message}"))
     manager.write()
 
 
