@@ -1359,10 +1359,12 @@ Make sure you have actually completely finished before calling this tool.
 ### When to use complete
 
 Use only after all requested work is done and committed. Do not call it mid-task or while blocked on something fixable — only call when work is genuinely finished or you have hit a hard blocker requiring human intervention.
+
+Call it in the same message as your final summary. A final message without a tool call is answered with a confirmation prompt, so ending that way costs an extra round trip.
 """,
     examples="""
 > User: Everything done, just complete
-> Assistant: I'll use the complete tool to end the session.
+> Assistant: Fixed the bug and added a regression test; all tests pass.
 ```complete
 ```
 > System: Task complete. Autonomous session finished.
