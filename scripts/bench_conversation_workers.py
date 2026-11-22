@@ -73,11 +73,15 @@ def worker_main(argv: list[str]) -> None:
         fd.truncate()
         fd.write(str(os.getpid()))
         fd.flush()
+    # Reserve the original pipe for protocol frames. Redirect fd 1 as well as
+    # Python stdout so preload, native and inherited subprocess output cannot
+    # corrupt JSON framing. Ordinary output remains visible on stderr.
+    sys.stdout.flush()
+    out = os.fdopen(os.dup(sys.stdout.fileno()), "w")
+    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     os.chdir(args.cwd)  # the whole point: process-native cwd
     for mod in [m for m in args.preload.split(",") if m]:
         importlib.import_module(mod)
-
-    out = sys.stdout
 
     def emit(msg: dict) -> None:
         out.write(json.dumps(msg) + "\n")
@@ -101,7 +105,13 @@ def worker_main(argv: list[str]) -> None:
             reply = json.loads(sys.stdin.readline())
             return bool(reply.get("ok"))
 
-        env = {"state": state, "stream": stream, "confirm": confirm, "result": None}
+        env = {
+            "state": state,
+            "stream": stream,
+            "confirm": confirm,
+            "result": None,
+            "protocol_fd": out.fileno(),  # explicit inheritance for the orphan probe
+        }
         try:
             exec(msg["code"], env)
             emit({"t": "done", "id": tid, "result": env.get("result")})
@@ -146,8 +156,14 @@ class Worker:
 
     def _pump(self) -> None:
         assert self.p.stdout
-        for line in self.p.stdout:  # ends at EOF (maybe never, see recv)
-            self._q.put(json.loads(line))
+        try:
+            for line in self.p.stdout:  # ends at EOF (maybe never, see recv)
+                msg = json.loads(line)
+                if not isinstance(msg, dict) or "t" not in msg:
+                    raise ValueError("worker message must be an object with a type")
+                self._q.put(msg)
+        except (OSError, ValueError) as e:
+            self._q.put({"t": "protocol_error", "error": repr(e)})
 
     def recv(self) -> dict:
         """Next worker message, or a synthetic ``exit`` event.
@@ -161,7 +177,10 @@ class Worker:
         """
         while True:
             try:
-                return self._q.get(timeout=0.05)
+                msg = self._q.get(timeout=0.05)
+                if msg["t"] == "protocol_error":
+                    raise RuntimeError(f"worker protocol error: {msg['error']}")
+                return msg
             except queue.Empty:
                 if self.p.poll() is not None and self._q.empty():
                     return {"t": "exit", "returncode": self.p.returncode}
@@ -430,8 +449,9 @@ def conv(name, d):
             bad += 1
 ths = [threading.Thread(target=conv, args=(n, d)) for n, d in ARGS]
 for t in ths:
-            t.start(); for t in ths:
-            t.join()
+    t.start()
+for t in ths:
+    t.join()
 result = bad
 """
 
@@ -458,12 +478,43 @@ def bench_isolation(preload: str) -> dict:
     )
     # contrast: today's shared-process model with os.chdir under threads
     env: dict = {"ARGS": list(dirs.items())}
-    exec(THREAD_RACE, env)
+    cwd = os.getcwd()
+    try:
+        exec(THREAD_RACE, env)
+    finally:
+        os.chdir(cwd)
     return {
         "workers": results,
         "all_four_probes_independent": ok,
         "shared_process_threads_wrong_reads_of_4000": env["result"],
     }
+
+
+# Deliberately leak the protocol pipe: normal subprocess stdout goes to stderr.
+ORPHAN_CODE = """
+import subprocess
+result = subprocess.Popen(['sleep', '300'], pass_fds=(protocol_fd,)).pid
+"""
+
+
+def process_running(pid: int) -> bool:
+    """A zombie is dead even if its new parent has not reaped its /proc entry."""
+    if sys.platform == "linux":
+        try:
+            return (
+                Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+                != "Z"
+            )
+        except FileNotFoundError:
+            return False
+    try:
+        import psutil
+
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except ImportError:
+        raise RuntimeError("non-Linux lifecycle probes require psutil") from None
+    except psutil.NoSuchProcess:
+        return False
 
 
 def bench_lifecycle(preload: str) -> dict:
@@ -504,8 +555,8 @@ def bench_lifecycle(preload: str) -> dict:
     # 3. live state persists across turns (and would be lost on eviction)
     w1.turn("state['x'] = 41")
     res["live_state_persists"] = w1.turn("result = state['x'] + 1")["result"] == 42
-    # 4. orphan cleanup: worker spawns a grandchild; SIGKILL of the group reaps it
-    r = w1.turn("import subprocess; result = subprocess.Popen(['sleep','300']).pid")
+    # 4. orphan cleanup: group SIGKILL kills it; its new parent owns reaping.
+    r = w1.turn(ORPHAN_CODE)
     child = r["result"]
     # 5. crash: kill -9 the worker mid-turn; host sees exit, lease is released by the kernel
     w1._id += 1
@@ -516,15 +567,15 @@ def bench_lifecycle(preload: str) -> dict:
     res["crash_detected"] = m["t"] == "exit"
     res["crash_returncode"] = m.get("returncode")
     time.sleep(0.2)
-    res["orphan_grandchild_alive_after_worker_sigkill"] = Path(
-        f"/proc/{child}"
-    ).exists()
+    res["orphan_grandchild_alive_after_worker_sigkill"] = process_running(child)
     try:
-        os.killpg(w1.p.pid, signal.SIGKILL)  # group kill reaps it
+        os.killpg(w1.p.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    time.sleep(0.3)
-    res["orphan_grandchild_alive_after_group_kill"] = Path(f"/proc/{child}").exists()
+    deadline = time.monotonic() + 5
+    while process_running(child) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    res["orphan_grandchild_alive_after_group_kill"] = process_running(child)
     w1.p.wait()
     # 6. restart after crash: new worker acquires the released lease (no duplicate writer window)
     w3 = Worker(tmp, preload=preload, lease=lease)

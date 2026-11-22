@@ -99,9 +99,18 @@ CPU-bound pure-Python turn (~105 ms alone), N concurrent conversations:
 | 4 | 438 ms | 131 ms |
 | 8 | 876 ms | 154 ms |
 
-Threads serialize on the GIL (wall ≈ N×); workers are flat. This is relevant only for
-conversations doing in-process CPU work (Python cells, parsing, local tools); LLM
-streaming is I/O-bound and already scales as threads.
+Threads serialize on the GIL (wall ≈ N×); workers were flat **in that run**. This is
+relevant only for conversations doing in-process CPU work (Python cells, parsing,
+local tools); LLM streaming is I/O-bound and already scales as threads.
+
+**Review-fix rerun:** the full documented `all` command completed after repairing
+an invalid start/join loop in the embedded thread probe. It observed 197/4000 wrong
+thread reads and zero wrong worker probes, ~260 ms spawn / 41.9 MB PSS, and 0.016 ms
+warm-turn IPC. However, 8 workers took 1495 ms versus 1242 ms for threads, so the
+initial scaling speedup was **not reproduced**. The cause was not measured; these
+uncontrolled single-run timings do not establish deployment throughput or justify
+adoption. Lifecycle checks passed, including a live orphan after worker-only kill
+and a dead orphan after group kill.
 
 ### 3.4 The existing kernel backend as the interim default
 
@@ -136,8 +145,11 @@ default for this reason.
 
 ## 4. IPC contract (prototyped)
 
-One JSON object per line on the worker's stdio; HTTP/SSE stays in the owning frontend
-server. Implemented in `scripts/bench_conversation_workers.py` and exercised by
+One JSON object per line on a reserved worker stdout pipe; ordinary Python, native,
+preload and subprocess output is redirected to stderr, not mixed with protocol frames.
+Malformed frames are surfaced as host errors rather than silently killing the reader.
+HTTP/SSE stays in the owning frontend server. Implemented in
+`scripts/bench_conversation_workers.py` and exercised by
 `tests/test_bench_conversation_workers.py`.
 
 ```text
@@ -161,7 +173,9 @@ Design points, each exercised by the prototype:
   Likewise `select()` on the fd misses lines already buffered by the text wrapper; use
   a reader thread feeding a queue.
 * **Orphans.** After `kill -9` of the worker, a `sleep 300` grandchild was **still
-  alive**; a process-group `SIGKILL` reaped it. Workers must be started in their own
+  alive**; a process-group `SIGKILL` killed it. Only its new parent can reap it; a
+  remaining `/proc` entry in zombie state does not mean the child survived.
+  Workers must be started in their own
   session/group (`start_new_session=True`), and the host kills the group, not the PID.
   This subsumes shell/kernel orphan cleanup for the worker case.
 * **Single writer.** The worker takes an `flock` lease for its whole lifetime. A second
