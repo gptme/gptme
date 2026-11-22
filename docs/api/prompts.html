@@ -952,7 +952,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7d4cb5edbe20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x78203d16be20&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1248,11 +1248,13 @@ Make sure you have actually completely finished before calling this tool.
 
 Use only after all requested work is done and committed. Do not call it mid-task or while blocked on something fixable — only call when work is genuinely finished or you have hit a hard blocker requiring human intervention.
 
+Call it in the same message as your final summary. A final message without a tool call is answered with a confirmation prompt, so ending that way costs an extra round trip.
+
 
 <span class="gu">### Examples</span>
 
 <span class="k">&gt; </span><span class="ge">User: Everything done, just complete</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I'll use the complete tool to end the session.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Fixed the bug and added a regression test; all tests pass.</span>
 <span class="sb">```complete</span>
 <span class="sb">```</span>
 
@@ -3106,7 +3108,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 21004</p>
+<p>Tokens: 21042</p>
 </dd></dl>
 
 <dl class="py function">
