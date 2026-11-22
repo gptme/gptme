@@ -1,0 +1,1290 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" data-theme="auto">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta property="og:title" content="Process-per-Conversation Server Workers and Cross-Process Wake Delivery" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://gptme.org/docs/design/conversation-workers.html" />
+<meta property="og:site_name" content="gptme" />
+<meta property="og:description" content="Status: research note, partial. Tracks gptme/gptme#5060. Not an implementation commitment. Independent short-term safety work stays in #5059. Recommendation: stage, do not adopt yet, and do not mak..." />
+<meta property="og:image" content="https://gptme.org/media/logo.png" />
+<meta property="og:image:alt" content="gptme logo" />
+<meta name="description" content="Status: research note, partial. Tracks gptme/gptme#5060. Not an implementation commitment. Independent short-term safety work stays in #5059. Recommendation: stage, do not adopt yet, and do not mak..." />
+
+    <title>Process-per-Conversation Server Workers and Cross-Process Wake Delivery &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "auto";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "auto";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=4418a689" />
+    <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/asciinema-player_3.12.1.js"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'design/conversation-workers';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="canonical" href="https://gptme.org/docs/design/conversation-workers.html" />
+    <link rel="icon" href="../_static/logo.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Philosophy" href="../philosophy.html" />
+    <link rel="prev" title="File-backed tool and process output" href="file-backed-output.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="auto">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="../_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../getting-started.html">Getting Started</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../system-dependencies.html">Extras and System Dependencies</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/choose-workflow.html">Choose a Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/minimal-context.html">Minimal Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/edit-files.html">Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/code-review.html">Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/debug-python.html">Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/refactor.html">Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/automate-task.html">Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/parallel-research.html">Parallel Research</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/computer-use.html">Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/skills-workflows.html">Reusable Skills</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/custom-tool-plugin.html">Custom Tool Plugin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/tts-setup.html">Text-to-Speech</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models.html">Models</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../providers-supported.html">Supported Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../providers-integration.html">Provider Integration Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tool-formats.html">Tool Formats</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tools/read.html">Read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/save.html">Save</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/patch.html">Patch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/morph.html">Morph</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/patch-many.html">Patch many</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/convert.html">Convert</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/python.html">Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/shell.html">Shell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/gh.html">GitHub (gh)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/precommit.html">Precommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/autocommit.html">Autocommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/browser.html">Browser</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/rag.html">RAG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/chats.html">Chats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vision.html">Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/screenshot.html">Screenshot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/computer.html">Computer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/choice.html">Choice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/elicit.html">Elicit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/form.html">Form</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/tmux.html">Tmux</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/subagent.html">Subagent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/complete.html">Complete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/restart.html">Restart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vent.html">Vent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/watch.html">Watch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/progress.html">Progress</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/clarify.html">Clarify</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/lessons.html">Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/mcp.html">MCP</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../automation.html">Automation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../security.html">Security</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Interfaces</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../cli.html">CLI</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/sessions.html">Sessions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/evaluation.html">Evaluation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../app.html">App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloud.html">Cloud</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../acp.html">ACP</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../channels.html">Channels</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bot.html">GitHub Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/email.html">Email</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/agent-messaging.html">Agent Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/chat.html">Chat Apps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/voice.html">Voice</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../webui.html">Web</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Context</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agents/workspace.html">Workspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/autonomous.html">Running autonomously</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../profiles.html">Profiles</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../lessons.html">Lessons</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../skills-gallery.html">Gallery</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../memory.html">Memory</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Extending gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pr-lifecycle.html">PR Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/llm.html">LLMs and Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tools.html">Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/plugins.html">Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/commands.html">Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/profiles.html">Profiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/prompts.html">Prompts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/server.html">Server</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../context-compression.html">Context Compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../transport-recovery.html">Transport recovery boundaries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Design Documents</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="elicitation.html">Generalized Elicitation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="transcript-persistence.html">Transcript Persistence</a></li>
+<li class="toctree-l2"><a class="reference internal" href="file-backed-output.html">File-Backed Tool Output (proposed)</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Conversation Workers and Wake Delivery (research)</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../philosophy.html">Philosophy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../projects.html">Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.35.1.html">v0.35.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.35.0.html">v0.35.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.34.0.html">v0.34.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.33.0.html">v0.33.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/master/docs/design/conversation-workers.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/design/conversation-workers.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button pst-navbar-icon"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm pst-navbar-icon" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Process-per-Conversation Server Workers and Cross-Process Wake Delivery</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#problem">1. Problem</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ownership-map-audited">2. Ownership map (audited)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#options-compared-measured">3. Options compared (measured)</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#startup-and-memory">3.1 Startup and memory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#warm-turn-and-ipc-overhead">3.2 Warm turn and IPC overhead</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#concurrency-scaling">3.3 Concurrency scaling</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-existing-kernel-backend-as-the-interim-default">3.4 The existing kernel backend as the interim default</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ipc-contract-prototyped">4. IPC contract (prototyped)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#wake-and-notification-boundary-audited">5. Wake and notification boundary (audited)</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#proposed-conversation-addressed-inbox-design-only">5.1 Proposed conversation-addressed inbox (design only)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-harness-adapters-design-only-not-implemented-not-verified-live">5.2 Cross-harness adapters (design only; not implemented, not verified live)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-plumbing-could-be-deleted">6. What plumbing could be deleted</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommendation">7. Recommendation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#known-gaps-in-this-pass">8. Known gaps in this pass</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#questions-for-maintainers">9. Questions for maintainers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reproduce">10. Reproduce</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="process-per-conversation-server-workers-and-cross-process-wake-delivery">
+<h1>Process-per-Conversation Server Workers and Cross-Process Wake Delivery<a class="headerlink" href="#process-per-conversation-server-workers-and-cross-process-wake-delivery" title="Link to this heading">#</a></h1>
+<p><strong>Status:</strong> research note, partial. Tracks <a class="reference external" href="https://github.com/gptme/gptme/issues/5060">gptme/gptme#5060</a>.
+Not an implementation commitment. Independent short-term safety work stays in #5059.</p>
+<p><strong>Recommendation: stage, do not adopt yet, and do not make the kernel backend the
+server default.</strong> Details and the evidence for each claim follow. Everything marked
+<em>measured</em> comes from <code class="docutils literal notranslate"><span class="pre">scripts/bench_conversation_workers.py</span></code> (commands at the end);
+everything marked <em>audited</em> comes from reading the named code at <code class="docutils literal notranslate"><span class="pre">8a09fedffe</span></code>.</p>
+<section id="problem">
+<h2>1. Problem<a class="headerlink" href="#problem" title="Link to this heading">#</a></h2>
+<p>Native server conversations are threads in one process. Anything that touches the
+process-global cwd — <code class="docutils literal notranslate"><span class="pre">open(&quot;rel&quot;)</span></code>, <code class="docutils literal notranslate"><span class="pre">Path.exists</span></code>, <code class="docutils literal notranslate"><span class="pre">subprocess.run</span></code> without <code class="docutils literal notranslate"><span class="pre">cwd=</span></code>,
+native extensions calling <code class="docutils literal notranslate"><span class="pre">getcwd(3)</span></code> — is wrong for all but one conversation unless
+every tool and plugin routes through <code class="docutils literal notranslate"><span class="pre">current_workspace()</span></code> / <code class="docutils literal notranslate"><span class="pre">resolve_in_workspace()</span></code>
+(<code class="docutils literal notranslate"><span class="pre">gptme/tools/base.py:1651</span></code>). <code class="docutils literal notranslate"><span class="pre">tools/python.py</span></code> papers over the in-process IPython
+case with a global <code class="docutils literal notranslate"><span class="pre">_inprocess_cwd_lock</span></code> plus a temporary <code class="docutils literal notranslate"><span class="pre">os.chdir</span></code>
+(<code class="docutils literal notranslate"><span class="pre">gptme/tools/python.py:93-320</span></code>); threads outside that lock still observe the
+temporary cwd (#4951, #5051).</p>
+<p><em>Measured:</em> two threads in one process, each <code class="docutils literal notranslate"><span class="pre">os.chdir</span></code>-ing to its own workspace and
+doing an unmodified <code class="docutils literal notranslate"><span class="pre">open(&quot;marker.txt&quot;)</span></code>, read the <strong>wrong</strong> workspace’s file in
+<strong>332 of 4000</strong> attempts. Two worker processes running the same four probes
+(<code class="docutils literal notranslate"><span class="pre">open(relative)</span></code>, <code class="docutils literal notranslate"><span class="pre">Path.exists</span></code>, <code class="docutils literal notranslate"><span class="pre">subprocess.run([&quot;cat&quot;,</span> <span class="pre">...])</span></code> with no <code class="docutils literal notranslate"><span class="pre">cwd</span></code>, and a
+<code class="docutils literal notranslate"><span class="pre">ctypes</span></code> call to libc <code class="docutils literal notranslate"><span class="pre">getcwd</span></code>) were correct in all of them.</p>
+</section>
+<section id="ownership-map-audited">
+<h2>2. Ownership map (audited)<a class="headerlink" href="#ownership-map-audited" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Unit</p></th>
+<th class="head"><p>Owner today</p></th>
+<th class="head"><p>Evidence</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Conversation (<code class="docutils literal notranslate"><span class="pre">logdir</span></code>)</p></td>
+<td><p>one <strong>writer</strong> at a time; the lifetime lock <code class="docutils literal notranslate"><span class="pre">.lock</span></code> is held for the writer’s lifetime</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">request_peer_wake</span></code> takes <code class="docutils literal notranslate"><span class="pre">LogManager.load(lock=True)</span></code> and pins <code class="docutils literal notranslate"><span class="pre">writer_manager</span></code>; peer discovery proves liveness by lock contention (<code class="docutils literal notranslate"><span class="pre">peers.py::_active_conversations</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Browser / SSE session</p></td>
+<td><p>an <strong>observer</strong>, not a writer. Several <code class="docutils literal notranslate"><span class="pre">ConversationSession</span></code>s may exist per conversation</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">get_sessions_for_conversation</span></code>; wake paths pick <code class="docutils literal notranslate"><span class="pre">max(sessions,</span> <span class="pre">key=last_activity)</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Step admission</p></td>
+<td><p><strong>per conversation</strong>, not per branch: <code class="docutils literal notranslate"><span class="pre">_conversation_busy</span></code> ORs generating, active command, pending/executing tools over <em>all</em> sessions</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">session_models.py:486</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Branch</p></td>
+<td><p>a log view; wakes pass <code class="docutils literal notranslate"><span class="pre">branch=</span></code> through to the log append, but admission above is conversation-wide</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code>, <code class="docutils literal notranslate"><span class="pre">request_peer_wake</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Decision for a worker design:</strong> one worker per <em>conversation</em>, one active step per
+worker, branches scheduled sequentially inside it. That preserves today’s concurrency
+(it is already conversation-serial) and makes “multiple observers must not create
+duplicate writers” structural: observers attach to the <em>host’s</em> HTTP/SSE layer, only the
+worker holds the log lease. Distinct runtimes per branch (e.g. a branch with a different
+workspace) are not supported today and would need either a worker per <code class="docutils literal notranslate"><span class="pre">(conversation,</span> <span class="pre">branch)</span></code> or explicit branch switching with state loss; I did not find a current feature
+that requires it, so this is left as an open question for the issue thread.</p>
+</section>
+<section id="options-compared-measured">
+<h2>3. Options compared (measured)<a class="headerlink" href="#options-compared-measured" title="Link to this heading">#</a></h2>
+<p>Environment: CPython 3.12.3, Linux 7.0.6 (LXC, 24 cores, 30 GiB), uv-installed gptme
+with the <code class="docutils literal notranslate"><span class="pre">kernel</span></code> extra. Linux only; <strong>macOS/Windows not measured</strong> (see gaps).
+Worker preload = <code class="docutils literal notranslate"><span class="pre">gptme.chat</span></code> + <code class="docutils literal notranslate"><span class="pre">gptme.server.session_step</span></code> imports, <strong>not</strong> a full
+<code class="docutils literal notranslate"><span class="pre">init_tools()</span></code> + live LLM turn, so memory is a lower bound.</p>
+<section id="startup-and-memory">
+<h3>3.1 Startup and memory<a class="headerlink" href="#startup-and-memory" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Mode</p></th>
+<th class="head"><p>Cold → ready (p50)</p></th>
+<th class="head"><p>RSS</p></th>
+<th class="head"><p>PSS</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Thread in host</p></td>
+<td><p>0.02 ms</p></td>
+<td><p>— (shared)</p></td>
+<td><p>— (shared)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Bare <code class="docutils literal notranslate"><span class="pre">python</span></code> worker (spawn)</p></td>
+<td><p>26 ms</p></td>
+<td><p>14.9 MB</p></td>
+<td><p>9.2 MB</p></td>
+</tr>
+<tr class="row-even"><td><p>gptme-preloaded worker (spawn)</p></td>
+<td><p><strong>216 ms</strong> (max 684)</p></td>
+<td><p>50.4 MB</p></td>
+<td><p><strong>41.8 MB</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p>gptme-preloaded via forkserver (warm, single-threaded parent)</p></td>
+<td><p><strong>6 ms</strong></p></td>
+<td><p>45.6 MB</p></td>
+<td><p><strong>17.5 MB</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">KernelBackend</span></code> first cell (existing)</p></td>
+<td><p>741 ms</p></td>
+<td><p>n/a</p></td>
+<td><p>n/a</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Spawn/exec is the portable baseline (the only start method on Windows; the default on
+macOS). Forking from the multithreaded server is not safe and is not proposed; a
+<em>separate single-threaded</em> forkserver parent roughly halves PSS and removes the
+import latency, but is POSIX-only and adds a process to supervise. <strong>Warm pools are not
+justified by these numbers</strong> at modest concurrency: 216 ms once per conversation start,
+hidden behind LLM latency, is cheap. Revisit only if the deployment target is many
+hundreds of concurrently-<em>active</em> conversations, where 42 MB × N PSS dominates; that is
+the capacity figure I could not invent and need from the maintainers (§9).</p>
+</section>
+<section id="warm-turn-and-ipc-overhead">
+<h3>3.2 Warm turn and IPC overhead<a class="headerlink" href="#warm-turn-and-ipc-overhead" title="Link to this heading">#</a></h3>
+<p>JSON-lines over the worker’s stdio:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Operation</p></th>
+<th class="head"><p>Result</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Warm no-op turn round trip</p></td>
+<td><p><strong>0.016 ms</strong> p50, 0.11 ms p99 (300 turns)</p></td>
+</tr>
+<tr class="row-odd"><td><p>1000 streamed 80-byte chunks in one turn</p></td>
+<td><p>2.2 ms total</p></td>
+</tr>
+<tr class="row-even"><td><p>8 MiB result sent inline</p></td>
+<td><p>29 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>Confirmation round trip (worker blocks until reply)</p></td>
+<td><p>works</p></td>
+</tr>
+<tr class="row-even"><td><p>Idle CPU of a worker (3 s window)</p></td>
+<td><p>0.0 %</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>IPC overhead is negligible next to an LLM call. The 8 MiB case is why large outputs
+stay file-backed (#4663): inline is fine, but it blocks the pipe for the duration.</p>
+</section>
+<section id="concurrency-scaling">
+<h3>3.3 Concurrency scaling<a class="headerlink" href="#concurrency-scaling" title="Link to this heading">#</a></h3>
+<p>CPU-bound pure-Python turn (~105 ms alone), N concurrent conversations:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>N</p></th>
+<th class="head"><p>threads in one process</p></th>
+<th class="head"><p>N workers</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>115 ms</p></td>
+<td><p>123 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>2</p></td>
+<td><p>233 ms</p></td>
+<td><p>126 ms</p></td>
+</tr>
+<tr class="row-even"><td><p>4</p></td>
+<td><p>438 ms</p></td>
+<td><p>131 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>8</p></td>
+<td><p>876 ms</p></td>
+<td><p>154 ms</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Threads serialize on the GIL (wall ≈ N×); workers were flat <strong>in that run</strong>. This is
+relevant only for conversations doing in-process CPU work (Python cells, parsing,
+local tools); LLM streaming is I/O-bound and already scales as threads.</p>
+<p><strong>Review-fix rerun:</strong> the full documented <code class="docutils literal notranslate"><span class="pre">all</span></code> command completed after repairing
+an invalid start/join loop in the embedded thread probe. It observed 197/4000 wrong
+thread reads and zero wrong worker probes, ~260 ms spawn / 41.9 MB PSS, and 0.016 ms
+warm-turn IPC. However, 8 workers took 1495 ms versus 1242 ms for threads, so the
+initial scaling speedup was <strong>not reproduced</strong>. The cause was not measured; these
+uncontrolled single-run timings do not establish deployment throughput or justify
+adoption. Lifecycle checks passed, including a live orphan after worker-only kill
+and a dead orphan after group kill.</p>
+</section>
+<section id="the-existing-kernel-backend-as-the-interim-default">
+<h3>3.4 The existing kernel backend as the interim default<a class="headerlink" href="#the-existing-kernel-backend-as-the-interim-default" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">KernelBackend</span></code> (<code class="docutils literal notranslate"><span class="pre">gptme/tools/python_kernel.py</span></code>) already gives IPython cells a separate
+process with the session workspace as cwd, and a pickle RPC bridge for registered tools.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Probe</p></th>
+<th class="head"><p>Result</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Warm cell</p></td>
+<td><p>3.3 ms p50, 6.8 ms p99 (vs. in-process ≈ µs)</p></td>
+</tr>
+<tr class="row-odd"><td><p>200 small bridge calls inside one cell</p></td>
+<td><p>21.5 ms (~0.1 ms each)</p></td>
+</tr>
+<tr class="row-even"><td><p>4 MiB bridge round trip</p></td>
+<td><p>15.7 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>Live-object sharing: kernel mutates an object obtained from a bridge function</p></td>
+<td><p><strong>host copy unchanged</strong> — pickle gives copy semantics, identity is not preserved</p></td>
+</tr>
+<tr class="row-even"><td><p>Kernel cwd</p></td>
+<td><p>the session workspace (already per-conversation)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The bridge workloads are fast enough. What disqualifies the kernel as the <em>default
+answer to #5060</em>:</p>
+<ol class="arabic simple">
+<li><p>It isolates <strong>only Python cells</strong>. Server-side tools and third-party plugins still run
+in the shared host and still need the contextvar path (<code class="docutils literal notranslate"><span class="pre">resolve_in_workspace</span></code>). The
+issue’s own caveat holds: “kernel-only isolation cannot make server-side plugins
+magically cwd-safe.” Measured: the kernel does nothing for the shell/read/save/patch
+probes.</p></li>
+<li><p>Live Python objects cannot be shared with host tools (copy semantics above); code
+relying on that breaks. An explicit in-process fallback must remain, as it does now.</p></li>
+<li><p>Requires the <code class="docutils literal notranslate"><span class="pre">kernel</span></code> extra; first cell costs ~741 ms; Jupyter warns it runs over
+<strong>unencrypted localhost TCP</strong> by default (<code class="docutils literal notranslate"><span class="pre">[IPKernelApp]</span> <span class="pre">WARNING</span> <span class="pre">|</span> <span class="pre">Kernel</span> <span class="pre">is</span> <span class="pre">running</span> <span class="pre">over</span> <span class="pre">TCP</span> <span class="pre">without</span> <span class="pre">encryption</span></code>). Process separation is not a security sandbox, but this
+widens the local attack surface for code and outputs on multi-user hosts.</p></li>
+</ol>
+<p>Keep it as the per-conversation Python backend that auto-selects today; do not flip the
+default for this reason.</p>
+</section>
+</section>
+<section id="ipc-contract-prototyped">
+<h2>4. IPC contract (prototyped)<a class="headerlink" href="#ipc-contract-prototyped" title="Link to this heading">#</a></h2>
+<p>One JSON object per line on a reserved worker stdout pipe; ordinary Python, native,
+preload and subprocess output is redirected to stderr, not mixed with protocol frames.
+Malformed frames are surfaced as host errors rather than silently killing the reader.
+HTTP/SSE stays in the owning frontend server. Implemented in
+<code class="docutils literal notranslate"><span class="pre">scripts/bench_conversation_workers.py</span></code> and exercised by
+<code class="docutils literal notranslate"><span class="pre">tests/test_bench_conversation_workers.py</span></code>.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>host → worker   turn{id,code|prompt}   confirm_reply{id,ok}   quit
+worker → host   ready{pid,cwd}   stream{id,chunk}   confirm{id,q}
+                done{id,result|error}   cancelled{id}   (host-synthesized) exit{returncode}
+cancel          a SIGINT, not a message   (see below)
+</pre></div>
+</div>
+<p>Design points, each exercised by the prototype:</p>
+<ul class="simple">
+<li><p><strong>Cancellation is a signal.</strong> <code class="docutils literal notranslate"><span class="pre">SIGINT</span></code> interrupted both a pure-Python <code class="docutils literal notranslate"><span class="pre">while</span> <span class="pre">True</span></code>
+loop and a blocking <code class="docutils literal notranslate"><span class="pre">time.sleep(60)</span></code> with the <code class="docutils literal notranslate"><span class="pre">cancelled</span></code> reply arriving within ~0.3 ms of the signal, and
+the worker kept serving afterwards (live state intact). A message-based cancel cannot
+interrupt a worker stuck in a C call. Escalation: SIGINT → grace → <code class="docutils literal notranslate"><span class="pre">SIGTERM</span></code> →
+<code class="docutils literal notranslate"><span class="pre">SIGKILL</span></code> to the <strong>process group</strong>. Windows needs <code class="docutils literal notranslate"><span class="pre">CTRL_BREAK_EVENT</span></code> on a new process
+group; not tested.</p></li>
+<li><p><strong>Exit is detected by waiting on the process, never by pipe EOF.</strong> Found the hard way:
+a grandchild that inherited the worker’s stdout (an orphaned shell job) keeps the pipe
+open after the worker is <code class="docutils literal notranslate"><span class="pre">SIGKILL</span></code>ed, so a blocking <code class="docutils literal notranslate"><span class="pre">readline()</span></code> hangs forever.
+Likewise <code class="docutils literal notranslate"><span class="pre">select()</span></code> on the fd misses lines already buffered by the text wrapper; use
+a reader thread feeding a queue.</p></li>
+<li><p><strong>Orphans.</strong> After <code class="docutils literal notranslate"><span class="pre">kill</span> <span class="pre">-9</span></code> of the worker, a <code class="docutils literal notranslate"><span class="pre">sleep</span> <span class="pre">300</span></code> grandchild was <strong>still
+alive</strong>; a process-group <code class="docutils literal notranslate"><span class="pre">SIGKILL</span></code> killed it. Only its new parent can reap it; a
+remaining <code class="docutils literal notranslate"><span class="pre">/proc</span></code> entry in zombie state does not mean the child survived.
+Workers must be started in their own
+session/group (<code class="docutils literal notranslate"><span class="pre">start_new_session=True</span></code>), and the host kills the group, not the PID.
+This subsumes shell/kernel orphan cleanup for the worker case.</p></li>
+<li><p><strong>Single writer.</strong> The worker takes an <code class="docutils literal notranslate"><span class="pre">flock</span></code> lease for its whole lifetime. A second
+worker for the same conversation was refused (<code class="docutils literal notranslate"><span class="pre">lease_denied</span></code>); after a <code class="docutils literal notranslate"><span class="pre">SIGKILL</span></code>ed
+worker, the kernel released the lease and a restart acquired it immediately — no
+duplicate-writer window and no stale-lock cleanup. Production would reuse
+<code class="docutils literal notranslate"><span class="pre">LogManager</span></code>’s lifetime lock (<code class="docutils literal notranslate"><span class="pre">.lock</span></code>), which already has a Windows lock fallback
+(<code class="docutils literal notranslate"><span class="pre">_platform_lock</span></code>).</p></li>
+<li><p><strong>Crash visibility.</strong> The host sees <code class="docutils literal notranslate"><span class="pre">exit{returncode=-9}</span></code>; a <em>tool error</em> is a
+<code class="docutils literal notranslate"><span class="pre">done{error}</span></code> and does not kill the worker. Restart is from the durable log.</p></li>
+<li><p><strong>Durable vs live state.</strong> Live Python state (<code class="docutils literal notranslate"><span class="pre">state</span></code> dict in the prototype) persists
+across turns and is <strong>lost on eviction or crash</strong>; durable history is the log. Eviction
+policy (idle TTL) therefore must be user-visible, the same as kernel restart today.</p></li>
+<li><p><strong>Large outputs</strong> go through the file-backed output path (#4663), referenced by path in
+<code class="docutils literal notranslate"><span class="pre">stream</span></code>/<code class="docutils literal notranslate"><span class="pre">done</span></code>, not inlined.</p></li>
+</ul>
+</section>
+<section id="wake-and-notification-boundary-audited">
+<h2>5. Wake and notification boundary (audited)<a class="headerlink" href="#wake-and-notification-boundary-audited" title="Link to this heading">#</a></h2>
+<p>Current mechanisms — they share primitives but <strong>not one transport</strong>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Event</p></th>
+<th class="head"><p>Producer</p></th>
+<th class="head"><p>Durable?</p></th>
+<th class="head"><p>Reaches idle server?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Peer mail</p></td>
+<td><p>other process → <code class="docutils literal notranslate"><span class="pre">prompt_queue.py</span></code> (<code class="docutils literal notranslate"><span class="pre">prompt-queue.jsonl</span></code>, flock)</p></td>
+<td><p>yes</p></td>
+<td><p><strong>yes, by polling</strong>: <code class="docutils literal notranslate"><span class="pre">_run_peer_wake_check</span></code> every <code class="docutils literal notranslate"><span class="pre">_PEER_WAKE_INTERVAL</span> <span class="pre">=</span> <span class="pre">2.0</span></code> s → <code class="docutils literal notranslate"><span class="pre">request_peer_wake</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Watch event</p></td>
+<td><p>in-process queue</p></td>
+<td><p>no (re-queued on failed wake)</p></td>
+<td><p>yes, <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code>; retried at step end by <code class="docutils literal notranslate"><span class="pre">retry_deferred_watch_wakes</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Subagent completion</p></td>
+<td><p>in-process queue + <code class="docutils literal notranslate"><span class="pre">notification_ready.signal</span></code></p></td>
+<td><p>no</p></td>
+<td><p>yes, via <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> (<code class="docutils literal notranslate"><span class="pre">subagent/hooks.py:348</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Shell background job completion</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">shell_background._completion_queue</span></code> + condition</p></td>
+<td><p>no</p></td>
+<td><p><strong>no idle wake found</strong> (below)</p></td>
+</tr>
+<tr class="row-even"><td><p>Progress</p></td>
+<td><p>in-process queue, drained into the next wake</p></td>
+<td><p>no</p></td>
+<td><p>rides along; never wakes by itself</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Audit finding — shell-background completion has no idle wake.</strong> <code class="docutils literal notranslate"><span class="pre">_notify_completion</span></code>
+(<code class="docutils literal notranslate"><span class="pre">tools/shell_background.py:1585</span></code>) enqueues to <code class="docutils literal notranslate"><span class="pre">_completion_queue</span></code> and notifies a
+condition; it neither calls <code class="docutils literal notranslate"><span class="pre">notification_ready.signal</span></code> nor <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">shell_background.py</span></code> references no <code class="docutils literal notranslate"><span class="pre">SessionManager</span></code>. <code class="docutils literal notranslate"><span class="pre">retry_deferred_watch_wakes</span></code>
+drains only watch events and subagent completions. So an idle server conversation is not
+woken by a finished <code class="docutils literal notranslate"><span class="pre">run_in_background</span></code> job; the result is picked up by the
+LOOP_CONTINUE hook only when some other event starts a step (and
+<code class="docutils literal notranslate"><span class="pre">background_job_wait_hook</span></code> subscribes to <code class="docutils literal notranslate"><span class="pre">notification_ready</span></code> for <em>child</em> wakeups, not
+for job exit). This is a parity gap versus subagent completion, independent of worker
+processes, and is the cheapest concrete consolidation: make job completion call the
+same <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> path (event-specific message, same busy/autowake policy).
+I audited the code, I did not reproduce it against a live server; treat as “verify
+before fixing”.</p>
+<p>Shared already: <code class="docutils literal notranslate"><span class="pre">_conversation_busy</span></code> and <code class="docutils literal notranslate"><span class="pre">_dispatch_reserved_step</span></code> (admission +
+dispatch) are used by both the watch and peer paths, and <code class="docutils literal notranslate"><span class="pre">use_acp</span></code> conversations
+explicitly defer both (so a wake never answers a conversation whose input cursor a
+different runtime owns). <code class="docutils literal notranslate"><span class="pre">session.interrupted</span></code> suppresses peer wakes (a user-stopped
+conversation is not restarted); <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> does not check it, which I did
+not investigate further.</p>
+<section id="proposed-conversation-addressed-inbox-design-only">
+<h3>5.1 Proposed conversation-addressed inbox (design only)<a class="headerlink" href="#proposed-conversation-addressed-inbox-design-only" title="Link to this heading">#</a></h3>
+<p>Split <strong>enqueue</strong> from <strong>doorbell</strong> from <strong>admission</strong>:</p>
+<ol class="arabic simple">
+<li><p><strong>Enqueue (durable, any process).</strong> Append a record to the conversation’s inbox
+(generalize <code class="docutils literal notranslate"><span class="pre">prompt-queue.jsonl</span></code>) with <code class="docutils literal notranslate"><span class="pre">event_id</span></code> (ULID/UUID), <code class="docutils literal notranslate"><span class="pre">kind</span></code>
+(<code class="docutils literal notranslate"><span class="pre">peer|watch|child_done|job_done|progress</span></code>), <code class="docutils literal notranslate"><span class="pre">branch</span></code>, <code class="docutils literal notranslate"><span class="pre">sender</span></code>, <code class="docutils literal notranslate"><span class="pre">created_at</span></code>, body.
+Event-specific semantics stay in <code class="docutils literal notranslate"><span class="pre">kind</span></code>: progress is non-waking, completion and
+peer mail may wake. Enqueue is idempotent by <code class="docutils literal notranslate"><span class="pre">event_id</span></code>.</p></li>
+<li><p><strong>Doorbell (optional, lossy).</strong> A payload-free signal — in-process
+<code class="docutils literal notranslate"><span class="pre">notification_ready.signal(logdir)</span></code> today; across processes a unix-domain socket /
+named pipe or the worker’s <code class="docutils literal notranslate"><span class="pre">{&quot;t&quot;:&quot;event_ready&quot;}</span></code> line. Losing it is harmless: the
+2 s poll (kept as the fallback) finds the record. No callbacks are shared across
+processes.</p></li>
+<li><p><strong>Admission (single owner: the host that owns the lease).</strong> Reserve a step iff the
+conversation is idle (<code class="docutils literal notranslate"><span class="pre">_conversation_busy</span></code> equivalent), not user-interrupted, not
+ACP-owned, <code class="docutils literal notranslate"><span class="pre">watch_autowake</span></code> not disabled; otherwise leave the record queued for
+STEP_PRE drain or the next idle poll. Backpressure: bounded inbox length/bytes per
+conversation with explicit drop-oldest-<code class="docutils literal notranslate"><span class="pre">progress</span></code> / reject-with-error for peer mail;
+reply-loop prevention by a <code class="docutils literal notranslate"><span class="pre">hops</span></code>/<code class="docutils literal notranslate"><span class="pre">in_reply_to</span></code> chain limit on peer messages.</p></li>
+<li><p><strong>Delivery and ack.</strong> The step that persists the event into the log writes
+<code class="docutils literal notranslate"><span class="pre">event_id</span></code> into the message metadata <em>in the same append</em>, then marks the inbox
+record acked. Crash between append and ack → on restart the record is redelivered but
+deduplicated against log metadata. This is <strong>at-least-once with idempotent
+persistence, not exactly-once execution</strong>; the model may still observe a retried
+<em>wake</em> once. Draft preservation: a wake never consumes or edits an in-progress user
+draft; it only appends system messages before the next step.</p></li>
+<li><p><strong>Branch routing.</strong> <code class="docutils literal notranslate"><span class="pre">branch</span></code> is carried on the record; admission remains
+conversation-wide (§2), so two branches’ events are serialized, not run in parallel.</p></li>
+</ol>
+<p>The existing code already does steps 1, 3 (partially) and 4 (persist-then-drain with a
+documented “True even if dispatch failed” rule to avoid duplicate replay). What is
+missing is the <code class="docutils literal notranslate"><span class="pre">event_id</span></code> ack/dedup, the unified <code class="docutils literal notranslate"><span class="pre">kind</span></code>, and job-completion
+participation.</p>
+</section>
+<section id="cross-harness-adapters-design-only-not-implemented-not-verified-live">
+<h3>5.2 Cross-harness adapters (design only; not implemented, not verified live)<a class="headerlink" href="#cross-harness-adapters-design-only-not-implemented-not-verified-live" title="Link to this heading">#</a></h3>
+<p>Advertise capabilities explicitly rather than a boolean <code class="docutils literal notranslate"><span class="pre">addressable</span></code>:</p>
+<p><code class="docutils literal notranslate"><span class="pre">observed</span></code> (we saw a PID/cwd) &lt; <code class="docutils literal notranslate"><span class="pre">addressable</span></code> (a stable handle owned by a managed
+runtime) &lt; <code class="docutils literal notranslate"><span class="pre">enqueueable</span></code> (durable inbox the owner reads) &lt; <code class="docutils literal notranslate"><span class="pre">boundary-deliverable</span></code>
+(owner drains at a safe point) &lt; <code class="docutils literal notranslate"><span class="pre">wakeable</span></code> (owner can start a turn while idle).</p>
+<p>A discovered PID is at most <code class="docutils literal notranslate"><span class="pre">observed</span></code>. For Claude Code, the supported owner-side
+surface is its hook system (e.g. <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> / <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code>):
+a hook that drains the durable inbox gives <code class="docutils literal notranslate"><span class="pre">boundary-deliverable</span></code> for <strong>any</strong> session,
+managed or not, with no transcript edits and no keystroke injection. <code class="docutils literal notranslate"><span class="pre">wakeable</span></code> requires
+the harness to be launched/owned by a runtime with a programmatic prompt API (headless
+<code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">-p</span> <span class="pre">--resume</span></code>, an SDK/app-server session, or a managed ACP session) — not an
+arbitrary interactive terminal. I did not verify Codex’s current app-server/resume
+surface in this pass; do not promise injection there until someone does. Peer discovery
+should keep reusing <code class="docutils literal notranslate"><span class="pre">hooks.workspace_agents.scan_agents</span></code> (extract the scanner/runtime
+parsers/<code class="docutils literal notranslate"><span class="pre">AgentInfo</span></code> into a dependency-light module with a cheap discovery path and
+optional git/staleness enrichment, as the issue comment proposes); managed workers
+should publish explicit conversation endpoints, with process scanning as the fallback
+for unmanaged runtimes.</p>
+</section>
+</section>
+<section id="what-plumbing-could-be-deleted">
+<h2>6. What plumbing could be deleted<a class="headerlink" href="#what-plumbing-could-be-deleted" title="Link to this heading">#</a></h2>
+<p>Honest answer: <strong>nothing yet.</strong> Deletion is only valid after worker mode is the sole
+server execution path; during any hybrid period both paths run and both need the
+plumbing.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Plumbing</p></th>
+<th class="head"><p>Fate if workers become the only server path</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">_inprocess_cwd_lock</span></code>, <code class="docutils literal notranslate"><span class="pre">_inprocess_cwd_tls</span></code>, <code class="docutils literal notranslate"><span class="pre">suspend_inprocess_session_cwd</span></code> (<code class="docutils literal notranslate"><span class="pre">tools/python.py</span></code>)</p></td>
+<td><p>deletable for the server (the in-process cell <em>is</em> the worker’s main thread; the cwd is native). Retained for CLI/TUI only if they still use a per-thread pin — they do not; CLI uses process cwd</p></td>
+</tr>
+<tr class="row-odd"><td><p>Per-context <code class="docutils literal notranslate"><span class="pre">set_workspace_cwd</span></code> / <code class="docutils literal notranslate"><span class="pre">get_workspace_cwd</span></code> for <strong>plugin filesystem behaviour</strong></p></td>
+<td><p>deletable inside the worker: <code class="docutils literal notranslate"><span class="pre">current_workspace()</span></code> collapses to <code class="docutils literal notranslate"><span class="pre">Path.cwd()</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">current_workspace()</span></code> / <code class="docutils literal notranslate"><span class="pre">resolve_in_workspace()</span></code> call sites</p></td>
+<td><p><strong>retain</strong> as the API (tools still call it, and it must keep working for CLI and host-resident code); they become trivial rather than load-bearing</p></td>
+</tr>
+<tr class="row-odd"><td><p>Kernel RPC <code class="docutils literal notranslate"><span class="pre">cwd</span></code> pass-through (<code class="docutils literal notranslate"><span class="pre">python_kernel.py:284</span></code>)</p></td>
+<td><p>retain while the kernel backend exists</p></td>
+</tr>
+<tr class="row-even"><td><p>Host-side: lease, process-group supervision, IPC framing, doorbell</p></td>
+<td><p><strong>new</strong> plumbing; the net deletion is smaller than the net addition</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Third-party plugins stop needing to virtualize the filesystem, which is the real
+payoff; the in-tree deletion is modest.</p>
+</section>
+<section id="recommendation">
+<h2>7. Recommendation<a class="headerlink" href="#recommendation" title="Link to this heading">#</a></h2>
+<p><strong>Stage it:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Now:</strong> land #5059 (decoupling + hostile-host-cwd regression coverage). Fix the
+shell-background idle-wake gap (§5) independently; it needs no worker.</p></li>
+<li><p><strong>Prototype in-tree behind an opt-in flag</strong> (e.g. <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_WORKERS=1</span></code>): lazy
+<code class="docutils literal notranslate"><span class="pre">spawn</span></code> worker per conversation, JSON-lines contract of §4, <code class="docutils literal notranslate"><span class="pre">LogManager</span></code> lock as the
+lease, process-group supervision, host-side admission unchanged. Start with the
+Python/shell tools and one non-trivial plugin.</p></li>
+<li><p><strong>Measure with the real worker</strong> (full <code class="docutils literal notranslate"><span class="pre">init_tools()</span></code>, real streamed turn, macOS and
+Windows) against capacity targets before deciding on a default or a warm pool. Only
+then consider a forkserver zygote on POSIX.</p></li>
+<li><p><strong>Do not</strong> make the kernel backend the default for #5060 (§3.4).</p></li>
+</ol>
+<p>Reject conditions to watch for: real-worker PSS well above ~60 MB at the intended
+active-conversation count, or tool state that depends on live host objects across the
+process boundary (MCP clients, browser threads, <code class="docutils literal notranslate"><span class="pre">watch</span></code> registrations all live in the
+host today and would have to be re-homed or proxied — see gaps).</p>
+</section>
+<section id="known-gaps-in-this-pass">
+<h2>8. Known gaps in this pass<a class="headerlink" href="#known-gaps-in-this-pass" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Prototype exec’s code strings; it does <strong>not</strong> run real gptme tools, an LLM turn, or a
+third-party plugin end to end. The <code class="docutils literal notranslate"><span class="pre">open</span></code>/<code class="docutils literal notranslate"><span class="pre">Path.exists</span></code>/<code class="docutils literal notranslate"><span class="pre">subprocess</span></code>/native-<code class="docutils literal notranslate"><span class="pre">getcwd</span></code>
+isolation result is real, but “plugin unmodified” was demonstrated with a stand-in.</p></li>
+<li><p>Not demonstrated end to end: peer arrival and child/job completion during busy/idle
+states, and interrupted-session non-wake. §5 is an audit of existing code plus a
+design, not a demo.</p></li>
+<li><p>Host-resident state that does not obviously survive a process boundary and needs an
+owner decision: browser tool thread, MCP client connections, <code class="docutils literal notranslate"><span class="pre">watch</span></code> registrations,
+subagent execution (not audited in this pass whether children run as threads of the parent; that decides whether they stay inside the parent’s worker).</p></li>
+<li><p>macOS and Windows startup numbers, <code class="docutils literal notranslate"><span class="pre">spawn</span></code> semantics for the preload, and the
+Windows cancel path are unmeasured.</p></li>
+<li><p>No deployment capacity number was given, so no pass/fail thresholds are asserted.</p></li>
+</ul>
+</section>
+<section id="questions-for-maintainers">
+<h2>9. Questions for maintainers<a class="headerlink" href="#questions-for-maintainers" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p>Target number of concurrently <em>active</em> (not merely stored) conversations per server?
+This sets the PSS budget and whether a warm pool is ever warranted.</p></li>
+<li><p>Is a branch with a different runtime/workspace a supported or planned feature?</p></li>
+<li><p>Should subagents become workers of their own, or remain threads inside the parent’s
+worker?</p></li>
+</ol>
+</section>
+<section id="reproduce">
+<h2>10. Reproduce<a class="headerlink" href="#reproduce" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--all-packages<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>jupyter_client<span class="w"> </span>ipykernel<span class="w">   </span><span class="c1"># kernel probe only</span>
+python<span class="w"> </span>scripts/bench_conversation_workers.py<span class="w"> </span>all<span class="w"> </span>--preload<span class="w"> </span>gptme.chat,gptme.server.session_step
+<span class="c1"># individual: startup | ipc | scaling | isolation | lifecycle | kernel</span>
+python<span class="w"> </span>scripts/bench_conversation_workers.py<span class="w"> </span>scaling<span class="w"> </span>--max-workers<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--preload<span class="w"> </span>gptme.chat,gptme.server.session_step
+</pre></div>
+</div>
+<p>Each subcommand prints one JSON document including interpreter, platform and argv.
+Numbers above are a single run on one machine; p50/p99 are across the in-run samples.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="file-backed-output.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">File-backed tool and process output</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../philosophy.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Philosophy</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item"><div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#problem">1. Problem</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ownership-map-audited">2. Ownership map (audited)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#options-compared-measured">3. Options compared (measured)</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#startup-and-memory">3.1 Startup and memory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#warm-turn-and-ipc-overhead">3.2 Warm turn and IPC overhead</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#concurrency-scaling">3.3 Concurrency scaling</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-existing-kernel-backend-as-the-interim-default">3.4 The existing kernel backend as the interim default</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ipc-contract-prototyped">4. IPC contract (prototyped)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#wake-and-notification-boundary-audited">5. Wake and notification boundary (audited)</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#proposed-conversation-addressed-inbox-design-only">5.1 Proposed conversation-addressed inbox (design only)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-harness-adapters-design-only-not-implemented-not-verified-live">5.2 Cross-harness adapters (design only; not implemented, not verified live)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-plumbing-could-be-deleted">6. What plumbing could be deleted</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommendation">7. Recommendation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#known-gaps-in-this-pass">8. Known gaps in this pass</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#questions-for-maintainers">9. Questions for maintainers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reproduce">10. Reproduce</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
