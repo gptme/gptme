@@ -47,10 +47,11 @@ def _audio_player_thread_fn() -> None:
     """Background thread for playing audio using system commands (preferred) or sounddevice (fallback)."""
     log.debug("Audio player thread started")
     while True:
+        # Every successful get must be paired with task_done, including errors
+        # and the shutdown sentinel, so blocking callers can finish joining.
+        log.debug("Waiting for audio data...")
+        item = audio_queue.get()
         try:
-            # Get audio data from queue
-            log.debug("Waiting for audio data...")
-            item = audio_queue.get()
             if item is None:  # Sentinel value to stop thread
                 log.debug("Received stop signal")
                 break
@@ -109,11 +110,10 @@ def _audio_player_thread_fn() -> None:
                 except Exception as e:
                     log.error(f"sounddevice playback error: {e}")
 
-            audio_queue.task_done()
         except Exception as e:
             log.error(f"Error in audio playback thread: {e}")
-            if not audio_queue.empty():
-                audio_queue.task_done()
+        finally:
+            audio_queue.task_done()
 
 
 def ensure_playback_thread():
