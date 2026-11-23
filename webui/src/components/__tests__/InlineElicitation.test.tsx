@@ -49,6 +49,34 @@ describe('InlineElicitation', () => {
     expect(onRespond).toHaveBeenCalledWith({ action: 'accept', value: 'beta' });
   });
 
+  it('routes number keys only to the active pane with two pending questions', async () => {
+    let active = 'left';
+    const left = jest.fn().mockResolvedValue(undefined);
+    const right = jest.fn().mockResolvedValue(undefined);
+    const question = { id: 'split', type: 'choice', prompt: 'Pick', options: ['a', 'b'] };
+    render(
+      <>
+        <InlineElicitation
+          pendingElicitation$={observable<PendingElicitation | null>(question)}
+          onRespond={left}
+          isActivePane={() => active === 'left'}
+        />
+        <InlineElicitation
+          pendingElicitation$={observable<PendingElicitation | null>(question)}
+          onRespond={right}
+          isActivePane={() => active === 'right'}
+        />
+      </>
+    );
+    fireEvent.keyDown(document.body, { key: '2' });
+    await waitFor(() => expect(left).toHaveBeenCalledWith({ action: 'accept', value: 'b' }));
+    expect(right).not.toHaveBeenCalled();
+    active = 'right';
+    fireEvent.keyDown(document.body, { key: '1' });
+    await waitFor(() => expect(right).toHaveBeenCalledWith({ action: 'accept', value: 'a' }));
+    expect(left).toHaveBeenCalledTimes(1);
+  });
+
   it('answers multi_choice with all checked options', () => {
     const { onRespond } = renderElicit({
       id: 'e2',

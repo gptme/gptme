@@ -70,13 +70,18 @@ export function buildFormAnswer(
 interface InlineElicitationProps {
   pendingElicitation$: Observable<PendingElicitation | null>;
   onRespond: (response: ElicitationResponse) => Promise<void>;
+  isActivePane?: () => boolean;
 }
 
 /**
  * Renders a pending `elicit_pending` request (text, choice, multi_choice,
  * secret, confirmation or form) and sends the answer back to the server.
  */
-export function InlineElicitation({ pendingElicitation$, onRespond }: InlineElicitationProps) {
+export function InlineElicitation({
+  pendingElicitation$,
+  onRespond,
+  isActivePane,
+}: InlineElicitationProps) {
   const pending = use$(pendingElicitation$);
   const [text, setText] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
@@ -102,6 +107,7 @@ export function InlineElicitation({ pendingElicitation$, onRespond }: InlineElic
   useEffect(() => {
     if (choiceOptions.length === 0 || submitting) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isActivePane && !isActivePane()) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -113,7 +119,7 @@ export function InlineElicitation({ pendingElicitation$, onRespond }: InlineElic
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingId, choiceKey, submitting]);
+  }, [pendingId, choiceKey, submitting, isActivePane]);
 
   if (!pending) return null;
 

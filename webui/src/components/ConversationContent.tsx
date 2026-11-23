@@ -1181,6 +1181,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         <InlineElicitation
           pendingElicitation$={conversation$?.pendingElicitation}
           onRespond={respondToElicitation}
+          isActivePane={isActivePane}
         />
 
         {/* Inline Tool Execution */}
