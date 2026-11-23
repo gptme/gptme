@@ -21,7 +21,8 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
-  # Detect which paths changed to skip expensive jobs on docs/config-only PRs
+  # Detect which paths changed to skip expensive jobs on config-only PRs
+  # (docs-only PRs still run the no-API tests; API tests stay code-gated)
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
@@ -29,7 +30,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      # Core Python code changed (any gptme source, tests, or deps)
+      # Core Python code changed (any gptme source, tests, deps, or docs read by tests)
       code: ${{ steps.filter.outputs.code }}
       # LLM/API-related code changed (llm, acp, tools, agent, tests)
       api-related: ${{ steps.filter.outputs.api-related }}
@@ -47,6 +48,11 @@ jobs:
             - 'pyproject.toml'
             - 'Makefile'
             - '.github/workflows/test.yml'
+            # Tests read real repo docs (docs/lessons/, tool-formats.rst,
+            # hooks.rst, plugins.rst, models/providers pages, README.md), so a
+            # docs-only change can break them (gptme/gptme#4997 did).
+            - 'docs/**'
+            - 'README.md'
           api-related:
             - 'gptme/llm/**'
             - 'gptme/acp/**'
