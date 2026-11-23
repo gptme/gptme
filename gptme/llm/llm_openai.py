@@ -59,7 +59,12 @@ from .openai_responses import (
     served_model_from,
 )
 from .provider_plugins import is_plugin_provider
-from .request_limits import bounded_attempts, bounded_client, reserve_request
+from .request_limits import (
+    bounded_attempts,
+    bounded_client,
+    reserve_request,
+    strict_request_bounds_active,
+)
 from .responses_phase import ResponsesPhaseCapture, replay_responses_output
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
@@ -1395,9 +1400,14 @@ def chat(
                 **optional_kwargs,
             )
 
-    _start_relaxed = _uses_openrouter_backend(
-        provider, model_meta
-    ) and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
+    # Strict request bounds reject relaxed routing, so the memo must not apply
+    # to them: a bounded selector call may still succeed strict even when a
+    # larger tool call recently needed relaxed routing.
+    _start_relaxed = (
+        _uses_openrouter_backend(provider, model_meta)
+        and not strict_request_bounds_active()
+        and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
+    )
     try:
         raw_response = _chat_create(relaxed_privacy=_start_relaxed)
     except Exception as _e:
@@ -1639,7 +1649,11 @@ def _openrouter_relaxed_remembered(key: str) -> bool:
 
 
 def _remember_openrouter_relaxed(key: str) -> None:
-    _openrouter_relaxed_until[key] = time.monotonic() + _OPENROUTER_RELAXED_TTL_S
+    now = time.monotonic()
+    # Drop expired entries so one-off model ids cannot accumulate forever.
+    for stale in [k for k, until in _openrouter_relaxed_until.items() if now >= until]:
+        del _openrouter_relaxed_until[stale]
+    _openrouter_relaxed_until[key] = now + _OPENROUTER_RELAXED_TTL_S
 
 
 def _is_openrouter_no_endpoints_error(e: Exception) -> bool:

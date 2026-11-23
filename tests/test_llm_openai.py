@@ -3298,6 +3298,78 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert "require_parameters" not in calls[2]["provider"]
         assert calls[2]["provider"]["data_collection"] == "deny"
 
+    def test_stream_remembers_relaxed_routing_for_next_request(self, monkeypatch):
+        """After one no-endpoints 404, the next stream() goes straight to relaxed."""
+        from gptme.message import Message
+
+        err = self._chat_error()
+        calls = []
+
+        class _FakeStream:
+            response = SimpleNamespace(headers={})
+
+            def __iter__(self):
+                yield SimpleNamespace(
+                    usage=None,
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(
+                                reasoning_content=None,
+                                reasoning=None,
+                                content="Hello",
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                )
+
+        def _create(**kwargs):
+            calls.append(kwargs.get("extra_body", {}))
+            if len(calls) == 1:
+                raise err
+            return _FakeStream()
+
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(
+            llm_openai, "_should_use_responses_api", lambda *args: False
+        )
+
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        "".join(llm_openai.stream([Message(role="user", content="Hi")], model, None))
+        "".join(llm_openai.stream([Message(role="user", content="Again")], model, None))
+
+        # strict (404), relaxed (ok), then relaxed directly: no second strict attempt
+        assert len(calls) == 3
+        assert calls[0]["provider"]["require_parameters"] is True
+        assert "require_parameters" not in calls[2]["provider"]
+        assert calls[2]["provider"]["data_collection"] == "deny"
+
+    def test_bounded_request_ignores_relaxed_memo(self, monkeypatch):
+        """Strict request bounds must not start relaxed from the memo."""
+        completion = self._success_completion()
+        raw_ok = SimpleNamespace(parse=lambda: completion, headers={})
+        calls = []
+
+        def _create(**kwargs):
+            calls.append(kwargs.get("extra_body", {}))
+            return raw_ok
+
+        self._setup_openrouter_chat(monkeypatch, _create)
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        llm_openai._remember_openrouter_relaxed(model)
+        monkeypatch.setattr(llm_openai, "strict_request_bounds_active", lambda: True)
+
+        llm_openai.chat([Message(role="user", content="Hi")], model, None)
+
+        # The memo is ignored: the bounded call still tries strict routing first.
+        assert len(calls) == 1
+        assert calls[0]["provider"]["require_parameters"] is True
+
     def test_relaxed_routing_memo_expires(self, monkeypatch):
         """The memo is bounded: after the TTL, strict routing is tried again."""
         now = [1000.0]
@@ -3308,6 +3380,15 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert not llm_openai._openrouter_relaxed_remembered("other/model")
         now[0] += llm_openai._OPENROUTER_RELAXED_TTL_S
         assert not llm_openai._openrouter_relaxed_remembered(model)
+
+    def test_relaxed_routing_memo_prunes_expired_entries(self, monkeypatch):
+        """Expired entries are dropped when a new key is remembered."""
+        now = [1000.0]
+        monkeypatch.setattr(llm_openai.time, "monotonic", lambda: now[0])
+        llm_openai._remember_openrouter_relaxed("one/model")
+        now[0] += llm_openai._OPENROUTER_RELAXED_TTL_S
+        llm_openai._remember_openrouter_relaxed("two/model")
+        assert set(llm_openai._openrouter_relaxed_until) == {"two/model"}
 
 
 class TestOpenAIStreamMalformedChunk:
