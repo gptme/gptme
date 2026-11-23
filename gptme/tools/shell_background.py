@@ -1731,6 +1731,7 @@ def register_background_job(
 ) -> BackgroundJob:
     """Register an already-running command without starting an output reader."""
     conversation_id = _current_conversation_id()
+    branch = _current_branch(conversation_id)
     with _job_lock:
         job = BackgroundJob(
             id=_get_next_job_id_locked(conversation_id),
@@ -1742,7 +1743,7 @@ def register_background_job(
             _close_callback=close_callback,
             _output_callback=output_callback,
             log_dir=_current_log_dir(),
-            branch=_current_branch(conversation_id),
+            branch=branch,
         )
         if capture is not None:
             # Transfer the already-running capture, not its bytes or feeder.
@@ -1754,6 +1755,10 @@ def register_background_job(
                 capture._output_callback = (
                     None if capture._spool_from_reader else output_callback
                 )
+                # The capture replaces the constructed job, so it must carry
+                # the branch resolved above; a promoted foreground job would
+                # otherwise keep BackgroundJob's default "main".
+                capture.branch = branch
                 job = capture
         _jobs_for(conversation_id)[job.id] = job
     return job

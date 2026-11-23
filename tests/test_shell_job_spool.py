@@ -226,6 +226,33 @@ def test_registered_pipe_process_preserves_supplied_final_output(
         reset_background_jobs()
 
 
+def test_registered_capture_takes_the_registering_branch(tmp_path, monkeypatch) -> None:
+    """A promoted foreground capture carries the branch of its registration.
+
+    The capture replaces the constructed job, so it must not keep
+    ``BackgroundJob``'s default ``main`` branch (gptme/gptme#5105).
+    """
+    from gptme.hooks import current_conversation_id
+    from gptme.logmanager import LogManager
+
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
+    )
+    manager = Mock()
+    manager.chat_id = "conv-branch"
+    manager.current_branch = "feature-x"
+    monkeypatch.setattr(LogManager, "get_current_log", lambda: manager)
+    capture = BackgroundJob(0, "promoted", Mock(), 0, conversation_id="conv-branch")
+    token = current_conversation_id.set("conv-branch")
+    try:
+        job = register_background_job("promoted", Mock(), capture=capture)
+        assert job is capture
+        assert job.branch == "feature-x"
+    finally:
+        current_conversation_id.reset(token)
+        reset_background_jobs("conv-branch", all_conversations=False)
+
+
 def test_spool_open_failure_also_tolerates_cleanup_fsync_failure(
     tmp_path, monkeypatch
 ) -> None:
