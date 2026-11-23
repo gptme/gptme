@@ -154,7 +154,8 @@ def _run_child(tmp_path: Path, mutate: str = "") -> dict:
         (ws / "note.txt").write_text(f"note in {name}\n")
         (ws / "h.txt").write_text(f"hash {name}\nline2\n")
         git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
-        git += ["-c", f"core.hooksPath={os.devnull}"]  # no user/global hooks
+        # No user/global hooks or commit signing in the fixture repositories.
+        git += ["-c", f"core.hooksPath={os.devnull}", "-c", "commit.gpgsign=false"]
         subprocess.run([*git, "init", "-q"], cwd=ws, check=True)
         subprocess.run([*git, "add", "note.txt", "h.txt"], cwd=ws, check=True)
         subprocess.run(
