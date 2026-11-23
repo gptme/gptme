@@ -221,16 +221,33 @@ def paste_text() -> str | None:
                 return result.stdout
         elif platform.system() == "Windows":
             import ctypes
+            from ctypes import wintypes
 
-            CF_TEXT = 1
+            CF_UNICODETEXT = 13
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-            user32.OpenClipboard(0)
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            user32.OpenClipboard.argtypes = [wintypes.HWND]
+            user32.GetClipboardData.argtypes = [wintypes.UINT]
+            user32.GetClipboardData.restype = wintypes.HANDLE
+            kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalLock.restype = ctypes.c_void_p
+            kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+
+            if not user32.OpenClipboard(None):
+                return None
             try:
-                if user32.IsClipboardFormatAvailable(CF_TEXT):
-                    data = user32.GetClipboardData(CF_TEXT)
-                    text_data = ctypes.c_char_p(data)
-                    if text_data.value:
-                        return text_data.value.decode("utf-8", errors="replace")
+                if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+                    return None
+                handle = user32.GetClipboardData(CF_UNICODETEXT)
+                if not handle:
+                    return None
+                pointer = kernel32.GlobalLock(handle)
+                if not pointer:
+                    return None
+                try:
+                    return ctypes.wstring_at(pointer)
+                finally:
+                    kernel32.GlobalUnlock(handle)
             finally:
                 user32.CloseClipboard()
     except Exception:
