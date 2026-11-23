@@ -143,6 +143,30 @@ describe('buildFormAnswer', () => {
     expect(built).toEqual({ error: '"Age" must be a finite number' });
   });
 
+  it.each([true, 'yes', 'y', '1', 'TRUE', '  Yes  '])(
+    'honors the affirmative boolean default %p',
+    (value) => {
+      const { onRespond } = renderElicit({
+        id: 'defaults',
+        type: 'form',
+        prompt: 'Confirm',
+        fields: [{ name: 'ok', prompt: 'OK?', type: 'boolean', default: value }],
+      });
+      expect(screen.getByRole('checkbox')).toBeChecked();
+      fireEvent.click(screen.getByText('Submit'));
+      expect(onRespond).toHaveBeenCalledWith({ action: 'accept', value: '{"ok":true}' });
+    }
+  );
+
+  it.each([false, 'no', 'n', '0', 'FALSE', '  No  '])(
+    'honors the negative boolean default %p',
+    (value) => {
+      expect(
+        initialFormValues([{ name: 'ok', prompt: 'OK?', type: 'boolean', default: value }])
+      ).toEqual({ ok: false });
+    }
+  );
+
   it('seeds booleans from string defaults', () => {
     const values = initialFormValues([
       { name: 'a', prompt: 'a', type: 'boolean', default: 'yes' },

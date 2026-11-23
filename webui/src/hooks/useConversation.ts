@@ -1204,18 +1204,28 @@ export function useConversation(conversationId: string, serverId?: string) {
       console.warn('No pending elicitation to answer');
       return;
     }
+    // Keep the question mounted during the POST so failures preserve the user's
+    // input. Stream events invalidate this revision, including in split views.
+    const revision = conversation$?.elicitationRevision.peek();
+    const generationRevision = conversation$?.generationRevision.peek();
+    const isCurrent = () =>
+      conversation$?.elicitationRevision.peek() === revision &&
+      conversation$?.generationRevision.peek() === generationRevision &&
+      conversation$?.pendingElicitation.id.peek() === pending.id;
     // The server resumes the blocked agent step; mark generating so ChatInput
     // does not flush queued messages into the gap before the next event.
-    setPendingElicitation(conversationId, null);
     setGenerating(conversationId, true);
     try {
       await api.respondToElicitation(conversationId, pending.id, response);
+      if (isCurrent()) setPendingElicitation(conversationId, null);
     } catch (error) {
       console.error('[useConversation] Elicitation response failed:', error);
-      // Restore the question so the user can retry.
-      setPendingElicitation(conversationId, pending);
-      setGenerating(conversationId, false);
-      throw error;
+      if (isCurrent()) {
+        setGenerating(conversationId, false);
+        throw error;
+      }
+      // Another viewer answered, or the turn stopped/resumed. This stale
+      // failure must not resurrect the question or alter the current turn.
     }
   };
 
@@ -1309,6 +1319,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     conversation$?.generationPrompt.set(undefined);
     conversation$?.pendingGenerationPrompt.set(undefined);
     clearInitialStepState(conversationId);
+    setPendingElicitation(conversationId, null);
     setGenerating(conversationId, false);
 
     try {

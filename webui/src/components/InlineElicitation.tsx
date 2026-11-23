@@ -15,7 +15,10 @@ export function initialFormValues(fields: ElicitFormField[]): FormValues {
   const values: FormValues = {};
   for (const f of fields) {
     if (f.type === 'boolean') {
-      values[f.name] = f.default === true || f.default === 'yes' || f.default === 'true';
+      values[f.name] =
+        f.default === true ||
+        (typeof f.default === 'string' &&
+          ['yes', 'true', '1', 'y'].includes(f.default.trim().toLowerCase()));
     } else {
       values[f.name] = f.default == null ? '' : String(f.default);
     }

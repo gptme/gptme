@@ -89,6 +89,8 @@ export interface ConversationState {
   pendingTool: PendingTool | null;
   // Any pending elicitation (choice/form/text/... question from the agent)
   pendingElicitation: PendingElicitation | null;
+  // Invalidates in-flight answers when the stream replaces or clears a question.
+  elicitationRevision?: number;
   // Any executing tool
   executingTool: ExecutingTool | null;
   // Duration of the most recently completed tool (cleared when next tool starts)
@@ -283,7 +285,10 @@ export function setPendingTool(id: string, toolId: string | null, tooluse: ToolU
 }
 
 export function setPendingElicitation(id: string, elicitation: PendingElicitation | null) {
-  updateConversation(id, { pendingElicitation: elicitation });
+  updateConversation(id, {
+    pendingElicitation: elicitation,
+    elicitationRevision: (conversations$.get(id)?.elicitationRevision.peek() ?? 0) + 1,
+  });
 }
 
 export function setExecutingTool(
