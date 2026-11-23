@@ -30,7 +30,7 @@
     <img src="https://github.com/gptme/gptme/actions/workflows/docs.yml/badge.svg" alt="Docs Build Status" />
   </a>
   <a href="https://codecov.io/gh/gptme/gptme">
-    <img src="https://codecov.io/gh/gptme/gptme/graph/badge.svg?token=DYAYJ8EF41" alt="Codecov" />
+    <img src="https://codecov.io/gh/gptme/gptme/graph/badge.svg?token=DYAYJ8EF41&flag=no-api" alt="Codecov" />
   </a>
   <br>
   <a href="https://pypi.org/project/gptme/">
