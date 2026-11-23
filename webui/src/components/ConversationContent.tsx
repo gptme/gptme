@@ -15,6 +15,7 @@ import { buildStepRoles, type StepRole } from '@/utils/stepGrouping';
 import type { Message } from '@/types/conversation';
 
 import { InlineToolConfirmation } from './InlineToolConfirmation';
+import { InlineElicitation } from './InlineElicitation';
 import { MessageSearchBar } from './MessageSearchBar';
 import { InlineToolExecution, ToolCompletionBadge } from './InlineToolExecution';
 import { OpenConversationPathButton } from './OpenConversationPathButton';
@@ -49,6 +50,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     forkConversation,
     switchBranch,
     confirmTool,
+    respondToElicitation,
     interruptGeneration,
     isLoadingOlderMessages,
     loadOlderMessages,
@@ -1172,6 +1174,15 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             onEdit={handleEditTool}
             onSkip={handleSkipTool}
             onAuto={handleAutoConfirmTool}
+          />
+        )}
+
+        {/* Agent question (elicit tool): text, choice, form, ... */}
+        {!isReadOnly && (
+          <InlineElicitation
+            pendingElicitation$={conversation$?.pendingElicitation}
+            onRespond={respondToElicitation}
+            isActivePane={isActivePane}
           />
         )}
 

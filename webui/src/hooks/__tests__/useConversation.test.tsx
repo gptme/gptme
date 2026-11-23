@@ -1,8 +1,14 @@
 import { observable } from '@legendapp/state';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent, waitFor } from '@testing-library/react';
+import { InlineElicitation } from '@/components/InlineElicitation';
 import { useApi } from '@/contexts/ApiContext';
 import { getClientForServer } from '@/stores/serverClients';
-import { conversations$, initConversation, setConnectionStatus } from '@/stores/conversations';
+import {
+  conversations$,
+  initConversation,
+  setConnectionStatus,
+  type PendingElicitation,
+} from '@/stores/conversations';
 import { useConversation } from '../useConversation';
 import { ApiClientError } from '@/utils/api';
 import type { Message } from '@/types/conversation';
@@ -44,6 +50,7 @@ describe('useConversation', () => {
   const editMessageApi = jest.fn();
   const rerunTools = jest.fn().mockResolvedValue(undefined);
   const confirmToolApi = jest.fn().mockResolvedValue(undefined);
+  const respondToElicitationApi = jest.fn().mockResolvedValue(undefined);
   const closeEventStream = jest.fn();
   const getChatConfig = jest.fn().mockResolvedValue(null);
   let eventHandlers:
@@ -63,6 +70,7 @@ describe('useConversation', () => {
         onStepComplete?: () => void;
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
         onToolExecuting?: (id: string) => void;
+        onElicitPending?: (elicitation: PendingElicitation) => void;
         onInterrupted?: () => void;
         onToolComplete?: (id: string, duration: number, success: boolean) => void;
         onError?: (error: string) => void;
@@ -81,6 +89,7 @@ describe('useConversation', () => {
     editMessage: editMessageApi,
     rerunTools,
     confirmTool: confirmToolApi,
+    respondToElicitation: respondToElicitationApi,
     closeEventStream,
     getConversation: jest.fn(),
     reconcileLateUploadOrder: jest.fn().mockResolvedValue(undefined),
@@ -101,6 +110,7 @@ describe('useConversation', () => {
     editMessageApi.mockReset().mockResolvedValue({ log: [], branches: {} });
     rerunTools.mockReset().mockResolvedValue(undefined);
     confirmToolApi.mockReset().mockResolvedValue(undefined);
+    respondToElicitationApi.mockReset().mockResolvedValue(undefined);
     closeEventStream.mockClear();
     getChatConfig.mockReset().mockResolvedValue(null);
 
@@ -145,6 +155,130 @@ describe('useConversation', () => {
     act(() => eventHandlers!.onToolExecuting!('auto-tool'));
     expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
     expect(conversations$.get('chat-placeholder')!.executingTool.get()?.id).toBe('auto-tool');
+  });
+
+  it('holds an elicit request until answered, then sends the response', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const elicitation = { id: 'el-1', type: 'choice', prompt: 'Pick', options: ['a', 'b'] };
+    act(() => eventHandlers!.onElicitPending!(elicitation));
+    expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toEqual(elicitation);
+    await act(async () => {
+      await result.current.respondToElicitation({ action: 'accept', value: 'a' });
+    });
+    expect(respondToElicitationApi).toHaveBeenCalledWith('chat-placeholder', 'el-1', {
+      action: 'accept',
+      value: 'a',
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toBeNull();
+  });
+
+  it('restores the elicit request when the response fails', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const elicitation = { id: 'el-2', type: 'text', prompt: 'Name?' };
+    act(() => eventHandlers!.onElicitPending!(elicitation));
+    respondToElicitationApi.mockRejectedValueOnce(new Error('offline'));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => {
+      await expect(
+        result.current.respondToElicitation({ action: 'accept', value: 'x' })
+      ).rejects.toThrow('offline');
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toEqual(elicitation);
+  });
+
+  it.each(
+    ['new question', 'interrupt', 'local stop', 'generation', 'tool', 'error'].flatMap((event) =>
+      [false, true].map((succeeds) => ({ event, succeeds }))
+    )
+  )(
+    'does not overwrite $event when an older elicit response settles (success=$succeeds)',
+    async ({ event, succeeds }) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onElicitPending!({ id: 'old', type: 'text', prompt: 'Old?' }));
+      let reject!: (reason: Error) => void;
+      let resolve!: () => void;
+      respondToElicitationApi.mockImplementationOnce(
+        () =>
+          new Promise<void>((done, fail) => {
+            resolve = done;
+            reject = fail;
+          })
+      );
+      let response!: Promise<void>;
+      act(() => {
+        response = result.current.respondToElicitation({ action: 'accept', value: 'x' });
+      });
+      act(() => {
+        if (event === 'new question') {
+          eventHandlers!.onElicitPending!({ id: 'new', type: 'text', prompt: 'New?' });
+        } else if (event === 'interrupt') eventHandlers!.onInterrupted!();
+        else if (event === 'local stop') void result.current.interruptGeneration();
+        else if (event === 'generation') eventHandlers!.onMessageStart!();
+        else if (event === 'tool') eventHandlers!.onToolExecuting!('next-tool');
+        else eventHandlers!.onError!('stopped');
+      });
+      const state = conversations$.get('chat-placeholder')!.peek();
+      const expectedPending = state.pendingElicitation ? { ...state.pendingElicitation } : null;
+      const expectedGenerating = state.isGenerating;
+      await act(async () => {
+        if (succeeds) resolve();
+        else reject(new Error('late failure'));
+        await response.catch(() => {});
+      });
+      expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toEqual(
+        expectedPending
+      );
+      expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(expectedGenerating);
+    }
+  );
+
+  it.each(['text', 'multi_choice', 'form'])(
+    'preserves the entered %s answer when a send fails, then retries it',
+    async (type) => {
+      function Question() {
+        const { conversation$, respondToElicitation } = useConversation('chat-placeholder');
+        return (
+          <InlineElicitation
+            pendingElicitation$={conversation$.pendingElicitation}
+            onRespond={respondToElicitation}
+          />
+        );
+      }
+      render(<Question />);
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() =>
+        eventHandlers!.onElicitPending!({
+          id: 'retry',
+          type,
+          prompt: 'Details',
+          options: ['alpha', 'beta'],
+          fields: [{ name: 'name', prompt: 'Name', type: 'text' }],
+        })
+      );
+      if (type === 'multi_choice') fireEvent.click(screen.getByLabelText('beta'));
+      else fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Bob' } });
+      respondToElicitationApi.mockRejectedValueOnce(new Error('offline'));
+      fireEvent.click(screen.getByText('Submit'));
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Try again'));
+      if (type === 'multi_choice')
+        expect((screen.getByLabelText('beta') as HTMLInputElement).checked).toBe(true);
+      else expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Bob');
+      fireEvent.click(screen.getByText('Submit'));
+      await waitFor(() => expect(respondToElicitationApi).toHaveBeenCalledTimes(2));
+      expect(respondToElicitationApi.mock.calls[1]).toEqual(respondToElicitationApi.mock.calls[0]);
+      await waitFor(() => expect(screen.queryByTestId('inline-elicitation')).toBeNull());
+    }
+  );
+
+  it('clears a pending elicit request on interrupt', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onElicitPending!({ id: 'el-3', type: 'text', prompt: 'Q' }));
+    act(() => eventHandlers!.onInterrupted!());
+    expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toBeNull();
   });
 
   it('clears stale pending approval when reconnect reports no pending tools', async () => {

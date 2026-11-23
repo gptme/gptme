@@ -15,6 +15,7 @@ import type {
   UserInfo,
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
+import type { PendingElicitation } from '@/stores/conversations';
 import { getApiBaseUrl } from '@/utils/connectionConfig';
 import { isLocalUrl, withLocalAddressSpace } from '@/utils/addressSpace';
 import { type Observable } from '@legendapp/state';
@@ -397,6 +398,25 @@ export interface ToolPendingEvent {
   tool_id: string;
   tooluse: ToolUse;
   auto_confirm: boolean;
+}
+
+export interface ElicitPendingEvent {
+  type: 'elicit_pending';
+  elicit_id: string;
+  elicit_type: string;
+  prompt: string;
+  options?: string[];
+  fields?: PendingElicitation['fields'];
+  default?: string | boolean | number;
+  description?: string;
+}
+
+export interface ElicitationResponse {
+  action: 'accept' | 'decline' | 'cancel';
+  /** Text/choice/secret/confirmation ("yes"/"no") value, or JSON for forms. */
+  value?: string;
+  /** Selected options for ``multi_choice``. */
+  values?: string[];
 }
 
 export interface ToolCompleteEvent {
@@ -1088,6 +1108,7 @@ export class ApiClient {
       onToolExecuting: (toolId: string) => void;
       onToolOutput?: (toolId: string, output: string) => void;
       onToolComplete?: (toolId: string, durationMs: number, success: boolean) => void;
+      onElicitPending?: (elicitation: PendingElicitation) => void;
       onInterrupted: () => void;
       onError: (error: string) => void;
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
@@ -1357,6 +1378,20 @@ export class ApiClient {
               toolCompleteEvent.duration_ms,
               toolCompleteEvent.success
             );
+            break;
+          }
+
+          case 'elicit_pending': {
+            const elicitEvent = data as ElicitPendingEvent;
+            callbacks.onElicitPending?.({
+              id: elicitEvent.elicit_id,
+              type: elicitEvent.elicit_type,
+              prompt: elicitEvent.prompt,
+              options: elicitEvent.options,
+              fields: elicitEvent.fields,
+              default: elicitEvent.default,
+              description: elicitEvent.description,
+            });
             break;
           }
 
@@ -2298,6 +2333,30 @@ export class ApiClient {
       }
       throw error;
     }
+  }
+
+  /** Answer a pending ``elicit_pending`` request (docs: POST .../elicit/respond). */
+  async respondToElicitation(
+    logfile: string,
+    elicitId: string,
+    response: ElicitationResponse
+  ): Promise<void> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    await this.fetchJson<{ status: string }>(
+      `${this.baseUrl}/api/v2/conversations/${logfile}/elicit/respond`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          elicit_id: elicitId,
+          action: response.action,
+          value: response.value,
+          values: response.values,
+        }),
+        signal: this.controller?.signal,
+      }
+    );
   }
 
   async confirmTool(

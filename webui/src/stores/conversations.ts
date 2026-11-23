@@ -8,6 +8,26 @@ export interface PendingTool {
   tooluse: ToolUse;
 }
 
+/** A structured-input request from the agent (``elicit_pending`` SSE event). */
+export interface PendingElicitation {
+  id: string;
+  type: string;
+  prompt: string;
+  options?: string[];
+  fields?: ElicitFormField[];
+  default?: string | boolean | number;
+  description?: string;
+}
+
+export interface ElicitFormField {
+  name: string;
+  prompt: string;
+  type: string;
+  options?: string[] | null;
+  required?: boolean;
+  default?: string | boolean | number | null;
+}
+
 export interface ExecutingTool {
   id: string;
   tooluse: ToolUse;
@@ -67,6 +87,10 @@ export interface ConversationState {
   loadError: string | null;
   // Any pending tool
   pendingTool: PendingTool | null;
+  // Any pending elicitation (choice/form/text/... question from the agent)
+  pendingElicitation: PendingElicitation | null;
+  // Invalidates in-flight answers when the stream replaces or clears a question.
+  elicitationRevision?: number;
   // Any executing tool
   executingTool: ExecutingTool | null;
   // Duration of the most recently completed tool (cleared when next tool starts)
@@ -147,6 +171,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       reconnectRetryStartedAt: null,
       loadError: null,
       pendingTool: null,
+      pendingElicitation: null,
       executingTool: null,
       lastCompletedTool: null,
       showInitialSystem: false,
@@ -259,6 +284,13 @@ export function setPendingTool(id: string, toolId: string | null, tooluse: ToolU
   });
 }
 
+export function setPendingElicitation(id: string, elicitation: PendingElicitation | null) {
+  updateConversation(id, {
+    pendingElicitation: elicitation,
+    elicitationRevision: (conversations$.get(id)?.elicitationRevision.peek() ?? 0) + 1,
+  });
+}
+
 export function setExecutingTool(
   id: string,
   toolId: string | null,
@@ -326,6 +358,7 @@ export function initConversation(
     reconnectRetryStartedAt: null,
     loadError: null,
     pendingTool: null,
+    pendingElicitation: null,
     executingTool: null,
     lastCompletedTool: null,
     showInitialSystem: false,

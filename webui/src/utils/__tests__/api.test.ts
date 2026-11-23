@@ -1258,6 +1258,34 @@ describe('ApiClient event stream reconnection', () => {
     expect(sessions).toEqual(['old', 'new']);
   });
 
+  it('maps elicit_pending events and posts elicitation answers', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok' }),
+    }) as unknown as typeof fetch;
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const onElicitPending = jest.fn();
+    await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onElicitPending });
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 's1' });
+    MockEventSource.instances[0].emitMessage({
+      type: 'elicit_pending',
+      elicit_id: 'el-1',
+      elicit_type: 'choice',
+      prompt: 'Pick',
+      options: ['a', 'b'],
+    });
+    expect(onElicitPending).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'el-1', type: 'choice', prompt: 'Pick', options: ['a', 'b'] })
+    );
+
+    await client.respondToElicitation('conv-1', 'el-1', { action: 'accept', value: 'a' });
+    const [url, init] = (global.fetch as jest.Mock).mock.calls.at(-1)!;
+    expect(url).toBe('http://127.0.0.1:5700/api/v2/conversations/conv-1/elicit/respond');
+    expect(JSON.parse(init.body)).toEqual({ elicit_id: 'el-1', action: 'accept', value: 'a' });
+  });
+
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();
