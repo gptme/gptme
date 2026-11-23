@@ -6,9 +6,11 @@ with support for different field types: text, select, boolean, and number.
 """
 
 import json
+import math
 import re
 from collections.abc import Generator
 
+from ..hooks.elicitation import ElicitationRequest, FormField, elicit
 from ..message import Message
 from .base import (
     Parameter,
@@ -153,6 +155,87 @@ def parse_form_content(content: str) -> list[dict]:
     return fields
 
 
+def _to_form_field(field: dict) -> FormField:
+    """Convert a parsed field spec into an elicitation ``FormField``."""
+    field_type = field["type"]
+    if field_type == "select":
+        return FormField(
+            name=field["name"],
+            prompt=field["prompt"],
+            type="choice",
+            options=field["options"],
+        )
+    if field_type == "boolean":
+        # Unanswered booleans default to "no", never an implicit approval. The
+        # field is optional so an interface that omits it is not an error; the
+        # default is filled in before validation.
+        return FormField(
+            name=field["name"],
+            prompt=field["prompt"],
+            type="boolean",
+            required=False,
+            default=False,
+        )
+    if field_type == "number":
+        return FormField(name=field["name"], prompt=field["prompt"], type="number")
+    # Text fields may be left empty
+    return FormField(
+        name=field["name"], prompt=field["prompt"], type="text", required=False
+    )
+
+
+def _field_type_error(value: object, field: FormField) -> str | None:
+    """Return an error description if ``value`` does not fit ``field``'s type."""
+    if field.type == "number":
+        # bool is a subclass of int, but a boolean is not a number here.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return f"must be a number, got {type(value).__name__}"
+        if isinstance(value, float) and not math.isfinite(value):
+            return "must be a finite number"
+    elif field.type == "boolean":
+        if not isinstance(value, bool):
+            return f"must be a boolean, got {type(value).__name__}"
+    elif field.type == "choice":
+        if not isinstance(value, str):
+            return f"must be a string, got {type(value).__name__}"
+        if field.options and value not in field.options:
+            return f"must be one of {field.options}"
+    elif not isinstance(value, str):
+        return f"must be a string, got {type(value).__name__}"
+    return None
+
+
+def _validate_form_results(
+    results: dict[str, object], fields: list[FormField]
+) -> str | None:
+    """Check a client-supplied form answer against the requested fields.
+
+    An interface answers with its own JSON, so nothing guarantees it honoured the
+    field names or types. Reporting an unchecked payload as "Form submitted"
+    would hand the model values it never asked for (``{}`` skipping a required
+    field, ``"false"`` as a boolean, ``"abc"`` as a number). Keys outside the
+    requested fields are rejected too: the answer becomes model-visible tool
+    output, so an unchecked extra key is a prompt-injection boundary.
+
+    Returns a human-readable error, or ``None`` when the answer is complete.
+    """
+    declared = {field.name for field in fields}
+    if set(results) - declared:
+        # The keys are client-controlled, so the message must not echo them: the
+        # error becomes model-visible tool output and would leak injected text.
+        return "unexpected field(s) in response"
+    for field in fields:
+        value = results.get(field.name)
+        if value is None:
+            if field.required:
+                return f"missing required field '{field.name}'"
+            continue
+        error = _field_type_error(value, field)
+        if error:
+            return f"field '{field.name}' {error}"
+    return None
+
+
 def execute_form(
     code: str | None,
     args: list[str] | None,
@@ -170,67 +253,49 @@ def execute_form(
         yield Message("system", "No valid fields found in form definition")
         return
 
-    # Import questionary here to handle import errors gracefully
+    # Ask through the elicitation hooks so every surface (CLI, TUI, server/web UI)
+    # renders the form in its own UI instead of the tool prompting the terminal.
+    request = ElicitationRequest(
+        type="form",
+        prompt="",
+        fields=[_to_form_field(field) for field in fields],
+    )
     try:
-        import questionary
-    except ImportError:
-        from ..util.install import get_package_install_command
-
-        install_cmd = get_package_install_command("questionary")
-        yield Message(
-            "system",
-            f"questionary library not available. Please install it with: {install_cmd}",
-        )
-        return
-
-    results: dict = {}
-
-    try:
-        for field in fields:
-            name = field["name"]
-            prompt = field["prompt"]
-            field_type = field["type"]
-
-            if field_type == "select":
-                value = questionary.select(
-                    prompt,
-                    choices=field["options"],
-                    use_shortcuts=True,
-                ).ask()
-            elif field_type == "boolean":
-                value = questionary.confirm(prompt, default=False).ask()
-            elif field_type == "number":
-                while True:
-                    value_str = questionary.text(prompt).ask()
-                    if value_str is None:
-                        value = None
-                        break
-                    try:
-                        # Try int first, then float
-                        if "." in value_str:
-                            value = float(value_str)
-                        else:
-                            value = int(value_str)
-                        break
-                    except ValueError:
-                        questionary.print("Please enter a valid number")
-            else:  # text
-                value = questionary.text(prompt).ask()
-
-            if value is None:
-                yield Message("system", "Form cancelled")
-                return
-
-            results[name] = value
-
-        # Format results as JSON
-        results_json = json.dumps(results, indent=2)
-        yield Message("system", f"Form submitted:\n```json\n{results_json}\n```")
-
+        response = elicit(request)
     except (KeyboardInterrupt, EOFError):
         yield Message("system", "Form cancelled")
+        return
     except Exception as e:
         yield Message("system", f"Error during form input: {e}")
+        return
+
+    if response.cancelled or response.value is None:
+        yield Message("system", "Form cancelled")
+        return
+
+    try:
+        results = json.loads(response.value)
+    except (json.JSONDecodeError, TypeError, RecursionError):
+        yield Message("system", "Error during form input: invalid form response")
+        return
+    if not isinstance(results, dict):
+        yield Message("system", "Error during form input: invalid form response")
+        return
+
+    # An unanswered field with a declared default takes that default, so an
+    # omitted or null boolean reaches the model as its documented "no" instead
+    # of a missing-field error or an indeterminate value.
+    for field in request.fields or []:
+        if results.get(field.name) is None and field.default is not None:
+            results[field.name] = field.default
+
+    validation_error = _validate_form_results(results, request.fields or [])
+    if validation_error:
+        yield Message("system", f"Error during form input: {validation_error}")
+        return
+
+    results_json = json.dumps(results, indent=2)
+    yield Message("system", f"Form submitted:\n```json\n{results_json}\n```")
 
 
 tool_form = ToolSpec(
