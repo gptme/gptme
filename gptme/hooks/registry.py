@@ -22,6 +22,7 @@ from ..message import Message
 from .confirm import ToolConfirmHook
 from .elicitation import ElicitationHook
 from .types import (
+    UNFIRED_HOOK_TYPES,
     CacheInvalidatedHook,
     CwdChangedHook,
     FilePostSaveHook,
@@ -132,6 +133,14 @@ class HookRegistry:
             enabled: Whether the hook is enabled (default True)
             async_mode: If True, run in background thread without blocking (default False)
         """
+        if reason := UNFIRED_HOOK_TYPES.get(hook_type):
+            logger.warning(
+                "Hook '%s' registered for %s, which gptme never triggers "
+                "(%s); it will not run.",
+                name,
+                hook_type.value,
+                reason,
+            )
         with self._lock:
             if hook_type not in self.hooks:
                 self.hooks[hook_type] = []
@@ -505,7 +514,7 @@ def register_hook(
 @overload
 def register_hook(
     name: str,
-    hook_type: Literal[HookType.FILE_SAVE_PRE],
+    hook_type: Literal[HookType.FILE_SAVE_PRE, HookType.FILE_PATCH_PRE],
     func: FilePreSaveHook,
     priority: int = 0,
     enabled: bool = True,
@@ -516,7 +525,7 @@ def register_hook(
 @overload
 def register_hook(
     name: str,
-    hook_type: Literal[HookType.FILE_SAVE_POST],
+    hook_type: Literal[HookType.FILE_SAVE_POST, HookType.FILE_PATCH_POST],
     func: FilePostSaveHook,
     priority: int = 0,
     enabled: bool = True,
@@ -574,7 +583,6 @@ def register_hook(
     hook_type: Literal[
         HookType.STEP_PRE,
         HookType.TURN_POST,
-        HookType.MESSAGE_TRANSFORM,
     ],
     func: MessageProcessHook,
     priority: int = 0,

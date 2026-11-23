@@ -18,9 +18,9 @@ Turn And Step Lifecycle Hooks
 
 - ``TURN_PRE``: Once per submitted user prompt, before the turn starts
 - ``STEP_PRE``: Before each generation/tool-execution step within a turn
-- ``STEP_POST``: After each step completes
+- ``STEP_POST``: *Not fired yet* (see :ref:`unfired-hook-types`)
 - ``TURN_POST``: After the whole turn completes
-- ``MESSAGE_TRANSFORM``: Rewrite assistant message content before persistence/display
+- ``MESSAGE_TRANSFORM``: *Deprecated, never fired* (see :ref:`unfired-hook-types`)
 
 ``TURN_PRE`` is the clean "user prompt submitted" surface. ``STEP_PRE`` may run
 multiple times inside one turn if the assistant keeps calling tools.
@@ -31,7 +31,7 @@ Tool Lifecycle Hooks
 - ``TOOL_EXECUTE_PRE``: Before executing any tool; a hook can deny the call
   (see :ref:`pre-execution-deny-seam`)
 - ``TOOL_EXECUTE_POST``: After executing any tool
-- ``TOOL_TRANSFORM``: Transform tool execution
+- ``TOOL_TRANSFORM``: *Deprecated, never fired* (see :ref:`unfired-hook-types`)
 - ``TOOL_CONFIRM``: Blocking confirmation/deny decision before execution
   (see :ref:`confirmation-hooks-and-deny-decisions`)
 
@@ -40,8 +40,8 @@ File Operation Hooks
 
 - ``FILE_SAVE_PRE``: Before saving or appending to a file
 - ``FILE_SAVE_POST``: After successfully saving or appending to a file
-- ``FILE_PATCH_PRE``: Before patching a file
-- ``FILE_PATCH_POST``: After patching a file
+- ``FILE_PATCH_PRE``: Before ``patch`` or ``patch_many`` writes a file
+- ``FILE_PATCH_POST``: After ``patch`` or ``patch_many`` wrote a file
 
 For ``save`` and ``append``, PRE receives the requested ``content`` before
 newline normalization. POST receives the content passed to the text writer,
@@ -56,6 +56,13 @@ Append dispatches PRE after confirmation but before creating or writing the
 file, and POST only after a successful write and close. Refused or failed writes
 do not emit POST. These are notification hooks, not a veto, rollback, or
 transaction API; hook failures retain the registry's normal error handling.
+
+The patch hooks take the same arguments as the save hooks, so one function can
+be registered for both. ``content`` is the full patched file text (LF line
+endings), and POST always receives ``created=False``. ``patch_many`` fires PRE
+for every file once the whole batch has resolved and before anything is written,
+then POST for every file after the batch is published. A failed or aborted patch
+fires neither.
 
 Session Lifecycle Hooks
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -75,7 +82,23 @@ Generation Hooks
 
 - ``GENERATION_PRE``: Before generating response
 - ``GENERATION_POST``: After generating response
-- ``GENERATION_INTERRUPT``: Interrupt generation
+- ``GENERATION_CHUNK``: On each streamed response line
+- ``GENERATION_INTERRUPT``: *Deprecated, never fired* (see :ref:`unfired-hook-types`)
+
+.. _unfired-hook-types:
+
+Declared But Unfired Hook Types
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``gptme.hooks.UNFIRED_HOOK_TYPES`` lists the hook types gptme declares but never
+triggers, each with a reason. Registering a hook for one of them logs a warning,
+because the hook will not run:
+
+- ``STEP_POST``: not wired in any loop yet. Use ``TOOL_EXECUTE_POST`` (after
+  each tool) or ``TURN_POST`` (after the turn).
+- ``MESSAGE_TRANSFORM``, ``TOOL_TRANSFORM``, ``GENERATION_INTERRUPT``: deprecated.
+  They were never implemented, have no defined signature, and will be removed.
+  Use ``TOOL_EXECUTE_PRE`` to inspect or deny a tool call.
 
 Usage
 -----

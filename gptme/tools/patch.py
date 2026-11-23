@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import get_config
+from ..hooks import HookType, trigger_hook
 from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
@@ -381,7 +382,28 @@ def execute_patch_impl(
         text = patched_content.replace("\r\n", "\n")
         # Validate UTF-8 before staging the replacement.
         text.encode("utf-8")
+
+        # file.patch.pre: same arguments as file.save.pre, so one hook function
+        # can serve both. ``content`` is the full patched file text.
+        yield from trigger_hook(
+            HookType.FILE_PATCH_PRE,
+            log=None,
+            workspace=None,
+            path=path,
+            content=text,
+        )
+
         write_text_preserving_original(path, text, newline=newline)
+
+        # file.patch.post: only after a successful write (as for file.save.post).
+        yield from trigger_hook(
+            HookType.FILE_PATCH_POST,
+            log=None,
+            workspace=None,
+            path=path,
+            content=text,
+            created=False,
+        )
 
         # Return success message with any warnings
         warnings_str = "\n".join(warnings)

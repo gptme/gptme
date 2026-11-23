@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..hooks import HookType, trigger_hook
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from ..util.workspace import current_workspace, resolve_in_workspace
@@ -475,8 +476,29 @@ def execute_patch_many_impl(
         .encode("utf-8")
         for path in order
     }
+    # file.patch.pre/post fire per file, as for the single-file patch tool.
+    # PRE runs only once every target has resolved and is writable, so a
+    # rejected batch never reports a patch that was not attempted.
+    for path in order:
+        yield from trigger_hook(
+            HookType.FILE_PATCH_PRE,
+            log=None,
+            workspace=None,
+            path=path,
+            content=current[path],
+        )
     cleanup_errors: list[str] = []
     error = _publish_patches(order, contents, originals, modes, cleanup_errors)
+    if not error:
+        for path in order:
+            yield from trigger_hook(
+                HookType.FILE_PATCH_POST,
+                log=None,
+                workspace=None,
+                path=path,
+                content=current[path],
+                created=False,
+            )
     result = error or (
         f"Applied {hunks} hunk(s) atomically to {len(order)} file(s):\n"
         + "\n".join(f"  - {p}" for p in order)
