@@ -645,7 +645,8 @@ test('native tool payload streams collapsed without losing the preceding reply t
 }, testInfo) => {
   // Wait for the demo conversation to render before replacing its log; a click
   // alone can race the initial load and let demo messages overwrite the fixture.
-  await openTurn(page);
+  // Keep the offline client so a late live-server connection cannot reload it.
+  await openTurn(page, true);
   await page.evaluate(async (id) => {
     const { replaceLog } = await import('/src/stores/conversations.ts');
     replaceLog(id, [
