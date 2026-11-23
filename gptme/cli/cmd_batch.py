@@ -175,7 +175,7 @@ def _run_one_prompt(
             "error": f"timed out after {timeout:g}s",
             "returncode": None,
         }
-    except ValueError as error:
+    except (OSError, ValueError) as error:
         duration_s = time.monotonic() - start
         return {
             "index": index,
