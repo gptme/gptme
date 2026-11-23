@@ -282,10 +282,10 @@ def execute_form(
         return
 
     # An unanswered field with a declared default takes that default, so an
-    # omitted boolean reaches the model as its documented "no" instead of a
-    # missing-field error.
+    # omitted or null boolean reaches the model as its documented "no" instead
+    # of a missing-field error or an indeterminate value.
     for field in request.fields or []:
-        if field.name not in results and field.default is not None:
+        if results.get(field.name) is None and field.default is not None:
             results[field.name] = field.default
 
     validation_error = _validate_form_results(results, request.fields or [])

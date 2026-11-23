@@ -264,11 +264,13 @@ def test_form_uses_elicit_hook(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
 
+@pytest.mark.parametrize("answer", [{"name": "demo"}, {"name": "demo", "ok": None}])
 def test_form_hook_unanswered_boolean_defaults_to_no(
     monkeypatch: pytest.MonkeyPatch,
+    answer: dict,
 ) -> None:
-    """An omitted boolean is submitted as false, as the field docs promise."""
-    _hook_returning(monkeypatch, {"name": "demo"})
+    """An omitted or null boolean is submitted as false, as the docs promise."""
+    _hook_returning(monkeypatch, answer)
     messages = list(execute_form("name: Name?\nok: Proceed? [yes/no]", None, None))
     assert messages[0].content == (
         'Form submitted:\n```json\n{\n  "name": "demo",\n  "ok": false\n}\n```'
