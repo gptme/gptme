@@ -1409,6 +1409,7 @@ def chat(
         and not strict_request_bounds_active()
         and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
     )
+    _used_relaxed_fallback = False
     try:
         raw_response = _chat_create(relaxed_privacy=_start_relaxed)
     except Exception as _e:
@@ -1429,10 +1430,12 @@ def chat(
                 model_meta.model,
             )
             raw_response = _chat_create(relaxed_privacy=True)
-            _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
+            _used_relaxed_fallback = True
         else:
             raise
     response = raw_response.parse()
+    if _used_relaxed_fallback:
+        _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
     _or_provider = (
         raw_response.headers.get("x-openrouter-provider")
         or _openrouter_provider_from(response)
@@ -2162,6 +2165,7 @@ def _stream_with_client(
             and not strict_request_bounds_active()
             and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
         )
+        _used_relaxed_fallback = False
         try:
             _stream_obj = _stream_create(
                 relaxed_privacy=_start_relaxed, provider_ignore=_ignored_providers
@@ -2188,7 +2192,7 @@ def _stream_with_client(
                 _stream_obj = _stream_create(
                     relaxed_privacy=True, provider_ignore=_ignored_providers
                 )
-                _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
+                _used_relaxed_fallback = True
             else:
                 raise
 
@@ -2452,6 +2456,8 @@ def _stream_with_client(
                 if captured_metadata is None:
                     captured_metadata = {"model": model}
                 captured_metadata["native_finish_reason"] = native_finish
+            if _used_relaxed_fallback:
+                _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             break  # Normal completion — no retry needed.
 
         # Degeneration detected.  Close the abandoned stream before deciding
