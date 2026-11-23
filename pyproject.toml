@@ -455,9 +455,10 @@ asyncio_default_fixture_loop_scope = "function"
 timeout_func_only = true
 
 [tool.coverage.run]
-# Needed to get playwright to play nice with coverage
+# Playwright needs greenlet support; explicitly retain native thread tracing too.
+# Selecting only greenlet disables coverage of background worker bodies.
 # https://stackoverflow.com/a/28589618/965332
-concurrency = ["greenlet"]
+concurrency = ["thread", "greenlet"]
 #branch = true
 
 [tool.coverage.report]
