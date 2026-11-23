@@ -206,6 +206,54 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')!.elicitationSubmitting.get()).toBe(false);
   });
 
+  it.each([false, true])(
+    'keeps the new question locked when an older answer settles (success=%s)',
+    async (succeeds) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onElicitPending!({ id: 'old', type: 'text', prompt: 'Old?' }));
+      let resolveOld!: () => void;
+      let rejectOld!: (error: Error) => void;
+      let resolveNew!: () => void;
+      respondToElicitationApi
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              resolveOld = resolve;
+              rejectOld = reject;
+            })
+        )
+        .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveNew = resolve)));
+      let oldAnswer!: Promise<void>;
+      let newAnswer!: Promise<void>;
+      act(() => {
+        oldAnswer = result.current.respondToElicitation({ action: 'accept', value: 'old' });
+      });
+      act(() => eventHandlers!.onElicitPending!({ id: 'new', type: 'text', prompt: 'New?' }));
+      act(() => {
+        newAnswer = result.current.respondToElicitation({ action: 'accept', value: 'new' });
+      });
+      expect(respondToElicitationApi).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        if (succeeds) resolveOld();
+        else rejectOld(new Error('late failure'));
+        await oldAnswer;
+      });
+      // The old request must not unlock the new question in either pane.
+      expect(conversations$.get('chat-placeholder')!.elicitationSubmitting.get()).toBe(true);
+      await act(async () => {
+        await result.current.respondToElicitation({ action: 'accept', value: 'duplicate' });
+      });
+      expect(respondToElicitationApi).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        resolveNew();
+        await newAnswer;
+      });
+      expect(conversations$.get('chat-placeholder')!.elicitationSubmitting.get()).toBe(false);
+      expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toBeNull();
+    }
+  );
+
   it('restores the elicit request when the response fails', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());

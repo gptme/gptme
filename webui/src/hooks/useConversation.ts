@@ -1233,7 +1233,11 @@ export function useConversation(conversationId: string, serverId?: string) {
       // Another viewer answered, or the turn stopped/resumed. This stale
       // failure must not resurrect the question or alter the current turn.
     } finally {
-      setElicitationSubmitting(conversationId, false);
+      // A newer question resets the guard and may already have its own POST
+      // in flight. Only this question's revision owns the flag we acquired.
+      if (conversation$?.elicitationRevision.peek() === revision) {
+        setElicitationSubmitting(conversationId, false);
+      }
     }
   };
 
