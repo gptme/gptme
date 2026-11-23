@@ -114,6 +114,7 @@ def test_generation_pre_session_complete_is_clean_stop(conversation, monkeypatch
     """complete/clarify/yield stop the session from GENERATION_PRE."""
     name, session, manager = conversation
     called = []
+    session.checkpoint_needs_continuation = True
 
     def stop_hook(messages, **kwargs):
         raise SessionCompleteException("stop")
@@ -133,11 +134,96 @@ def test_generation_pre_session_complete_is_clean_stop(conversation, monkeypatch
     assert not called, "provider must not be called after a session-stop signal"
     assert not session.generating, "reservation must be released"
     assert session.last_error is None
+    assert not session.checkpoint_needs_continuation
     reloaded = LogManager.load(name, lock=False)
     assert not any(
         m.role == "system" and (m.content or "").startswith("Error:")
         for m in reloaded.log.messages
     ), "a session-stop signal is not a generation error"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("revoke", ["interrupt", "replace"])
+def test_generation_pre_revocation_skips_provider(
+    conversation, monkeypatch, stream, revoke
+):
+    _, session, manager = conversation
+    called = []
+
+    def revoke_hook(messages, **kwargs):
+        with session.step_lock:
+            if revoke == "interrupt":
+                session.interrupted = True
+            else:
+                session.step_seq += 1
+                session.generating = True
+        yield Message("system", "Hook finished after revocation")
+
+    def provider(*a, **kw):
+        called.append(True)
+        return "stale", None
+
+    monkeypatch.setattr("gptme.server.session_step._chat_complete", provider)
+    monkeypatch.setattr("gptme.server.session_step._stream", provider)
+    register_hook(
+        "parity_revoke", HookType.GENERATION_PRE, revoke_hook, priority=10_000
+    )
+    try:
+        session.generating = True
+        session.step_seq += 1
+        step(
+            conversation[0],
+            session,
+            MODEL,
+            manager.workspace,
+            stream=stream,
+            step_seq=session.step_seq,
+        )
+    finally:
+        unregister_hook("parity_revoke", HookType.GENERATION_PRE)
+
+    assert not called, "revoked work must not start a provider request"
+    assert session.last_error is None
+    if revoke == "replace":
+        assert session.generating, "stale cleanup must not release the replacement"
+
+
+def test_server_generation_cannot_restart_process(conversation, monkeypatch):
+    import gptme.tools.restart as restart
+
+    _, session, manager = conversation
+    manager.append(Message("assistant", "```restart\n\n```"))
+    manager.write()
+    monkeypatch.setattr(restart, "_triggered_restart", True)
+    from gptme.tools.base import ToolUse
+
+    monkeypatch.setattr(
+        ToolUse,
+        "iter_from_content",
+        lambda *a, **kw: iter(
+            [ToolUse("restart", [], "", start=0, _format="markdown")]
+        ),
+    )
+    restarts = []
+
+    def forbidden_restart(*a, **kw):
+        restarts.append(True)
+        raise RuntimeError("server process replacement attempted")
+
+    monkeypatch.setattr(restart, "_do_restart", forbidden_restart)
+    monkeypatch.setattr(
+        "gptme.server.session_step._chat_complete", lambda *a, **kw: ("Hi", None)
+    )
+    register_hook(
+        "parity_restart", HookType.GENERATION_PRE, restart.restart_hook, priority=1000
+    )
+    try:
+        run_step(conversation)
+    finally:
+        unregister_hook("parity_restart", HookType.GENERATION_PRE)
+
+    assert not restarts
+    assert session.last_error is None
 
 
 # --- Static parity guard ------------------------------------------------------

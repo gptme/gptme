@@ -1302,8 +1302,13 @@ def step(
                     workspace=workspace,
                     manager=None,
                     model=model,
+                    server=True,
                 ),
             ]
+            # Hooks may block for confirmation or verification. Do not start a
+            # paid request if interrupt/replacement revoked us while they ran.
+            if not retry_allowed():
+                raise InterruptedError("Step no longer owns generation")
 
             try:
                 if stream:
@@ -1598,6 +1603,8 @@ def step(
                     owns_step = (
                         session.step_seq == my_step_seq and not session.interrupted
                     )
+                    if owns_step:
+                        session.checkpoint_needs_continuation = False
                 if owns_step:
                     _run_turn_post_on_step_pre_complete(manager, session)
         else:

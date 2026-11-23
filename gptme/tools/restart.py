@@ -476,6 +476,12 @@ def execute_restart(
     """
     global _triggered_restart
 
+    from ..hooks import current_session_id
+
+    if current_session_id.get() is not None:
+        yield Message("system", "Process restart is not supported in server sessions.")
+        return
+
     if not confirm("Restart gptme? This will exit and restart the process."):
         yield Message("system", "Restart cancelled.")
         return
@@ -501,6 +507,13 @@ def restart_hook(
     By this point, all messages (including the assistant's restart message
     and the system confirmation) have been saved to the log.
     """
+    # A server is shared by conversations: never replace its process from a
+    # conversation hook, even if a restart was confirmed in another context.
+    from ..hooks import current_session_id
+
+    if kwargs.get("server") or current_session_id.get() is not None:
+        return
+
     # Make function a generator for type checking
     if False:
         yield
