@@ -173,6 +173,39 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toBeNull();
   });
 
+  it('ignores a second answer while one is in flight (split-pane guard)', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() =>
+      eventHandlers!.onElicitPending!({
+        id: 'el-guard',
+        type: 'choice',
+        prompt: 'Pick',
+        options: ['a', 'b'],
+      })
+    );
+    let release!: () => void;
+    respondToElicitationApi.mockImplementationOnce(
+      () => new Promise<void>((done) => (release = done))
+    );
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.respondToElicitation({ action: 'accept', value: 'a' });
+    });
+    // The flag lives in the store, so a second pane reading the same
+    // conversation sees the in-flight answer and must not POST again.
+    expect(conversations$.get('chat-placeholder')!.elicitationSubmitting.get()).toBe(true);
+    await act(async () => {
+      await result.current.respondToElicitation({ action: 'accept', value: 'b' });
+    });
+    expect(respondToElicitationApi).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release();
+      await first;
+    });
+    expect(conversations$.get('chat-placeholder')!.elicitationSubmitting.get()).toBe(false);
+  });
+
   it('restores the elicit request when the response fails', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());

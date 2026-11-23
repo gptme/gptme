@@ -17,6 +17,7 @@ import {
   setConnected,
   setConnectionStatus,
   setPendingTool,
+  setElicitationSubmitting,
   setPendingElicitation,
   setExecutingTool,
   setToolOutput,
@@ -1204,6 +1205,11 @@ export function useConversation(conversationId: string, serverId?: string) {
       console.warn('No pending elicitation to answer');
       return;
     }
+    // Store-level guard: a second pane showing this conversation would
+    // otherwise issue a duplicate POST for the same elicit_id, because its
+    // InlineElicitation has its own local submitting state.
+    if (conversation$?.elicitationSubmitting.peek()) return;
+    setElicitationSubmitting(conversationId, true);
     // Keep the question mounted during the POST so failures preserve the user's
     // input. Stream events invalidate this revision, including in split views.
     const revision = conversation$?.elicitationRevision.peek();
@@ -1226,6 +1232,8 @@ export function useConversation(conversationId: string, serverId?: string) {
       }
       // Another viewer answered, or the turn stopped/resumed. This stale
       // failure must not resurrect the question or alter the current turn.
+    } finally {
+      setElicitationSubmitting(conversationId, false);
     }
   };
 

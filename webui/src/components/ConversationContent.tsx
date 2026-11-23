@@ -65,6 +65,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const reconnectRetryInMs = use$(() => conversation$?.reconnectRetryInMs.get() ?? null);
   const connectionError = use$(() => conversation$?.connectionError.get() ?? null);
   const hasMoreBefore = use$(() => conversation$?.hasMoreBefore.get() ?? false);
+  const elicitationSubmitting = use$(() => conversation$?.elicitationSubmitting.get() ?? false);
   // State to track when to auto-focus the input
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes
@@ -1183,6 +1184,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             pendingElicitation$={conversation$?.pendingElicitation}
             onRespond={respondToElicitation}
             isActivePane={isActivePane}
+            submitting={elicitationSubmitting}
           />
         )}
 
