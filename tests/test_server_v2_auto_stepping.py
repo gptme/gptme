@@ -250,10 +250,10 @@ def test_generation_complete_keeps_assistant_payload_after_turn_post_hook(
 
     original_hook = session_step.trigger_hook
 
-    def hook(hook_type, **kwargs):
+    def hook(hook_type, *args, **kwargs):
         if hook_type == HookType.TURN_POST:
             return [Message("system", "final hook record", quiet=True)]
-        return original_hook(hook_type, **kwargs)
+        return original_hook(hook_type, *args, **kwargs)
 
     with (
         unittest.mock.patch(
@@ -327,10 +327,10 @@ def test_append_write_failure_blocks_generation_complete_and_persists_error(
 
     original_hook = session_step.trigger_hook
 
-    def hook(hook_type, **kwargs):
+    def hook(hook_type, *args, **kwargs):
         if failure_point == "hook-sync" and hook_type == HookType.TURN_POST:
             return [Message("system", "final hook record", quiet=True)]
-        return original_hook(hook_type, **kwargs)
+        return original_hook(hook_type, *args, **kwargs)
 
     with (
         unittest.mock.patch(
