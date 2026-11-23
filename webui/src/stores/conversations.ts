@@ -91,6 +91,9 @@ export interface ConversationState {
   pendingElicitation: PendingElicitation | null;
   // Invalidates in-flight answers when the stream replaces or clears a question.
   elicitationRevision?: number;
+  // An answer POST is in flight. Store-level, so every pane showing this
+  // conversation shares one guard instead of one per InlineElicitation.
+  elicitationSubmitting?: boolean;
   // Any executing tool
   executingTool: ExecutingTool | null;
   // Duration of the most recently completed tool (cleared when next tool starts)
@@ -288,7 +291,22 @@ export function setPendingElicitation(id: string, elicitation: PendingElicitatio
   updateConversation(id, {
     pendingElicitation: elicitation,
     elicitationRevision: (conversations$.get(id)?.elicitationRevision.peek() ?? 0) + 1,
+    // A replaced/cleared question cannot still have an answer in flight from
+    // its predecessor, so never inherit a stuck guard.
+    elicitationSubmitting: false,
   });
+}
+
+/**
+ * Marks an elicitation answer as in flight for a conversation.
+ *
+ * Kept in the store rather than component state so that two panes showing the
+ * same conversation (split view can open the same id in both panes) share one
+ * guard: the second pane's controls disable instead of issuing a duplicate
+ * POST for the same elicit_id.
+ */
+export function setElicitationSubmitting(id: string, submitting: boolean) {
+  updateConversation(id, { elicitationSubmitting: submitting });
 }
 
 export function setExecutingTool(

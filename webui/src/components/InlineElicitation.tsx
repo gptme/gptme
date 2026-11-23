@@ -71,6 +71,8 @@ interface InlineElicitationProps {
   pendingElicitation$: Observable<PendingElicitation | null>;
   onRespond: (response: ElicitationResponse) => Promise<void>;
   isActivePane?: () => boolean;
+  /** Conversation-level in-flight flag, shared by every pane showing it. */
+  submitting?: boolean;
 }
 
 /**
@@ -81,13 +83,17 @@ export function InlineElicitation({
   pendingElicitation$,
   onRespond,
   isActivePane,
+  submitting: submittingElsewhere = false,
 }: InlineElicitationProps) {
   const pending = use$(pendingElicitation$);
   const [text, setText] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [formValues, setFormValues] = useState<FormValues>({});
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [localSubmitting, setLocalSubmitting] = useState(false);
+  // Disable on either the local click or a submit another pane started for the
+  // same question, so two panes cannot both POST an answer.
+  const submitting = localSubmitting || submittingElsewhere;
 
   // Reset local state whenever a new request arrives.
   const pendingId = pending?.id;
@@ -97,7 +103,7 @@ export function InlineElicitation({
     setSelected([]);
     setFormValues(initialFormValues(pending.fields ?? []));
     setError(null);
-    setSubmitting(false);
+    setLocalSubmitting(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingId]);
 
@@ -125,14 +131,14 @@ export function InlineElicitation({
 
   const send = async (response: ElicitationResponse) => {
     if (submitting) return;
-    setSubmitting(true);
+    setLocalSubmitting(true);
     try {
       await onRespond(response);
     } catch (e) {
       console.error('Error answering elicitation:', e);
       setError('Could not send the answer. Try again.');
     } finally {
-      setSubmitting(false);
+      setLocalSubmitting(false);
     }
   };
 
