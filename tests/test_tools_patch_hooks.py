@@ -121,3 +121,92 @@ def test_aborted_patch_many_fires_no_hooks(tmp_path: Path, patch_events: list[Ev
     assert patch_events == []
     assert "No files were written" in msgs[-1].content
     assert a.read_text() == "one\n"
+
+
+@pytest.mark.parametrize("tool", ["patch", "patch_many"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_patch_hooks_normalize_replacement_line_endings(
+    tmp_path: Path, patch_events: list[Event], tool: str, newline: str
+) -> None:
+    path = tmp_path / "a.txt"
+    path.write_bytes(f"hello{newline}".encode())
+    patch = _hunk("hello", "new one\r\nnew two")
+
+    if tool == "patch":
+        list(execute_patch_impl(patch, path))
+    else:
+        list(execute_patch_many_impl([(path, patch)]))
+
+    normalized = "new one\nnew two\n"
+    assert [(e[0], e[2]) for e in patch_events] == [
+        ("pre", normalized),
+        ("post", normalized),
+    ]
+    assert patch_events[1][4] == normalized
+    assert path.read_bytes() == normalized.replace("\n", newline).encode()
+
+
+@pytest.mark.parametrize("tool", ["patch", "patch_many"])
+def test_patch_write_failure_fires_pre_but_not_post(
+    tmp_path: Path,
+    patch_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+) -> None:
+    import os
+
+    a = tmp_path / "a.txt"
+    b = tmp_path / "b.txt"
+    a.write_text("one\n")
+    b.write_text("two\n")
+    replace = os.replace
+    failed = False
+
+    def fail_publication(src: Any, dst: Any) -> None:
+        nonlocal failed
+        if Path(dst) == b and not failed:
+            failed = True
+            raise OSError("injected publication failure")
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", fail_publication)
+
+    if tool == "patch":
+        with pytest.raises(OSError, match="injected publication failure"):
+            list(execute_patch_impl(_hunk("two", "TWO"), b))
+        expected = [("pre", "b.txt", "TWO\n")]
+    else:
+        msgs = list(
+            execute_patch_many_impl(
+                [(a, _hunk("one", "ONE")), (b, _hunk("two", "TWO"))]
+            )
+        )
+        assert "injected publication failure" in msgs[-1].content
+        assert "Original contents restored" in msgs[-1].content
+        expected = [("pre", "a.txt", "ONE\n"), ("pre", "b.txt", "TWO\n")]
+
+    assert failed
+    assert [(e[0], e[1].name, e[2]) for e in patch_events] == expected
+    assert a.read_text() == "one\n"
+    assert b.read_text() == "two\n"
+    assert set(tmp_path.iterdir()) == {a, b}
+
+
+def test_patch_many_staging_failure_fires_pre_but_not_post(
+    tmp_path: Path,
+    patch_events: list[Event],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "a.txt"
+    path.write_text("hello\n")
+
+    def fail_staging(*args: Any, **kwargs: Any) -> None:
+        raise OSError("injected staging failure")
+
+    monkeypatch.setattr("gptme.tools.patch_many.tempfile.mkstemp", fail_staging)
+    msgs = list(execute_patch_many_impl([(path, _hunk("hello", "world"))]))
+
+    assert "injected staging failure" in msgs[-1].content
+    assert [(e[0], e[2]) for e in patch_events] == [("pre", "world\n")]
+    assert path.read_text() == "hello\n"
+    assert set(tmp_path.iterdir()) == {path}

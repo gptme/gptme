@@ -61,8 +61,10 @@ The patch hooks take the same arguments as the save hooks, so one function can
 be registered for both. ``content`` is the full patched file text (LF line
 endings), and POST always receives ``created=False``. ``patch_many`` fires PRE
 for every file once the whole batch has resolved and before anything is written,
-then POST for every file after the batch is published. A failed or aborted patch
-fires neither.
+then POST for every file after the batch is published. Patches rejected during
+validation or aborted before PRE dispatch fire neither hook. A staging or write
+failure after PRE dispatch may emit PRE, but never POST; PRE is not proof that a
+write succeeded. This also applies when ``patch_many`` rolls back publication.
 
 Session Lifecycle Hooks
 ~~~~~~~~~~~~~~~~~~~~~~~~

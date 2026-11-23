@@ -468,12 +468,11 @@ def execute_patch_many_impl(
             )
             return
 
-    # Content was read in universal-newline mode; preserve each file's style.
+    # Normalize once so hooks and writes share the same LF-only content model.
+    current = {path: current[path].replace("\r\n", "\n") for path in order}
+    # Preserve each file's on-disk newline style when encoding the replacement.
     contents = {
-        path: current[path]
-        .replace("\r\n", "\n")
-        .replace("\n", newlines[path])
-        .encode("utf-8")
+        path: current[path].replace("\n", newlines[path]).encode("utf-8")
         for path in order
     }
     # file.patch.pre/post fire per file, as for the single-file patch tool.
