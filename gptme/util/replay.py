@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from ..message import Message
@@ -56,7 +57,7 @@ def score_messages_bm25(
     safe_query = " OR ".join(f'"{t}"' for t in tokens)
 
     try:
-        with sqlite3.connect(":memory:") as conn:
+        with closing(sqlite3.connect(":memory:")) as conn:
             conn.execute(
                 "CREATE VIRTUAL TABLE msgs USING fts5(content, msg_idx UNINDEXED, tokenize='unicode61')"
             )
