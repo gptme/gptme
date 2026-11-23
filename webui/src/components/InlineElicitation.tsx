@@ -93,6 +93,25 @@ export function InlineElicitation({ pendingElicitation$, onRespond }: InlineElic
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingId]);
 
+  // Number keys pick a choice, unless the user is typing somewhere.
+  const choiceOptions = pending?.type === 'choice' ? (pending.options ?? []) : [];
+  const choiceKey = choiceOptions.join('\u0000');
+  useEffect(() => {
+    if (choiceOptions.length === 0 || submitting) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const index = Number(e.key) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= choiceOptions.length) return;
+      e.preventDefault();
+      void send({ action: 'accept', value: choiceOptions[index] });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingId, choiceKey, submitting]);
+
   if (!pending) return null;
 
   const send = async (response: ElicitationResponse) => {

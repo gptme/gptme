@@ -31,6 +31,24 @@ describe('InlineElicitation', () => {
     expect(onRespond).toHaveBeenCalledWith({ action: 'accept', value: 'beta' });
   });
 
+  it('picks a choice with its number key, but not while typing', () => {
+    const { onRespond } = renderElicit({
+      id: 'e1b',
+      type: 'choice',
+      prompt: 'Pick one',
+      options: ['alpha', 'beta'],
+    });
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    fireEvent.keyDown(field, { key: '2' });
+    expect(onRespond).not.toHaveBeenCalled();
+    field.remove();
+    fireEvent.keyDown(document.body, { key: '3' }); // out of range
+    expect(onRespond).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: '2' });
+    expect(onRespond).toHaveBeenCalledWith({ action: 'accept', value: 'beta' });
+  });
+
   it('answers multi_choice with all checked options', () => {
     const { onRespond } = renderElicit({
       id: 'e2',
