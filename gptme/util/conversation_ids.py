@@ -9,7 +9,11 @@ def conversation_id_error(value: str) -> str | None:
         return "conversation name cannot be empty."
     if value != value.strip():
         return "conversation name cannot start or end with whitespace."
-    if len(value.encode()) > _MAX_CONVERSATION_ID_BYTES:
+    try:
+        encoded = value.encode()
+    except UnicodeEncodeError:
+        return "conversation name must be valid UTF-8."
+    if len(encoded) > _MAX_CONVERSATION_ID_BYTES:
         return "conversation name too long."
     if any(not ch.isprintable() for ch in value):
         return "conversation name cannot contain control characters."

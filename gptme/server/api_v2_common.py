@@ -142,7 +142,11 @@ def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
     """
     if not isinstance(branch, str):
         return flask.jsonify({"error": "Invalid branch name"}), 400
-    if len(branch.encode()) > _MAX_ID_LENGTH - _BRANCH_SUFFIX_LEN:
+    try:
+        encoded = branch.encode()
+    except UnicodeEncodeError:
+        return flask.jsonify({"error": "Invalid branch name"}), 400
+    if len(encoded) > _MAX_ID_LENGTH - _BRANCH_SUFFIX_LEN:
         return flask.jsonify({"error": "branch name too long"}), 400
     if "/" in branch or ".." in branch or "\\" in branch or "\x00" in branch:
         return flask.jsonify({"error": "Invalid branch name"}), 400
