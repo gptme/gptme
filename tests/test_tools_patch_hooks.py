@@ -125,12 +125,17 @@ def test_aborted_patch_many_fires_no_hooks(tmp_path: Path, patch_events: list[Ev
 
 @pytest.mark.parametrize("tool", ["patch", "patch_many"])
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("replacement_newline", ["\n", "\r\n", "\r"])
 def test_patch_hooks_normalize_replacement_line_endings(
-    tmp_path: Path, patch_events: list[Event], tool: str, newline: str
+    tmp_path: Path,
+    patch_events: list[Event],
+    tool: str,
+    newline: str,
+    replacement_newline: str,
 ) -> None:
     path = tmp_path / "a.txt"
     path.write_bytes(f"hello{newline}".encode())
-    patch = _hunk("hello", "new one\r\nnew two")
+    patch = _hunk("hello", f"new one{replacement_newline}new two")
 
     if tool == "patch":
         list(execute_patch_impl(patch, path))
