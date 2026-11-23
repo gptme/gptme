@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..prompts import find_agent_files_in_tree
+from ..util.workspace import resolve_in_workspace
 from .agents_md_inject import _get_loaded_files, inject_agent_instruction_files
 
 if TYPE_CHECKING:
@@ -131,7 +132,9 @@ def _candidate_directories(paths: list[Path]) -> list[Path]:
     seen: set[str] = set()
     for path in paths:
         try:
-            resolved = path.resolve()
+            # Relative tool paths mean "relative to the session", not to the
+            # process cwd (which a server shares across conversations).
+            resolved = resolve_in_workspace(path)
         except (OSError, ValueError):
             continue
         if resolved.is_dir():

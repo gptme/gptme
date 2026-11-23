@@ -46,6 +46,12 @@ CHILD = textwrap.dedent(
         import gptme.tools.hashline_edit as he
         he.resolve_in_workspace = lambda p: Path(p).expanduser().resolve()
 
+    if MUTATE == "target_hook_process_relative":
+        # Same class of bug in a hook: derive the AGENTS.md scan directory from
+        # the process cwd instead of the session workspace.
+        import gptme.hooks.tool_target_instructions as tti
+        tti.resolve_in_workspace = lambda p: Path(p).expanduser().resolve()
+
     from gptme.init import init
     from gptme.lessons.index import LessonIndex
     from gptme.server import auth as auth_mod
@@ -297,8 +303,13 @@ def _run_child(tmp_path: Path, mutate: str = "") -> dict:
         (ws / "sub").mkdir(parents=True)
         (ws / "note.txt").write_text(f"note in {name}\n")
         (ws / "h.txt").write_text(f"hash {name}\nline2\n")
+        # Picked up by the CWD_CHANGED hooks after the session's shell ``cd sub``.
+        (ws / "sub" / "AGENTS.md").write_text(f"AGENTS-MARK-{name}\n")
     for fname, content in HOST_FILES.items():  # poison, same names as workspaces
         (host / fname).write_text(content)
+    (host / "sub").mkdir()
+    (host / "sub" / "AGENTS.md").write_text("AGENTS-MARK-host\n")
+    (host / "AGENTS.md").write_text("AGENTS-MARK-host\n")
 
     env = {
         **os.environ,
@@ -345,7 +356,7 @@ def _check(payload: dict) -> list[str]:
         problems.append("host cwd changed")
     if payload["cwd_seen"] != [payload["host_before"]]:
         problems.append(f"process cwd drifted during generation: {payload['cwd_seen']}")
-    if payload["host_files"] != sorted(HOST_FILES):
+    if payload["host_files"] != sorted([*HOST_FILES, "AGENTS.md", "sub"]):
         problems.append(f"host gained files: {payload['host_files']}")
     for fname, content in HOST_FILES.items():
         if (host / fname).read_text() != content:
@@ -371,6 +382,12 @@ def _check(payload: dict) -> list[str]:
             problems.append(f"{name}: conversation never completed")
         if name == "b" and "Resumed b" not in joined:
             problems.append("b: session unusable after interrupt")
+        # CWD_CHANGED hooks (cwd_awareness, agents_md_inject) must follow the
+        # session's shell cd, not the host process cwd.
+        if f"AGENTS-MARK-{name}" not in joined:
+            problems.append(f"{name}: cd hook did not inject the workspace's AGENTS.md")
+        if "AGENTS-MARK-host" in joined:
+            problems.append(f"{name}: cd hook injected the host's AGENTS.md")
         if "HOST " in joined:
             problems.append(f"{name}: log shows host file content")
         other = "b" if name == "a" else "a"
@@ -417,3 +434,13 @@ def test_harness_catches_process_relative_hashline_edit(tmp_path: Path) -> None:
         assert (Path(payload["root"]) / name / "h.txt").read_text() == (
             f"hash {name}\nline2\n"
         )
+
+
+@pytest.mark.timeout(300)
+def test_harness_catches_process_relative_tool_target_hook(tmp_path: Path) -> None:
+    """The hook layer is covered too: a process-relative scan dir leaks host AGENTS.md."""
+    problems = _check(_run_child(tmp_path, mutate="target_hook_process_relative"))
+    assert problems == [
+        "a: cd hook injected the host's AGENTS.md",
+        "b: cd hook injected the host's AGENTS.md",
+    ]

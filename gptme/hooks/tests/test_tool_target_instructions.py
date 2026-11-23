@@ -459,3 +459,26 @@ def test_read_in_other_agent_workspace_not_injected(tmp_path: Path, empty_log: L
     assert not any("You ARE Alice" in m.content for m in msgs)
     assert len(msgs) == 1
     assert "agent workspace 'Alice'" in msgs[0].content
+
+
+def test_relative_target_resolves_in_session_workspace_not_process_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A relative tool path belongs to the session, not to the host process cwd (#5059)."""
+    from gptme.hooks.tool_target_instructions import _candidate_directories
+    from gptme.util.workspace import set_workspace_cwd
+
+    host = tmp_path / "host"
+    session = tmp_path / "session"
+    (host / "sub").mkdir(parents=True)
+    (session / "sub").mkdir(parents=True)
+    monkeypatch.chdir(host)
+
+    def run() -> list[Path]:
+        set_workspace_cwd(str(session))
+        return _candidate_directories([Path("sub/note.txt")])
+
+    # Run in a copied context so the ContextVar does not leak into other tests.
+    import contextvars
+
+    assert contextvars.copy_context().run(run) == [(session / "sub").resolve()]
