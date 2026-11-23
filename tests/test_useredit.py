@@ -75,3 +75,38 @@ def test_invalid_editor_quoting_cleans_up(
     with pytest.raises(ValueError, match="No closing quotation"):
         edit_text_with_editor("before")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_initial_encoding_failure_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("gptme.util.useredit.tempfile.tempdir", str(tmp_path))
+    with pytest.raises(UnicodeEncodeError):
+        edit_text_with_editor("unencodable \ud800", "toml")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_initial_write_failure_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import errno
+    import tempfile
+    from unittest.mock import Mock
+
+    # Write and flush a real partial file before simulating a full disk.
+    temporary = tempfile.NamedTemporaryFile(mode="w", delete=False, dir=tmp_path)
+
+    def failing_write(text: str) -> None:
+        temporary.file.write(text[:4])
+        temporary.file.flush()
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(temporary, "write", failing_write)
+    monkeypatch.setattr(
+        "gptme.util.useredit.tempfile.NamedTemporaryFile",
+        Mock(return_value=temporary),
+    )
+    with pytest.raises(OSError, match="No space left on device"):
+        edit_text_with_editor("conversation content")
+    assert temporary.closed
+    assert list(tmp_path.iterdir()) == []
