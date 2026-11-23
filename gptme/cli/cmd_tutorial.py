@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -114,7 +115,7 @@ def _validate_fix_bug(tmpdir: Path) -> tuple[bool, str]:
         return False, "buggy.py not found"
     try:
         result = subprocess.run(
-            ["python3", str(script)],
+            [sys.executable, str(script)],
             capture_output=True,
             text=True,
             timeout=10,
