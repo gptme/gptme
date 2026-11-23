@@ -32,10 +32,9 @@ def copy() -> bool:
             except subprocess.TimeoutExpired:
                 print("wl-copy timed out.")
                 return False
-            if output.returncode != 0:
-                print("wl-copy failed to copy to clipboard.")
-                return False
-            return True
+            if output.returncode == 0:
+                return True
+            print("wl-copy failed to copy to clipboard.")
         if "xclip" in installed:
             try:
                 output = subprocess.run(
@@ -52,7 +51,8 @@ def copy() -> bool:
                 print("xclip failed to copy to clipboard.")
                 return False
             return True
-        print("No clipboard utility found. Please install xclip or wl-clipboard.")
+        if not installed:
+            print("No clipboard utility found. Please install xclip or wl-clipboard.")
         return False
     if platform.system() == "Darwin":
         try:
@@ -199,7 +199,7 @@ def paste_text() -> str | None:
                 )
                 if result.returncode == 0:
                     return result.stdout
-            elif "xclip" in installed:
+            if "xclip" in installed:
                 result = subprocess.run(
                     ["xclip", "-selection", "clipboard", "-o"],
                     capture_output=True,
