@@ -332,6 +332,25 @@ class TestReconnectReplay:
         assert list_pending_events("conv-1") == []
         assert not cancel_pending("conv-1")
 
+    def test_failed_emit_does_not_replay_abandoned_question(self):
+        """Publishing failure cancels the hook and removes its replay entry."""
+        current_conversation_id.set("conv-1")
+        current_session_id.set("sess-1")
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.add_event.side_effect = RuntimeError("event bus failed")
+        with patch.dict(
+            "sys.modules",
+            {
+                "gptme.server.api_v2_sessions": MagicMock(
+                    SessionManager=mock_session_mgr
+                ),
+            },
+        ):
+            result = server_elicit_hook(_make_request())
+        assert result is not None and result.cancelled
+        assert list_pending_events("conv-1") == []
+        assert not _pending_elicitations
+
     def test_hook_registers_payload_before_emitting(self):
         """A client connecting while the hook waits sees the emitted payload."""
         current_conversation_id.set("conv-1")

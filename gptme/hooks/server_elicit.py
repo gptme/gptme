@@ -227,12 +227,10 @@ def server_elicit_hook(
         # Wait for resolution (with timeout to prevent infinite blocking)
         if not pending.event.wait(timeout=3600):  # 1 hour timeout
             logger.warning(f"Server elicitation timed out for {elicit_id}")
-            remove_pending(elicit_id)
             return ElicitationResponse.cancel()
 
         # Get the result
         result = pending.result
-        remove_pending(elicit_id)
 
         if result is None:
             logger.error(f"Pending elicitation resolved but no result: {elicit_id}")
@@ -249,6 +247,9 @@ def server_elicit_hook(
     except Exception as e:
         logger.exception(f"Error in server elicitation hook: {e}")
         return ElicitationResponse.cancel()
+    finally:
+        # Also remove requests abandoned by an SSE publication/wait failure.
+        remove_pending(elicit_id)
 
 
 def register() -> None:
