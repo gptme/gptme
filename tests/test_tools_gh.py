@@ -1163,16 +1163,26 @@ class TestExecuteGh:
 
         monkeypatch.delenv("GPTME_SHELL_REDACT_SECRETS", raising=False)
         token = "ghp_" + "a1B2c3D4" * 5
-        big_err = f"GH_TOKEN={token}\n" + "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+        tail_token = "ghp_" + "z9Y8x7W6" * 5
+        big_err = (
+            f"GH_TOKEN={token}\n"
+            + "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+            + f"\nTAIL_TOKEN={tail_token}"
+        )
         mock_run.return_value = MagicMock(stdout="", stderr=big_err, returncode=1)
         manager = MagicMock(logdir=tmp_path)
         with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
             messages = list(_passthrough_gh(["api", "repos/o/r/issues"], None))
         saved = list((tmp_path / "tool-outputs" / "gh").glob("*.txt"))
         assert len(saved) == 1
-        assert token not in saved[0].read_text()
-        assert "GH_TOKEN=[REDACTED]" in saved[0].read_text()
+        text = saved[0].read_text()
+        assert token not in text
+        assert tail_token not in text
+        assert "GH_TOKEN=[REDACTED]" in text
+        assert "TAIL_TOKEN=[REDACTED]" in text
         assert token not in messages[0].content
+        assert tail_token not in messages[0].content
+        assert "TAIL_TOKEN=[REDACTED]" in messages[0].content
 
     @patch("gptme.tools.gh.subprocess.run")
     def test_passthrough_redaction_switch_disables(self, mock_run, monkeypatch):
