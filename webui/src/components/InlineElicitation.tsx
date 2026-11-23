@@ -276,11 +276,20 @@ export function InlineElicitation({
                                   : 'text'
                             }
                             autoComplete="off"
+                            aria-describedby={
+                              f.type === 'secret' ? `elicit-${f.name}-help` : undefined
+                            }
                             value={String(formValues[f.name] ?? '')}
                             onChange={(e) =>
                               setFormValues((prev) => ({ ...prev, [f.name]: e.target.value }))
                             }
                           />
+                        )}
+                        {f.type === 'secret' && (
+                          <p id={`elicit-${f.name}-help`} className="text-xs text-muted-foreground">
+                            Not sent to the agent in forms. Ask the agent for a separate secret
+                            prompt to share this value.
+                          </p>
                         )}
                       </div>
                     ))}

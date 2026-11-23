@@ -105,6 +105,25 @@ describe('InlineElicitation', () => {
     expect(onRespond).toHaveBeenCalledWith({ action: 'accept', value: 'hunter2' });
   });
 
+  it('explains that form secrets are not sent to the agent', () => {
+    const { onRespond } = renderElicit({
+      id: 'secret-form',
+      type: 'form',
+      prompt: 'Connection details',
+      fields: [{ name: 'pw', prompt: 'Password', type: 'secret' }],
+    });
+    const input = screen.getByLabelText('Password');
+    expect(input).toHaveAccessibleDescription(
+      'Not sent to the agent in forms. Ask the agent for a separate secret prompt to share this value.'
+    );
+    fireEvent.change(input, { target: { value: 'test-secret' } });
+    fireEvent.click(screen.getByText('Submit'));
+    expect(onRespond).toHaveBeenCalledWith({
+      action: 'accept',
+      value: '{"pw":"<secret provided>"}',
+    });
+  });
+
   it('cancels', () => {
     const { onRespond } = renderElicit({ id: 'e5', type: 'text', prompt: 'Name?' });
     fireEvent.click(screen.getByText('Cancel'));
