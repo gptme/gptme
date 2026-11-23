@@ -2190,7 +2190,11 @@ def execute_bg_command(
         )
         return
 
-    job = start_background_job(command, memory_limit=memory_limit)
+    try:
+        job = start_background_job(command, memory_limit=memory_limit)
+    except OSError as exc:
+        yield Message("system", f"Error: Failed to start background job: {exc}")
+        return
     yield Message(
         "system",
         f"Started background job **#{job.id}**: `{command}`\n\n"

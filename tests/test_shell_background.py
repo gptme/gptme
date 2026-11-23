@@ -630,6 +630,26 @@ class TestExecuteBgCommand:
         assert "Started background job" in msgs[0].content
         assert "#" in msgs[0].content
 
+    def test_deleted_session_cwd(self, tmp_path):
+        """A spawn failure yields an error without registering a phantom job."""
+        import contextvars
+
+        from gptme.util.workspace import set_workspace_cwd
+
+        ws = tmp_path / "deleted-workspace"
+        ws.mkdir()
+        ws.rmdir()
+
+        def run():
+            set_workspace_cwd(str(ws))
+            return list(execute_bg_command("printf never-started"))
+
+        msgs = contextvars.copy_context().run(run)
+        assert len(msgs) == 1
+        assert "Failed to start background job" in msgs[0].content
+        assert str(ws) in msgs[0].content
+        assert list_background_jobs() == []
+
     def test_denylisted_command(self):
         """Commands on the deny list should be rejected."""
         msgs = list(execute_bg_command("rm -rf /"))

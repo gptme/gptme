@@ -3908,7 +3908,11 @@ def execute_shell(
             )
             return
         if background:
-            job = start_background_job(command, memory_limit=_get_memory_limit())
+            try:
+                job = start_background_job(command, memory_limit=_get_memory_limit())
+            except OSError as exc:
+                yield Message("system", f"Error: Failed to start background job: {exc}")
+                return
             yield Message(
                 "system",
                 f"Started background shell job #{job.id}: `{command}`\n\n"
