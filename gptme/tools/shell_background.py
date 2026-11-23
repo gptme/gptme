@@ -1678,12 +1678,17 @@ def _requeue_completed_jobs(
     """Return claimed completions to the front of the queue, in order."""
     with _job_lock, _completion_queue.mutex:
         live = []
+        queued = {id(job) for job in _completion_queue.queue}
         for job, notice in items:
             # Teardown may have run meanwhile: never resurrect its event.
             if _background_jobs.get(job.conversation_id, {}).get(job.id) is not job:
                 continue
-            job._late_kill_notice = notice
-            live.append(job)
+            # A kill notice recorded meanwhile already re-queued the job and
+            # supersedes the claimed one: keep it, and do not queue it twice.
+            if job._late_kill_notice is None:
+                job._late_kill_notice = notice
+            if id(job) not in queued:
+                live.append(job)
         _completion_queue.queue.extendleft(reversed(live))
         _completion_queue.not_empty.notify(len(live))
 
@@ -1737,6 +1742,7 @@ def register_background_job(
             _close_callback=close_callback,
             _output_callback=output_callback,
             log_dir=_current_log_dir(),
+            branch=_current_branch(conversation_id),
         )
         if capture is not None:
             # Transfer the already-running capture, not its bytes or feeder.
