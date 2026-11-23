@@ -643,8 +643,9 @@ test('rendered result preview stays inside a bounded pane', async ({ page }, tes
 test('native tool payload streams collapsed without losing the preceding reply tail', async ({
   page,
 }, testInfo) => {
-  await page.goto('/?demo=1');
-  await page.getByText('Introduction to gptme').click();
+  // Wait for the demo conversation to render before replacing its log; a click
+  // alone can race the initial load and let demo messages overwrite the fixture.
+  await openTurn(page);
   await page.evaluate(async (id) => {
     const { replaceLog } = await import('/src/stores/conversations.ts');
     replaceLog(id, [
