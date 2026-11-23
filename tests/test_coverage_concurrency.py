@@ -9,6 +9,15 @@ import coverage
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def test_coverage_enables_thread_and_greenlet_concurrency() -> None:
+    # Executing a greenlet to completion is also traced in thread-only mode;
+    # pin the greenlet setting separately from the execution regression below.
+    cov = coverage.Coverage(config_file=str(ROOT / "pyproject.toml"))
+    concurrency = cov.get_option("run:concurrency")
+    assert isinstance(concurrency, list)
+    assert set(concurrency) == {"thread", "greenlet"}
+
+
 def test_coverage_records_thread_and_greenlet_execution(tmp_path: Path) -> None:
     source = tmp_path / "concurrent_work.py"
     source.write_text(

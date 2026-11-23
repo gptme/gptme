@@ -692,6 +692,8 @@ def test_teeio_write_reports_full_length_when_truncating():
     assert tee.write(data) == len(data)
 
 
+# Run timeout delivery outside coverage's thread+greenlet C tracer: it can
+# swallow SetAsyncExc during sliced sleep, including on Python 3.12.
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process handling")
 @pytest.mark.parametrize(
     "code",
@@ -702,19 +704,37 @@ def test_teeio_write_reports_full_length_when_truncating():
         "while True: pass",
     ],
 )
-def test_execute_python_times_out(code, monkeypatch):
+def test_execute_python_times_out(code, tmp_path):
     """GPTME_IPYTHON_TIMEOUT interrupts a blocked cell, including one waiting
     in time.sleep or on a subprocess (which is killed)."""
-    import time
+    import subprocess
 
-    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "1")
-    start = time.monotonic()
-    msgs = list(execute_python(code, [], None))
-    assert time.monotonic() - start < 5
-    assert "timed out after 1s" in msgs[-1].content
-    assert "print" not in code  # sanity
-    # the REPL still works afterwards
-    assert "ok" in run("print('ok')")
+    # A fresh interpreter is required: pausing coverage after IPython has run
+    # under its tracer does not undo the interaction. Pin the backend so an
+    # installed kernel extra cannot silently test Jupyter's SIGINT path instead.
+    script = """
+import sys
+import time
+from gptme.tools.python import execute_python
+
+start = time.monotonic()
+msgs = list(execute_python(sys.argv[1], [], None))
+assert time.monotonic() - start < 5
+assert 'timed out after 1s' in msgs[-1].content
+assert 'ok' in next(execute_python("print('ok')", [], None)).content
+"""
+    env = dict(os.environ, GPTME_IPYTHON_BACKEND="inprocess", GPTME_IPYTHON_TIMEOUT="1")
+    env.pop("COVERAGE_PROCESS_START", None)
+    result = subprocess.run(
+        [sys.executable, "-c", script, code],
+        check=False,
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_execute_python_timeout_disabled(monkeypatch):
