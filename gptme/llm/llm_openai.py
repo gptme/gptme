@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import re
+import time
 from collections.abc import Generator, Iterable, Iterator, Mapping
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -1394,12 +1395,18 @@ def chat(
                 **optional_kwargs,
             )
 
+    _start_relaxed = _uses_openrouter_backend(
+        provider, model_meta
+    ) and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
     try:
-        raw_response = _chat_create()
+        raw_response = _chat_create(relaxed_privacy=_start_relaxed)
     except Exception as _e:
-        if _uses_openrouter_backend(
-            provider, model_meta
-        ) and _is_openrouter_no_endpoints_error(_e):
+        if (
+            not _start_relaxed
+            and _uses_openrouter_backend(provider, model_meta)
+            and _is_openrouter_no_endpoints_error(_e)
+        ):
+            _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
             logger.warning(
                 "OpenRouter: no endpoints matched the strict constraints "
@@ -1603,6 +1610,36 @@ def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str 
             f"Invalid {label} reasoning effort: {effort!r}. Must be one of: {valid}."
         )
     return effort
+
+
+# How long a model stays on relaxed OpenRouter routing after strict routing
+# found no endpoint. Bounded so a transient routing outage does not drop the
+# require_parameters guard for the rest of a long-lived process.
+_OPENROUTER_RELAXED_TTL_S = 600.0
+_openrouter_relaxed_until: dict[str, float] = {}
+
+
+def _openrouter_relaxed_remembered(key: str) -> bool:
+    """Return True if strict routing recently found no endpoint for ``key``.
+
+    ``key`` is ``"{provider}:{model}"``: a proxy's allowlist (e.g. gptme.ai)
+    must not relax routing for the same model on direct OpenRouter.
+
+    Without this, every request to such a model pays one failed strict
+    attempt before the relaxed retry succeeds (~3 s per turn observed on
+    gptme.ai for Sonnet 5.5 under its provider allowlist).
+    """
+    until = _openrouter_relaxed_until.get(key)
+    if until is None:
+        return False
+    if time.monotonic() >= until:
+        _openrouter_relaxed_until.pop(key, None)
+        return False
+    return True
+
+
+def _remember_openrouter_relaxed(key: str) -> None:
+    _openrouter_relaxed_until[key] = time.monotonic() + _OPENROUTER_RELAXED_TTL_S
 
 
 def _is_openrouter_no_endpoints_error(e: Exception) -> bool:
@@ -2099,12 +2136,20 @@ def _stream_with_client(
         native_finish: str | None = None
         attempt_output: list[bool] = []
 
+        _start_relaxed = _uses_openrouter_backend(
+            provider, model_meta
+        ) and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
         try:
-            _stream_obj = _stream_create(provider_ignore=_ignored_providers)
+            _stream_obj = _stream_create(
+                relaxed_privacy=_start_relaxed, provider_ignore=_ignored_providers
+            )
         except Exception as _e:
-            if _uses_openrouter_backend(
-                provider, model_meta
-            ) and _is_openrouter_no_endpoints_error(_e):
+            if (
+                not _start_relaxed
+                and _uses_openrouter_backend(provider, model_meta)
+                and _is_openrouter_no_endpoints_error(_e)
+            ):
+                _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
                 _dc_configured = get_config().get_env(
                     "OPENROUTER_DATA_COLLECTION", "deny"
                 )

@@ -3093,6 +3093,12 @@ class TestOpenRouterPrivacyFallbackRetry:
     the OpenRouter backend.
     """
 
+    @pytest.fixture(autouse=True)
+    def _clear_relaxed_memo(self):
+        llm_openai._openrouter_relaxed_until.clear()
+        yield
+        llm_openai._openrouter_relaxed_until.clear()
+
     @staticmethod
     def _success_completion():
         from openai.types.completion_usage import CompletionUsage
@@ -3267,6 +3273,41 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert "require_parameters" not in calls[1]["provider"]
         assert calls[1]["provider"]["data_collection"] == "deny"
         assert result == "Hello"
+
+    def test_chat_remembers_relaxed_routing_for_next_request(self, monkeypatch):
+        """After one no-endpoints 404, the next chat() goes straight to relaxed."""
+        completion = self._success_completion()
+        raw_ok = SimpleNamespace(parse=lambda: completion, headers={})
+        err = self._chat_error()
+        calls = []
+
+        def _create(**kwargs):
+            calls.append(kwargs.get("extra_body", {}))
+            if len(calls) == 1:
+                raise err
+            return raw_ok
+
+        self._setup_openrouter_chat(monkeypatch, _create)
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        llm_openai.chat([Message(role="user", content="Hi")], model, None)
+        llm_openai.chat([Message(role="user", content="Again")], model, None)
+
+        # strict (404), relaxed (ok), then relaxed directly: no second strict attempt
+        assert len(calls) == 3
+        assert calls[0]["provider"]["require_parameters"] is True
+        assert "require_parameters" not in calls[2]["provider"]
+        assert calls[2]["provider"]["data_collection"] == "deny"
+
+    def test_relaxed_routing_memo_expires(self, monkeypatch):
+        """The memo is bounded: after the TTL, strict routing is tried again."""
+        now = [1000.0]
+        monkeypatch.setattr(llm_openai.time, "monotonic", lambda: now[0])
+        model = "deepseek/deepseek-v4-flash-0731"
+        llm_openai._remember_openrouter_relaxed(model)
+        assert llm_openai._openrouter_relaxed_remembered(model)
+        assert not llm_openai._openrouter_relaxed_remembered("other/model")
+        now[0] += llm_openai._OPENROUTER_RELAXED_TTL_S
+        assert not llm_openai._openrouter_relaxed_remembered(model)
 
 
 class TestOpenAIStreamMalformedChunk:
