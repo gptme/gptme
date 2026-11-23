@@ -66,6 +66,7 @@ def _audio_player_thread_fn() -> None:
             # First try to save as temp file and play with system commands
             success = False
             if is_cmd_audio_available():
+                tmp_path = None
                 try:
                     with tempfile.NamedTemporaryFile(
                         suffix=".wav", delete=False
@@ -92,14 +93,14 @@ def _audio_player_thread_fn() -> None:
                             ):
                                 success = True
 
-                        # Clean up temp file
-                        try:
-                            tmp_path.unlink()
-                        except OSError:
-                            pass
-
                 except Exception as e:
                     log.debug(f"System command playback failed: {e}")
+                finally:
+                    if tmp_path is not None:
+                        try:
+                            tmp_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
 
             # Fall back to sounddevice if system commands failed
             if not success and is_sounddevice_available():
