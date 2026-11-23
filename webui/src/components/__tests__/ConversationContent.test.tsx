@@ -9,7 +9,7 @@ import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import type { Message } from '@/types/conversation';
-import type { ExecutingTool } from '@/stores/conversations';
+import type { ExecutingTool, PendingElicitation } from '@/stores/conversations';
 import { ConversationContent } from '../ConversationContent';
 import { CONNECTION_GRACE_MS } from '@/hooks/useConnectionStatus';
 
@@ -120,7 +120,7 @@ function makeConversationState() {
     isConnected: true,
     isGenerating: false,
     pendingTool: null,
-    pendingElicitation: null,
+    pendingElicitation: null as PendingElicitation | null,
     executingTool: null as ExecutingTool | null,
     lastCompletedTool: null,
     showInitialSystem: false,
@@ -307,6 +307,25 @@ jest.mock('@tanstack/react-query', () => ({
 function renderComponent() {
   return render(<ConversationContent conversationId="demo/test" />);
 }
+
+describe('read-only elicitation', () => {
+  beforeEach(() => {
+    mockConversation$.set(makeConversationState().peek());
+    mockConversation$.pendingElicitation.set({
+      id: 'pending-choice',
+      type: 'choice',
+      prompt: 'Which suite?',
+      options: ['Unit tests', 'Browser tests'],
+    });
+  });
+
+  it('shows the question only in writable panes', () => {
+    const view = render(<ConversationContent conversationId="demo/test" />);
+    expect(screen.getByTestId('inline-elicitation')).toBeInTheDocument();
+    view.rerender(<ConversationContent conversationId="demo/test" isReadOnly />);
+    expect(screen.queryByTestId('inline-elicitation')).not.toBeInTheDocument();
+  });
+});
 
 function message(role: Message['role'], content: string): Message {
   return { role, content };

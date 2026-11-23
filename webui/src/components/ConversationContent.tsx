@@ -1178,11 +1178,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         )}
 
         {/* Agent question (elicit tool): text, choice, form, ... */}
-        <InlineElicitation
-          pendingElicitation$={conversation$?.pendingElicitation}
-          onRespond={respondToElicitation}
-          isActivePane={isActivePane}
-        />
+        {!isReadOnly && (
+          <InlineElicitation
+            pendingElicitation$={conversation$?.pendingElicitation}
+            onRespond={respondToElicitation}
+            isActivePane={isActivePane}
+          />
+        )}
 
         {/* Inline Tool Execution */}
         <InlineToolExecution executingTool$={conversation$?.executingTool} />
