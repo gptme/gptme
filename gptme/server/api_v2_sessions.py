@@ -1323,10 +1323,14 @@ def api_conversation_interrupt(conversation_id: str):
     # between clearing one session and the next.
     interrupted = False
     with SessionManager.conversation_lock(conversation_id):
+        has_elicitation = bool(list_pending_elicitations(conversation_id))
         for sess in SessionManager.get_sessions_for_conversation(conversation_id):
             with sess.step_lock:
                 active = bool(
-                    sess.generating or sess.pending_tools or sess._executing_tools
+                    sess.generating
+                    or sess.pending_tools
+                    or sess._executing_tools
+                    or has_elicitation
                 )
                 if active:
                     interrupted = True

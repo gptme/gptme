@@ -946,6 +946,7 @@ class TestInterruptEndpoint:
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
         session.generating = generating
+        initial_seq = session.step_seq
         pending = []
         for conversation, eid in [(conv, "stopped"), (other, "other")]:
             pending.append(
@@ -967,6 +968,8 @@ class TestInterruptEndpoint:
                 json={"session_id": conv["session_id"]},
             )
             assert response.status_code == 200
+            assert session.interrupted is True
+            assert session.step_seq == initial_seq + 1
             assert list_pending_events(conv["conversation_id"]) == []
             events = client.get(
                 f"/api/v2/conversations/{conv['conversation_id']}/events"
