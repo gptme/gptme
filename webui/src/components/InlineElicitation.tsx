@@ -131,6 +131,7 @@ export function InlineElicitation({
     } catch (e) {
       console.error('Error answering elicitation:', e);
       setError('Could not send the answer. Try again.');
+    } finally {
       setSubmitting(false);
     }
   };

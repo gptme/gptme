@@ -142,6 +142,13 @@ describe('InlineElicitation', () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 
+  it('re-enables a question left mounted after a stale successful response', async () => {
+    renderElicit({ id: 'stale', type: 'choice', prompt: 'Pick', options: ['x'] });
+    fireEvent.click(screen.getByText('x'));
+    expect(screen.getByText('x')).toBeDisabled();
+    await waitFor(() => expect(screen.getByText('x')).toBeEnabled());
+  });
+
   it('shows a retry message when sending fails', async () => {
     const pendingElicitation$ = observable<PendingElicitation | null>({
       id: 'e7',
