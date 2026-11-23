@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApi } from '@/contexts/ApiContext';
 import { useToast } from '@/components/ui/use-toast';
 import type { Message, StreamingMessage } from '@/types/conversation';
+import type { ElicitationResponse } from '@/utils/api';
 import type { ChatOptions } from '@/components/ChatInput';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { isDemoMode } from '@/utils/connectionConfig';
@@ -16,6 +17,7 @@ import {
   setConnected,
   setConnectionStatus,
   setPendingTool,
+  setPendingElicitation,
   setExecutingTool,
   setToolOutput,
   setToolComplete,
@@ -382,6 +384,9 @@ export function useConversation(conversationId: string, serverId?: string) {
         api
           .subscribeToEvents(conversationId, {
             onMessageStart: () => {
+              if (conversation$?.pendingElicitation.peek()) {
+                setPendingElicitation(conversationId, null);
+              }
               if (stopRequestedRef.current) {
                 // Handshake started generation after Stop. Keep the UI stopped
                 // and interrupt now that a session is likely present.
@@ -564,7 +569,19 @@ export function useConversation(conversationId: string, serverId?: string) {
               // Auto-confirm tools are already scheduled by the server. Sending
               // another approval from every viewer races that execution.
             },
+            onElicitPending: (elicitation) => {
+              // The agent is blocked on this answer; show it like a pending tool.
+              setGenerating(conversationId, false);
+              setPendingElicitation(conversationId, elicitation);
+              playChime().catch((error) => {
+                console.warn('Failed to play elicitation chime:', error);
+              });
+            },
             onToolExecuting: (toolId) => {
+              // Agent resumed: any elicitation was answered (possibly in another viewer).
+              if (conversation$?.pendingElicitation.peek()) {
+                setPendingElicitation(conversationId, null);
+              }
               // Get the pending tool to move it to executing state
               const pendingTool = conversation$?.pendingTool.get();
               if (pendingTool && pendingTool.id === toolId) {
@@ -610,6 +627,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               conversation$?.pendingGenerationPrompt.set(undefined);
               setGenerating(conversationId, false);
               setPendingTool(conversationId, null, null);
+              setPendingElicitation(conversationId, null);
               setExecutingTool(conversationId, null, null);
               messageJustCompleted.current = false;
 
@@ -627,6 +645,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               console.error('[useConversation] Error:', error);
               setGenerating(conversationId, false);
               setPendingTool(conversationId, null, null);
+              setPendingElicitation(conversationId, null);
               setExecutingTool(conversationId, null, null);
               messageJustCompleted.current = false;
 
@@ -1179,6 +1198,27 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   };
 
+  const respondToElicitation = async (response: ElicitationResponse) => {
+    const pending = conversation$?.pendingElicitation.get();
+    if (!pending) {
+      console.warn('No pending elicitation to answer');
+      return;
+    }
+    // The server resumes the blocked agent step; mark generating so ChatInput
+    // does not flush queued messages into the gap before the next event.
+    setPendingElicitation(conversationId, null);
+    setGenerating(conversationId, true);
+    try {
+      await api.respondToElicitation(conversationId, pending.id, response);
+    } catch (error) {
+      console.error('[useConversation] Elicitation response failed:', error);
+      // Restore the question so the user can retry.
+      setPendingElicitation(conversationId, pending);
+      setGenerating(conversationId, false);
+      throw error;
+    }
+  };
+
   const confirmTool = async (
     action: 'confirm' | 'edit' | 'skip' | 'auto',
     options?: { content?: string; count?: number }
@@ -1593,6 +1633,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     forkConversation,
     switchBranch,
     confirmTool,
+    respondToElicitation,
     interruptGeneration,
     isLoadingOlderMessages,
     loadOlderMessages,

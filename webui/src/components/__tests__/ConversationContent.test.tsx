@@ -120,6 +120,7 @@ function makeConversationState() {
     isConnected: true,
     isGenerating: false,
     pendingTool: null,
+    pendingElicitation: null,
     executingTool: null as ExecutingTool | null,
     lastCompletedTool: null,
     showInitialSystem: false,

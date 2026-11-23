@@ -133,6 +133,7 @@ function setLoadedConversation(messages: Message[], hasMoreBefore: boolean) {
     connectionError: null,
     loadError: null,
     pendingTool: null,
+    pendingElicitation: null,
     executingTool: null,
     lastCompletedTool: null,
     showInitialSystem: false,

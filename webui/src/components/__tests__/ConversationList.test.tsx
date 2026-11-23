@@ -177,6 +177,7 @@ describe('ConversationList', () => {
       connectionError: null,
       loadError: null,
       pendingTool: null,
+      pendingElicitation: null,
       executingTool: null,
       lastCompletedTool: null,
       showInitialSystem: false,
