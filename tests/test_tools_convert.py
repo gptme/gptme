@@ -1647,13 +1647,18 @@ def test_execute_convert_anchors_relative_paths_at_session_cwd(tmp_path):
 
     ws = tmp_path / "ws"
     ws.mkdir()
-    (ws / "in.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "in.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (ws / "linked").symlink_to(assets, target_is_directory=True)
     ok = ConversionResult(success=True, output_path=None, converter_used="image")
 
     def run():
         set_workspace_cwd(str(ws))
         return convert._execute_convert(
-            None, None, {"input_path": "in.png", "output_path": "out.jpg"}
+            None,
+            None,
+            {"input_path": "linked/in.png", "output_path": "linked/out.jpg"},
         )
 
     with patch("gptme.tools.convert.convert_file", return_value=ok) as mock_convert:
@@ -1661,8 +1666,10 @@ def test_execute_convert_anchors_relative_paths_at_session_cwd(tmp_path):
 
     assert "not found" not in result.content
     src, dest = mock_convert.call_args.args[:2]
-    assert src == ws.resolve() / "in.png"
-    assert dest == ws.resolve() / "out.jpg"
+    assert src == ws.resolve() / "linked/in.png"
+    assert dest == ws.resolve() / "linked/out.jpg"
+    assert src != src.resolve()
+    assert dest != dest.resolve()
 
 
 def test_execute_convert_missing_args():
