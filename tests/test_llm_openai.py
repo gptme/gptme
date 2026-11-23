@@ -3298,8 +3298,11 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert "require_parameters" not in calls[2]["provider"]
         assert calls[2]["provider"]["data_collection"] == "deny"
 
-    def test_stream_remembers_relaxed_routing_for_next_request(self, monkeypatch):
-        """After one no-endpoints 404, the next stream() goes straight to relaxed."""
+    @pytest.mark.parametrize("next_request_fails", [False, True])
+    def test_stream_remembers_relaxed_routing_for_next_request(
+        self, monkeypatch, next_request_fails
+    ):
+        """A remembered stream starts relaxed and does not repeat its fallback."""
         from gptme.message import Message
 
         err = self._chat_error()
@@ -3326,10 +3329,11 @@ class TestOpenRouterPrivacyFallbackRetry:
 
         def _create(**kwargs):
             calls.append(kwargs.get("extra_body", {}))
-            if len(calls) == 1:
+            if len(calls) == 1 or (next_request_fails and len(calls) >= 3):
                 raise err
             return _FakeStream()
 
+        monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
         mock_client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
         )
@@ -3340,8 +3344,29 @@ class TestOpenRouterPrivacyFallbackRetry:
         )
 
         model = "openrouter/deepseek/deepseek-v4-flash-0731"
-        "".join(llm_openai.stream([Message(role="user", content="Hi")], model, None))
-        "".join(llm_openai.stream([Message(role="user", content="Again")], model, None))
+        assert (
+            "".join(
+                llm_openai.stream([Message(role="user", content="Hi")], model, None)
+            )
+            == "Hello"
+        )
+        if next_request_fails:
+            with pytest.raises(openai.APIStatusError) as excinfo:
+                list(
+                    llm_openai.stream(
+                        [Message(role="user", content="Again")], model, None
+                    )
+                )
+            assert excinfo.value is err
+        else:
+            assert (
+                "".join(
+                    llm_openai.stream(
+                        [Message(role="user", content="Again")], model, None
+                    )
+                )
+                == "Hello"
+            )
 
         # strict (404), relaxed (ok), then relaxed directly: no second strict attempt
         assert len(calls) == 3
@@ -3361,7 +3386,9 @@ class TestOpenRouterPrivacyFallbackRetry:
 
         self._setup_openrouter_chat(monkeypatch, _create)
         model = "openrouter/deepseek/deepseek-v4-flash-0731"
-        llm_openai._remember_openrouter_relaxed(model)
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+        llm_openai._remember_openrouter_relaxed(key)
+        assert llm_openai._openrouter_relaxed_remembered(key)
         monkeypatch.setattr(llm_openai, "strict_request_bounds_active", lambda: True)
 
         llm_openai.chat([Message(role="user", content="Hi")], model, None)
@@ -3380,6 +3407,46 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert not llm_openai._openrouter_relaxed_remembered("other/model")
         now[0] += llm_openai._OPENROUTER_RELAXED_TTL_S
         assert not llm_openai._openrouter_relaxed_remembered(model)
+
+    def test_relaxed_routing_memo_serializes_expiry_cleanup(self, monkeypatch):
+        """A reader cannot remove a stale key while a writer is deleting it."""
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        deleting = Event()
+        resume = Event()
+        reading = Event()
+        read_finished = Event()
+
+        class PausedCleanup(dict):
+            def __delitem__(self, key):
+                deleting.set()
+                assert resume.wait(5), "cleanup was not released"
+                super().__delitem__(key)
+
+        monkeypatch.setattr(
+            llm_openai, "_openrouter_relaxed_until", PausedCleanup({"expired": 0.0})
+        )
+
+        def read_expired():
+            reading.set()
+            try:
+                return llm_openai._openrouter_relaxed_remembered("expired")
+            finally:
+                read_finished.set()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            writer = pool.submit(llm_openai._remember_openrouter_relaxed, "new")
+            try:
+                assert deleting.wait(5), "cleanup did not start"
+                reader = pool.submit(read_expired)
+                assert reading.wait(5), "reader did not start"
+                assert not read_finished.wait(0.1), "reader raced with cleanup"
+            finally:
+                resume.set()
+            writer.result(timeout=5)
+            assert reader.result(timeout=5) is False
+        assert set(llm_openai._openrouter_relaxed_until) == {"new"}
 
     def test_relaxed_routing_memo_prunes_expired_entries(self, monkeypatch):
         """Expired entries are dropped when a new key is remembered."""

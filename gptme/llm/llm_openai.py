@@ -9,6 +9,7 @@ import re
 import time
 from collections.abc import Generator, Iterable, Iterator, Mapping
 from functools import lru_cache, wraps
+from threading import Lock
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import requests
@@ -1627,6 +1628,7 @@ def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str 
 # require_parameters guard for the rest of a long-lived process.
 _OPENROUTER_RELAXED_TTL_S = 600.0
 _openrouter_relaxed_until: dict[str, float] = {}
+_openrouter_relaxed_lock = Lock()
 
 
 def _openrouter_relaxed_remembered(key: str) -> bool:
@@ -1639,21 +1641,25 @@ def _openrouter_relaxed_remembered(key: str) -> bool:
     attempt before the relaxed retry succeeds (~3 s per turn observed on
     gptme.ai for Sonnet 5.5 under its provider allowlist).
     """
-    until = _openrouter_relaxed_until.get(key)
-    if until is None:
-        return False
-    if time.monotonic() >= until:
-        _openrouter_relaxed_until.pop(key, None)
-        return False
-    return True
+    with _openrouter_relaxed_lock:
+        until = _openrouter_relaxed_until.get(key)
+        if until is None:
+            return False
+        if time.monotonic() >= until:
+            _openrouter_relaxed_until.pop(key, None)
+            return False
+        return True
 
 
 def _remember_openrouter_relaxed(key: str) -> None:
-    now = time.monotonic()
-    # Drop expired entries so one-off model ids cannot accumulate forever.
-    for stale in [k for k, until in _openrouter_relaxed_until.items() if now >= until]:
-        del _openrouter_relaxed_until[stale]
-    _openrouter_relaxed_until[key] = now + _OPENROUTER_RELAXED_TTL_S
+    with _openrouter_relaxed_lock:
+        now = time.monotonic()
+        # Drop expired entries so one-off model ids cannot accumulate forever.
+        for stale in [
+            k for k, until in _openrouter_relaxed_until.items() if now >= until
+        ]:
+            del _openrouter_relaxed_until[stale]
+        _openrouter_relaxed_until[key] = now + _OPENROUTER_RELAXED_TTL_S
 
 
 def _is_openrouter_no_endpoints_error(e: Exception) -> bool:
