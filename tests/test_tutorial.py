@@ -89,7 +89,10 @@ def test_validate_fix_bug_fail_original(tutorial_dir: Path) -> None:
     assert not passed
 
 
-def test_validate_fix_bug_pass(tmp_path: Path) -> None:
+def test_validate_fix_bug_pass_without_python3_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
     fixed = (
         "def greet(name):\n"
         "    return f'Hello, {name}!'\n\n"
