@@ -20,6 +20,7 @@ from flask import request
 
 from ..config import ChatConfig, Config
 from ..dirs import get_logs_dir
+from ..hooks.server_elicit import list_pending_events as list_pending_elicitations
 from ..llm.models import get_default_model, get_model
 from ..logmanager import LogManager
 from ..message import Message
@@ -282,6 +283,8 @@ def api_conversation_events(conversation_id: str):
                         for te in list(owner.pending_tools.values())
                         if te.status == ToolStatus.PENDING
                     ],
+                    # elicit_pending is emitted once; replay unanswered ones.
+                    "pending_elicitations": list_pending_elicitations(conversation_id),
                 }
             yield f"data: {flask.json.dumps(connected_event)}\n\n"
 

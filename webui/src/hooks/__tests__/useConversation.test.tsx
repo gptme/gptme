@@ -64,6 +64,7 @@ describe('useConversation', () => {
             tooluse: { tool: string; content: string };
             auto_confirm: boolean;
           }[];
+          pendingElicitations?: { id: string; type: string; prompt: string; options?: string[] }[];
         }) => void;
         onMessageStart?: () => void;
         onMessageAdded?: (message: Message) => void;
@@ -360,6 +361,53 @@ describe('useConversation', () => {
     act(() => eventHandlers!.onElicitPending!({ id: 'el-3', type: 'text', prompt: 'Q' }));
     act(() => eventHandlers!.onInterrupted!());
     expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toBeNull();
+  });
+
+  it('restores an unanswered elicit request from the reconnect snapshot', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const older = { id: 'el-old', type: 'text', prompt: 'Older' };
+    const latest = { id: 'el-new', type: 'choice', prompt: 'Pick', options: ['a', 'b'] };
+    act(() =>
+      eventHandlers!.onReconnectState!({
+        generating: true,
+        pendingTools: [],
+        pendingElicitations: [older, latest],
+      })
+    );
+    const conversation = conversations$.get('chat-placeholder')!;
+    expect(conversation.pendingElicitation.get()).toEqual(latest);
+    expect(conversation.isGenerating.get()).toBe(false);
+
+    // Same request again: keep it (and its revision) so an in-flight answer stays valid.
+    const revision = conversation.elicitationRevision.get();
+    act(() =>
+      eventHandlers!.onReconnectState!({
+        generating: false,
+        pendingTools: [],
+        pendingElicitations: [latest],
+      })
+    );
+    expect(conversation.elicitationRevision.get()).toBe(revision);
+
+    // Answered elsewhere during the outage.
+    act(() =>
+      eventHandlers!.onReconnectState!({
+        generating: true,
+        pendingTools: [],
+        pendingElicitations: [],
+      })
+    );
+    expect(conversation.pendingElicitation.get()).toBeNull();
+  });
+
+  it('leaves the elicit request alone when the server sends no elicitation snapshot', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const elicitation = { id: 'el-4', type: 'text', prompt: 'Q' };
+    act(() => eventHandlers!.onElicitPending!(elicitation));
+    act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
+    expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toEqual(elicitation);
   });
 
   it('clears stale pending approval when reconnect reports no pending tools', async () => {

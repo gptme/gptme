@@ -44,6 +44,10 @@ class PendingElicitation:
     request: ElicitationRequest
     event: threading.Event = field(default_factory=threading.Event)
     result: ElicitationResponse | None = None
+    # Set by the server hook so a client that (re)connects while the agent is
+    # blocked can be shown the request again (the SSE event is emitted once).
+    conversation_id: str | None = None
+    event_data: "ElicitPendingEvent | None" = None
 
 
 # Global registry for pending elicitations (keyed by elicit_id)
@@ -54,18 +58,26 @@ _lock = threading.Lock()
 def register_pending(
     elicit_id: str,
     request: ElicitationRequest,
+    conversation_id: str | None = None,
+    event_data: "ElicitPendingEvent | None" = None,
 ) -> PendingElicitation:
     """Register a pending elicitation request.
 
     Args:
         elicit_id: Unique ID for this elicitation
         request: The elicitation request
+        conversation_id: Conversation the request belongs to, if any
+        event_data: The ``elicit_pending`` SSE payload, replayed on reconnect
 
     Returns:
         PendingElicitation with an Event to wait on
     """
     with _lock:
-        pending = PendingElicitation(request=request)
+        pending = PendingElicitation(
+            request=request,
+            conversation_id=conversation_id,
+            event_data=event_data,
+        )
         _pending_elicitations[elicit_id] = pending
         return pending
 
@@ -108,6 +120,23 @@ def get_pending(elicit_id: str) -> PendingElicitation | None:
         return _pending_elicitations.get(elicit_id)
 
 
+def list_pending_events(conversation_id: str) -> list["ElicitPendingEvent"]:
+    """Return the ``elicit_pending`` payloads still awaiting an answer.
+
+    Used for the ``connected`` snapshot: the live event is emitted once, so a
+    client that connects (or reloads) while the agent is blocked would
+    otherwise never see the question. Ordered oldest first.
+    """
+    with _lock:
+        return [
+            pending.event_data
+            for pending in _pending_elicitations.values()
+            if pending.conversation_id == conversation_id
+            and pending.event_data is not None
+            and not pending.event.is_set()
+        ]
+
+
 def server_elicit_hook(
     request: ElicitationRequest,
 ) -> ElicitationResponse | None:
@@ -137,9 +166,6 @@ def server_elicit_hook(
     try:
         from ..server.api_v2_sessions import SessionManager
 
-        # Create pending elicitation
-        pending = register_pending(elicit_id, request)
-
         # Build the event payload
         event_data: ElicitPendingEvent = {
             "type": "elicit_pending",
@@ -165,6 +191,12 @@ def server_elicit_hook(
             event_data["default"] = request.default
         if request.description:
             event_data["description"] = request.description
+
+        # Register before emitting, so a client connecting in between still
+        # finds the request in its ``connected`` snapshot.
+        pending = register_pending(
+            elicit_id, request, conversation_id=conversation_id, event_data=event_data
+        )
 
         # Emit SSE event to notify client
         SessionManager.add_event(conversation_id, event_data)

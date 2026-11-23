@@ -20,6 +20,8 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
+from typing import TYPE_CHECKING
+
 from flask.testing import FlaskClient  # fmt: skip
 
 from gptme.server.session_models import (  # fmt: skip
@@ -27,6 +29,9 @@ from gptme.server.session_models import (  # fmt: skip
     ToolExecution,
 )
 from gptme.tools import ToolUse  # fmt: skip
+
+if TYPE_CHECKING:
+    from gptme.server.api_v2_common import ElicitPendingEvent
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -3593,3 +3598,50 @@ def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path, ra
     _persist_generation_error(manager, session, raw)
 
     assert manager.log.messages[-1].content == f"Error: {raw}"
+
+
+def test_connected_snapshot_replays_pending_elicitation(conv, client):
+    """A client connecting while the agent waits on elicit() still sees it."""
+    from gptme.hooks.elicitation import ElicitationRequest
+    from gptme.hooks.server_elicit import register_pending, remove_pending
+
+    conversation_id = conv["conversation_id"]
+    event: ElicitPendingEvent = {
+        "type": "elicit_pending",
+        "elicit_id": "elicit-replay",
+        "elicit_type": "choice",
+        "prompt": "Pick one",
+        "options": ["a", "b"],
+    }
+    register_pending(
+        "elicit-replay",
+        ElicitationRequest(type="choice", prompt="Pick one", options=["a", "b"]),
+        conversation_id=conversation_id,
+        event_data=event,
+    )
+    register_pending(
+        "elicit-other",
+        ElicitationRequest(type="text", prompt="Elsewhere"),
+        conversation_id="some-other-conversation",
+        event_data={
+            "type": "elicit_pending",
+            "elicit_id": "elicit-other",
+            "elicit_type": "text",
+            "prompt": "Elsewhere",
+        },
+    )
+    try:
+        response = client.get(
+            f"/api/v2/conversations/{conversation_id}/events?session_id={conv['session_id']}",
+            buffered=False,
+        )
+        try:
+            first = next(response.iter_encoded()).decode("utf-8")
+        finally:
+            response.close()
+    finally:
+        remove_pending("elicit-replay")
+        remove_pending("elicit-other")
+    connected = json.loads(first.removeprefix("data: ").strip())
+    assert connected["type"] == "connected"
+    assert connected["pending_elicitations"] == [event]
