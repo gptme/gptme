@@ -4,10 +4,11 @@ audience: developer
 
 # File-backed tool and process output
 
-**Status:** contract. Production capture is rolling out in slices: writer-safety
-#4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB
-per-stream / 128 MiB conversation quota, receipt sidecar, independent byte
-cursors). Promotion convergence (step 3) has landed: a foreground command
+**Status:** contract, implemented in slices (see *Delivery status* below
+for the step-to-PR map and what is deliberately left open): writer-safety
+#4782, launch-time spool #4826, and bounded writes #4856 (bounded writer queue,
+32 MiB per-stream / 128 MiB conversation quota, receipt sidecar, independent
+byte cursors). Promotion convergence (step 3) has landed: a foreground command
 promoted to a job adopts its existing capture into that same spool at the
 promotion boundary — the job follows the shell's append-only chunk lists, so
 output from before and after promotion is ingested once, in stream order, with
@@ -89,21 +90,23 @@ recovery are separate layers, not alternative output stores.
 
 ## Current-state inventory
 
-References below are source paths and function names at the inventory revision.
+References below are source paths and function names. The table was taken at
+the inventory revision and rows have since been updated in place as slices landed
+(each update names its PR); *Delivery status* below has the summary.
 A file may preserve a selected/decoded/redacted representation without preserving
 original process bytes. No generic guarantee applies across these rows.
 
 | Entry point | Capture and presentation today | Retention/retrieval limitation |
 | --- | --- | --- |
-| `util/output_storage.py:save_large_output` | Writes an already-materialized string; second-resolution timestamp + eight-character content hash | Ordinary mkdir/write; no explicit private modes, exclusive creation, atomic publication, containment check or inherent redaction. Same content/type/second reuses a path. |
+| `util/output_storage.py:save_large_output`, `open_private_output_file` | Writes an already-materialized string; second-resolution timestamp + eight-character content hash. Since #4782: `output_type` reduced to one safe component, private `0700` directories and `0600` files, descriptor-relative `O_NOFOLLOW` traversal where supported, private temp then hard-link publish (no clobber; exclusive-create fallback where hard links fail), numeric suffix on same-second collisions, per-character surrogateescape/replace encoding. `open_private_output_file` gives the live spools the same rules for exclusive append-owned files | Whole-text publication, not streaming; the caller has already materialized the text in RAM. No inherent redaction: callers (shell, tmux, python, gh) redact before saving; read/MCP/browser/convert/autocompact save what they were given. Exclusive-create fallback is no-clobber but not atomic. |
 | `tools/shell.py:ShellSession.run`, `_format_shell_output`, `_shorten_stdout` | Foreground collects decoded strings, normally under a 32 MiB combined raw-read cap; ANSI removal and configured credential redaction precede formatted spills. Line/token shortening and query-aware pruning save their input first when logdir exists | Full *supplied text*, not original bytes: UTF-8 replacement, shell framing/blank trimming and sanitation already occurred. Strings/tokenization still use RAM; spill is not streaming. Missing logdir means no durable spill. |
-| `tools/shell.py:execute_shell_impl` promotion | Existing foreground worker continues; job callback exposes active output. `complete_background_job` writes final text before storing a bounded tail | Existing cap/termination path remains relevant; complete relative to returned text, not an unlimited process lifetime. No launch-time spool. |
-| `tools/shell_background.py:BackgroundJob._read_output`, `get_output`, `format_job_output` | Direct jobs incrementally decode into roughly 1 Mi-character tails per stream (constant counts characters, not bytes); display tails 8k stdout / 2k stderr. `output N --new` advances character cursors | Prefixes can be evicted before first disk snapshot. Sanitized snapshots on display, not append-only spooling. Promoted final writes are protected against later snapshot replacement; direct snapshots are mutable. |
+| `tools/shell.py:execute_shell_impl` promotion | Existing foreground worker continues. Since #4880 the job adopts the foreground capture into the direct-job spool at the promotion boundary (`capture_origin: foreground_promotion`); output before and after promotion is ingested once, in order. Without a logdir, `complete_background_job` still writes final text before storing a bounded tail | Existing cap/termination path remains relevant. Adopted chunks were decoded upstream, so raw pipe-byte counters stay `null` for them. |
+| `tools/shell_background.py:BackgroundJob._read_output`, `get_output`, `format_job_output` | Direct jobs incrementally decode into roughly 1 Mi-character RAM tails per stream (constant counts characters, not bytes); display tails 8k stdout / 2k stderr. With a logdir, private `.stdout.live` / `.stderr.live` spools open at launch (#4826) and receive sanitized output through a bounded writer queue before RAM eviction, under 32 MiB per-stream / 128 MiB conversation quotas, with a receipt sidecar published last and independent byte cursors for `output N --new` (#4856); raw pipe-byte counters on the receipt (#5033). The preview says when its prefix was evicted from RAM (#4947) | Spool is a sanitized representation, not original bytes. Queue saturation, quota, sanitation-window omissions and write failures mark capture partial while the reader keeps draining. Without a logdir, prefixes can still be lost to RAM eviction. Promoted final writes are protected against later snapshot replacement. |
 | Background termination | Reader drains for about one second after direct-child exit, flushes decoder, then notifies; process-group cleanup handles descendants | Reader-finished does not prove pipe EOF or unlimited descendant capture. Registry/cursors are in memory; jobs do not survive restart. |
 | `tools/python.py:TeeIO`, `_redact_cell_output`, `_cap_output`; `python_kernel.py:KernelBackend.execute` | In-process/kernel stream capture keeps bounded heads (10 MiB per stream); ordinary result/error text materializes before capping. Capped stdout/stderr/result strings pass the shell's credential-redaction policy (`GPTME_SHELL_REDACT_SECRETS`) before the inline preview and post-materialization spill. Kernel/direct-call error text is redacted at its insertion point. `TeeIO` streaming spills buffer complete LF-delimited lines before redaction, so credentials split across writes remain recognizable. With redaction enabled, a line exceeding the 1 Mi-character sanitation window is omitted in its entirety through its next LF (or EOF), with an explicit marker; the preview then says **partial output saved**. Disabling redaction retains raw streaming output without line omissions. Spill creation/write failures are best-effort and do not stop cell execution. Returned Message paths differ | Redaction is the shell's heuristic, not a general secret scanner, and it cannot unsee a value already written by a live tee. Overlong-line omission means the retained file is not always a full representation of the captured output. Capture-marker byte counts describe raw observed capture bytes, not the sanitized file's size. Streaming redaction uses the policy known at write time: a value that only later becomes a live secret-named environment value is already on disk, so the retained file can hold a value the end-of-execution preview redacts. A retained unterminated line is redacted at stream `finish`, not while it streams. Live tee can show more than transcript. Sandbox Docker communicate / Wasmtime file read can materialize output before clipping. |
 | `tools/gh.py:execute_gh`, `util/gh.py` | Subprocess capture buffers before native parsing. Native run view extracts/clips failure sections; PR thread bodies also clipped; oversized passthrough stdout, and a failed call's truncated streams, spill to the conversation's `tool-outputs/gh/` (best-effort, no logdir means no spill). Passthrough stdout/stderr passes the shell's credential-redaction policy (`GPTME_SHELL_REDACT_SECRETS`) before both the inline preview and the saved file | No archival guarantee. Redaction is the shell's heuristic, not a general secret scanner. Re-fetch requires credentials/network and may return changed state; successful passthrough stderr is not yielded. |
 | `tools/mcp_adapter.py:create_mcp_execute_function`, resource/prompt helpers | Loaded tool conversion joins every content item with newlines (text verbatim, other content as placeholders), as resources do. The joined result is bounded at `GPTME_MCP_MAX_OUTPUT_CHARS` (default 100k characters) to head and tail | Full joined text spills to `tool-outputs/` only when a conversation logdir exists; the bound applies either way. Transport limits are external. First text can enter debug logging. Advisory MCP roots are not sandboxing. |
-| `tools/browser.py`, `_browser_playwright.py`, `_browser_lynx.py` | HTML/Markdown/ARIA and subprocess results materialize; console logs accumulate; PDF download materializes, default first 10 pages is not a byte bound | No direct text spill. Python-call path meets Python caps; native function conversion has no equivalent generic cap. Screenshots/auth-state files are separate resources. |
+| `tools/browser.py`, `_browser_playwright.py`, `_browser_lynx.py` | HTML/Markdown/ARIA and subprocess results materialize; console logs accumulate; PDF download materializes, default first 10 pages is not a byte bound. Since #5034, public string results are bounded at `GPTME_BROWSER_MAX_OUTPUT_CHARS` (default 100k) to head and tail on every call path, and spill to `tool-outputs/browser/` when a logdir exists | Post-materialization spill, not streaming; page content still materializes first. External content, not redacted. Screenshots/auth-state files are separate resources. |
 | `tools/read.py:_read_one`, `_read_text_bounded`, `_read_line_range` | Whole-file text limited to 1 MiB; ranges have rendered-byte bounds/continuation. Conditional relevance pruning saves selected pre-prune text | Saved selection is not necessarily the whole input. Original file may change later. `GPTME_READ_ROOT` confines resolved paths; default absolute-path access is broader. |
 | `tools/tmux.py:_capture_pane`, `_truncate_output` | Captures scrollback into RAM, then 50 head / 150 tail lines and a 40k-character bound on retained pane content (the truncation marker is extra). Every pane-reading command (new-session, send-keys, inspect-pane, wait) spills the full capture to the conversation's `tool-outputs/tmux/` when a logdir exists | Saved file is the scrollback tmux still held: history beyond `history-limit` was never captured, and the marker says "captured scrollback", not full output. No logdir means no spill (no user-cache fallback). Pane text passes the shell's credential-redaction policy (`GPTME_SHELL_REDACT_SECRETS`) before both the inline preview and the saved file. Capture joins terminal soft wraps but preserves real newlines; multiline credentials and arbitrary terminal formatting are not guaranteed to be recognized. This is the shell's heuristic, not a general secret scanner. |
 | `tools/autocompact/engine.py`, `create_tool_result_summary` | Saves received message text when logdir exists, then replaces with pointer; master-log references are another mechanism | Cannot recover upstream omissions or prevent initial allocations. Without logdir, or when the save fails, the replacement says the text was removed and not saved (it never names a file that does not exist); compaction continues. |
@@ -125,7 +128,8 @@ as a shell background job and does not generate a duplicate completion event.
 Other process paths retain separate contracts: `_poll_until` drains bounded
 500-character probe previews without full retention; `_poll_stream` bounds its
 line window and event queue without a general spool. `tools/convert.py` still
-uses subprocess capture before reporting diagnostics. This adapter does not
+uses subprocess capture before reporting diagnostics (oversized failure
+diagnostics are saved since #5039). This adapter does not
 change those paths or the shell/tmux/browser preview-size policy. Do not duplicate
 the bounded watch-probe work in gptme/gptme#4639.
 
@@ -315,11 +319,45 @@ same injection-screening/access policy; local storage does not confer authority.
 Security-sensitive subprocess paths that deliberately suppress output remain
 non-spooling unless explicitly opted in under their policy.
 
+## Delivery status
+
+Checked against `origin/master` `39729c5a3` (2026-11-23). Each step of the
+implementation sequence below has merged:
+
+| Step | Merged PRs |
+| --- | --- |
+| 0. Inventory, evidence script, contract | #4665 |
+| 1. Safe writer + honest receipt | #4782 (writer); receipt metadata with #4856, #4947, #5033 |
+| 2. Direct background spool | #4826 (launch-time spool), #4855 + #4856 (queue, quota, receipt, byte cursors), #5033 (raw pipe-byte counters) |
+| 3. Foreground/promotion convergence | #4880 (promotion adopts capture), #5022 (foreground budget spool below the soft timeout) |
+| 4. Entry-point adapters | Python/kernel overflow spill (#4967) and redaction (#5075); gh (#4966, #5013, #5086); browser (#5034); tmux (#5037, #5048); convert (#5039); watch-run (#5040); autocompact save-failure honesty (#5048); MCP bound and spill (#4925) |
+
+`scripts/measure_output_capture.py` at that revision, same 2,340,024-character
+child (exit 2): 1,294,336 characters still evicted from the direct reader's RAM
+buffer, but `live_path_at_reader_start` is set, `direct_log_has_begin: true`,
+`direct_preview_reports_loss: true`, `promoted_final_has_begin_and_end: true`,
+`final_survives_later_snapshot: true`. The measured hole that motivated this
+design (prefix lost, no path before the first read) is closed.
+
+Deliberately left open, tracked outside this contract:
+
+- **watch-until probe retention:** gptme/gptme#4641 (do not duplicate #4639).
+- **Preview-size default flip:** a separate policy change. The fixture table
+  above shows byte savings, not improved agent task success.
+- **ACP/sandbox artifact transfer:** stays unavailable until a bounded transfer
+  is tested; a host path is not a remote handle.
+- **Agent-level selective-retrieval benchmark:** ruled out as paid benchmarking
+  in the request.
+- **Redaction on read/MCP/browser/convert/autocompact spills:** these save what
+  they were given. `read` returns a file the model asked for; MCP and browser
+  return external content; autocompact saves text that was already in the
+  conversation. Redaction applies where gptme runs a local command (shell,
+  tmux, python, gh).
+
 ## Small implementation sequence and regression gates
 
-This PR delivers the inventory, reproducible evidence script and contract.
-Implementation defaults below await maintainer agreement; broad rollout is not
-implied by existing tests passing.
+The original sequence from #4665, kept as the record of each step's regression
+gates. Delivery status is above.
 
 1. **Safe existing writer + honest receipt.** Harden output_storage creation,
    containment/private permissions and atomic whole-text publication without
