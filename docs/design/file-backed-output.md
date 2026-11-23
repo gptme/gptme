@@ -184,7 +184,8 @@ evidence script. These are single-sample
 mechanism observations, not latency benchmarks, model-success scores or measured
 end-to-end time-to-useful-result. External/tool-call latency remains unmeasured.
 
-A real subprocess emitted 2,340,024 ASCII characters through the direct background
+At the original inventory revision (`15f20e44c96acdd035da81213b9e9f5bb54ac98d`),
+a real subprocess emitted 2,340,024 ASCII characters through the direct background
 reader and exited 2. It retained about 1.05M characters, evicting about 1.29M
 (chunk-dependent); the saved snapshot lacked BEGIN-MARKER and explicitly reported
 loss. There was no path before the first snapshot. Reader capture took about
@@ -236,10 +237,16 @@ with an explicit redaction/representation-loss marker. Never spill uncertain raw
 bytes merely to claim losslessness. Original raw bytes need an explicit policy
 and are not a default second copy of secrets.
 
-Proposed first limits: retain the foreground combined 32 MiB output ceiling;
-apply a configurable 32 MiB combined retained-stream ceiling to direct jobs,
-plus a 128 MiB conversation allowance for new spools. These are conservative
-starting proposals, not measured optimal defaults. On quota/storage failure,
+The original proposal was a configurable combined 32 MiB retained-stream ceiling
+for direct jobs. The shipped implementation (#4856) instead uses a fixed
+32 MiB **per-stream** spool ceiling (`_SPOOL_STREAM_QUOTA`) and a shared
+128 MiB conversation allowance (`_SPOOL_CONVERSATION_QUOTA`) in
+`tools/shell_background.py`. A two-stream job can therefore retain up to 64 MiB,
+subject to the conversation allowance; omission markers consume part of each
+stream ceiling. The foreground combined raw-read ceiling is separate (32 MiB by
+default, configurable through `GPTME_SHELL_MAX_OUTPUT_BYTES` /
+`[shell] spool_quota_mb`).
+These limits are not measured optimal defaults. On quota/storage failure,
 stop persistence, retain bounded preview, and mark partial/failed with the known
 retained boundary; continue draining/discarding so the child cannot deadlock.
 Writer backpressure must also be bounded: a bounded writer queue may stop
@@ -321,8 +328,12 @@ non-spooling unless explicitly opted in under their policy.
 
 ## Delivery status
 
-Checked against `origin/master` `39729c5a3` (2026-11-23). Each step of the
-implementation sequence below has merged:
+Checked against `origin/master`
+[`39729c5a322c549aa00d80581fe24af12e03215d`](https://github.com/gptme/gptme/commit/39729c5a322c549aa00d80581fe24af12e03215d)
+(2026-11-23). GitHub reports every PR below as merged, and each reported
+merge commit is an ancestor of that revision. Each implementation step has
+landed; this is not a claim that every proposed regression gate or deferred
+policy/transport change has shipped:
 
 | Step | Merged PRs |
 | --- | --- |
@@ -338,6 +349,26 @@ buffer, but `live_path_at_reader_start` is set, `direct_log_has_begin: true`,
 `direct_preview_reports_loss: true`, `promoted_final_has_begin_and_end: true`,
 `final_survives_later_snapshot: true`. The measured hole that motivated this
 design (prefix lost, no path before the first read) is closed.
+
+To independently check the merge map in a fetched checkout (requires GitHub
+access), query the merge commit and check its ancestry against the pinned
+revision, not a moving `origin/master`:
+
+```sh
+revision=39729c5a322c549aa00d80581fe24af12e03215d
+for pr in 4665 4782 4826 4855 4856 4947 5033 4880 5022 4967 5075 4966 5013 5086 5034 5037 5048 5039 5040 4925; do
+    sha=$(gh pr view "$pr" --repo gptme/gptme --json mergeCommit --jq '.mergeCommit.oid') || exit 1
+    test -n "$sha" && test "$sha" != null && git merge-base --is-ancestor "$sha" "$revision" || exit 1
+    printf '#%s %s merged before %s\n' "$pr" "$sha" "$revision"
+done
+```
+
+The measurement is reproducible offline with the Python command in *Evidence*
+above; it emits JSON with `revision`, `workflows` and `jobs`. The four booleans
+quoted here and a non-null live path are assertions in the script, not manually
+inferred results. Eviction counts can vary with reader chunk boundaries; they
+are a sample, not a regression threshold. The old no-spool subprocess sample
+in *Evidence* is explicitly historical, not the behavior at this revision.
 
 Deliberately left open, tracked outside this contract:
 
