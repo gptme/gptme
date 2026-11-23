@@ -8,7 +8,8 @@ bug) reads or writes the host's files and fails the assertions. The harness
 itself never changes its own cwd (that would race with other tests).
 
 Covered per session: save, read, patch, hashline_edit, shell ``cd`` with
-``cwd_changed`` following, and a failing operation. Afterwards the host cwd and
+``cwd_changed`` following, subprocess-spawning tools that inherit a cwd
+(autocommit's git calls, a background shell job), and a failing operation. Afterwards the host cwd and
 host files must be untouched. Not covered: arbitrary plugin ``open("relative")``
 or native extensions (see ``test_session_workspace_guard.py`` for the limit).
 """
@@ -36,13 +37,22 @@ CHILD = textwrap.dedent(
         import gptme.tools.hashline_edit as he
         he.resolve_in_workspace = lambda p: Path(p).expanduser().resolve()
 
+    if MUTATE == "subprocess_process_cwd":
+        # Spawn subprocesses in the inherited process cwd, as before the fix.
+        import gptme.tools.autocommit as ac
+        import gptme.tools.shell_background as sb
+        ac.get_workspace_cwd = lambda: None
+        sb.get_workspace_cwd = lambda: None
+
     from gptme.tools._hashline_snapshot import get_stored_tag
+    from gptme.tools.autocommit import autocommit
     from gptme.tools.base import current_workspace
     from gptme.tools.hashline_edit import execute_hashline_edit
     from gptme.tools.patch import execute_patch_impl
     from gptme.tools.read import execute_read
     from gptme.tools.save import execute_save_impl
     from gptme.tools.shell import get_shell, set_workspace_cwd
+    from gptme.tools.shell_background import start_background_job
 
     SESSIONS = ("a", "b")
     barrier = threading.Barrier(len(SESSIONS))
@@ -78,6 +88,10 @@ CHILD = textwrap.dedent(
             out["hashline"] = text(execute_hashline_edit(block, ["h.txt"], None))
             barrier.wait()
 
+            # git must inspect this session's repository, not the host cwd.
+            out["autocommit"] = autocommit().content
+            barrier.wait()
+
             status, _, err = shell.run("cd sub")
             out["cd_status"] = status
             out["live_cwd"] = str(Path(shell.get_cwd()).resolve())
@@ -87,6 +101,10 @@ CHILD = textwrap.dedent(
             # relative paths now follow the shell into sub/
             list(execute_save_impl("in sub " + name, Path("deep.txt")))
             shell.run("pwd > pwd.txt")
+            # A background job is a separate process: it must start in the
+            # session's live cwd too, not inherit the host process cwd.
+            job = start_background_job("pwd > bg.txt")
+            out["bg_rc"] = job.process.wait(timeout=30)
             barrier.wait()
 
             # Failures must not leak into the host cwd or the other session.
@@ -135,11 +153,20 @@ def _run_child(tmp_path: Path, mutate: str = "") -> dict:
         (ws / "sub").mkdir(parents=True)
         (ws / "note.txt").write_text(f"note in {name}\n")
         (ws / "h.txt").write_text(f"hash {name}\nline2\n")
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        # No user/global hooks or commit signing in the fixture repositories.
+        git += ["-c", f"core.hooksPath={os.devnull}", "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "init", "-q"], cwd=ws, check=True)
+        subprocess.run([*git, "add", "note.txt", "h.txt"], cwd=ws, check=True)
+        subprocess.run(
+            [*git, "commit", "-q", "--no-verify", "-m", "init"], cwd=ws, check=True
+        )
     # Poison: same names with different content in the hostile host cwd.
     (host / "note.txt").write_text("HOST NOTE\n")
     (host / "h.txt").write_text("HOST HASH\n")
     (host / "saved.txt").write_text("HOST SAVED\n")
     (host / "deep.txt").write_text("HOST DEEP\n")
+    (host / "bg.txt").write_text("HOST BG\n")
 
     shell_tmp = tmp_path / "shell-tmp"
     shell_tmp.mkdir()
@@ -181,6 +208,7 @@ def _check(payload: dict) -> list[str]:
         "h.txt": "HOST HASH\n",
         "saved.txt": "HOST SAVED\n",
         "deep.txt": "HOST DEEP\n",
+        "bg.txt": "HOST BG\n",
     }
     if payload["host_files"] != sorted(expected_host):
         problems.append(f"host gained files: {payload['host_files']}")
@@ -212,6 +240,13 @@ def _check(payload: dict) -> list[str]:
         pwd = ws / "sub" / "pwd.txt"
         if not pwd.exists() or pwd.read_text().strip() != sub:
             problems.append(f"{name}: shell pwd wrong")
+        bg = ws / "sub" / "bg.txt"
+        if res.get("bg_rc") != 0 or not bg.exists() or bg.read_text().strip() != sub:
+            problems.append(f"{name}: background job ran outside the session cwd")
+        other = "b" if name == "a" else "a"
+        commit = res.get("autocommit", "")
+        if f"+patched {name}" not in commit or f"patched {other}" in commit:
+            problems.append(f"{name}: autocommit inspected the wrong repository")
         if res.get("traversal") == "allowed" or "patch_missing" not in res:
             problems.append(f"{name}: failure paths not exercised: {res}")
     if (root / "escape.txt").exists() or (root.parent / "escape.txt").exists():
@@ -229,3 +264,15 @@ def test_harness_catches_process_relative_hashline_edit(tmp_path: Path) -> None:
     payload = _run_child(tmp_path, mutate="hashline_process_relative")
     problems = _check(payload)
     assert any("hashline_edit failed" in p for p in problems), problems
+
+
+def test_harness_catches_subprocesses_in_process_cwd(tmp_path: Path) -> None:
+    """Subprocess tools spawned in the inherited host cwd must fail the suite."""
+    problems = _check(_run_child(tmp_path, mutate="subprocess_process_cwd"))
+    assert problems == [
+        "host file bg.txt was modified",
+        "a: background job ran outside the session cwd",
+        "a: autocommit inspected the wrong repository",
+        "b: background job ran outside the session cwd",
+        "b: autocommit inspected the wrong repository",
+    ], problems

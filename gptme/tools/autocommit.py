@@ -26,6 +26,7 @@ from ..hooks import HookType, StopPropagation
 from ..logmanager import check_for_modifications
 from ..message import Message
 from ..util.git_cmd import GIT_CMD
+from ..util.workspace import get_workspace_cwd
 from .base import ToolSpec
 
 if TYPE_CHECKING:
@@ -40,11 +41,15 @@ def autocommit() -> Message:
 
     Returns a message asking the LLM to review changes and create a commit.
     """
+    # Inspect the session's repository, not the host process cwd's (server
+    # conversations); None keeps the CLI's process cwd.
+    cwd = get_workspace_cwd()
     try:
         # See if there are any changes to commit by checking for
         # changes, excluding untracked files.
         status_result_porcelain = subprocess.run(
             [GIT_CMD, "status", "--porcelain", "--untracked-files=no"],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -56,12 +61,18 @@ def autocommit() -> Message:
 
         # Get current git status
         status_result = subprocess.run(
-            [GIT_CMD, "status"], capture_output=True, text=True, check=True, timeout=30
+            [GIT_CMD, "status"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         )
 
         # Get git diff to show what changed
         diff_result = subprocess.run(
             [GIT_CMD, "diff", "HEAD"],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=True,

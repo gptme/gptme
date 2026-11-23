@@ -48,6 +48,7 @@ from ..util.gh import (
     parse_github_ref,
     parse_github_url,
 )
+from ..util.workspace import get_workspace_cwd
 from . import Parameter, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -693,9 +694,17 @@ def _passthrough_gh(
         return
 
     logger.info("gh pass-through: %s", shlex.join(cmd))
+    cwd = get_workspace_cwd()
     try:
+        # gh infers the repository from its cwd: use the session's, not the
+        # host process cwd (None keeps the CLI's process cwd).
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, check=False
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         max_chars = DEFAULT_LOG_MAX_TOKENS * 4
         # Redact before any preview or spill, so the retained file is the same
@@ -741,11 +750,14 @@ def _passthrough_gh(
             yield Message("system", "(no output)")
     except subprocess.TimeoutExpired:
         yield Message("system", "Error: Command timed out after 60 seconds")
-    except FileNotFoundError:
-        yield Message(
-            "system",
-            "Error: gh CLI not found. Install from https://cli.github.com/",
-        )
+    except FileNotFoundError as exc:
+        if cwd is not None and exc.filename == cwd:
+            yield Message("system", f"Error: working directory not found: {cwd}")
+        else:
+            yield Message(
+                "system",
+                "Error: gh CLI not found. Install from https://cli.github.com/",
+            )
 
 
 # gh documents ``[HOST/]OWNER/REPO``. The native handlers only talk to

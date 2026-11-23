@@ -2169,6 +2169,34 @@ def test_shell_background_flag_starts_whole_command():
     assert "automatically" in messages[-1].content
 
 
+def test_shell_background_flag_reports_spawn_failure():
+    """The structured background entry point also reports OS errors cleanly."""
+    from unittest.mock import patch
+
+    from gptme.hooks.confirm import ConfirmationResult
+    from gptme.tools.shell import execute_shell
+
+    with (
+        patch(
+            "gptme.hooks.get_confirmation",
+            return_value=ConfirmationResult.confirm(),
+        ),
+        patch(
+            "gptme.tools.shell.start_background_job",
+            side_effect=FileNotFoundError(
+                2, "No such file or directory", "/deleted-ws"
+            ),
+        ),
+    ):
+        messages = list(
+            execute_shell(None, None, {"command": "printf ready", "background": "true"})
+        )
+
+    assert "Failed to start background job" in messages[-1].content
+    assert "/deleted-ws" in messages[-1].content
+    assert not any("Started background" in msg.content for msg in messages)
+
+
 def test_bg_text_is_plain_bash_not_an_overlay():
     """A command beginning with bg is no longer parsed by gptme."""
     from unittest.mock import patch
