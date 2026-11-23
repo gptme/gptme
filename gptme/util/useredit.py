@@ -33,16 +33,17 @@ def _split_editor(editor: str) -> list[str]:
 def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
     """Edit some text in a temporary file using the user's $EDITOR."""
     suffix = f".{ext}" if ext else ""
-    # Create a temporary file and write the initial text to it.
-    with tempfile.NamedTemporaryFile(suffix=suffix, mode="w", delete=False) as f:
-        f.write(initial_text)
-        temp_filename = f.name
-
-    # use vi or die trying
-    editor = os.environ.get("EDITOR", "nano")
-
-    # Open the file in the user's editor.
+    # Keep cleanup active while writing and closing the initial file too.
+    initial_file = tempfile.NamedTemporaryFile(suffix=suffix, mode="w", delete=False)
+    temp_filename = initial_file.name
     try:
+        with initial_file:
+            initial_file.write(initial_text)
+
+        # use vi or die trying
+        editor = os.environ.get("EDITOR", "nano")
+
+        # Open the file in the user's editor.
         command = [*_split_editor(editor), temp_filename]
         logger.debug("Running editor: %s", command)
         p = subprocess.run(command, check=False)
