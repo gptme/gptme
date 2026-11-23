@@ -1414,6 +1414,7 @@ def chat(
     except Exception as _e:
         if (
             not _start_relaxed
+            and not strict_request_bounds_active()
             and _uses_openrouter_backend(provider, model_meta)
             and _is_openrouter_no_endpoints_error(_e)
         ):

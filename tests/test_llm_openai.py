@@ -3397,6 +3397,39 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert len(calls) == 1
         assert calls[0]["provider"]["require_parameters"] is True
 
+    @pytest.mark.parametrize("max_requests", [1, 2])
+    def test_bounded_no_endpoints_preserves_error_without_memo(
+        self, monkeypatch, max_requests
+    ):
+        """A bounded strict miss must not relax routing or seed the memo."""
+        from gptme.llm.request_limits import request_limits
+
+        err = self._chat_error()
+        create = self._setup_openrouter_chat(monkeypatch, err)
+        client = llm_openai.get_client("openrouter")
+        monkeypatch.setattr(
+            client, "base_url", "https://openrouter.ai/api/v1", raising=False
+        )
+        monkeypatch.setattr(client, "max_retries", 0, raising=False)
+        monkeypatch.setattr(
+            client, "_client", SimpleNamespace(follow_redirects=False), raising=False
+        )
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+
+        with (
+            request_limits(model, 10000, max_requests),
+            pytest.raises(openai.APIStatusError) as excinfo,
+        ):
+            llm_openai.chat([Message(role="user", content="Hi")], model, None)
+
+        assert excinfo.value is err
+        assert create.call_count == 1
+        provider = create.call_args.kwargs["extra_body"]["provider"]
+        assert provider["require_parameters"] is True
+        assert provider["data_collection"] == "deny"
+        assert not llm_openai._openrouter_relaxed_remembered(key)
+
     def test_relaxed_routing_memo_expires(self, monkeypatch):
         """The memo is bounded: after the TTL, strict routing is tried again."""
         now = [1000.0]
