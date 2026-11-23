@@ -166,9 +166,15 @@ def _to_form_field(field: dict) -> FormField:
             options=field["options"],
         )
     if field_type == "boolean":
-        # Unanswered booleans default to "no", never an implicit approval
+        # Unanswered booleans default to "no", never an implicit approval. The
+        # field is optional so an interface that omits it is not an error; the
+        # default is filled in before validation.
         return FormField(
-            name=field["name"], prompt=field["prompt"], type="boolean", default=False
+            name=field["name"],
+            prompt=field["prompt"],
+            type="boolean",
+            required=False,
+            default=False,
         )
     if field_type == "number":
         return FormField(name=field["name"], prompt=field["prompt"], type="number")
@@ -274,6 +280,13 @@ def execute_form(
     if not isinstance(results, dict):
         yield Message("system", "Error during form input: invalid form response")
         return
+
+    # An unanswered field with a declared default takes that default, so an
+    # omitted boolean reaches the model as its documented "no" instead of a
+    # missing-field error.
+    for field in request.fields or []:
+        if field.name not in results and field.default is not None:
+            results[field.name] = field.default
 
     validation_error = _validate_form_results(results, request.fields or [])
     if validation_error:

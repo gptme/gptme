@@ -260,8 +260,19 @@ def test_form_uses_elicit_hook(monkeypatch: pytest.MonkeyPatch) -> None:
     assert request.type == "form"
     assert [(f.name, f.type, f.default, f.required) for f in request.fields or []] == [
         ("name", "text", None, False),
-        ("ok", "boolean", False, True),
+        ("ok", "boolean", False, False),
     ]
+
+
+def test_form_hook_unanswered_boolean_defaults_to_no(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An omitted boolean is submitted as false, as the field docs promise."""
+    _hook_returning(monkeypatch, {"name": "demo"})
+    messages = list(execute_form("name: Name?\nok: Proceed? [yes/no]", None, None))
+    assert messages[0].content == (
+        'Form submitted:\n```json\n{\n  "name": "demo",\n  "ok": false\n}\n```'
+    )
 
 
 @pytest.mark.parametrize("declined", [False, True])
