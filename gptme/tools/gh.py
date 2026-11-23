@@ -618,6 +618,24 @@ def _handle_pr_merge(
         yield Message("system", f"Error: {result['message']}")
 
 
+def _redact_passthrough_output(text: str) -> str:
+    """Apply the shell's credential-redaction policy to gh pass-through output.
+
+    ``gh auth token`` and similar commands print credentials on stdout. Shell,
+    tmux and python output already passes this policy before it is shown inline
+    or written to ``tool-outputs/``; the gh pass-through did neither, so a
+    retained ``tool-outputs/gh/`` file could hold what the rest of the pipeline
+    redacts. Same switch (``GPTME_SHELL_REDACT_SECRETS``) and same heuristic --
+    this is not a general secret scanner.
+    """
+    from ..config import get_config
+    from ..util.redact import redact_secret_values_from_output
+
+    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        return text
+    return redact_secret_values_from_output(text)[0]
+
+
 def _save_oversized_output(text: str, command_info: str):
     """Save oversized pass-through output under the conversation's tool-outputs.
 
@@ -680,8 +698,10 @@ def _passthrough_gh(
             cmd, capture_output=True, text=True, timeout=60, check=False
         )
         max_chars = DEFAULT_LOG_MAX_TOKENS * 4
-        stdout_text = (result.stdout or "").strip()
-        stderr_text = (result.stderr or "").strip()
+        # Redact before any preview or spill, so the retained file is the same
+        # representation the model sees.
+        stdout_text = _redact_passthrough_output((result.stdout or "").strip())
+        stderr_text = _redact_passthrough_output((result.stderr or "").strip())
         if result.returncode != 0:
             # A failure keeps only each stream's tail inline. Save a stream whose
             # head was dropped and name the file in its omission marker, so the

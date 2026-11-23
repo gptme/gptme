@@ -1124,6 +1124,80 @@ class TestExecuteGh:
         assert str(saved[0]) in content
 
     @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_redacts_credentials_inline(self, mock_run, monkeypatch):
+        """``gh auth token`` style output is redacted in the inline message."""
+        monkeypatch.delenv("GPTME_SHELL_REDACT_SECRETS", raising=False)
+        token = "ghp_" + "a1B2c3D4" * 5
+        mock_run.return_value = MagicMock(stdout=token + "\n", stderr="", returncode=0)
+        messages = list(_passthrough_gh(["auth", "token"], None))
+        assert token not in messages[0].content
+        assert "[REDACTED]" in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_oversized_output_is_redacted_before_save(
+        self, mock_run, tmp_path, monkeypatch
+    ):
+        """The retained file holds the redacted representation, not the raw text."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        monkeypatch.delenv("GPTME_SHELL_REDACT_SECRETS", raising=False)
+        token = "ghp_" + "a1B2c3D4" * 5
+        big = f"GITHUB_TOKEN={token}\n" + "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+        mock_run.return_value = MagicMock(stdout=big, stderr="", returncode=0)
+        manager = MagicMock(logdir=tmp_path)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+            messages = list(_passthrough_gh(["api", "repos/o/r/issues"], None))
+        saved = list((tmp_path / "tool-outputs" / "gh").glob("*.txt"))
+        assert len(saved) == 1
+        text = saved[0].read_text()
+        assert token not in text
+        assert "GITHUB_TOKEN=[REDACTED]" in text
+        # Oversized success returns a notice, not an inline payload preview.
+        assert (
+            "stdout exceeded the response limit and was omitted" in messages[0].content
+        )
+        assert str(saved[0]) in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_failure_streams_redacted_before_save(
+        self, mock_run, tmp_path, monkeypatch
+    ):
+        """A failed call's saved head and inline tail are both redacted."""
+        from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
+
+        monkeypatch.delenv("GPTME_SHELL_REDACT_SECRETS", raising=False)
+        token = "ghp_" + "a1B2c3D4" * 5
+        tail_token = "ghp_" + "z9Y8x7W6" * 5
+        big_err = (
+            f"GH_TOKEN={token}\n"
+            + "x" * (DEFAULT_LOG_MAX_TOKENS * 4 + 100)
+            + f"\nTAIL_TOKEN={tail_token}"
+        )
+        mock_run.return_value = MagicMock(stdout="", stderr=big_err, returncode=1)
+        manager = MagicMock(logdir=tmp_path)
+        with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+            messages = list(_passthrough_gh(["api", "repos/o/r/issues"], None))
+        saved = list((tmp_path / "tool-outputs" / "gh").glob("*.txt"))
+        assert len(saved) == 1
+        text = saved[0].read_text()
+        assert token not in text
+        assert tail_token not in text
+        assert "GH_TOKEN=[REDACTED]" in text
+        assert "TAIL_TOKEN=[REDACTED]" in text
+        assert token not in messages[0].content
+        assert tail_token not in messages[0].content
+        assert "TAIL_TOKEN=[REDACTED]" in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_redaction_switch_disables(self, mock_run, monkeypatch):
+        """``GPTME_SHELL_REDACT_SECRETS=0`` disables it, as for shell."""
+        monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
+        token = "ghp_" + "a1B2c3D4" * 5
+        mock_run.return_value = MagicMock(stdout=token, stderr="", returncode=0)
+        messages = list(_passthrough_gh(["auth", "token"], None))
+        assert token in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
     def test_passthrough_oversized_stdout_without_logdir(self, mock_run):
         """Without a conversation directory the notice keeps the query advice."""
         from gptme.tools.gh import DEFAULT_LOG_MAX_TOKENS
