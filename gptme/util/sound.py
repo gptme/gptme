@@ -57,8 +57,7 @@ def _audio_player_thread_fn() -> None:
 
             data, sample_rate = item
 
-            # Apply volume
-            data = data * current_volume
+            # Playback backends apply current_volume; keep samples unscaled here.
             log.debug(
                 f"Playing audio: shape={data.shape}, sr={sample_rate}, vol={current_volume}"
             )
