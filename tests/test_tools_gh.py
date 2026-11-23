@@ -1062,11 +1062,28 @@ class TestExecuteGh:
         assert messages[0].content == "ok"
         mock_run.assert_called_once_with(
             ["gh", "issue", "list", "--repo", "o/r"],
+            cwd=None,
             capture_output=True,
             text=True,
             timeout=60,
             check=False,
         )
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_runs_in_session_cwd(self, mock_run, tmp_path):
+        """gh infers the repo from its cwd: use the session's, not the host's."""
+        import contextvars
+
+        from gptme.util.workspace import set_workspace_cwd
+
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+
+        def run() -> None:
+            set_workspace_cwd(str(tmp_path))
+            list(_passthrough_gh(["pr", "list"], None))
+
+        contextvars.copy_context().run(run)
+        assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
 
     def test_passthrough_parse_error(self):
         """Malformed code-string invocations return a parse error."""
@@ -1627,7 +1644,12 @@ class TestUnsupportedFlagsPassThrough:
         run.return_value = _mock_subprocess_run("requested target")
         messages = list(execute_gh(None, None, {"command": command, "url": url}))
         run.assert_called_once_with(
-            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+            ["gh", *expected],
+            cwd=None,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         assert messages[0].content == "requested target"
 
@@ -1671,7 +1693,12 @@ class TestUnsupportedFlagsPassThrough:
             )
         )
         run.assert_called_once_with(
-            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+            ["gh", *expected],
+            cwd=None,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
 
     @pytest.mark.parametrize(
@@ -1728,7 +1755,12 @@ class TestUnsupportedFlagsPassThrough:
             kwargs["url"] = url
         messages = list(execute_gh(None, None, kwargs))
         run.assert_called_once_with(
-            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+            ["gh", *expected],
+            cwd=None,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         assert messages[0].content == "requested status"
 
@@ -1750,7 +1782,12 @@ class TestUnsupportedFlagsPassThrough:
         args = ["pr", "status", flag, "octocat", "--json", "title"]
         list(execute_gh(None, args, None))
         run.assert_called_once_with(
-            ["gh", *args], capture_output=True, text=True, timeout=60, check=False
+            ["gh", *args],
+            cwd=None,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
 
     @pytest.mark.parametrize("kind", ["issue", "pr"])
@@ -1767,6 +1804,7 @@ class TestUnsupportedFlagsPassThrough:
         )
         run.assert_called_once_with(
             ["gh", kind, "view", flag, target],
+            cwd=None,
             capture_output=True,
             text=True,
             timeout=60,
@@ -1809,6 +1847,7 @@ class TestUnsupportedFlagsPassThrough:
         messages = list(execute_gh(None, ["run", "view", "123", "--log"], None))
         mock_run.assert_called_once_with(
             ["gh", "run", "view", "123", "--log"],
+            cwd=None,
             capture_output=True,
             text=True,
             timeout=60,

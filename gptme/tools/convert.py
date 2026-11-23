@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from ..message import Message
+from ..util.workspace import current_workspace
 from .base import Parameter, ToolSpec
 
 if TYPE_CHECKING:
@@ -1251,8 +1252,14 @@ def _execute_convert(
             "Error: both `input_path` and `output_path` are required.",
         )
 
+    # Anchor relative paths at the session cwd, not the host process cwd. No
+    # resolve(): symlinked names keep their spelling (see _is_same_existing_file).
     src = Path(src_raw).expanduser()
     dest = Path(dest_raw).expanduser()
+    if not src.is_absolute():
+        src = current_workspace() / src
+    if not dest.is_absolute():
+        dest = current_workspace() / dest
     if not src.exists():
         return Message("system", f"Error: input file not found: {src}")
 

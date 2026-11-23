@@ -1638,6 +1638,33 @@ def test_execute_convert_success(tmp_path):
     assert call_kwargs.get("dry_run") is False
 
 
+def test_execute_convert_anchors_relative_paths_at_session_cwd(tmp_path):
+    """Relative paths resolve in the session workspace, not the host process cwd."""
+    import contextvars
+
+    from gptme.tools import convert
+    from gptme.util.workspace import set_workspace_cwd
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "in.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    ok = ConversionResult(success=True, output_path=None, converter_used="image")
+
+    def run():
+        set_workspace_cwd(str(ws))
+        return convert._execute_convert(
+            None, None, {"input_path": "in.png", "output_path": "out.jpg"}
+        )
+
+    with patch("gptme.tools.convert.convert_file", return_value=ok) as mock_convert:
+        result = contextvars.copy_context().run(run)
+
+    assert "not found" not in result.content
+    src, dest = mock_convert.call_args.args[:2]
+    assert src == ws.resolve() / "in.png"
+    assert dest == ws.resolve() / "out.jpg"
+
+
 def test_execute_convert_missing_args():
     """_execute_convert reports an error when required args are missing."""
     from gptme.tools import convert

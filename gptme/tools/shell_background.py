@@ -39,6 +39,7 @@ from ..util.output_storage import (
     _write_private_output,
     open_private_output_file,
 )
+from ..util.workspace import get_workspace_cwd
 
 _is_windows = os.name == "nt"
 
@@ -1781,11 +1782,15 @@ def start_background_job(
         popen_kwargs["start_new_session"] = True
         if memory_limit is not None:
             shell_cmd = apply_memory_limit(shell_cmd, memory_limit)
+    # A server conversation's job starts in its live session cwd (following the
+    # foreground shell's ``cd``), not the host process cwd. CLI sessions have no
+    # session workspace and keep inheriting the process cwd.
     process = subprocess.Popen(
         shell_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
+        cwd=get_workspace_cwd(),
         **popen_kwargs,
     )
     # A subprocess subagent's parent records the group so it can force the

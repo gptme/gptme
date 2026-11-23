@@ -48,6 +48,7 @@ from ..util.gh import (
     parse_github_ref,
     parse_github_url,
 )
+from ..util.workspace import get_workspace_cwd
 from . import Parameter, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -694,8 +695,15 @@ def _passthrough_gh(
 
     logger.info("gh pass-through: %s", shlex.join(cmd))
     try:
+        # gh infers the repository from its cwd: use the session's, not the
+        # host process cwd (None keeps the CLI's process cwd).
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, check=False
+            cmd,
+            cwd=get_workspace_cwd(),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         max_chars = DEFAULT_LOG_MAX_TOKENS * 4
         # Redact before any preview or spill, so the retained file is the same
