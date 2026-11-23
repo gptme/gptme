@@ -260,6 +260,34 @@ def test_shell_background_completion_while_busy_waits_for_step_end(
         _cleanup_job(cid, job)
 
 
+def test_shell_wake_requeues_when_rendering_fails(logs_dir, monkeypatch) -> None:
+    """A claimed completion is put back when its message cannot be rendered."""
+    from gptme.tools import shell_background as sb
+
+    cid = "matrix-shell-render-fail"
+    job = sb.BackgroundJob(
+        0, "printf done", unittest.mock.Mock(), 0, conversation_id=cid
+    )
+    sb._jobs_for(cid)[job.id] = job
+    with sb._job_lock, sb._completion_queue.mutex:
+        sb._completion_queue.queue.append(job)
+    monkeypatch.setattr(
+        SessionManager,
+        "get_sessions_for_conversation",
+        unittest.mock.MagicMock(return_value=[object()]),
+    )
+    monkeypatch.setattr(
+        sb,
+        "_completion_message",
+        unittest.mock.MagicMock(side_effect=RuntimeError("render failed")),
+    )
+    try:
+        assert sb.wake_server_for_completed_jobs(cid) is False
+        assert _queued(job)
+    finally:
+        sb.reset_background_jobs(cid, all_conversations=False)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
 def test_shell_background_completion_without_server_session_stays_queued(
     logs_dir, monkeypatch: pytest.MonkeyPatch

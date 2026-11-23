@@ -1649,7 +1649,18 @@ def wake_server_for_completed_jobs(conversation_id: str | None) -> bool:
             return False
         # Rendering consumes a late kill notice; keep it for a requeue.
         notices = [job._late_kill_notice for job in jobs]
-        messages = [_completion_message(job) for job in jobs]
+        try:
+            messages = [_completion_message(job) for job in jobs]
+        except Exception:
+            # The jobs are already claimed: a rendering failure must put them
+            # back or their completions are lost with no later retry.
+            logger.warning(
+                "Could not render background job completions for %s",
+                conversation_id,
+                exc_info=True,
+            )
+            _requeue_completed_jobs(list(zip(jobs, notices)))
+            return False
     by_branch: dict[str, list[int]] = {}
     for index, job in enumerate(jobs):
         by_branch.setdefault(job.branch, []).append(index)
