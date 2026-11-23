@@ -282,6 +282,56 @@ class TestScopeEscape:
         assert _check_scope_escape(tool_use, tmp_path) is None
 
 
+class TestScopeEscapeSessionCwd:
+    """Relative targets resolve against the session's live cwd, like the tools."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        from gptme.util import workspace as ws
+
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        t1 = ws._workspace_cwd.set(None)
+        t2 = ws._promoted_next_cwd.set(None)
+        yield
+        ws._promoted_next_cwd.reset(t2)
+        ws._workspace_cwd.reset(t1)
+
+    def test_relative_write_after_cd_outside_is_flagged(self, tmp_path):
+        from gptme.util.workspace import set_workspace_cwd
+
+        root = tmp_path / "ws"
+        elsewhere = tmp_path / "elsewhere"
+        root.mkdir()
+        elsewhere.mkdir()
+        set_workspace_cwd(str(root))
+        # Simulate the shell having cd'd out of the workspace root.
+        from gptme.util import workspace as ws
+
+        ws._promoted_next_cwd.set(str(elsewhere))
+        result = _check_scope_escape(_fake_tool_use("save", args=["f.txt"]), root)
+        assert result is not None
+        assert "scope_escape" in result[1]
+        assert str(elsewhere.resolve()) in result[1]
+
+    def test_relative_write_in_subdir_cwd_ok(self, tmp_path):
+        from gptme.util import workspace as ws
+
+        root = tmp_path / "ws"
+        (root / "sub").mkdir(parents=True)
+        ws.set_workspace_cwd(str(root))
+        ws._promoted_next_cwd.set(str(root / "sub"))
+        assert _check_scope_escape(_fake_tool_use("save", args=["f.txt"]), root) is None
+
+    def test_tilde_target_is_expanded(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        root = tmp_path / "ws"
+        root.mkdir()
+        result = _check_scope_escape(_fake_tool_use("save", args=["~/x.txt"]), root)
+        assert result is not None
+        assert "scope_escape" in result[1]
+
+
 # ---------------------------------------------------------------------------
 # write_storm
 # ---------------------------------------------------------------------------
