@@ -1289,10 +1289,31 @@ def step(
                 )
                 sse_token_batch.clear()
 
+            # Mirror `llm.reply()`: GENERATION_PRE hooks see the prepared
+            # messages and may contribute context for this request only (the
+            # persisted log is untouched). This runs before the provider try
+            # block so a hook failure, including the session-stop signal from
+            # complete/clarify/yield, is not tagged as an LLM reply error.
+            generation_msgs = [
+                *messages,
+                *trigger_hook(
+                    HookType.GENERATION_PRE,
+                    messages,
+                    workspace=workspace,
+                    manager=None,
+                    model=model,
+                    server=True,
+                ),
+            ]
+            # Hooks may block for confirmation or verification. Do not start a
+            # paid request if interrupt/replacement revoked us while they ran.
+            if not retry_allowed():
+                raise InterruptedError("Step no longer owns generation")
+
             try:
                 if stream:
                     stream_wrapper = _stream(
-                        messages,
+                        generation_msgs,
                         model,
                         tools,
                         max_tokens=effective_max_tokens,
@@ -1302,7 +1323,7 @@ def step(
                     chunks: Iterable[str] = stream_wrapper
                 else:
                     response, metadata = _chat_complete(
-                        messages,
+                        generation_msgs,
                         model,
                         tools,
                         max_tokens=effective_max_tokens,
@@ -1404,6 +1425,17 @@ def step(
             if session.step_seq != my_step_seq or session.interrupted:
                 raise InterruptedError("Epoch replaced before reply commit")
             _append_and_notify(manager, session, msg)
+
+        # Trigger GENERATION_POST hooks (as the CLI loop does after `reply()`).
+        # Like the CLI, yielded messages are only logged: the reply is already
+        # committed, and hooks that need to act do so via side effects.
+        if generation_post_msgs := trigger_hook(
+            HookType.GENERATION_POST,
+            message=msg,
+            workspace=workspace,
+        ):
+            for generation_post_msg in generation_post_msgs:
+                logger.debug(f"Generation post hook yielded: {generation_post_msg}")
 
         # Trigger TURN_POST hook (turn.post - after message processing completes)
         checkpoint_requested = False
@@ -1556,18 +1588,38 @@ def step(
         # A revoked step must not publish its failure into a replacement epoch.
         if session.interrupted or session.step_seq != my_step_seq:
             return
-        skill_outcome = "failed"
-        skill_error_type = type(e).__name__
-        logger.exception(f"Error during step execution: {e}")
-        error_message = str(e) or "Generation failed"
-        session.last_error = error_message
-        try:
-            _persist_generation_error(manager, session, error_message)
-        except Exception:
-            logger.exception("Failed to persist generation error message")
-        SessionManager.add_event(
-            conversation_id, {"type": "error", "error": error_message}
-        )
+        from ..tools.complete import SessionCompleteException  # fmt: skip
+
+        if isinstance(e, SessionCompleteException):
+            # A GENERATION_PRE hook (complete/clarify/yield) ended the session
+            # before the next generation. That is a clean stop, not a failure:
+            # no error is persisted, and the `finally` below releases the
+            # reservation and emits step_complete. TURN_POST has not observed
+            # the preceding tool batch, so run it now like the STEP_PRE path.
+            logger.info(f"Session stopped before generation: {e}")
+            skill_outcome = "completed"
+            with SessionManager.conversation_lock(conversation_id):
+                with session.step_lock:
+                    owns_step = (
+                        session.step_seq == my_step_seq and not session.interrupted
+                    )
+                    if owns_step:
+                        session.checkpoint_needs_continuation = False
+                if owns_step:
+                    _run_turn_post_on_step_pre_complete(manager, session)
+        else:
+            skill_outcome = "failed"
+            skill_error_type = type(e).__name__
+            logger.exception(f"Error during step execution: {e}")
+            error_message = str(e) or "Generation failed"
+            session.last_error = error_message
+            try:
+                _persist_generation_error(manager, session, error_message)
+            except Exception:
+                logger.exception("Failed to persist generation error message")
+            SessionManager.add_event(
+                conversation_id, {"type": "error", "error": error_message}
+            )
     finally:
         # Only release generating if this step still owns the reservation.
         # A fast tool may finish, increment step_seq, set generating=True for

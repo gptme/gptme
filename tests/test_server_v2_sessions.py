@@ -1174,7 +1174,7 @@ class TestInterruptEndpoint:
             manager.append(checkpoint_request)
             manager.write()
 
-        def hooks(hook_type, **kwargs):
+        def hooks(hook_type, *args, **kwargs):
             if pending_tool or saved_request:
                 return []
             return [checkpoint_request] if hook_type == HookType.TURN_POST else []
@@ -1277,7 +1277,7 @@ class TestInterruptEndpoint:
         )
         requested = False
 
-        def hooks(hook_type, **kwargs):
+        def hooks(hook_type, *args, **kwargs):
             nonlocal requested
             if hook_type == HookType.TURN_POST and not requested:
                 requested = True

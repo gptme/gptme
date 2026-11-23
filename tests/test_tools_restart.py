@@ -251,6 +251,20 @@ class TestDoRestartArgFiltering:
 class TestExecuteRestart:
     """Test execute_restart confirmation flow."""
 
+    def test_server_rejects_before_confirmation(self):
+        import gptme.tools.restart as mod
+        from gptme.hooks import current_session_id
+
+        token = current_session_id.set("server-session")
+        try:
+            with patch("gptme.tools.restart.confirm") as confirmation:
+                msgs = _collect(execute_restart(None, None, None))
+        finally:
+            current_session_id.reset(token)
+        confirmation.assert_not_called()
+        assert not mod._triggered_restart
+        assert "not supported" in msgs[0].content
+
     def test_cancelled(self):
         with patch("gptme.tools.restart.confirm", return_value=False):
             msgs = _collect(execute_restart(None, None, None))
