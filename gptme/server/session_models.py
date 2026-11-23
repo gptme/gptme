@@ -5,6 +5,7 @@ execution logic and Flask route handlers.
 """
 
 import logging
+import sys
 import threading
 import uuid
 from collections import defaultdict
@@ -700,6 +701,19 @@ class SessionManager:
             if branch in failed_branches:
                 requeue_watch_event(
                     logdir, watch_id, text, branch=branch, status=status
+                )
+        # Background shell jobs that finished while busy stay queued for
+        # STEP_PRE; retry their idle wake now, as for subagent completions.
+        if "gptme.tools.shell_background" in sys.modules:
+            from ..tools.shell_background import wake_server_for_completed_jobs
+
+            try:
+                wake_server_for_completed_jobs(conversation_id)
+            except Exception:
+                logger.warning(
+                    "Could not retry background job wakes for %s",
+                    conversation_id,
+                    exc_info=True,
                 )
         queued = take_queued_completions(logdir)
         if not queued:

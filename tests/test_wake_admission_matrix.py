@@ -13,12 +13,12 @@ Findings pinned here:
 * they diverge on user-interrupted conversations: peer wake leaves the
   conversation stopped, watch wake (and therefore subagent completion) restarts
   it and clears ``interrupted``;
-* shell-background job completion neither requests a wake nor signals
-  ``notification_ready``: an idle server conversation is not woken by it.
+* shell-background job completion wakes an idle server conversation through
+  ``request_watch_wake`` (so it shares the watch policy above), stays queued
+  for STEP_PRE while busy, and is retried at step end.
 """
 
 import sys
-import time
 import unittest.mock
 from pathlib import Path
 
@@ -176,45 +176,102 @@ def test_interrupted_watch_wake_restarts_conversation_today(
         SessionManager.remove_session(session.id)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
-def test_shell_background_completion_has_no_idle_wake(
-    logs_dir, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Job exit enqueues for a later step but never rings either doorbell."""
+def _run_job(cid: str):
+    """Start a real ``printf`` job for ``cid`` and wait for its completion."""
     from gptme.hooks import current_conversation_id
-    from gptme.tools import shell_background
     from gptme.tools.shell_background import start_background_job
 
-    wake = unittest.mock.MagicMock(return_value=True)
-    monkeypatch.setattr(SessionManager, "request_watch_wake", wake)
-    signal = unittest.mock.MagicMock()
-    monkeypatch.setattr("gptme.util.notification_ready.signal", signal)
-
-    job = None
-    token = current_conversation_id.set("matrix-shell-job")
+    token = current_conversation_id.set(cid)
     try:
         job = start_background_job("printf done")
-        assert job._reader_thread is not None
-        job._reader_thread.join(timeout=10)
-        assert not job._reader_thread.is_alive()
-
-        deadline = time.monotonic() + 5
-        while not job._completion_notified and time.monotonic() < deadline:
-            time.sleep(0.01)
-        # The completion is queued for a step that has not been started...
-        assert job._completion_notified is True
-        assert any(q is job for q in shell_background._completion_queue.queue)
-        # ...and nothing asked the server to start one.
-        wake.assert_not_called()
-        signal.assert_not_called()
     finally:
         current_conversation_id.reset(token)
-        shell_background.reset_background_jobs(
-            "matrix-shell-job", all_conversations=False
+    assert job._reader_thread is not None
+    # The reader publishes the completion (and rings the doorbell) last.
+    job._reader_thread.join(timeout=10)
+    assert not job._reader_thread.is_alive()
+    assert job._completion_notified is True
+    return job
+
+
+def _queued(job) -> bool:
+    from gptme.tools import shell_background
+
+    with shell_background._completion_queue.mutex:
+        return any(q is job for q in shell_background._completion_queue.queue)
+
+
+def _cleanup_job(cid: str, job) -> None:
+    from gptme.tools import shell_background
+
+    shell_background.reset_background_jobs(cid, all_conversations=False)
+    if job is not None:
+        # Join even a completed job's reader before closing its pipes.
+        job.kill()
+        for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
+            if pipe is not None:
+                pipe.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
+def test_shell_background_completion_wakes_idle_conversation(logs_dir, armed) -> None:
+    """Job exit rings the same doorbell as subagent completion, exactly once."""
+    manager, started = armed
+    cid = "matrix-shell-idle"
+    session = SessionManager.create_session(cid)
+    job = None
+    try:
+        job = _run_job(cid)
+        started.assert_called_once()
+        appended = [call.args[0].content for call in manager.append.call_args_list]
+        assert any(
+            f"Background shell job #{job.id} finished" in text for text in appended
         )
-        if job is not None:
-            # Join even a completed job's reader before closing its pipes.
-            job.kill()
-            for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
-                if pipe is not None:
-                    pipe.close()
+        # Claimed by the wake: the woken step's STEP_PRE must not deliver it again.
+        assert not _queued(job)
+        assert session.generating is True
+    finally:
+        SessionManager.remove_session(session.id)
+        _cleanup_job(cid, job)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
+def test_shell_background_completion_while_busy_waits_for_step_end(
+    logs_dir, armed
+) -> None:
+    """Busy: stays queued for STEP_PRE; the step-end retry then wakes once."""
+    manager, started = armed
+    cid = "matrix-shell-busy"
+    session = SessionManager.create_session(cid)
+    session.generating = True
+    job = None
+    try:
+        job = _run_job(cid)
+        started.assert_not_called()
+        manager.append.assert_not_called()
+        assert _queued(job)
+
+        session.generating = False
+        SessionManager.retry_deferred_watch_wakes(cid)
+        started.assert_called_once()
+        assert not _queued(job)
+    finally:
+        SessionManager.remove_session(session.id)
+        _cleanup_job(cid, job)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
+def test_shell_background_completion_without_server_session_stays_queued(
+    logs_dir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No server session (CLI, thread subagent): no wake, STEP_PRE delivers it."""
+    wake = unittest.mock.MagicMock(return_value=True)
+    monkeypatch.setattr(SessionManager, "request_watch_wake", wake)
+    cid = "matrix-shell-nosession"
+    job = None
+    try:
+        job = _run_job(cid)
+        wake.assert_not_called()
+        assert _queued(job)
+    finally:
+        _cleanup_job(cid, job)
