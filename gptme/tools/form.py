@@ -220,9 +220,10 @@ def _validate_form_results(
     Returns a human-readable error, or ``None`` when the answer is complete.
     """
     declared = {field.name for field in fields}
-    unknown = sorted(set(results) - declared)
-    if unknown:
-        return f"unexpected field(s): {', '.join(unknown)}"
+    if set(results) - declared:
+        # The keys are client-controlled, so the message must not echo them: the
+        # error becomes model-visible tool output and would leak injected text.
+        return "unexpected field(s) in response"
     for field in fields:
         value = results.get(field.name)
         if value is None:
