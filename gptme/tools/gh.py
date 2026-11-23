@@ -694,12 +694,13 @@ def _passthrough_gh(
         return
 
     logger.info("gh pass-through: %s", shlex.join(cmd))
+    cwd = get_workspace_cwd()
     try:
         # gh infers the repository from its cwd: use the session's, not the
         # host process cwd (None keeps the CLI's process cwd).
         result = subprocess.run(
             cmd,
-            cwd=get_workspace_cwd(),
+            cwd=cwd,
             capture_output=True,
             text=True,
             timeout=60,
@@ -749,11 +750,14 @@ def _passthrough_gh(
             yield Message("system", "(no output)")
     except subprocess.TimeoutExpired:
         yield Message("system", "Error: Command timed out after 60 seconds")
-    except FileNotFoundError:
-        yield Message(
-            "system",
-            "Error: gh CLI not found. Install from https://cli.github.com/",
-        )
+    except FileNotFoundError as exc:
+        if cwd is not None and exc.filename == cwd:
+            yield Message("system", f"Error: working directory not found: {cwd}")
+        else:
+            yield Message(
+                "system",
+                "Error: gh CLI not found. Install from https://cli.github.com/",
+            )
 
 
 # gh documents ``[HOST/]OWNER/REPO``. The native handlers only talk to

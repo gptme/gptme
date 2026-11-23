@@ -1107,6 +1107,26 @@ class TestExecuteGh:
         assert len(messages) == 1
         assert "gh CLI not found" in messages[0].content
 
+    def test_passthrough_deleted_session_cwd(self, tmp_path):
+        """A missing workspace is not misreported as a missing executable."""
+        import contextvars
+
+        from gptme.util.workspace import set_workspace_cwd
+
+        ws = tmp_path / "deleted-workspace"
+        ws.mkdir()
+        ws.rmdir()
+
+        def run():
+            set_workspace_cwd(str(ws))
+            return list(_passthrough_gh(["--version"], None))
+
+        messages = contextvars.copy_context().run(run)
+        assert len(messages) == 1
+        assert "working directory" in messages[0].content
+        assert str(ws) in messages[0].content
+        assert "gh CLI not found" not in messages[0].content
+
     def test_passthrough_no_command(self):
         """Pass-through rejects empty invocations explicitly."""
         messages = list(_passthrough_gh(None, None))
