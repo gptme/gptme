@@ -27,6 +27,7 @@ _SRC = Path(gptme.__file__).parent
 # trigger_hook() fires Message-yielding hooks; TOOL_CONFIRM and ELICIT return
 # data and are dispatched by looking the hooks up with get_hooks().
 _DISPATCH_FUNCS = frozenset({"trigger_hook", "get_hooks"})
+_LOOKUP_DISPATCH_TYPES = frozenset({"TOOL_CONFIRM", "ELICIT"})
 
 
 def _hook_type_member(node: ast.expr) -> str | None:
@@ -37,12 +38,8 @@ def _hook_type_member(node: ast.expr) -> str | None:
     # HookType.X
     if isinstance(owner, ast.Name) and owner.id == "HookType":
         return node.attr
-    # hooks.HookType.X
-    if (
-        isinstance(owner, ast.Attribute)
-        and owner.attr == "HookType"
-        and isinstance(owner.value, ast.Name)
-    ):
+    # Qualified forms, e.g. hooks.HookType.X or gptme.hooks.HookType.X.
+    if isinstance(owner, ast.Attribute) and owner.attr == "HookType":
         return node.attr
     return None
 
@@ -52,7 +49,9 @@ def _dispatched_in_source(source: str, filename: str = "<test>") -> set[str]:
 
     Only real calls count. Comments and string literals never reach the AST as
     ``ast.Call`` nodes, so they cannot fake a dispatch site. Both the positional
-    and the ``hook_type=`` keyword form are accepted.
+    and the ``hook_type=`` keyword form are accepted. ``get_hooks`` counts only
+    for the two data-returning hook types dispatched through direct invocation;
+    looking up Message-yielding hooks (e.g. for availability) is not dispatch.
     """
     found: set[str] = set()
     for node in ast.walk(ast.parse(source, filename=filename)):
@@ -72,7 +71,9 @@ def _dispatched_in_source(source: str, filename: str = "<test>") -> set[str]:
         ]
         for candidate in candidates:
             member = _hook_type_member(candidate)
-            if member is not None:
+            if member is not None and (
+                call_name == "trigger_hook" or member in _LOOKUP_DISPATCH_TYPES
+            ):
                 found.add(member)
     return found
 
@@ -117,6 +118,23 @@ def run(manager):
 """
     assert _dispatched_in_source(source) == {
         "FILE_PATCH_PRE",
+        "TOOL_CONFIRM",
+        "ELICIT",
+    }
+
+
+def test_dispatch_scan_handles_qualified_types_and_ignores_message_lookups():
+    source = """
+import gptme.hooks
+
+get_hooks(HookType.GENERATION_CHUNK)  # Availability check, not dispatch.
+get_hooks(HookType.STEP_POST)  # Merely looking up a hook cannot wire it.
+gptme.hooks.trigger_hook(gptme.hooks.HookType.FILE_PATCH_POST)
+gptme.hooks.get_hooks(gptme.hooks.HookType.TOOL_CONFIRM)
+get_hooks(hook_type=gptme.hooks.HookType.ELICIT)
+"""
+    assert _dispatched_in_source(source) == {
+        "FILE_PATCH_POST",
         "TOOL_CONFIRM",
         "ELICIT",
     }
