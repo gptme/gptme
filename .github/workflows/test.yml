@@ -231,7 +231,10 @@ jobs:
       env:
         TERM: xterm
         MODEL: local/test
-      run: make test
+      # No coverage here: this job uploads none, and on 3.15 coverage's
+      # thread+greenlet tracing delays PyThreadState_SetAsyncExc delivery, which
+      # breaks the GPTME_IPYTHON_TIMEOUT tests (they then run to completion).
+      run: make test NO_COVERAGE=1
 
   # Windows smoke tests: a narrow, no-API slice covering the areas that actually
   # bit users (filesystem paths, config loading, CLI entrypoints). Deliberately
