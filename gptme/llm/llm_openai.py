@@ -1418,7 +1418,6 @@ def chat(
             and _uses_openrouter_backend(provider, model_meta)
             and _is_openrouter_no_endpoints_error(_e)
         ):
-            _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
             logger.warning(
                 "OpenRouter: no endpoints matched the strict constraints "
@@ -1430,6 +1429,7 @@ def chat(
                 model_meta.model,
             )
             raw_response = _chat_create(relaxed_privacy=True)
+            _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
         else:
             raise
     response = raw_response.parse()
@@ -2157,9 +2157,11 @@ def _stream_with_client(
         native_finish: str | None = None
         attempt_output: list[bool] = []
 
-        _start_relaxed = _uses_openrouter_backend(
-            provider, model_meta
-        ) and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
+        _start_relaxed = (
+            _uses_openrouter_backend(provider, model_meta)
+            and not strict_request_bounds_active()
+            and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
+        )
         try:
             _stream_obj = _stream_create(
                 relaxed_privacy=_start_relaxed, provider_ignore=_ignored_providers
@@ -2167,10 +2169,10 @@ def _stream_with_client(
         except Exception as _e:
             if (
                 not _start_relaxed
+                and not strict_request_bounds_active()
                 and _uses_openrouter_backend(provider, model_meta)
                 and _is_openrouter_no_endpoints_error(_e)
             ):
-                _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
                 _dc_configured = get_config().get_env(
                     "OPENROUTER_DATA_COLLECTION", "deny"
                 )
@@ -2186,6 +2188,7 @@ def _stream_with_client(
                 _stream_obj = _stream_create(
                     relaxed_privacy=True, provider_ignore=_ignored_providers
                 )
+                _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             else:
                 raise
 
