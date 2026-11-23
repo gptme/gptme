@@ -36,6 +36,7 @@ from ..hooks import (
     register_hook,
 )
 from ..plugins.plugin import GptmePlugin
+from ..util.workspace import get_workspace_cwd, resolve_in_workspace
 from ._policy_block import policy_block_message
 
 if TYPE_CHECKING:
@@ -252,6 +253,22 @@ def _patch_many_paths(tool_use: Any) -> list[Path]:
     return extra
 
 
+def _resolve_target(raw_path: Path, workspace: Path) -> Path:
+    """Resolve a tool target exactly as the file tools do.
+
+    Inside a session (server) the tools anchor relative paths at the live shell
+    cwd and expand ``~``; anchoring at the initial ``workspace`` root instead
+    would miss a write after ``cd ..``/``cd /elsewhere``. Without a session
+    workspace (CLI) the passed ``workspace`` is the anchor.
+    """
+    if get_workspace_cwd() is not None:
+        return resolve_in_workspace(raw_path)
+    path = raw_path.expanduser()
+    if not path.is_absolute():
+        path = workspace / path
+    return path.resolve()
+
+
 def _check_scope_escape(
     tool_use: Any,
     workspace: Path | None,
@@ -272,10 +289,7 @@ def _check_scope_escape(
     allowed_dirs = _allowed_dirs()
 
     for raw_path in raw_paths:
-        if not raw_path.is_absolute():
-            resolved = (workspace / raw_path).resolve()
-        else:
-            resolved = raw_path.resolve()
+        resolved = _resolve_target(raw_path, workspace)
 
         # Allow writes inside workspace
         try:
