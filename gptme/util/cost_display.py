@@ -253,7 +253,12 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
                 # Only count requests that have actual token data — consistent
                 # with gather_per_step_costs so the Requests field matches the
                 # number of rows in the Per-Step Breakdown.
-                if msg_input > 0 or msg_output > 0 or msg_cache_read > 0:
+                if (
+                    msg_input > 0
+                    or msg_output > 0
+                    or msg_cache_read > 0
+                    or msg_cache_created > 0
+                ):
                     request_count += 1
 
                     turn_input_total = msg_input + msg_cache_read + msg_cache_created
@@ -279,7 +284,11 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
 
     # Check if we have any actual data
     has_data = (
-        total_input > 0 or total_output > 0 or total_cache_read > 0 or total_cost > 0
+        total_input > 0
+        or total_output > 0
+        or total_cache_read > 0
+        or total_cache_created > 0
+        or total_cost > 0
     )
 
     if not has_data:
@@ -292,6 +301,8 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
         if (
             last_usage.get("input_tokens", 0) > 0
             or last_usage.get("output_tokens", 0) > 0
+            or last_usage.get("cache_read_tokens", 0) > 0
+            or last_usage.get("cache_creation_tokens", 0) > 0
             or last_metadata.get("cost", 0) > 0
         ):
             last_request = RequestCosts(
@@ -363,7 +374,12 @@ def gather_per_step_costs(messages: list[Message]) -> list[StepCost]:
             cost = msg.metadata.get("cost", 0.0)
 
             # Only include steps that have some token data
-            if input_tokens > 0 or output_tokens > 0 or cache_read > 0:
+            if (
+                input_tokens > 0
+                or output_tokens > 0
+                or cache_read > 0
+                or cache_create > 0
+            ):
                 step_idx += 1
                 model_name = msg.metadata.get("model")
                 pricing_type = "per_token"
