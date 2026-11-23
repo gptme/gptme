@@ -1152,7 +1152,11 @@ class TestExecuteGh:
         text = saved[0].read_text()
         assert token not in text
         assert "GITHUB_TOKEN=[REDACTED]" in text
-        assert token not in messages[0].content
+        # Oversized success returns a notice, not an inline payload preview.
+        assert (
+            "stdout exceeded the response limit and was omitted" in messages[0].content
+        )
+        assert str(saved[0]) in messages[0].content
 
     @patch("gptme.tools.gh.subprocess.run")
     def test_passthrough_failure_streams_redacted_before_save(
