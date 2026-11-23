@@ -201,31 +201,22 @@ Current mechanisms — they share primitives but **not one transport**:
 | Peer mail | other process → `prompt_queue.py` (`prompt-queue.jsonl`, flock) | yes | **yes, by polling**: `_run_peer_wake_check` every `_PEER_WAKE_INTERVAL = 2.0` s → `request_peer_wake` |
 | Watch event | in-process queue | no (re-queued on failed wake) | yes, `request_watch_wake`; retried at step end by `retry_deferred_watch_wakes` |
 | Subagent completion | in-process queue + `notification_ready.signal` | no | yes, via `request_watch_wake` (`subagent/hooks.py:348`) |
-| Shell background job completion | `shell_background._completion_queue` + condition | no | **no idle wake found** (below) |
+| Shell background job completion | `shell_background._completion_queue` + condition | no | yes, via `request_shell_wake` for the originating server session and branch |
 | Progress | in-process queue, drained into the next wake | no | rides along; never wakes by itself |
 
-**Audit finding — shell-background completion has no idle wake.** `_notify_completion`
-(`tools/shell_background.py:1585`) enqueues to `_completion_queue` and notifies a
-condition; it neither calls `notification_ready.signal` nor `request_watch_wake`, and
-`shell_background.py` references no `SessionManager`. `retry_deferred_watch_wakes`
-drains only watch events and subagent completions. So an idle server conversation is not
-woken by a finished `run_in_background` job; the result is picked up by the
-LOOP_CONTINUE hook only when some other event starts a step (and
-`background_job_wait_hook` subscribes to `notification_ready` for *child* wakeups, not
-for job exit). This is a parity gap versus subagent completion, independent of worker
-processes, and is the cheapest concrete consolidation: make job completion call the
-same `request_watch_wake` path (event-specific message, same busy/autowake policy).
-**Verified** (follow-up pass): `tests/test_wake_admission_matrix.py::test_shell_background_completion_has_no_idle_wake`
-starts a real `printf` job through `start_background_job`; on exit the job is queued
-(`_completion_notified`, present in `_completion_queue`) but `request_watch_wake` and
-`notification_ready.signal` are never called. This is a unit-level reproduction against
-the real module, not a live-server run.
+Shell job exit queues a completion and requests admission for the originating server
+session and branch. The existing server reservation and dispatcher start one idle step,
+which receives the result in `STEP_PRE`. Busy, interrupted, ACP-owned, and opted-out
+sessions leave the completion queued for a later step on its branch. The CLI waits
+on the job condition in `LOOP_CONTINUE`.
 
-Shared already: `_conversation_busy` and `_dispatch_reserved_step` (admission +
-dispatch) are used by both the watch and peer paths, and `use_acp` conversations
-explicitly defer both (so a wake never answers a conversation whose input cursor a
-different runtime owns). `session.interrupted` suppresses peer wakes (a user-stopped
-conversation is not restarted). **`request_watch_wake` does not check it and clears it**
+`tests/test_wake_admission_matrix.py::test_shell_background_completion_wake`
+runs a real shell job with the server step dispatcher stubbed and exercises
+branch-scoped delivery, admission policy, and duplicate completion signals.
+
+Watch, peer, and shell wakes share `_conversation_busy` and `_dispatch_reserved_step`.
+All three defer to ACP when it owns the conversation's runtime and input cursor.
+`session.interrupted` suppresses peer and shell wakes. **`request_watch_wake` clears it**
 (`session.interrupted = False` at reservation), so a subagent completion or watch event
 restarts a conversation the user stopped. Pinned by
 `test_interrupted_watch_wake_restarts_conversation_today` next to
@@ -317,8 +308,7 @@ payoff; the in-tree deletion is modest.
 
 **Stage it:**
 
-1. **Now:** land #5059 (decoupling + hostile-host-cwd regression coverage). Fix the
-   shell-background idle-wake gap (§5) independently; it needs no worker.
+1. **Now:** land #5059 (decoupling + hostile-host-cwd regression coverage).
 2. **Prototype in-tree behind an opt-in flag** (e.g. `GPTME_SERVER_WORKERS=1`): lazy
    `spawn` worker per conversation, JSON-lines contract of §4, `LogManager` lock as the
    lease, process-group supervision, host-side admission unchanged. Start with the
@@ -338,11 +328,9 @@ host today and would have to be re-homed or proxied — see gaps).
 * Prototype exec's code strings; it does **not** run real gptme tools, an LLM turn, or a
   third-party plugin end to end. The `open`/`Path.exists`/`subprocess`/native-`getcwd`
   isolation result is real, but "plugin unmodified" was demonstrated with a stand-in.
-* Peer/watch wake during busy/idle/ACP/interrupted states and the shell-job no-wake gap
-  are now demonstrated against the real admission code (§5,
-  `tests/test_wake_admission_matrix.py`), with the step dispatcher mocked. Still not
-  demonstrated: those events crossing a *process* boundary into a worker, and a live
-  server run. §5.1 remains a design.
+* The wake admission tests (§5, `tests/test_wake_admission_matrix.py`) stub the step
+  dispatcher for peer, watch, and shell completion wakes. A live server run and
+  delivery across the proposed worker process boundary remain untested (§5.1).
 * Host-resident state that does not obviously survive a process boundary and needs an
   owner decision: browser tool thread, MCP client connections, `watch` registrations,
   subagent execution (not audited in this pass whether children run as threads of the parent; that decides whether they stay inside the parent's worker).

@@ -221,6 +221,8 @@ class BackgroundJob:
     _stdout_read_offset: int = field(default=0, repr=False)
     _stderr_read_offset: int = field(default=0, repr=False)
     conversation_id: str | None = None
+    server_session_id: str | None = field(default=None, repr=False, kw_only=True)
+    server_branch: str | None = field(default=None, repr=False, kw_only=True)
     process_group_id: int | None = field(default=None, repr=False)
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -1335,6 +1337,17 @@ def _current_log_dir() -> Path | None:
     return Path(logdir) if logdir else None
 
 
+def _server_job_origin(conversation_id: str | None) -> tuple[str | None, str | None]:
+    from ..hooks import current_session_id
+    from ..logmanager import LogManager
+
+    session_id = current_session_id.get()
+    manager = LogManager.get_current_log()
+    if session_id and manager and manager.chat_id == conversation_id:
+        return session_id, manager.current_branch
+    return None, None
+
+
 def control_commands_help(job_id: int) -> str:
     """Describe the job-control calls for ``job_id`` exactly as they must be made."""
     return (
@@ -1588,12 +1601,33 @@ def _notify_completion(job: BackgroundJob) -> None:
     with _job_lock:
         # A reader can finish after session cleanup. Never resurrect its event,
         # or deliver it to a later session that reused the same job ID.
-        if _background_jobs.get(job.conversation_id, {}).get(job.id) is not job:
+        if (
+            job._completion_notified
+            or _background_jobs.get(job.conversation_id, {}).get(job.id) is not job
+        ):
             return
         job._completion_notified = True
         _completion_queue.put(job)
         if condition := _job_conditions.get(job.conversation_id):
             condition.notify_all()
+
+    # Admission takes server locks. Release the job lock first so STEP_PRE and
+    # teardown can inspect or drain the queue without inverting the lock order.
+    if job.server_session_id is not None:
+        try:
+            from ..server.session_models import SessionManager
+
+            SessionManager.request_shell_wake(job)
+        except Exception:
+            logger.warning(
+                "Could not wake server for background job %s", job.id, exc_info=True
+            )
+
+
+def shell_completion_pending(job: BackgroundJob) -> bool:
+    """Whether this completion is still available for STEP_PRE to deliver."""
+    with _completion_queue.mutex:
+        return any(queued is job for queued in _completion_queue.queue)
 
 
 def _record_kill_reason(job: BackgroundJob, reason: str) -> None:
@@ -1657,6 +1691,7 @@ def register_background_job(
                     None if capture._spool_from_reader else output_callback
                 )
                 job = capture
+        job.server_session_id, job.server_branch = _server_job_origin(conversation_id)
         _jobs_for(conversation_id)[job.id] = job
     return job
 
@@ -1814,6 +1849,7 @@ def start_background_job(
             process_group_id=None if _is_windows else process.pid,
             log_dir=_current_log_dir(),
         )
+        job.server_session_id, job.server_branch = _server_job_origin(conversation_id)
         _jobs_for(conversation_id)[job_id] = job
     if not _is_windows:
         from .shell_memory import Target, group_alive, kill_group, watch
@@ -1948,6 +1984,7 @@ def background_job_completion_hook(
     # paths also bind an explicit context for tools; use that only when the
     # manager cannot provide an ID. Never use process-local LogManager state here.
     conversation_id = getattr(manager, "chat_id", None) or current_conversation_id.get()
+    branch = getattr(manager, "current_branch", "main")
     # Reset takes these locks in the same order. Holding both while claiming and
     # validating completions makes delivery atomic with conversation teardown.
     with _job_lock, _completion_queue.mutex:
@@ -1957,6 +1994,7 @@ def background_job_completion_hook(
                 job
                 for job in _completion_queue.queue
                 if job.conversation_id == conversation_id
+                and (job.server_branch is None or job.server_branch == branch)
                 and _background_jobs.get(conversation_id, {}).get(job.id) is job
             ],
         )
