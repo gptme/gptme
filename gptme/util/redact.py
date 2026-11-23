@@ -368,6 +368,17 @@ def _live_secret_literals(environ: Mapping[str, str] | None = None) -> list[str]
     return sorted(literals, key=lambda v: (-len(v), v))
 
 
+def live_secret_values(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Public form of :func:`_live_secret_literals` for multi-chunk callers.
+
+    A caller that redacts many chunks (a streaming spill) resolves the process's
+    secret values once and passes them to
+    :func:`redact_secret_values_from_output` instead of paying for the
+    environment scan on every chunk.
+    """
+    return _live_secret_literals(environ)
+
+
 def _redact_live_literals(
     line: str,
     literals: list[str],
@@ -421,7 +432,9 @@ def _redact_live_literals(
     return "".join(parts), True
 
 
-def redact_secret_values_from_output(content: str) -> tuple[str, int]:
+def redact_secret_values_from_output(
+    content: str, *, live_literals: list[str] | None = None
+) -> tuple[str, int]:
     """Redact secret-shaped values on secret-named lines of command output.
 
     Stricter than :func:`redact_secrets_from_text`: command output often holds
@@ -435,8 +448,11 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     printed under an unrelated key.
 
     Returns the redacted text and the number of lines changed.
+
+    *live_literals* lets a caller redacting many chunks compute the process's
+    secret values once instead of on every call.
     """
-    literals = _live_secret_literals()
+    literals = _live_secret_literals() if live_literals is None else live_literals
     # One substring scan over the whole output decides whether the per-line
     # pass runs at all; most outputs contain no live value.
     if not any(literal in content for literal in literals):
