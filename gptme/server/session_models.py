@@ -702,21 +702,24 @@ class SessionManager:
                 requeue_watch_event(
                     logdir, watch_id, text, branch=branch, status=status
                 )
-        # Background shell jobs that finished while busy stay queued for
-        # STEP_PRE; retry their idle wake now, as for subagent completions.
-        if "gptme.tools.shell_background" in sys.modules:
-            from ..tools.shell_background import wake_server_for_completed_jobs
-
-            try:
-                wake_server_for_completed_jobs(conversation_id)
-            except Exception:
-                logger.warning(
-                    "Could not retry background job wakes for %s",
-                    conversation_id,
-                    exc_info=True,
-                )
         queued = take_queued_completions(logdir)
         if not queued:
+            # Background shell jobs that finished while busy stay queued for
+            # STEP_PRE; retry their idle wake now. Subagent completions keep
+            # priority: both end in `request_watch_wake`, which admits a single
+            # wake per retry, so waking for a shell completion first would
+            # defer a subagent completion this retry used to deliver.
+            if "gptme.tools.shell_background" in sys.modules:
+                from ..tools.shell_background import wake_server_for_completed_jobs
+
+                try:
+                    wake_server_for_completed_jobs(conversation_id)
+                except Exception:
+                    logger.warning(
+                        "Could not retry background job wakes for %s",
+                        conversation_id,
+                        exc_info=True,
+                    )
             return
         first, *rest = queued
         for agent_id, status, summary, parent_branch in rest:
