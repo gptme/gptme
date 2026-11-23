@@ -571,6 +571,10 @@ export function useConversation(conversationId: string, serverId?: string) {
               // another approval from every viewer races that execution.
             },
             onElicitPending: (elicitation) => {
+              // Registration precedes emission: a reconnect snapshot (or another
+              // viewer) may already have restored this request. Do not invalidate
+              // its in-flight answer or reset its generating state on redelivery.
+              if (conversation$?.pendingElicitation.peek()?.id === elicitation.id) return;
               // The agent is blocked on this answer; show it like a pending tool.
               setGenerating(conversationId, false);
               setPendingElicitation(conversationId, elicitation);

@@ -15,6 +15,7 @@ from gptme.hooks.server_confirm import current_conversation_id, current_session_
 from gptme.hooks.server_elicit import (
     PendingElicitation,
     _pending_elicitations,
+    cancel_pending,
     get_pending,
     list_pending_events,
     register_pending,
@@ -305,6 +306,31 @@ class TestReconnectReplay:
         resolve_pending("a", ElicitationResponse(value="x"))
         assert [e["elicit_id"] for e in list_pending_events("conv-1")] == ["c"]
         assert list_pending_events("conv-3") == []
+
+    def test_cancel_wakes_hook_and_preserves_answered_requests(self):
+        """Interrupt releases the blocked hook without replacing accepted answers."""
+        current_conversation_id.set("conv-1")
+        current_session_id.set("sess-1")
+        answered = register_pending("answered", _make_request(), "conv-1")
+        answer = ElicitationResponse(value="accepted")
+        resolve_pending("answered", answer)
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.add_event.side_effect = lambda conv_id, _event: cancel_pending(
+            conv_id
+        )
+        with patch.dict(
+            "sys.modules",
+            {
+                "gptme.server.api_v2_sessions": MagicMock(
+                    SessionManager=mock_session_mgr
+                ),
+            },
+        ):
+            result = server_elicit_hook(_make_request())
+        assert result is not None and result.cancelled
+        assert answered.result is answer
+        assert list_pending_events("conv-1") == []
+        assert not cancel_pending("conv-1")
 
     def test_hook_registers_payload_before_emitting(self):
         """A client connecting while the hook waits sees the emitted payload."""

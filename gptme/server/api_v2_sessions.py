@@ -20,6 +20,7 @@ from flask import request
 
 from ..config import ChatConfig, Config
 from ..dirs import get_logs_dir
+from ..hooks.server_elicit import cancel_pending as cancel_pending_elicitations
 from ..hooks.server_elicit import list_pending_events as list_pending_elicitations
 from ..llm.models import get_default_model, get_model
 from ..logmanager import LogManager
@@ -1341,6 +1342,10 @@ def api_conversation_interrupt(conversation_id: str):
                     sess.finish_skill_turn("abandoned")
                     sess.pending_tools.clear()
                     sess.checkpoint_needs_continuation = False
+        # Wake blocked hooks only after every session's continuation is revoked.
+        # Do this even if the generation flag was already cleared while waiting.
+        if cancel_pending_elicitations(conversation_id):
+            interrupted = True
 
     if not interrupted:
         # Idempotent: if nothing is generating, treat as already interrupted

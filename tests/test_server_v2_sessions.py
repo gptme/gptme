@@ -929,6 +929,66 @@ class TestInterruptEndpoint:
         assert session.generating is False
         assert len(session.pending_tools) == 0
 
+    @pytest.mark.parametrize("generating", [False, True])
+    def test_interrupt_cancels_pending_elicitations(
+        self, conv_pair, client: FlaskClient, generating: bool
+    ):
+        """Stopped questions cannot replay or accept late answers; peers survive."""
+        from gptme.hooks.elicitation import ElicitationRequest, ElicitationResponse
+        from gptme.hooks.server_elicit import (
+            list_pending_events,
+            register_pending,
+            remove_pending,
+            resolve_pending,
+        )
+
+        conv, other = conv_pair
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = generating
+        pending = []
+        for conversation, eid in [(conv, "stopped"), (other, "other")]:
+            pending.append(
+                register_pending(
+                    eid,
+                    ElicitationRequest(type="text", prompt="Question?"),
+                    conversation_id=conversation["conversation_id"],
+                    event_data={
+                        "type": "elicit_pending",
+                        "elicit_id": eid,
+                        "elicit_type": "text",
+                        "prompt": "Question?",
+                    },
+                )
+            )
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+                json={"session_id": conv["session_id"]},
+            )
+            assert response.status_code == 200
+            assert list_pending_events(conv["conversation_id"]) == []
+            events = client.get(
+                f"/api/v2/conversations/{conv['conversation_id']}/events"
+                f"?session_id={conv['session_id']}",
+                buffered=False,
+            )
+            try:
+                connected = json.loads(
+                    next(events.iter_encoded()).decode().removeprefix("data: ").strip()
+                )
+                assert connected["pending_elicitations"] == []
+            finally:
+                events.close()
+            assert pending[0].event.is_set()
+            assert pending[0].result is not None and pending[0].result.cancelled
+            assert not resolve_pending("stopped", ElicitationResponse(value="late"))
+            assert not pending[1].event.is_set()
+            assert len(list_pending_events(other["conversation_id"])) == 1
+        finally:
+            remove_pending("stopped")
+            remove_pending("other")
+
     def test_interrupt_marks_epoch_revoked(self, conv, client: FlaskClient):
         """Interrupt revokes workers queued under the current generation epoch."""
         session = SessionManager.get_session(conv["session_id"])

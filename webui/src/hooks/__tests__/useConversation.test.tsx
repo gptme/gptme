@@ -401,6 +401,51 @@ describe('useConversation', () => {
     expect(conversation.pendingElicitation.get()).toBeNull();
   });
 
+  it.each([false, true])(
+    'keeps an in-flight answer valid after snapshot-then-live delivery (success=%s)',
+    async (succeeds) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      const elicitation = { id: 'replayed', type: 'text', prompt: 'Name?' };
+      act(() =>
+        eventHandlers!.onReconnectState!({
+          generating: true,
+          pendingTools: [],
+          pendingElicitations: [elicitation],
+        })
+      );
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      respondToElicitationApi.mockImplementationOnce(
+        () =>
+          new Promise<void>((done, fail) => {
+            resolve = done;
+            reject = fail;
+          })
+      );
+      let response!: Promise<void>;
+      act(() => {
+        response = result.current.respondToElicitation({ action: 'accept', value: 'Bob' });
+      });
+      const conversation = conversations$.get('chat-placeholder')!;
+      const revision = conversation.elicitationRevision.get();
+      act(() => eventHandlers!.onElicitPending!(elicitation));
+      expect(conversation.elicitationRevision.get()).toBe(revision);
+      expect(conversation.isGenerating.get()).toBe(true);
+      await act(async () => {
+        if (succeeds) {
+          resolve();
+          await response;
+        } else {
+          reject(new Error('offline'));
+          await expect(response).rejects.toThrow('offline');
+        }
+      });
+      expect(conversation.pendingElicitation.get()).toEqual(succeeds ? null : elicitation);
+      expect(conversation.isGenerating.get()).toBe(succeeds);
+    }
+  );
+
   it('leaves the elicit request alone when the server sends no elicitation snapshot', async () => {
     renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());

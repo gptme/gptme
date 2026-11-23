@@ -120,6 +120,25 @@ def get_pending(elicit_id: str) -> PendingElicitation | None:
         return _pending_elicitations.get(elicit_id)
 
 
+def cancel_pending(conversation_id: str) -> bool:
+    """Cancel and wake unanswered requests when their conversation is stopped.
+
+    Remove them under the registry lock so a late HTTP response cannot replace
+    cancellation before the waiting hook resumes and cleans up.
+    """
+    with _lock:
+        ids = [
+            eid
+            for eid, pending in _pending_elicitations.items()
+            if pending.conversation_id == conversation_id and not pending.event.is_set()
+        ]
+        for eid in ids:
+            pending = _pending_elicitations.pop(eid)
+            pending.result = ElicitationResponse.cancel()
+            pending.event.set()
+        return bool(ids)
+
+
 def list_pending_events(conversation_id: str) -> list["ElicitPendingEvent"]:
     """Return the ``elicit_pending`` payloads still awaiting an answer.
 
