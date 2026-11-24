@@ -1013,29 +1013,29 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
                 fix_hint="Consider removing the path component; the Anthropic SDK appends its own paths",
             )
         )
-    else:
-        failure = _probe_proxy_connect(hostname, port, parsed.scheme)
-        details = f"Proxy: {parsed.scheme}://{display_host}" if verbose else None
-        if failure is None:
-            results.append(
-                CheckResult(
-                    name="Proxy: LLM_PROXY_URL",
-                    status=CheckStatus.OK,
-                    message=f"Configured and reachable ({display_host})",
-                    details=details,
-                )
+
+    # Probe even when the path warned: a dead proxy must not hide behind it.
+    failure = _probe_proxy_connect(hostname, port, parsed.scheme)
+    if failure is not None:
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.WARNING,
+                message=f"Configured but unreachable ({display_host})",
+                details=failure if verbose else None,
+                fix_hint="Check the proxy host/port and network access; "
+                "LLM calls fail while it is unreachable",
             )
-        else:
-            results.append(
-                CheckResult(
-                    name="Proxy: LLM_PROXY_URL",
-                    status=CheckStatus.WARNING,
-                    message=f"Configured but unreachable ({display_host})",
-                    details=failure if verbose else None,
-                    fix_hint="Check the proxy host/port and network access; "
-                    "LLM calls fail while it is unreachable",
-                )
+        )
+    elif not (parsed.path and parsed.path != "/"):
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.OK,
+                message=f"Configured and reachable ({display_host})",
+                details=f"Proxy: {parsed.scheme}://{display_host}" if verbose else None,
             )
+        )
 
     return results
 
