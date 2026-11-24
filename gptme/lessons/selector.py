@@ -173,9 +173,17 @@ def refine_matches(
         ]
         if not advisory:
             return matches
+        from ..tools.complete import _is_harness_user_message
+
         messages = manager.log.messages
+        # Harness nudges are user-role but not a new prompt or query.
         user_index = next(
-            (i for i in range(len(messages) - 1, -1, -1) if messages[i].role == "user"),
+            (
+                i
+                for i in range(len(messages) - 1, -1, -1)
+                if messages[i].role == "user"
+                and not _is_harness_user_message(messages[i])
+            ),
             None,
         )
         if user_index is None:

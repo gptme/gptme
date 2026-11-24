@@ -522,9 +522,17 @@ def _auto_include_lessons(
 
     if max_per_turn > 0:
         # STEP_PRE repeats after tools; only a new user prompt starts a turn.
-        # Restore the current turn's usage from the log on resume as well.
+        # Harness nudges (e.g. "No tool call detected") are user-role but stay
+        # inside the turn. Restore the turn's usage from the log on resume too.
+        from .complete import _is_harness_user_message
+
         turn_start = next(
-            (i for i in range(len(messages) - 1, -1, -1) if messages[i].role == "user"),
+            (
+                i
+                for i in range(len(messages) - 1, -1, -1)
+                if messages[i].role == "user"
+                and not _is_harness_user_message(messages[i])
+            ),
             None,
         )
         turn_prompt = messages[turn_start] if turn_start is not None else None
