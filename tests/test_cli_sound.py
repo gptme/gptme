@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
@@ -169,9 +170,11 @@ def test_sounddevice_timeout_is_reported(monkeypatch):
     monkeypatch.setattr(sdmod, "_load_audio_libs", lambda: {"sd": sd})
     monkeypatch.setattr(sdmod, "convert_audio_to_float32", lambda d: d)
     monkeypatch.setattr(sdmod, "get_output_device", lambda: (None, 44100))
+    # Replace only the module's `time` binding: patching the global time module
+    # would also feed this fake clock to logging (LogRecord calls time.time()).
     clock = iter([0.0, 31.0])
-    monkeypatch.setattr(sdmod.time, "time", lambda: next(clock))
-    monkeypatch.setattr(sdmod.time, "sleep", lambda s: None)
+    fake_time = SimpleNamespace(time=lambda: next(clock), sleep=lambda s: None)
+    monkeypatch.setattr(sdmod, "time", fake_time)
 
     with pytest.raises(TimeoutError):
         sdmod.play_with_sounddevice(1.0, 44100, 1.0)
