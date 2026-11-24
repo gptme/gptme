@@ -1090,3 +1090,20 @@ def test_msgs_to_toml_roundtrip_preserves_ephemeral_ttl():
     restored = toml_to_msgs(toml_str)
 
     assert [m.ephemeral_ttl for m in restored] == [None, 2]
+
+
+def test_msgs_to_toml_keeps_literal_message_header_in_content():
+    """A message that mentions ``[message]`` must come back unchanged.
+
+    ``msgs_to_toml`` renames the per-message table header from ``[message]`` to
+    ``[[messages]]``.  Replacing every occurrence also rewrote the same text
+    inside the content, so a conversation about this format lost the thing it
+    was describing.
+    """
+    content = "The single form is [message] and the list form is [[messages]]."
+    msgs = [Message("user", content)]
+
+    toml_str = msgs_to_toml(msgs)
+
+    assert toml_str.startswith("[[messages]]")
+    assert toml_to_msgs(toml_str)[0].content == content

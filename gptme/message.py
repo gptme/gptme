@@ -913,7 +913,10 @@ def msgs_to_toml(msgs: Iterable[Message]) -> str:
     """Converts a list of messages to a TOML string, for easy editing by hand in editor to then be parsed back."""
     t = ""
     for msg in msgs:
-        t += msg.to_toml().replace("[message]", "[[messages]]") + "\n\n"
+        # Only the table header at the top is the header: a message may talk
+        # about "[message]" in its own text, and replacing those occurrences
+        # rewrites the content on the way back in.
+        t += msg.to_toml().replace("[message]", "[[messages]]", 1) + "\n\n"
 
     return t
 
