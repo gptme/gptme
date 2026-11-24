@@ -138,6 +138,10 @@ def test_generated_script_runs_in_shell(tmp_path, shell):
         ("gptme", ["--model"], "openrouter/", "openrouter/anthropic/"),
         ("gptme-server", ["serve", "--model"], "openrouter/", "openrouter/anthropic/"),
         ("gptme-util", [], "mod", "models"),
+        # `gptme chats ...` dispatches to gptme-util, so it completes like it.
+        ("gptme", [], "ch", "chats"),
+        ("gptme", [], "sea", "search"),
+        ("gptme", ["chats"], "l", "list"),
         ("gptme-util", ["models", "list"], "--pro", "--provider"),
         ("gptme-tui", [], "--inl", "--inline"),
         ("gptme-tui", ["--tool-format"], "x", "xml"),
@@ -557,3 +561,22 @@ def test_zsh_instruction_is_plain_unwrapped_text(tmp_path, monkeypatch, capsys):
     expected = f"fpath=({shlex.quote(str(data / 'zsh/completions'))} $fpath)"
     lines = capsys.readouterr().out.splitlines()
     assert any(expected in line for line in lines), lines
+
+
+@pytest.mark.parametrize(
+    ("args", "partial"),
+    [([], "README"), (["fix", "this"], "src/"), (["--"], "ch")],
+)
+def test_prompt_words_fall_back_to_paths(args, partial):
+    # Prompts may name files for context; after `--` they are literal prompts,
+    # never shortcut dispatch, so no subcommand suggestions either.
+    from gptme.cli.main import main as gptme_main
+
+    env = {
+        "_GPTME_COMPLETE": "bash_complete",
+        "COMP_WORDS": " ".join(["gptme", *args, partial]),
+        "COMP_CWORD": str(len(args) + 1),
+    }
+    result = CliRunner().invoke(gptme_main, [], prog_name="gptme", env=env)
+    assert result.exit_code == 0, result.output
+    assert result.output.split() == [f"file,{partial}"]

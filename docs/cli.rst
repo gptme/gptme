@@ -113,6 +113,10 @@ default ``XDG_DATA_HOME``, this is:
     autoload -Uz compinit
     compinit
 
+Shortcuts complete like the command they dispatch to: ``gptme ch<Tab>`` suggests
+``chats``, and ``gptme chats l<Tab>`` completes from ``gptme-util chats``. Other
+prompt words complete as file paths.
+
 Restart the shell after installation. These completions cover every entry point,
 including optional commands when their extras are installed. ``gptme-wut``,
 ``gptme-convert``, and ``gptme-eval-trends`` use argparse: their scripts are

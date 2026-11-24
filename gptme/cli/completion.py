@@ -69,3 +69,33 @@ def complete_tools(
         return param.type.shell_complete(ctx, param, incomplete)
     finally:
         _config_var.reset(token)
+
+
+def complete_prompt(
+    ctx: click.Context, param: click.Parameter, incomplete: str
+) -> list[CompletionItem]:
+    """Mirror ``gptme <util-subcommand> ...`` dispatch; otherwise complete paths.
+
+    ``gptme chats list`` runs ``gptme-util chats list``, so its words complete
+    from gptme-util's command tree. Other prompt words are free text or file
+    paths given as context.
+    """
+    from click.shell_completion import ShellComplete
+
+    from .util import UTIL_SUBCOMMANDS
+
+    prompts = list(ctx.params.get("prompts") or ())
+    if not ctx.meta.get("shortcut_dispatch_suppressed"):
+        if not prompts:
+            names = [
+                n for n in ["search", *UTIL_SUBCOMMANDS] if n.startswith(incomplete)
+            ]
+            if names and incomplete:
+                return [CompletionItem(n) for n in names]
+        elif prompts[0] in UTIL_SUBCOMMANDS:
+            from .util import main as util_main
+
+            return ShellComplete(util_main, {}, "gptme-util", "").get_completions(
+                prompts, incomplete
+            )
+    return [CompletionItem(incomplete, type="file")]
