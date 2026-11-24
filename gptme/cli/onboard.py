@@ -30,6 +30,7 @@ from ..config.user import (
     get_default_model_source,
     get_user_config_paths,
 )
+from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
 from ..llm import list_available_providers
 from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
@@ -79,6 +80,12 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         for provider, source in list_available_providers():
             if provider in OAUTH_PROVIDERS:
                 results[provider] = (True, source)
+            elif (
+                source == STORED_CREDENTIALS_SOURCE
+                and not results.get(provider, (False,))[0]
+            ):
+                # Keys saved by `/account setup` live in credentials.toml.
+                results[provider] = (True, f"({STORED_CREDENTIALS_SOURCE})")
     except (OSError, ValueError) as e:
         logger.warning(
             "OAuth credential check failed: %s — run `gptme auth` to re-authenticate", e
@@ -143,6 +150,11 @@ def _test_provider(provider: str) -> tuple[bool, str]:
             api_key = get_config().get_env(env_var)
         except Exception:
             pass
+    if not api_key:
+        try:
+            api_key = get_stored_api_key(provider)
+        except (OSError, ValueError):
+            api_key = None
     if not api_key:
         return False, f"No API key found (set {env_var})"
 
