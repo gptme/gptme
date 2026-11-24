@@ -492,6 +492,81 @@ class TestServeConversationFileEndpoint:
         assert resp.status_code == 200
         assert "text/plain" in resp.content_type
 
+    def test_serve_symlinked_workspace_file_with_workspace_prefix(
+        self, app, tmp_path: Path, mock_auth
+    ) -> None:
+        """Regression #5148 (#1): /files/workspace/<name> works when workspace is a symlink."""
+        logdir = tmp_path / "logs" / "conv-id"
+        logdir.mkdir(parents=True)
+        real_workspace = tmp_path / "project"
+        real_workspace.mkdir()
+        (real_workspace / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        nested = real_workspace / "sub"
+        nested.mkdir()
+        (nested / "note.txt").write_text("hello nested")
+        (logdir / "workspace").symlink_to(real_workspace, target_is_directory=True)
+
+        manager = MagicMock()
+        manager.logdir = logdir
+        manager.workspace = real_workspace
+
+        with patch("gptme.server.workspace_api.LogManager") as mock_cls:
+            mock_cls.load.return_value = manager
+            with app.test_client() as client:
+                direct = client.get("/api/v2/conversations/test-conv/files/pic.png")
+                prefixed = client.get(
+                    "/api/v2/conversations/test-conv/files/workspace/pic.png"
+                )
+                nested_resp = client.get(
+                    "/api/v2/conversations/test-conv/files/workspace/sub/note.txt"
+                )
+                missing = client.get(
+                    "/api/v2/conversations/test-conv/files/workspace/missing.png"
+                )
+
+        assert direct.status_code == 200
+        assert direct.data == b"\x89PNG\r\n\x1a\n"
+        assert prefixed.status_code == 200
+        assert prefixed.data == b"\x89PNG\r\n\x1a\n"
+        assert nested_resp.status_code == 200
+        assert nested_resp.data == b"hello nested"
+        assert missing.status_code == 404
+
+    def test_serve_symlinked_workspace_still_rejects_traversal(
+        self, app, tmp_path: Path, mock_auth
+    ) -> None:
+        """Path traversal and escaping symlinks stay rejected with 400."""
+        logdir = tmp_path / "logs" / "conv-id"
+        logdir.mkdir(parents=True)
+        real_workspace = tmp_path / "project"
+        real_workspace.mkdir()
+        outside = tmp_path / "secret.txt"
+        outside.write_text("secret")
+        (real_workspace / "escape_link").symlink_to(outside)
+        (logdir / "workspace").symlink_to(real_workspace, target_is_directory=True)
+        (logdir / "other_link").symlink_to(tmp_path, target_is_directory=True)
+
+        manager = MagicMock()
+        manager.logdir = logdir
+        manager.workspace = real_workspace
+
+        with patch("gptme.server.workspace_api.LogManager") as mock_cls:
+            mock_cls.load.return_value = manager
+            with app.test_client() as client:
+                traversal = client.get(
+                    "/api/v2/conversations/test-conv/files/workspace/..%2F..%2Fsecret.txt"
+                )
+                ws_escape = client.get(
+                    "/api/v2/conversations/test-conv/files/workspace/escape_link"
+                )
+                other_link = client.get(
+                    "/api/v2/conversations/test-conv/files/other_link/secret.txt"
+                )
+
+        assert traversal.status_code == 400
+        assert ws_escape.status_code == 400
+        assert other_link.status_code == 400
+
 
 class TestAttachmentResourceEndpoint:
     """Attachment URLs keep relative model resources in the attachments root."""

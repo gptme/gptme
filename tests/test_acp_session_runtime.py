@@ -158,6 +158,51 @@ def test_runtime_sets_session_model_on_start(monkeypatch, tmp_path):
     assert created[0].set_model_calls == [("sess-test", "openai/gpt-4o-mini")]
 
 
+def test_runtime_start_resets_state_when_set_session_model_fails(monkeypatch, tmp_path):
+    """Regression #5148 (#3): failed set_session_model must not leave closed client attached."""
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_DummyClient] = []
+
+    class _FailOnceModelClient(_DummyClient):
+        async def set_session_model(self, session_id: str, model_id: str) -> None:
+            await super().set_session_model(session_id, model_id)
+            if len(created) == 1:
+                raise RuntimeError("transient set_session_model failure")
+
+        async def prompt(
+            self, session_id: str, message: str, max_tokens: int | None = None
+        ):
+            if self.closed:
+                raise RuntimeError("prompt called on closed ACP client")
+            return await super().prompt(session_id, message, max_tokens=max_tokens)
+
+    def _factory(*args, **kwargs):
+        c = _FailOnceModelClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, model="openai/gpt-4o-mini")
+
+    with pytest.raises(RuntimeError, match="transient set_session_model failure"):
+        _run(runtime.prompt("first attempt"))
+
+    assert len(created) == 1
+    assert created[0].closed is True
+    assert runtime._client is None
+    assert runtime.session_id is None
+
+    # Retry must start a fresh client instead of reusing the closed one
+    text, _ = _run(runtime.prompt("retry attempt"))
+    assert text == "hello world"
+    assert len(created) == 2
+    assert created[1].closed is False
+    assert created[1].prompt_calls == [("sess-test", "retry attempt")]
+    assert runtime.session_id == "sess-test"
+
+
 # ---------------------------------------------------------------------------
 # Server-side integration: _acp_step + ConversationSession.use_acp routing
 # ---------------------------------------------------------------------------

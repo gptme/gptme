@@ -509,12 +509,32 @@ def serve_conversation_file(conversation_id: str, filepath: str):
         workspace = manager.workspace
 
         # Resolve path against logdir (covers workspace/ and attachments/)
+        resolved_in_workspace = False
         try:
             path = safe_workspace_path(logdir, filepath)
         except ValueError:
-            return flask.jsonify({"error": "Path escapes conversation directory"}), 400
+            # When logdir/workspace is a symlink to an external directory (the
+            # normal layout), safe_workspace_path(logdir, "workspace/...")
+            # resolves outside logdir. Fall back to workspace with the leading
+            # "workspace/" prefix stripped.
+            if filepath.startswith("workspace/"):
+                try:
+                    path = safe_workspace_path(
+                        workspace, filepath.removeprefix("workspace/")
+                    )
+                    resolved_in_workspace = True
+                except ValueError:
+                    return (
+                        flask.jsonify({"error": "Path escapes conversation directory"}),
+                        400,
+                    )
+            else:
+                return (
+                    flask.jsonify({"error": "Path escapes conversation directory"}),
+                    400,
+                )
 
-        if not path.exists():
+        if not resolved_in_workspace and not path.exists():
             # Fallback: try workspace-relative (for backwards compat)
             try:
                 path = safe_workspace_path(workspace, filepath)

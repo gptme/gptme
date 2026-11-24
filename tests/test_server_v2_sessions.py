@@ -2616,6 +2616,83 @@ class TestRerunEndpoint:
         )
         assert response.status_code == 404
 
+    def test_rerun_rejected_when_tools_already_pending(self, conv, client: FlaskClient):
+        """Regression #5148 (#4): duplicate /rerun must not add duplicate pending tools."""
+        conversation_id = conv["conversation_id"]
+        session_id = conv["session_id"]
+
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Run a command"},
+        )
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={
+                "role": "assistant",
+                "content": "```shell\necho hi\n```",
+            },
+        )
+
+        session = SessionManager.get_session(session_id)
+        assert session is not None
+        try:
+            first = client.post(
+                f"/api/v2/conversations/{conversation_id}/rerun",
+                json={"session_id": session_id},
+            )
+            assert first.status_code == 200
+            assert len(session.pending_tools) == 1
+            first_ids = list(session.pending_tools)
+
+            # Double-click on the same session must be rejected with 409
+            second = client.post(
+                f"/api/v2/conversations/{conversation_id}/rerun",
+                json={"session_id": session_id},
+            )
+            assert second.status_code == 409
+            assert list(session.pending_tools) == first_ids
+
+            # Rerun from a second tab (sibling session) must also be rejected
+            other_session = SessionManager.create_session(conversation_id)
+            try:
+                other_resp = client.post(
+                    f"/api/v2/conversations/{conversation_id}/rerun",
+                    json={"session_id": other_session.id},
+                )
+                assert other_resp.status_code == 409
+                assert list(session.pending_tools) == first_ids
+                assert other_session.pending_tools == {}
+            finally:
+                SessionManager.remove_session(other_session.id)
+        finally:
+            session.pending_tools.clear()
+
+    def test_rerun_rejected_when_tool_is_executing(self, conv, client: FlaskClient):
+        """Regression #5148 (#4): /rerun is rejected while a tool is executing."""
+        conversation_id = conv["conversation_id"]
+        session_id = conv["session_id"]
+
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={
+                "role": "assistant",
+                "content": "```shell\necho hi\n```",
+            },
+        )
+
+        session = SessionManager.get_session(session_id)
+        assert session is not None
+        session._executing_tools.add("tool-in-flight")
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conversation_id}/rerun",
+                json={"session_id": session_id},
+            )
+            assert response.status_code == 409
+            assert session.pending_tools == {}
+        finally:
+            session._executing_tools.discard("tool-in-flight")
+
 
 # --- Elicit respond endpoint tests ---
 
@@ -3593,3 +3670,75 @@ def test_persisted_generation_error_keeps_unknown_failures_verbatim(tmp_path, ra
     _persist_generation_error(manager, session, raw)
 
     assert manager.log.messages[-1].content == f"Error: {raw}"
+
+
+def test_step_startup_poll_does_not_clear_shared_event_flag(conv, client: FlaskClient):
+    """Regression #5148 (#5): /step startup poll must not clear session.event_flag."""
+    import time
+
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    clear_calls: list[str] = []
+    orig_clear = session.event_flag.clear
+
+    def spy_clear() -> None:
+        clear_calls.append(threading.current_thread().name)
+        orig_clear()
+
+    sse_ready = threading.Event()
+    sse_woke = threading.Event()
+    worker_done = threading.Event()
+
+    def sse_waiter() -> None:
+        # Simulate an SSE stream that cleared event_flag and is now waiting
+        # for the next event (15s timeout in production).
+        orig_clear()
+        sse_ready.set()
+        if session.event_flag.wait(timeout=2.0):
+            sse_woke.set()
+
+    def fake_start_step(**_kwargs) -> bool:
+        def worker() -> None:
+            try:
+                assert sse_ready.wait(timeout=2.0)
+                time.sleep(0.05)
+                SessionManager.add_event(
+                    conversation_id, {"type": "generation_started"}
+                )
+                time.sleep(0.15)
+                SessionManager.add_event(
+                    conversation_id, {"type": "generation_progress", "token": "ok"}
+                )
+            finally:
+                session.generating = False
+                worker_done.set()
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    waiter_thread = threading.Thread(target=sse_waiter, daemon=True)
+    waiter_thread.start()
+    assert sse_ready.wait(timeout=2.0)
+
+    session.event_flag.clear = spy_clear  # type: ignore[method-assign]
+    try:
+        with patch(
+            "gptme.server.api_v2_sessions._start_step_thread",
+            side_effect=fake_start_step,
+        ):
+            resp = client.post(
+                f"/api/v2/conversations/{conversation_id}/step",
+                json={"session_id": session_id, "model": "openai/gpt-4o-mini"},
+            )
+    finally:
+        session.event_flag.clear = orig_clear  # type: ignore[method-assign]
+        waiter_thread.join(timeout=2.0)
+        worker_done.wait(timeout=2.0)
+
+    assert resp.status_code == 200
+    assert clear_calls == []
+    assert session.event_flag.is_set()
+    assert sse_woke.is_set()

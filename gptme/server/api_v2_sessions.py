@@ -675,9 +675,10 @@ def api_conversation_step(conversation_id: str):
     _STARTUP_TIMEOUT = 5.0
     _POLL_INTERVAL = 0.1
     deadline = time.monotonic() + _STARTUP_TIMEOUT
-    while time.monotonic() < deadline:
-        # Check new events since we started
-        new_events, _ = session.read_events(initial_event_count)
+    next_event_index = initial_event_count
+    while True:
+        # Check new events since last read
+        new_events, next_event_index = session.read_events(next_event_index)
         for event in new_events:
             event_type = event.get("type") if isinstance(event, dict) else None
             if event_type == "error":
@@ -697,8 +698,12 @@ def api_conversation_step(conversation_id: str):
                         "session_id": session_id,
                     }
                 )
-        session.event_flag.clear()
-        session.event_flag.wait(timeout=_POLL_INTERVAL)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        session.wait_for_events(
+            next_event_index, timeout=min(_POLL_INTERVAL, remaining)
+        )
 
     # Timeout without error or token — generation is slow but not failed
     return flask.jsonify(
@@ -957,7 +962,12 @@ def api_conversation_tool_confirm(conversation_id: str):
     summary="Re-run tools from an assistant message (V2)",
     description="Parse tool uses from an assistant message and set them as pending for execution. "
     "This re-creates the tool confirmation flow without calling the LLM.",
-    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    responses={
+        200: StatusResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
     parameters=[CONVERSATION_ID_PARAM],
     tags=["sessions"],
 )
@@ -1008,6 +1018,14 @@ def api_conversation_rerun(conversation_id: str):
         ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify(
                 {"error": "Cannot rerun while generation is in progress"}
+            ), 409
+
+        if any(
+            s.pending_tools or s._executing_tools
+            for s in SessionManager.get_sessions_for_conversation(conversation_id)
+        ):
+            return flask.jsonify(
+                {"error": "Cannot rerun while tools are pending or executing"}
             ), 409
 
         # Load conversation and find the last assistant message

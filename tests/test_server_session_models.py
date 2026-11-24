@@ -581,6 +581,32 @@ class TestSessionManagerAddEvent:
         assert len(session.events) == session._KEEP_EVENTS
         assert session.events_count == session._MAX_EVENTS + 1
 
+    def test_wait_for_events_wakes_without_clearing_event_flag(self):
+        """wait_for_events wakes on append_event and never clears event_flag."""
+        import threading
+        import time
+
+        session = SessionManager.create_session("conv-1")
+        # Already has no events -> times out cleanly
+        assert session.wait_for_events(0, timeout=0.02) is False
+
+        def emit() -> None:
+            time.sleep(0.03)
+            SessionManager.add_event("conv-1", {"type": "generation_started"})
+
+        t = threading.Thread(target=emit, daemon=True)
+        t.start()
+        try:
+            assert session.wait_for_events(0, timeout=1.0) is True
+            # Already-available event returns immediately
+            assert session.wait_for_events(0, timeout=0.01) is True
+            # Waiting for a future index times out without touching event_flag
+            assert session.event_flag.is_set()
+            assert session.wait_for_events(1, timeout=0.02) is False
+            assert session.event_flag.is_set()
+        finally:
+            t.join(timeout=1.0)
+
 
 class TestSessionManagerCleanInactive:
     """Tests for SessionManager.clean_inactive_sessions()."""
