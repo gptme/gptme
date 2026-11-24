@@ -2445,6 +2445,9 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
 
     msg = f"**Job #{job_id}** - {status} ({elapsed:.1f}s)\n"
     msg += f"Command: `{job.command}`\n\n"
+    if not job.is_running() and job.kill_reason:
+        # A guard-killed job's exit code alone (e.g. -15) doesn't say why.
+        msg += f"{job.kill_reason}\n\n"
     if not job.is_running() and not job.is_output_complete():
         msg += (
             "The command exited, but a descendant still holds an output pipe. "
@@ -2536,9 +2539,10 @@ def execute_kill_command(job_id_str: str) -> Generator[Message, None, None]:
         return
 
     if not job.is_running():
+        reason = f" {job.kill_reason}" if job.kill_reason else ""
         yield Message(
             "system",
-            f"Job #{job_id} is already finished (exit code: {job.process.returncode}).",
+            f"Job #{job_id} is already finished (exit code: {job.process.returncode}).{reason}",
         )
         return
 
