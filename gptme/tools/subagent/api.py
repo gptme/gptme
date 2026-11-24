@@ -2707,6 +2707,23 @@ def subagent_status(agent_id: str) -> dict:
     return asdict(sa.status())
 
 
+def _wait_for_subprocess_outcome(
+    sa: Subagent, launcher: threading.Thread, timeout: float
+) -> ReturnType:
+    """Wait for publication of the outcome, independently of launcher cleanup."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if not launcher.is_alive():
+            return sa.status()
+        cached = sa._cached_result()
+        if cached is not None:
+            return cached
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return ReturnType("running")
+        launcher.join(timeout=min(remaining, 0.05))
+
+
 @_without_inprocess_cwd_pin
 def subagent_wait(
     agent_id: str, timeout: int = 60, max_result_chars: int = 2000
@@ -2734,15 +2751,7 @@ def subagent_wait(
 
     status = None
     if sa.execution_mode == "subprocess" and sa.thread:
-        # The launcher publishes the outcome after reaping the process and
-        # collecting diagnostics. The process can exit before that is done.
-        status = sa._cached_result()
-        if status is None:
-            sa.thread.join(timeout=timeout)
-            finalizing = sa.thread.is_alive()
-            status = sa._cached_result()
-            if status is None and finalizing:
-                status = ReturnType("running")
+        status = _wait_for_subprocess_outcome(sa, sa.thread, timeout)
     elif sa.execution_mode == "subprocess" and sa.process:
         try:
             sa.process.wait(timeout=timeout)
