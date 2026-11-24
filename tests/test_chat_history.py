@@ -126,3 +126,61 @@ def test_chat_history_keeps_conversation_whose_first_message_is_code(monkeypatch
     assert "guarding the empty list" in history[0].content
     # Only the final reply is shown; the code-only opener is not.
     assert "(3 messages omitted)" in history[0].content
+
+
+def _history_for(monkeypatch, messages):
+    from types import SimpleNamespace
+
+    import gptme.logmanager as logmanager
+
+    conv = SimpleNamespace(
+        messages=len(messages),
+        path="/nonexistent/conv/conversation.jsonl",
+        name="conv",
+        modified=0.0,
+    )
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "true")
+    monkeypatch.setattr(logmanager, "list_conversations", lambda **kw: [conv])
+    monkeypatch.setattr(
+        logmanager.LogManager,
+        "load",
+        classmethod(
+            lambda cls, *a, **kw: SimpleNamespace(
+                log=SimpleNamespace(messages=messages)
+            )
+        ),
+    )
+    return list(prompt_chat_history())
+
+
+def test_chat_history_does_not_count_code_only_first_reply_as_shown(monkeypatch):
+    """A code-only first reply summarises to "" and must count as omitted."""
+    history = _history_for(
+        monkeypatch,
+        [
+            Message("user", "Please fix the parser crash."),
+            Message("assistant", "```python\nprint('hi')\n```"),
+            Message("user", "Thanks, does it work now?"),
+            Message(
+                "assistant",
+                "Yes, the parser now guards the empty list before indexing into it.",
+            ),
+        ],
+    )
+    assert len(history) == 1
+    # Shown: first user + final reply. Omitted: the code-only reply + 2nd user.
+    assert "(2 messages omitted)" in history[0].content
+
+
+def test_chat_history_skips_conversation_with_no_message_text(monkeypatch):
+    """Only a count and no User:/Assistant: line tells the assistant nothing."""
+    history = _history_for(
+        monkeypatch,
+        [
+            Message("user", "```\nTraceback: boom\n```"),
+            Message("assistant", "```\nok\n```"),
+            Message("user", "```\nmore\n```"),
+            Message("assistant", "Done."),
+        ],
+    )
+    assert history == []
