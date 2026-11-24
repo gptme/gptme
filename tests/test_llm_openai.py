@@ -3093,6 +3093,12 @@ class TestOpenRouterPrivacyFallbackRetry:
     the OpenRouter backend.
     """
 
+    @pytest.fixture(autouse=True)
+    def _clear_relaxed_memo(self):
+        llm_openai._openrouter_relaxed_until.clear()
+        yield
+        llm_openai._openrouter_relaxed_until.clear()
+
     @staticmethod
     def _success_completion():
         from openai.types.completion_usage import CompletionUsage
@@ -3267,6 +3273,372 @@ class TestOpenRouterPrivacyFallbackRetry:
         assert "require_parameters" not in calls[1]["provider"]
         assert calls[1]["provider"]["data_collection"] == "deny"
         assert result == "Hello"
+
+    def test_chat_remembers_relaxed_routing_for_next_request(self, monkeypatch):
+        """After one no-endpoints 404, the next chat() goes straight to relaxed."""
+        completion = self._success_completion()
+        raw_ok = SimpleNamespace(parse=lambda: completion, headers={})
+        err = self._chat_error()
+        calls = []
+
+        def _create(**kwargs):
+            calls.append(kwargs.get("extra_body", {}))
+            if len(calls) == 1:
+                raise err
+            return raw_ok
+
+        self._setup_openrouter_chat(monkeypatch, _create)
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        llm_openai.chat([Message(role="user", content="Hi")], model, None)
+        llm_openai.chat([Message(role="user", content="Again")], model, None)
+
+        # strict (404), relaxed (ok), then relaxed directly: no second strict attempt
+        assert len(calls) == 3
+        assert calls[0]["provider"]["require_parameters"] is True
+        assert "require_parameters" not in calls[2]["provider"]
+        assert calls[2]["provider"]["data_collection"] == "deny"
+
+    @pytest.mark.parametrize("next_request_fails", [False, True])
+    def test_stream_remembers_relaxed_routing_for_next_request(
+        self, monkeypatch, next_request_fails
+    ):
+        """A remembered stream starts relaxed and does not repeat its fallback."""
+        from gptme.message import Message
+
+        err = self._chat_error()
+        calls = []
+
+        class _FakeStream:
+            response = SimpleNamespace(headers={})
+
+            def __iter__(self):
+                yield SimpleNamespace(
+                    usage=None,
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(
+                                reasoning_content=None,
+                                reasoning=None,
+                                content="Hello",
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                )
+
+        def _create(**kwargs):
+            calls.append(kwargs.get("extra_body", {}))
+            if len(calls) == 1 or (next_request_fails and len(calls) >= 3):
+                raise err
+            return _FakeStream()
+
+        monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(
+            llm_openai, "_should_use_responses_api", lambda *args: False
+        )
+
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        assert (
+            "".join(
+                llm_openai.stream([Message(role="user", content="Hi")], model, None)
+            )
+            == "Hello"
+        )
+        if next_request_fails:
+            with pytest.raises(openai.APIStatusError) as excinfo:
+                list(
+                    llm_openai.stream(
+                        [Message(role="user", content="Again")], model, None
+                    )
+                )
+            assert excinfo.value is err
+        else:
+            assert (
+                "".join(
+                    llm_openai.stream(
+                        [Message(role="user", content="Again")], model, None
+                    )
+                )
+                == "Hello"
+            )
+
+        # strict (404), relaxed (ok), then relaxed directly: no second strict attempt
+        assert len(calls) == 3
+        assert calls[0]["provider"]["require_parameters"] is True
+        assert "require_parameters" not in calls[2]["provider"]
+        assert calls[2]["provider"]["data_collection"] == "deny"
+
+    def test_bounded_request_ignores_relaxed_memo(self, monkeypatch):
+        """Strict request bounds must not start relaxed from the memo."""
+        completion = self._success_completion()
+        raw_ok = SimpleNamespace(parse=lambda: completion, headers={})
+        calls = []
+
+        def _create(**kwargs):
+            calls.append(kwargs.get("extra_body", {}))
+            return raw_ok
+
+        self._setup_openrouter_chat(monkeypatch, _create)
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+        llm_openai._remember_openrouter_relaxed(key)
+        assert llm_openai._openrouter_relaxed_remembered(key)
+        monkeypatch.setattr(llm_openai, "strict_request_bounds_active", lambda: True)
+
+        llm_openai.chat([Message(role="user", content="Hi")], model, None)
+
+        # The memo is ignored: the bounded call still tries strict routing first.
+        assert len(calls) == 1
+        assert calls[0]["provider"]["require_parameters"] is True
+
+    @pytest.mark.parametrize("max_requests", [1, 2])
+    def test_bounded_no_endpoints_preserves_error_without_memo(
+        self, monkeypatch, max_requests
+    ):
+        """A bounded strict miss must not relax routing or seed the memo."""
+        from gptme.llm.request_limits import request_limits
+
+        err = self._chat_error()
+        create = self._setup_openrouter_chat(monkeypatch, err)
+        client = llm_openai.get_client("openrouter")
+        monkeypatch.setattr(
+            client, "base_url", "https://openrouter.ai/api/v1", raising=False
+        )
+        monkeypatch.setattr(client, "max_retries", 0, raising=False)
+        monkeypatch.setattr(
+            client, "_client", SimpleNamespace(follow_redirects=False), raising=False
+        )
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+
+        with (
+            request_limits(model, 10000, max_requests),
+            pytest.raises(openai.APIStatusError) as excinfo,
+        ):
+            llm_openai.chat([Message(role="user", content="Hi")], model, None)
+
+        assert excinfo.value is err
+        assert create.call_count == 1
+        provider = create.call_args.kwargs["extra_body"]["provider"]
+        assert provider["require_parameters"] is True
+        assert provider["data_collection"] == "deny"
+        assert not llm_openai._openrouter_relaxed_remembered(key)
+
+    @pytest.mark.parametrize("strict_fails", [False, True])
+    @pytest.mark.parametrize("remembered", [False, True])
+    def test_bounded_stream_never_relaxes(self, monkeypatch, strict_fails, remembered):
+        """Even a direct internal stream call must not weaken strict routing."""
+        from gptme.llm.request_limits import request_limits
+
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+        if remembered:
+            llm_openai._remember_openrouter_relaxed(key)
+        err = self._chat_error()
+        calls = []
+
+        def _create(**kwargs):
+            calls.append(kwargs["extra_body"])
+            if strict_fails:
+                raise err
+            return iter(
+                [
+                    SimpleNamespace(
+                        usage=None,
+                        choices=[
+                            SimpleNamespace(
+                                finish_reason="stop",
+                                delta=SimpleNamespace(content="Hi", tool_calls=None),
+                            )
+                        ],
+                    )
+                ]
+            )
+
+        client = SimpleNamespace(
+            base_url="https://openrouter.ai/api/v1",
+            max_retries=0,
+            _client=SimpleNamespace(follow_redirects=False),
+            chat=SimpleNamespace(completions=SimpleNamespace(create=_create)),
+        )
+        monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+        monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+        monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
+        monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
+
+        with request_limits(model, 10000, 2):
+            if strict_fails:
+                with pytest.raises(openai.APIStatusError) as excinfo:
+                    list(llm_openai.stream([Message("user", "Hi")], model, None))
+                assert excinfo.value is err
+            else:
+                list(llm_openai.stream([Message("user", "Hi")], model, None))
+
+        assert len(calls) == 1
+        assert calls[0]["provider"]["require_parameters"] is True
+        assert calls[0]["provider"]["data_collection"] == "deny"
+        assert llm_openai._openrouter_relaxed_remembered(key) is remembered
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    def test_failed_relaxed_retry_does_not_seed_memo(self, monkeypatch, streaming):
+        """An unsuccessful fallback must not relax the next request."""
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+        strict_error = self._chat_error()
+        relaxed_error = _make_api_status_error("Unsupported parameter", 400)
+        calls = []
+
+        def _create(**kwargs):
+            calls.append(kwargs["extra_body"])
+            if len(calls) % 2:
+                raise strict_error
+            raise relaxed_error
+
+        if streaming:
+            client = SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+            )
+            monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+            monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+            monkeypatch.setattr(
+                llm_openai, "_should_use_responses_api", lambda *a: False
+            )
+        else:
+            self._setup_openrouter_chat(monkeypatch, _create)
+        monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
+
+        for _ in range(2):
+            with pytest.raises(openai.APIStatusError) as excinfo:
+                if streaming:
+                    list(llm_openai.stream([Message("user", "Hi")], model, None))
+                else:
+                    llm_openai.chat([Message("user", "Hi")], model, None)
+            assert excinfo.value is relaxed_error
+            assert not llm_openai._openrouter_relaxed_remembered(key)
+
+        assert len(calls) == 4
+        for strict, relaxed in zip(calls[::2], calls[1::2]):
+            assert strict["provider"]["require_parameters"] is True
+            assert "require_parameters" not in relaxed["provider"]
+            assert relaxed["provider"]["data_collection"] == "deny"
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    def test_relaxed_response_failure_does_not_seed_memo(self, monkeypatch, streaming):
+        """HTTP success alone does not prove that a fallback response is usable."""
+        import httpx
+
+        model = "openrouter/deepseek/deepseek-v4-flash-0731"
+        key = "openrouter:deepseek/deepseek-v4-flash-0731"
+        err = httpx.RemoteProtocolError("broken response body")
+        calls = []
+
+        def fail_parse():
+            raise err
+
+        class BrokenStream:
+            response = SimpleNamespace(headers={})
+
+            def __iter__(self):
+                raise err
+                yield  # Make the failure occur during iteration, not construction.
+
+        def _create(**kwargs):
+            calls.append(kwargs["extra_body"])
+            if len(calls) % 2:
+                raise self._chat_error()
+            if streaming:
+                return BrokenStream()
+            return SimpleNamespace(parse=fail_parse, headers={})
+
+        if streaming:
+            client = SimpleNamespace(
+                chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+            )
+            monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+            monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+            monkeypatch.setattr(
+                llm_openai, "_should_use_responses_api", lambda *a: False
+            )
+        else:
+            self._setup_openrouter_chat(monkeypatch, _create)
+        monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
+
+        for _ in range(2):
+            with pytest.raises(httpx.RemoteProtocolError) as excinfo:
+                if streaming:
+                    list(llm_openai.stream([Message("user", "Hi")], model, None))
+                else:
+                    llm_openai.chat([Message("user", "Hi")], model, None)
+            assert excinfo.value is err
+            assert not llm_openai._openrouter_relaxed_remembered(key)
+        assert len(calls) == 4
+        assert all(c["provider"]["require_parameters"] for c in calls[::2])
+
+    def test_relaxed_routing_memo_expires(self, monkeypatch):
+        """The memo is bounded: after the TTL, strict routing is tried again."""
+        now = [1000.0]
+        monkeypatch.setattr(llm_openai.time, "monotonic", lambda: now[0])
+        model = "deepseek/deepseek-v4-flash-0731"
+        llm_openai._remember_openrouter_relaxed(model)
+        assert llm_openai._openrouter_relaxed_remembered(model)
+        assert not llm_openai._openrouter_relaxed_remembered("other/model")
+        now[0] += llm_openai._OPENROUTER_RELAXED_TTL_S
+        assert not llm_openai._openrouter_relaxed_remembered(model)
+
+    def test_relaxed_routing_memo_serializes_expiry_cleanup(self, monkeypatch):
+        """A reader cannot remove a stale key while a writer is deleting it."""
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        deleting = Event()
+        resume = Event()
+        reading = Event()
+        read_finished = Event()
+
+        class PausedCleanup(dict):
+            def __delitem__(self, key):
+                deleting.set()
+                assert resume.wait(5), "cleanup was not released"
+                super().__delitem__(key)
+
+        monkeypatch.setattr(
+            llm_openai, "_openrouter_relaxed_until", PausedCleanup({"expired": 0.0})
+        )
+
+        def read_expired():
+            reading.set()
+            try:
+                return llm_openai._openrouter_relaxed_remembered("expired")
+            finally:
+                read_finished.set()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            writer = pool.submit(llm_openai._remember_openrouter_relaxed, "new")
+            try:
+                assert deleting.wait(5), "cleanup did not start"
+                reader = pool.submit(read_expired)
+                assert reading.wait(5), "reader did not start"
+                assert not read_finished.wait(0.1), "reader raced with cleanup"
+            finally:
+                resume.set()
+            writer.result(timeout=5)
+            assert reader.result(timeout=5) is False
+        assert set(llm_openai._openrouter_relaxed_until) == {"new"}
+
+    def test_relaxed_routing_memo_prunes_expired_entries(self, monkeypatch):
+        """Expired entries are dropped when a new key is remembered."""
+        now = [1000.0]
+        monkeypatch.setattr(llm_openai.time, "monotonic", lambda: now[0])
+        llm_openai._remember_openrouter_relaxed("one/model")
+        now[0] += llm_openai._OPENROUTER_RELAXED_TTL_S
+        llm_openai._remember_openrouter_relaxed("two/model")
+        assert set(llm_openai._openrouter_relaxed_until) == {"two/model"}
 
 
 class TestOpenAIStreamMalformedChunk:
