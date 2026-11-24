@@ -3,7 +3,8 @@ Pre-commit hook tool that automatically runs pre-commit checks after file saves.
 
 This tool automatically runs pre-commit checks in two scenarios:
 
-1. **Per-file checks (FILE_SAVE_POST (file.save.post))**: After each file is saved
+1. **Per-file checks (FILE_SAVE_POST (file.save.post))**: After each file is saved,
+   only when ``GPTME_CHECK_PER_FILE=true`` (off by default)
 
    - Runs pre-commit on the specific saved file
    - Provides immediate feedback on formatting/linting issues

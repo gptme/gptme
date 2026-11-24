@@ -97,8 +97,9 @@ Here's a minimal example of a custom tool:
     from gptme.tools import ToolSpec, Parameter, ToolUse
     from gptme.message import Message
 
-    def execute(code, args, kwargs, confirm):
-        name = kwargs.get('name', 'World')
+    def execute(code, args, kwargs):
+        # Native tool calls pass kwargs; fenced ```hello blocks pass None.
+        name = (kwargs or {}).get('name') or code.strip() or 'World'
         yield Message('system', f"Hello, {name}!")
 
     tool = ToolSpec(
@@ -128,6 +129,8 @@ Registering Commands in Tools
 Tools can register commands in their ``ToolSpec`` definition:
 
 .. code-block:: python
+
+   from collections.abc import Generator
 
    from gptme.tools.base import ToolSpec
    from gptme.commands import CommandContext

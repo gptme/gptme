@@ -86,8 +86,7 @@ Three ways to restrict tools:
 
 Signal tools are loaded regardless of allowlist so the subagent can communicate
 back. Thread-mode subagents get ``complete``, ``clarify``, and ``progress``.
-Subprocess subagents get ``complete`` and ``clarify``; ``progress`` is not loaded
-because it depends on the parent's in-process notification queue.
+Subprocess subagents get ``complete``, ``clarify``, ``progress`` and ``yield``.
 
 **3. Cancellation and timeout**
 
