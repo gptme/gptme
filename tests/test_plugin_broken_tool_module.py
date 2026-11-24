@@ -24,7 +24,9 @@ def broken_plugin_dir(request, tmp_path, monkeypatch):
         # With a package, the failure is raised inside _collect_tool_modules.
         (plug / "tools" / "__init__.py").write_text("")
     # plugin built against another gptme version: renamed symbol
-    (plug / "tools" / "thing.py").write_text(
+    # "a_broken" sorts before "good", so a scan that stops at the first
+    # failure would skip the working sibling.
+    (plug / "tools" / "a_broken.py").write_text(
         "from gptme.tools.base import ToolSpecRenamedInNewerGptme\n"
     )
     (plug / "tools" / "good.py").write_text(
@@ -62,6 +64,7 @@ def test_broken_folder_plugin_tool_does_not_crash_tool_discovery(
     assert "save" in names
     assert "brokenplug_good" in names, "the working sibling tool was skipped"
     assert any(
-        "Failed to import tool module" in r.getMessage() and "thing" in r.getMessage()
+        "Failed to import tool module" in r.getMessage()
+        and "a_broken" in r.getMessage()
         for r in caplog.records
     ), [r.getMessage() for r in caplog.records]
