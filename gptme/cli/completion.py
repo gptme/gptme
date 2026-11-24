@@ -16,12 +16,12 @@ def complete_model(
     from ..config import get_config
     from ..llm.models import MODELS, PROVIDERS
 
-    names = {f"{provider}/" for provider in PROVIDERS}
+    names: set[str] = set(PROVIDERS)
     names.update(
         f"{provider}/{model}" for provider, models in MODELS.items() for model in models
     )
     for provider in get_config().user.providers:
-        names.add(f"{provider.name}/")
+        names.add(provider.name)
         if provider.default_model:
             names.add(f"{provider.name}/{provider.default_model}")
     return [

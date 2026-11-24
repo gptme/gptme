@@ -172,7 +172,7 @@ def test_custom_model_completion_is_offline(monkeypatch):
             click.Context(tui), click.Option(["--model"]), "relay/"
         )
     ]
-    assert values == ["relay/", "relay/custom-model"]
+    assert values == ["relay/custom-model"]
 
 
 def test_declining_install_leaves_files_untouched(tmp_path, monkeypatch):
@@ -229,3 +229,17 @@ def test_custom_cli_types_keep_legacy_fish_value_completions(tmp_path, monkeypat
         item.value for item in ConversationName().shell_complete(ctx, param, "my-")
     ] == ["my-conversation"]
     assert WorkspacePath().shell_complete(ctx, param, "")[0].type == "dir"
+
+
+def test_provider_suggestions_are_valid_model_values():
+    import click
+
+    from gptme.cli.completion import complete_model
+    from gptme.cli.main import _validate_model_param
+
+    ctx = click.Context(tui)
+    param = click.Option(["--model"])
+    candidates = complete_model(ctx, param, "openrouter")
+    assert candidates
+    for candidate in candidates:
+        assert _validate_model_param(ctx, param, candidate.value) == candidate.value
