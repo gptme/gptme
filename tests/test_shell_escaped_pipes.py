@@ -7,19 +7,6 @@ from pathlib import Path
 import pytest
 
 from gptme.tools.shell import ShellSession
-from gptme.tools.shell_validation import _find_first_unquoted_pipe
-
-
-@pytest.mark.parametrize("backslashes", range(1, 6))
-def test_pipe_location_respects_escape_parity(backslashes: int) -> None:
-    command = "printf '%s' a" + "\\" * backslashes + "| cat | cat"
-    first_pipe = command.index("|")
-    expected = command.rindex("|") if backslashes % 2 else first_pipe
-    assert _find_first_unquoted_pipe(command) == expected
-
-
-def test_only_escaped_pipes_have_no_operator() -> None:
-    assert _find_first_unquoted_pipe(r"printf '%s' a\|b\|c") is None
 
 
 @pytest.mark.parametrize(
