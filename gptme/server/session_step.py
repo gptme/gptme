@@ -692,6 +692,7 @@ async def _acp_step(
             workspace=workspace,
             tools=chat_config.tools,
             chat_config=chat_config,
+            server=True,
         )
 
         # Enforce the session's URL-host allowlist on this step context.
@@ -1008,6 +1009,7 @@ def step(
         workspace=workspace,
         tools=chat_config.tools,
         chat_config=chat_config,
+        server=True,
     )
 
     # Enforce the session's URL-host allowlist for tools executed directly
@@ -1722,6 +1724,7 @@ def start_tool_execution(
                 workspace=chat_config.workspace,
                 tools=None,
                 chat_config=chat_config,
+                server=True,
             )
 
             # Execute tools serially. When break_on_tooluse=False, a single
