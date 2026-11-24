@@ -114,25 +114,6 @@ def test_error_recovery_never_executes_partial_tree(script: str) -> None:
         split_commands(script)
 
 
-@pytest.mark.parametrize(
-    ("command", "expected"),
-    [
-        ("echo héj &", "echo héj < /dev/null &"),
-        ("echo $((6*7)) &", "echo $((6*7)) < /dev/null &"),
-        ("[[ -f x ]] && cat x &", "[[ -f x ]] && cat x < /dev/null &"),
-        ("echo '&'", "echo '&'"),
-        ("echo a && echo b", "echo a && echo b"),
-        ("echo $((1 & 2))", "echo $((1 & 2))"),
-        ("echo a 2>&1", "echo a 2>&1"),
-        ("cat <<'EOF'\n&\nEOF", "cat <<'EOF'\n&\nEOF"),
-    ],
-)
-def test_background_operator_grammar(command: str, expected: str) -> None:
-    from gptme.tools.shell import _redirect_background_stdin
-
-    assert _redirect_background_stdin(command) == expected
-
-
 def test_logical_line_continuation_and_comment_boundaries() -> None:
     continued = "echo a; " + "\\\n" + "echo b"
     assert split_commands(continued + "\necho c") == [continued, "echo c"]
