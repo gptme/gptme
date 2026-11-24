@@ -390,3 +390,37 @@ def test_at_format_in_model_name(tmp_path):
     trends = compute_trends(results)
     assert len(trends["regressions"]) == 1
     assert trends["regressions"][0]["model"] == "model-a@tool"
+
+
+def test_single_recent_failure_is_regression_not_flaky(tmp_path):
+    """One status change after stable passes is a regression, even over 4+ runs."""
+    rows = ["true", "true", "true", "false"]
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": f"2026010{i + 1}_000000Z",
+                "rows": [("model-a", "markdown", "hello", passed)],
+            }
+            for i, passed in enumerate(rows)
+        ],
+    )
+    trends = compute_trends(load_all_results(tmp_path))
+    assert [e["test"] for e in trends["regressions"]] == ["hello"]
+    assert trends["flaky"] == []
+
+
+def test_provider_pinned_model_keeps_at_suffix(tmp_path):
+    """An OpenRouter provider pin (`model@provider`) is part of the model name."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "20260101_000000Z",
+                "rows": [("openrouter/z-ai/glm-5@z-ai", "tool", "hello", "true")],
+            },
+        ],
+    )
+    results = load_all_results(tmp_path)
+    assert results[0]["model"] == "openrouter/z-ai/glm-5@z-ai"
+    assert results[0]["format"] == "tool"

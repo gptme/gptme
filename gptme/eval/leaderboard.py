@@ -164,6 +164,11 @@ def normalize_model(model: str) -> str:
     return replacements.get(model, model)
 
 
+# Values of gptme.tools.base.ToolFormat. Kept literal so the leaderboard stays
+# importable without loading the tool registry; test_eval_leaderboard pins them.
+TOOL_FORMATS = ("markdown", "xml", "tool")
+
+
 def parse_model_format(model: str, fmt: str) -> tuple[str, str]:
     """Parse model name and format, handling @format suffix in model name.
 
@@ -172,7 +177,10 @@ def parse_model_format(model: str, fmt: str) -> tuple[str, str]:
     """
     if "@" in model:
         base, embedded_fmt = model.rsplit("@", 1)
-        return base, embedded_fmt
+        # Same rule as ModelConfig.from_spec: only a valid tool format is a
+        # separator; anything else (OpenRouter 'z-ai/glm-5@z-ai') is the name.
+        if embedded_fmt in TOOL_FORMATS:
+            return base, embedded_fmt
     return model, fmt
 
 

@@ -1111,3 +1111,19 @@ def test_derive_test_sets_import_failure(monkeypatch):
     assert basic == frozenset()
     assert practical == frozenset()
     assert mock_warn.called
+
+
+def test_parse_model_format_keeps_provider_pin():
+    """A non-format `@` suffix (OpenRouter provider pin) stays in the model name."""
+    model, fmt = parse_model_format("openrouter/z-ai/glm-5@z-ai", "tool")
+    assert model == "openrouter/z-ai/glm-5@z-ai"
+    assert fmt == "tool"
+
+
+def test_tool_formats_match_tool_format_literal():
+    from typing import get_args
+
+    from gptme.eval.leaderboard import TOOL_FORMATS
+    from gptme.tools.base import ToolFormat
+
+    assert set(TOOL_FORMATS) == set(get_args(ToolFormat))

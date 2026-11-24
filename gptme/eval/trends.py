@@ -21,6 +21,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .leaderboard import parse_model_format
+
 
 def parse_run_timestamp(dirname: str) -> datetime:
     """Parse YYYYMMDD_HHMMSSZ directory name into datetime."""
@@ -52,8 +54,7 @@ def load_all_results(
                     passed_str = row.get("Passed", "").strip().lower()
                     if model and test and passed_str in ("true", "false"):
                         # Handle @format suffix in model name
-                        if "@" in model:
-                            model, fmt = model.rsplit("@", 1)
+                        model, fmt = parse_model_format(model, fmt)
                         all_results.append(
                             {
                                 "model": model,
@@ -134,7 +135,14 @@ def compute_trends(
 
             # Check pass_rate first to catch intermittent tests before binary direction.
             # Require at least 4 runs to avoid misclassifying single-change tests as flaky.
-            if total >= 4 and 0.1 < pass_rate < 0.9:
+            # A single status change (pass, pass, pass, fail) is a regression or
+            # improvement, not flakiness: require at least two flips.
+            flips = sum(
+                1
+                for a, b in zip(runs_sorted, runs_sorted[1:])
+                if a["passed"] != b["passed"]
+            )
+            if total >= 4 and 0.1 < pass_rate < 0.9 and flips >= 2:
                 flaky.append(entry)
             elif previous["passed"] and not latest["passed"]:
                 regressions.append(entry)
