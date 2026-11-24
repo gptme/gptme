@@ -94,8 +94,8 @@ because it depends on the parent's in-process notification queue.
 - ``max_time`` (seconds) — a watchdog timer that marks the subagent result as
   ``"timeout"`` after the specified duration and delivers a timeout status
   notification. In subprocess mode the child process is terminated. In thread
-  mode the background thread is not force-stopped; callers see the cached timeout
-  result immediately while the thread continues until it finishes naturally.
+  mode the watchdog signals the worker to stop at its next step boundary.
+  An in-flight call may still finish before the worker reaches that boundary.
 
 - ``timeout`` (default 1800 s) — subprocess monitor kills the child process after
   this many seconds. Only applies in subprocess mode.
