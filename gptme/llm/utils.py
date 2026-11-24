@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 from ..tools import ToolUse
-from ..tools.base import Parameter, ToolFormat
+from ..tools.base import Parameter, ToolFormat, find_json_end, toolcall_re
 from ..util.uri import is_uri
 
 
@@ -81,10 +81,13 @@ def extract_tool_uses_from_assistant_message(
                     content_parts.append({"type": "text", "text": before_tool})
 
                 tool_uses.append(tooluse)
+                # Streamed text can follow the closing brace on the same
+                # line; keep it so it is not lost with the call's line.
+                text = _text_after_tool_call(text, tooluse)
             else:
                 content_parts.append({"type": "text", "text": text})
-            # The text is emptied to start over with the next lines if any.
-            text = ""
+                # The text is emptied to start over with the next lines if any.
+                text = ""
 
     # Keep text after the last tool call. A message without any tool call still
     # returns no parts, so callers fall back to the raw content.
@@ -92,6 +95,17 @@ def extract_tool_uses_from_assistant_message(
         content_parts.append({"type": "text", "text": text})
 
     return content_parts, tool_uses
+
+
+def _text_after_tool_call(text: str, tooluse: ToolUse) -> str:
+    """Return the text after a native tool call's JSON, or "" if unknown."""
+    if tooluse._format != "tool" or tooluse.start is None:
+        return ""
+    match = toolcall_re.match(text, tooluse.start)
+    if not match:
+        return ""
+    json_end = find_json_end(text, match.start(3))
+    return text[json_end:] if json_end is not None else ""
 
 
 def parameters2dict(parameters: list[Parameter]) -> dict[str, object]:

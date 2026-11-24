@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+from pathlib import Path
 from typing import assert_type
 
 import httpx2
@@ -127,15 +128,31 @@ def test_message_conversion_without_tools():
 
 
 @pytest.mark.parametrize(
-    "content",
+    ("content", "has_call", "thinking"),
     [
         # Signed thinking followed by a plain answer, no tool call
-        "<think>\nsimple arithmetic\n<!-- think-sig: SIG123 -->\n</think>\n\nThe answer is 4.",
-        # Text after a native tool call
-        'Let me save it.\n@save(call_1): {"path": "a.txt", "content": "x"}\nThe answer is 4.',
+        (
+            "<think>\nsimple arithmetic\n<!-- think-sig: SIG123 -->\n</think>\n\nThe answer is 4.",
+            False,
+            "simple arithmetic",
+        ),
+        # Text after a native tool call, on the next line
+        (
+            'Let me save it.\n@save(call_1): {"path": "a.txt", "content": "x"}\nThe answer is 4.',
+            True,
+            None,
+        ),
+        # Streamed text directly after the tool JSON, on the same line
+        (
+            'Let me save it.\n@save(call_1): {"path": "a.txt", "content": "x"}The answer is 4.',
+            True,
+            None,
+        ),
     ],
 )
-def test_assistant_text_survives_tool_conversion(content: str):
+def test_assistant_text_survives_tool_conversion(
+    content: str, has_call: bool, thinking: str | None
+):
     """Answer text must not be dropped when a turn has thinking or a tool call."""
     init_tools(allowlist=["save"])
     tool_save = get_tool("save")
@@ -144,7 +161,48 @@ def test_assistant_text_survives_tool_conversion(content: str):
         Message(role="system", content="System prompt"),
         Message(role="user", content="What is 2+2?"),
         Message(role="assistant", content=content),
-        Message(role="system", content="Saved", call_id="call_1"),
+    ]
+    if has_call:
+        messages.append(Message(role="system", content="Saved", call_id="call_1"))
+    messages.append(Message(role="user", content="Thanks"))
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    texts = [p["text"] for p in parts if p["type"] == "text"]
+    assert any("The answer is 4." in t for t in texts), parts
+    assert not any("@save" in t or '"content"' in t for t in texts), parts
+    tool_uses = [p for p in parts if p["type"] == "tool_use"]
+    assert len(tool_uses) == (1 if has_call else 0), parts
+    if thinking:
+        assert {
+            "type": "thinking",
+            "thinking": thinking,
+            "signature": "SIG123",
+        } in parts
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Here is the chart.",
+        "<think>\nlooking\n<!-- think-sig: SIG123 -->\n</think>\n\nHere is the chart.",
+    ],
+)
+def test_assistant_images_survive_tool_conversion(content: str, tmp_path: Path):
+    """Images attached to an assistant reply stay when native tools are on."""
+    from PIL import Image
+
+    image = tmp_path / "chart.png"
+    Image.new("RGB", (2, 2)).save(image)
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Plot it"),
+        Message(role="assistant", content=content, files=[image]),
         Message(role="user", content="Thanks"),
     ]
 
@@ -152,8 +210,10 @@ def test_assistant_text_survives_tool_conversion(content: str):
 
     assistant = next(m for m in messages_dicts if m["role"] == "assistant")
     parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    assert [p["type"] for p in parts].count("image") == 1, parts
+    assert parts[-1]["type"] == "image", parts
     texts = [p["text"] for p in parts if p["type"] == "text"]
-    assert any("The answer is 4." in t for t in texts), assistant["content"]
+    assert any("Here is the chart." in t for t in texts), parts
 
 
 def test_message_conversion_with_tools():

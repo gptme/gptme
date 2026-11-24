@@ -1576,11 +1576,26 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 cleaned_content, tool_format_override="tool"
             )
 
+            if not thinking_blocks and not tool_uses:
+                # Nothing to convert: keep the original blocks, images included.
+                pending_call_ids = set()
+                yield modified_message
+                continue
+
             # No tool call: the helper returns no parts, so keep the reply text.
             # Otherwise a signed thinking block would replace the whole answer.
             # _extract_thinking_content always returns stripped text.
             if not content_parts and not tool_uses and cleaned_content:
                 content_parts = [{"type": "text", "text": cleaned_content}]
+
+            # The parsed text is text only: carry non-text blocks (images
+            # attached by _process_file) over from the original content.
+            if isinstance(original_content, list):
+                content_parts.extend(
+                    part
+                    for part in original_content
+                    if isinstance(part, dict) and part.get("type") != "text"
+                )
 
             # Build content array in proper order: thinking first, then text, then tools
             final_content: list[dict] = []
