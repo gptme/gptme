@@ -499,15 +499,18 @@ def prompt_workspace(
         before_count = len(context_files)
 
         def _is_excluded(f: Path, patterns: list[str]) -> bool:
-            rel = None
-            try:
-                rel = f.relative_to(workspace_resolved)
-            except ValueError:
-                pass
+            # Glob matches are relative to the workspace as given, which may
+            # be a symlink or relative path, so try both spellings.
+            rels: list[str] = []
+            for base in (workspace, workspace_resolved):
+                try:
+                    rels.append(str(f.relative_to(base)))
+                except ValueError:
+                    pass
             for pat in patterns:
                 if fnmatch.fnmatch(f.name, pat):
                     return True
-                if rel is not None and fnmatch.fnmatch(str(rel), pat):
+                if any(fnmatch.fnmatch(rel, pat) for rel in rels):
                     return True
             return False
 
