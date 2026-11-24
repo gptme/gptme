@@ -324,7 +324,7 @@ class EmptyStreamError(httpx.RemoteProtocolError):
 
     @property
     def normal_finish(self) -> bool:
-        """The provider finished normally: the model chose to say nothing."""
+        """Whether the provider finished normally (the model chose to say nothing)."""
         return not self.native_finish_reason and not self.incomplete
 
 
