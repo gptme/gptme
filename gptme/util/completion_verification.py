@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import sys
 import tempfile
 from dataclasses import dataclass, field, replace
@@ -326,11 +327,30 @@ def episode_has_authoring_mutation(messages: Sequence[object]) -> bool:
     return False
 
 
+def _read_regular(path: Path) -> bytes:
+    """Read ``path`` only if it is a regular file, without blocking on open.
+
+    A manifest or include swapped for a FIFO after discovery would otherwise
+    make ``read_bytes`` wait forever, before the verifier's timeout applies.
+    """
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, os.O_RDONLY | nonblock)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"not a regular file: {path}")
+        if nonblock:
+            os.set_blocking(fd, True)
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            return fh.read()
+    finally:
+        os.close(fd)
+
+
 def fingerprints_match(command: VerificationCommand) -> bool:
     """Return whether manifests still match the command approved by the operator."""
     for path, expected in command.source_fingerprints:
         try:
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            actual = hashlib.sha256(_read_regular(path)).hexdigest()
         except OSError:
             return False
         if actual != expected:
@@ -353,9 +373,9 @@ def _command(
     """
     fingerprints = []
     try:
-        data = source.read_bytes()
+        data = _read_regular(source)
         for path in (source, *extra_sources):
-            blob = data if path == source else path.read_bytes()
+            blob = data if path == source else _read_regular(path)
             fingerprints.append((path, hashlib.sha256(blob).hexdigest()))
     except OSError:
         return None

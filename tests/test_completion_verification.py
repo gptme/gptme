@@ -562,3 +562,21 @@ def test_tox_ini_default_env_with_any_command_key_is_discovered(
     command = discover_verification_command(tmp_path)
     assert command is not None
     assert command.argv[:1] == ("tox",)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_include_replaced_by_fifo_fails_fingerprint_without_blocking(
+    tmp_path: Path,
+) -> None:
+    """A followed include swapped for a FIFO after discovery must fail the
+    pre-launch check, not block on open/read before the verifier timeout."""
+    from gptme.util.completion_verification import fingerprints_match
+
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("include Makefile\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert fingerprints_match(command)
+    (tmp_path / "Makefile").unlink()
+    os.mkfifo(tmp_path / "Makefile")
+    assert fingerprints_match(command) is False
