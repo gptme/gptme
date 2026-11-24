@@ -42,8 +42,12 @@ jobs:
   # concurrency with master. The ubuntu leg still builds and smoke-tests the
   # frozen server on every PR (missing hidden imports are OS-independent);
   # master pushes, dispatches and tags always build both.
+  # Docker is gated the same way. The ubuntu PyInstaller leg already builds the
+  # web UI and installs gptme on every PR, so the only inputs Docker alone
+  # covers are the Dockerfiles, .dockerignore, the lockfiles and the webui
+  # package manifests.
   changes:
-    name: Detect packaging changes
+    name: Detect packaging and Docker changes
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -51,6 +55,7 @@ jobs:
       pull-requests: read
     outputs:
       packaging: ${{ steps.filter.outputs.packaging }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
     - uses: actions/checkout@v7
     - uses: dorny/paths-filter@v4
@@ -66,9 +71,22 @@ jobs:
             - 'uv.lock'
             - 'Makefile'
             - '.github/workflows/build.yml'
+          docker:
+            - 'scripts/Dockerfile*'
+            - '.dockerignore'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'webui/package.json'
+            - 'webui/package-lock.json'
+            - '.github/workflows/build.yml'
 
   build-docker:
     name: Docker
+    needs: changes
+    # changes is skipped off-PR, so its output is empty, which is not 'false':
+    # master pushes, dispatches and tags always build. A failed detection
+    # also builds (fail open).
+    if: ${{ !cancelled() && needs.changes.outputs.docker != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
