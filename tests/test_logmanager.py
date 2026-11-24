@@ -1639,3 +1639,73 @@ def test_event_replay_matches_transcript_after_a_merged_append(tmp_path: Path):
     transcript = Log.read_jsonl(tmp_path / "conversation.jsonl")
     assert [m.content for m in transcript] == expected
     assert _recovered_contents(tmp_path) == expected
+
+
+def test_slash_undo_removes_exactly_one_message(tmp_path: Path):
+    """`/undo` through the command path drops the command line plus one message.
+
+    The command wrapper already auto-undoes the `/undo` line; a special case in
+    `LogManager.undo` popped it a second time, so each `/undo` lost an extra
+    message (and `/undo 3` removed four).
+    """
+    from gptme.commands import execute_cmd
+
+    manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
+    for role, content in [
+        ("user", "q1"),
+        ("assistant", "a1"),
+        ("user", "q2"),
+        ("assistant", "a2"),
+    ]:
+        manager.append(Message(role, content, quiet=True))  # type: ignore[arg-type]
+    cmd = Message("user", "/undo", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert [m.content for m in manager.log] == ["q1", "a1", "q2"]
+    assert [m.content for m in Log.read_jsonl(manager.logfile)] == ["q1", "a1", "q2"]
+
+
+@pytest.mark.parametrize("conv_id", ["current-conv/", "../outside/important"])
+def test_delete_conversation_rejects_path_like_ids(
+    tmp_path: Path, monkeypatch, conv_id: str
+):
+    """Path-like ids neither bypass the current-conversation guard nor escape logs."""
+    from gptme.logmanager import delete_conversation
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    for d in (logs / "current-conv", tmp_path / "outside" / "important"):
+        d.mkdir(parents=True)
+        Log([Message("user", "hi")]).write_jsonl(d / "conversation.jsonl")
+
+    assert delete_conversation(conv_id) is False
+    assert (logs / "current-conv").exists()
+    assert (tmp_path / "outside" / "important").exists()
+
+
+def test_get_conversations_skips_conversation_deleted_during_listing(
+    tmp_path: Path, monkeypatch
+):
+    """A conversation removed after the directory scan is skipped, not a crash."""
+    import shutil
+
+    from gptme.logmanager import conversations
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    for name in ("keep", "gone"):
+        (logs / name).mkdir(parents=True)
+        Log([Message("user", name)]).write_jsonl(logs / name / "conversation.jsonl")
+
+    real_files = conversations._conversation_files
+
+    def files_then_delete():
+        files = list(real_files())
+        shutil.rmtree(logs / "gone")
+        return files
+
+    monkeypatch.setattr(conversations, "_conversation_files", files_then_delete)
+    assert [c.id for c in conversations.get_conversations()] == ["keep"]
+
+

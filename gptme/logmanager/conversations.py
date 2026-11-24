@@ -486,6 +486,12 @@ def get_conversation_meta_direct(
 
     Returns None when the conversation directory or JSONL file does not exist.
     """
+    from ..util.conversation_ids import is_valid_conversation_id
+
+    # Path-like ids ('x/', '../y') would resolve outside the single logs-dir
+    # child they claim to name, e.g. letting /delete remove arbitrary dirs.
+    if not is_valid_conversation_id(conv_id):
+        return None
     if logs_dir is None:
         logs_dir = get_logs_dir()
     conv_fn = logs_dir / conv_id / "conversation.jsonl"
@@ -512,7 +518,12 @@ def get_conversations(
         conv_id = conv_fn.parent.name
         if not include_test and _is_test_conversation_id(conv_id):
             continue
-        yield _meta_from_file(conv_fn, detail=detail)
+        try:
+            meta = _meta_from_file(conv_fn, detail=detail)
+        except FileNotFoundError:
+            # Deleted by another process after the directory scan.
+            continue
+        yield meta
 
 
 def get_user_conversations(
