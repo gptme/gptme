@@ -299,6 +299,29 @@ def test_apply_with_differing_whitespace_reverse():
     assert result2 == content_without_spaces.replace("world", "world3")
 
 
+def test_relaxed_match_edits_the_matched_lines_not_an_earlier_substring():
+    """The relaxed match must be applied where it matched.
+
+    ``    return 1\\n\\n`` only matches g() under relaxed whitespace (its blank
+    line holds spaces). The same text also occurs earlier as the tail of f()'s
+    more-indented line, which a plain ``str.replace`` would hit instead.
+    """
+    content = (
+        "def f():\n"
+        "    if c:\n"
+        "        return 1\n"
+        "    \n"
+        "def g():\n"
+        "    return 1\n"
+        "    \n"
+        "h()\n"
+    )
+    result = Patch("    return 1\n\n", "    return 2\n\n").apply(content)
+    assert result == (
+        "def f():\n    if c:\n        return 1\n    \ndef g():\n    return 2\n\nh()\n"
+    )
+
+
 def test_patch_path_traversal_relative(tmp_path):
     """Test that path traversal via relative paths is blocked for patch."""
     import os
