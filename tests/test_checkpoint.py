@@ -324,6 +324,39 @@ def test_resolve_devanagari_digit_treated_as_label(clean_repo):
         restore_checkpoint(clean_repo, "३")
 
 
+@pytest.mark.parametrize("identifier", ["", "a", "abc"])
+def test_restore_refuses_empty_or_short_sha_prefix(clean_repo, identifier):
+    """An empty or 1-3 char SHA prefix must not select a checkpoint.
+
+    Every SHA starts with "", so an unset ``$ID`` used to reset HEAD silently.
+    """
+    first, _ = create_checkpoint(clean_repo)
+    assert first is not None
+    (clean_repo / "second.txt").write_text("two\n")
+    _git(clean_repo, "add", "second.txt")
+    _git(clean_repo, "commit", "-q", "-m", "second")
+    head = _git(clean_repo, "rev-parse", "HEAD")
+
+    with pytest.raises(CheckpointError, match="too short"):
+        restore_checkpoint(clean_repo, identifier, include_dirty=True)
+    assert _git(clean_repo, "rev-parse", "HEAD") == head
+    assert (clean_repo / "second.txt").exists()
+
+
+def test_restore_accepts_four_char_sha_prefix(clean_repo):
+    first, _ = create_checkpoint(clean_repo)
+    assert first is not None
+    (clean_repo / "second.txt").write_text("two\n")
+    _git(clean_repo, "add", "second.txt")
+    _git(clean_repo, "commit", "-q", "-m", "second")
+    prefix = first.head_sha[:4]
+    if prefix.isdecimal():
+        pytest.skip("4-char prefix is all digits; it would be read as an index")
+
+    restore_checkpoint(clean_repo, prefix)
+    assert _git(clean_repo, "rev-parse", "HEAD") == first.head_sha
+
+
 # --- diff_checkpoint ---
 
 
