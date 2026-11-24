@@ -324,9 +324,9 @@ def test_resolve_devanagari_digit_treated_as_label(clean_repo):
         restore_checkpoint(clean_repo, "३")
 
 
-@pytest.mark.parametrize("identifier", ["", "a", "abc"])
-def test_restore_refuses_empty_or_short_sha_prefix(clean_repo, identifier):
-    """An empty or 1-3 char SHA prefix must not select a checkpoint.
+@pytest.mark.parametrize("prefix_len", [0, 1, 2, 3])
+def test_restore_refuses_empty_or_short_sha_prefix(clean_repo, prefix_len):
+    """An empty or 1-3 char prefix of a real checkpoint SHA must not select it.
 
     Every SHA starts with "", so an unset ``$ID`` used to reset HEAD silently.
     """
@@ -336,11 +336,17 @@ def test_restore_refuses_empty_or_short_sha_prefix(clean_repo, identifier):
     _git(clean_repo, "add", "second.txt")
     _git(clean_repo, "commit", "-q", "-m", "second")
     head = _git(clean_repo, "rev-parse", "HEAD")
+    scratch = clean_repo / "scratch.txt"
+    scratch.write_text("scratch\n")
+    prefix = first.head_sha[:prefix_len]
+    if prefix.isdecimal():
+        pytest.skip("prefix is all digits; it would be read as an index")
 
     with pytest.raises(CheckpointError, match="too short"):
-        restore_checkpoint(clean_repo, identifier, include_dirty=True)
+        restore_checkpoint(clean_repo, prefix, include_dirty=True)
     assert _git(clean_repo, "rev-parse", "HEAD") == head
     assert (clean_repo / "second.txt").exists()
+    assert scratch.read_text() == "scratch\n"
 
 
 def test_restore_accepts_four_char_sha_prefix(clean_repo):
