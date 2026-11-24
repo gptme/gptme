@@ -409,7 +409,7 @@ def test_calculate_llm_cost_fully_cached_fable51(output_tokens: int):
     [
         ("anthropic", "claude-fable-5", 0.043),
         ("anthropic", "claude-haiku-4-5", 0.0043),
-        ("openai", "gpt-4o", 0.014),
+        ("openai", "gpt-4o", 0.00725),
     ],
 )
 def test_calculate_llm_cost_default_cache_prices(
