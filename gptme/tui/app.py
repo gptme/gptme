@@ -3385,6 +3385,10 @@ class GptmeApp(App):
         self._terminal_outcome: State = "idle"
         self._last_program_status: tuple[State, Kind | None] | None = None
         self._interrupt_event = threading.Event()
+        # a submitted prompt awaiting its fetch+append in the generation
+        # worker; kept for resume after an interrupt, and saved with the
+        # conversation if the app quits mid-fetch (see _generation_worker)
+        self._pending_prompt: tuple[Message, list[str]] | None = None
         # see _interrupt_step()
         self._generation_thread: int | None = None
         self._step_lock = threading.Lock()
@@ -3865,6 +3869,12 @@ class GptmeApp(App):
             with contextlib.suppress(OSError):
                 self._driver.write(POP_TITLE)
         self._quitting = True
+        held = self._pending_prompt
+        if held is not None:
+            # Quit during the fetch: the typed prompt never reached the log.
+            # Save it so reopening the conversation keeps it.
+            self._pending_prompt = None
+            self.manager.append(held[0])
         self._unsubscribe_notifications()
         self._restore_inline_resize_handler()
         self._interrupt_event.set()
@@ -4961,6 +4971,15 @@ class GptmeApp(App):
         self.manager.append(msg)
         self._show_message(msg)
 
+    def _append_pending_prompt(
+        self, msg: Message, held: tuple[Message, list[str]]
+    ) -> None:
+        """Append a fetched prompt on the UI thread, releasing its hold."""
+        if self._pending_prompt is not held:
+            return  # quit already saved the typed prompt (see on_unmount)
+        self._pending_prompt = None
+        self._append_prompt(msg)
+
     # --------------------------------------------------------- generation
 
     def _start_generation(
@@ -4975,6 +4994,10 @@ class GptmeApp(App):
             prompt = next(
                 (m for m in reversed(self.manager.log) if m.role == "user"), None
             )
+            held = self._pending_prompt
+            if held is not None and prompt is held[0]:
+                # Resuming a prompt an interrupted fetch appended as typed.
+                self._pending_prompt = None
         else:
             prompt, _ = pending_prompt
         self._active_skill_invocation_id = (
@@ -5037,17 +5060,20 @@ class GptmeApp(App):
                 prompt, urls = pending_prompt
                 if self._quitting:
                     return
-                enriched = prompt
-                if not self._interrupt_event.is_set():
-                    enriched = include_paths(
-                        prompt, self.workspace, pre_confirmed_urls=urls
-                    )
+                # Not in the log yet: hold it on the app so a quit during the
+                # fetch below still saves the prompt (on_unmount), and an
+                # interrupt offers it to the resume snapshot (_start_generation).
+                self._pending_prompt = pending_prompt
+                enriched = include_paths(
+                    prompt, self.workspace, pre_confirmed_urls=urls
+                )
                 if self._quitting:
                     return
-                # Keep the submitted text resumable if interrupted during fetch.
+                # Append before the first step; a fetch interrupted midway
+                # still leaves the prompt (with its local attachments) in the
+                # log, resumable with an empty submit.
                 self.call_from_thread(
-                    self._append_prompt,
-                    prompt if self._interrupt_event.is_set() else enriched,
+                    self._append_pending_prompt, enriched, pending_prompt
                 )
                 if self._interrupt_event.is_set() or self._quitting:
                     return

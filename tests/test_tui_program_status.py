@@ -305,6 +305,135 @@ async def test_tui_approved_url_fetch_keeps_event_loop_responsive(
                 assert "queued attachment" in second
 
 
+@pytest.mark.asyncio
+async def test_tui_quit_during_url_fetch_saves_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Quitting during a slow URL fetch keeps the approved prompt in the log."""
+    from gptme.util.workspace import workspace_scope
+
+    text = "Read https://example.com and @notes.txt"
+    (tmp_path / "notes.txt").write_text("local attachment")
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    with workspace_scope(tmp_path):
+        app = GptmeApp(manager, workspace=tmp_path)
+    app._statusline_cmd = None
+    entered = threading.Event()
+    release = threading.Event()
+    ui_thread = threading.get_ident()
+    fetch_threads: list[int] = []
+
+    def read_url(requested: str) -> str:
+        fetch_threads.append(threading.get_ident())
+        assert requested == "https://example.com"
+        entered.set()
+        # Hold the fetch so the quit lands while the prompt is still pending.
+        if threading.get_ident() != ui_thread:
+            release.wait(5)
+        return "fetched attachment"
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_PROGRAM_STATUS", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    monkeypatch.setattr("gptme.util.context.has_tool", lambda name: name == "browser")
+    monkeypatch.setattr("gptme.tools.browser.read_url", read_url)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr("gptme.tui.app.maybe_start_auto_naming", lambda *args: None)
+
+    with workspace_scope(tmp_path):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            composer = app.query_one("#input", ChatInput)
+            composer.text = text
+            await pilot.press("enter")
+            assert isinstance(app.screen, UrlConfirmScreen)
+            assert not entered.is_set()
+            try:
+                await pilot.press("y")
+                assert await asyncio.to_thread(entered.wait, 5)
+                assert ui_thread not in fetch_threads
+                # The worker holds the prompt until the fetch returns.
+                assert app._pending_prompt is not None
+                app._request_exit()
+            finally:
+                release.set()
+            await pilot.pause()
+    # The quit saved the typed prompt to the conversation.
+    assert manager.log[-1].content == text
+
+
+@pytest.mark.asyncio
+async def test_tui_resume_after_url_fetch_interrupt_keeps_attachments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fetch interrupted midway leaves the prompt (attachments included)
+    in the log, so an empty-submit resume sends it all to the model."""
+    from gptme.util.workspace import workspace_scope
+
+    text = "Read https://example.com and @notes.txt"
+    (tmp_path / "notes.txt").write_text("local attachment")
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    with workspace_scope(tmp_path):
+        app = GptmeApp(manager, workspace=tmp_path)
+    app._statusline_cmd = None
+    entered = threading.Event()
+    release = threading.Event()
+    ui_thread = threading.get_ident()
+    fetch_threads: list[int] = []
+    step_prompts: list[str] = []
+
+    def read_url(requested: str) -> str:
+        fetch_threads.append(threading.get_ident())
+        assert requested == "https://example.com"
+        entered.set()
+        release.wait(5)
+        return "fetched attachment"
+
+    def reply(log: Log, **kwargs: object) -> Iterator[Message]:
+        step_prompts.append(log[-1].content)
+        yield Message("assistant", "Done.")
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_PROGRAM_STATUS", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    monkeypatch.setattr("gptme.util.context.has_tool", lambda name: name == "browser")
+    monkeypatch.setattr("gptme.tools.browser.read_url", read_url)
+    monkeypatch.setattr("gptme.tui.app.step", reply)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr("gptme.tui.app.maybe_start_auto_naming", lambda *args: None)
+
+    with workspace_scope(tmp_path):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            composer = app.query_one("#input", ChatInput)
+            composer.text = text
+            await pilot.press("enter")
+            assert isinstance(app.screen, UrlConfirmScreen)
+            assert not entered.is_set()
+            try:
+                await pilot.press("y")
+                assert await asyncio.to_thread(entered.wait, 5)
+                assert ui_thread not in fetch_threads
+                await pilot.press("ctrl+c")
+                await pilot.pause()
+                assert composer.text == ""
+                assert app.prompt_queue == []
+            finally:
+                release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # The interrupted fetch still logged the prompt, attachment included.
+            interrupted_prompt = manager.log[-1].content
+            assert interrupted_prompt.startswith(text)
+            assert "local attachment" in interrupted_prompt
+            # An empty submit resumes the turn with everything in the log.
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+    assert len(fetch_threads) == 1  # the URL was not fetched again
+    assert step_prompts == [interrupted_prompt]
+
+
 @pytest.mark.parametrize(
     ("pending_tools", "expected"),
     [(True, "idle"), (False, "done")],
