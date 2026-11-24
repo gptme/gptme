@@ -124,3 +124,5 @@ def test_chat_history_keeps_conversation_whose_first_message_is_code(monkeypatch
     assert len(history) == 1
     assert "code-first" in history[0].content
     assert "guarding the empty list" in history[0].content
+    # Only the final reply is shown; the code-only opener is not.
+    assert "(3 messages omitted)" in history[0].content

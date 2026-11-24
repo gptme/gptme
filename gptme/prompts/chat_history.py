@@ -106,7 +106,7 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                             summary_parts.append(f"Assistant: {first_response}")
 
                 # Calculate omitted messages (all except first exchange and last assistant)
-                messages_shown = 1  # first user
+                messages_shown = 1 if first_user_content else 0  # first user
                 if first_assistant:
                     messages_shown += 1  # first assistant
                 if best_assistant_msg and best_assistant_msg != first_assistant:
