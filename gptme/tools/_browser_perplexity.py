@@ -87,7 +87,8 @@ def search_perplexity(query: str) -> str:
         return msg.content
 
     except Exception as e:
-        return f"Error searching with Perplexity: {e}"
+        # Keep the shared "Error:" prefix so search() falls back to the next engine.
+        return f"Error: Perplexity search failed: {e}"
 
 
 def has_perplexity_key() -> bool:

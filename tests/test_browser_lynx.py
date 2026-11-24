@@ -304,3 +304,54 @@ def test_read_url_no_cookies():
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
         result = read_url("https://example.com/page")
         assert result == "mock content"
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_read_url_does_not_follow_redirect_to_disallowed_host():
+    """With allow-hosts set, a redirect to another host is not followed (gptme#5126)."""
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    ports: list[int] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            port = ports[0]
+            if self.path.startswith("/to-other"):
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{port}/secret")
+                self.end_headers()
+                self.wfile.write(b"moved")
+            elif self.path.startswith("/to-same"):
+                self.send_response(302)
+                self.send_header("Location", "/public")
+                self.end_headers()
+            else:
+                body = b"<p>SECRET</p>" if "secret" in self.path else b"<p>PUBLIC</p>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
+
+        do_HEAD = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_port
+    ports.append(port)
+    try:
+        set_session_allow_hosts(["127.0.0.1"])
+        with pytest.raises(ValueError, match="localhost"):
+            read_url(f"http://127.0.0.1:{port}/to-other")
+        # A redirect that stays on an allowed host is still followed.
+        assert "PUBLIC" in read_url(f"http://127.0.0.1:{port}/to-same")
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()

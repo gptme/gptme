@@ -7,11 +7,61 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
-from ._url_safety import _MAX_INPUT_LENGTH, _validate_url_scheme
+from ._url_safety import _MAX_INPUT_LENGTH, _get_allow_hosts, _validate_url_scheme
 
 logger = logging.getLogger(__name__)
+
+_MAX_REDIRECT_HOPS = 10
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def _redirect_target(head_dump: str, url: str) -> str | None:
+    """Return the absolute redirect target from ``lynx -head -dump`` output."""
+    lines = head_dump.splitlines()
+    if not lines:
+        return None
+    status = lines[0].split()
+    if (
+        len(status) < 2
+        or not status[0].upper().startswith("HTTP/")
+        or not status[1].isdigit()
+        or int(status[1]) not in _REDIRECT_STATUSES
+    ):
+        return None
+    for line in lines[1:]:
+        if not line.strip():
+            break
+        name, _, value = line.partition(":")
+        if name.strip().lower() == "location" and value.strip():
+            return urljoin(url, value.strip())
+    return None
+
+
+def _resolve_allowlisted_redirects(url: str, env: dict[str, str]) -> str:
+    """Follow redirects with HEAD probes, allowlist-checking every hop first.
+
+    lynx follows redirects to any host on its own, so with a host allowlist the
+    real fetch runs with ``-noredir`` against the URL resolved here.
+    """
+    for _ in range(_MAX_REDIRECT_HOPS):
+        p = subprocess.run(
+            ["lynx", "-head", "-dump", "-noredir", url],
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+        target = _redirect_target(p.stdout, url)
+        if target is None:
+            return url
+        _validate_url_scheme(target)
+        url = target
+    raise RuntimeError(f"Too many redirects fetching {url}")
 
 
 def read_url(url: str, cookies: dict | None = None) -> str:
@@ -19,7 +69,13 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     _validate_url_scheme(url)
 
     env = os.environ.copy()
-    cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
+    if _get_allow_hosts() is not None:
+        # Only the first URL was checked above; lynx would otherwise follow a
+        # redirect to any host and return its content.
+        url = _resolve_allowlisted_redirects(url, env)
+        cmd = ["lynx", "--dump", "-noredir", url, "--display_charset=utf-8"]
+    else:
+        cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
 
     cookie_file = None
     if cookies:

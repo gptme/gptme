@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 from typing import TYPE_CHECKING
@@ -20,6 +21,7 @@ from gptme.tools._hashline_snapshot import (
     lookup_snapshot,
     store_snapshot,
 )
+from gptme.tools.base import read_text_lf
 from gptme.tools.hashline_edit import (
     HashlineOp,
     OperationKind,
@@ -30,7 +32,7 @@ from gptme.tools.hashline_edit import (
     execute_hashline_edit,
     tool,
 )
-from gptme.tools.read import execute_read
+from gptme.tools.read import _read_text_bounded, execute_read
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -657,7 +659,9 @@ class TestMutationAdmission:
         block = f"[{f.resolve()}#{tag}]\n" + "\n".join(ordered) + "\n"
         with (
             patch("gptme.hooks.get_confirmation") as confirm,
-            patch("gptme.tools.hashline_edit.os.replace") as publish,
+            patch(
+                "gptme.tools.hashline_edit.write_text_preserving_original"
+            ) as publish,
             patch("gptme.tools.hashline_edit.subprocess.run") as merge,
         ):
             msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
@@ -1226,7 +1230,9 @@ class TestContinuationHeaders:
         block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+replacement()\n"
         with (
             patch("gptme.hooks.get_confirmation") as confirm,
-            patch("gptme.tools.hashline_edit.os.replace") as publish,
+            patch(
+                "gptme.tools.hashline_edit.write_text_preserving_original"
+            ) as publish,
             patch("gptme.tools.hashline_edit.subprocess.run") as merge,
         ):
             msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
@@ -1623,3 +1629,73 @@ class TestToolSpec:
         full = tool.get_instructions("markdown")
         assert "### Operations" in full or "PUT N.=M" in full
         assert len(full) > len(tool.instructions_format["tool"])
+
+
+# ---------------------------------------------------------------------------
+# Line fidelity (gptme#5126)
+# ---------------------------------------------------------------------------
+
+
+class TestLineFidelity:
+    def test_replace_line_with_blank_line(self):
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT 2.=2:\n+\n")
+        assert _apply_operations("a\nb\nc\n", ops) == "a\n\nc\n"
+
+    def test_trailing_blank_content_lines_kept(self):
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT >1:\n+x\n+\n+\n")
+        assert _apply_operations("a\nb\n", ops) == "a\nx\n\n\nb\n"
+
+    def test_empty_content_block_still_deletes(self):
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT 2.=2:\n")
+        assert _apply_operations("a\nb\nc\n", ops) == "a\nc\n"
+
+    @pytest.mark.parametrize(
+        "sep", ["\x0c", "\x0b", "\x1c", "\x1d", "\x1e", "\x85", " ", " "]
+    )
+    def test_untouched_unicode_separators_preserved(self, sep: str):
+        content = f"a\nx{sep}y\nz\n"
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT 1.=1:\n+A\n")
+        assert _apply_operations(content, ops) == f"A\nx{sep}y\nz\n"
+
+    def test_line_numbers_still_follow_splitlines(self):
+        # "x\fy" is two lines for read's numbering, so line 3 is "y".
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT 3.=3:\n+Y\n")
+        assert _apply_operations("a\nx\x0cy\nz\n", ops) == "a\nx\x0cY\nz\n"
+
+    def test_unterminated_last_line_kept_unterminated(self):
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT >2:\n+c\n")
+        assert _apply_operations("a\nb", ops) == "a\nb\nc"
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 2.=2\n")
+        assert _apply_operations("a\nb", ops) == "a"
+
+    def test_register_move_keeps_line_terminators(self):
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 1.=1 @r\nPUT >3 @r\n")
+        assert _apply_operations("a\x0cb\nc\nd\n", ops) == "b\nc\na\x0cd\n"
+
+    def test_execute_keeps_lone_carriage_return(self, tmp_path: Path):
+        f = tmp_path / "progress.py"
+        f.write_bytes(b'one\nbar = "a\rb"\ntwo\n')
+        # read's snapshot content must equal hashline_edit's live read, or the
+        # edit would be treated as a concurrent modification.
+        snapshot = _read_text_bounded(f)
+        assert snapshot == read_text_lf(f) == 'one\nbar = "a\rb"\ntwo\n'
+        tag = store_snapshot(str(f.resolve()), snapshot)
+        # Line 4 is "two": the lone CR is a line boundary for numbering.
+        block = f"[{f.resolve()}#{tag}]\nPUT 4.=4:\n+TWO\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'
+
+    def test_execute_refuses_hardlinked_target(self, tmp_path: Path):
+        f = tmp_path / "f.txt"
+        f.write_text("a\nb\n")
+        alias = tmp_path / "alias.txt"
+        try:
+            os.link(f, alias)
+        except OSError:
+            pytest.skip("hard links unsupported")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+A\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "write failed" in msgs[0], msgs
+        assert alias.read_text() == f.read_text() == "a\nb\n"

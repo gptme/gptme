@@ -25,6 +25,7 @@ from .base import (
     ToolUse,
     file_newline,
     get_path,
+    read_text_lf,
 )
 
 instructions = """
@@ -351,8 +352,9 @@ def execute_patch_impl(
         if path.exists() and not path.is_file():
             raise ValueError(f"Cannot patch non-regular file `{path}`")
 
-        with open(path, encoding="utf-8") as f:
-            original_content = f.read()
+        # Keep lone "\r" characters: universal-newline mode would turn them into
+        # line breaks on write-back, even far away from the patched hunk.
+        original_content = read_text_lf(path)
 
         # Apply the patch
         patched_content = apply(content, original_content)

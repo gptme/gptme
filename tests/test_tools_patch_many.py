@@ -1360,3 +1360,14 @@ def test_requested_targets_still_reject_traversal():
 
     use = ToolUse("patch_many", ["../../../../etc/x"], TestGetPatchManyTargets.PATCH)
     assert get_patch_many_targets(use, resolve_symlinks=False) == []
+
+
+def test_atomic_keeps_lone_carriage_return(tmp_path):
+    """A lone CR inside a line survives an edit elsewhere in the file."""
+    f = tmp_path / "progress.py"
+    f.write_bytes(b'one\nbar = "a\rb"\ntwo\n')
+
+    messages = list(execute_patch_many_impl([(f, Patch("two\n", "TWO\n"))]))
+
+    assert "atomically" in messages[0].content.lower()
+    assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'

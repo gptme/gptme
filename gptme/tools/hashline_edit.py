@@ -42,9 +42,7 @@ edit is rejected with a clear error — no silent corruption.
 
 from __future__ import annotations
 
-import os
 import re
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -52,6 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ..message import Message
+from ..util.file_write import write_text_preserving_original
 from ..util.git_cmd import GIT_CMD
 from ..util.workspace import resolve_in_workspace
 from ._hashline_snapshot import lookup_snapshot, store_snapshot
@@ -60,6 +59,7 @@ from .base import (
     ToolSpec,
     ToolUse,
     file_newline,
+    read_text_lf,
 )
 
 if TYPE_CHECKING:
@@ -84,6 +84,11 @@ class HashlineOp:
     text: str | None  # None for delete or for register-read ops (resolved before apply)
     register_name: str | None = None  # for CUT @name (capture) or PUT @name (paste)
     resolved_register_lines: list[str] | None = None
+    # Original line terminators of resolved_register_lines (parallel list).
+    resolved_register_endings: list[str | None] | None = None
+    # Parsed ``+`` content lines. ``text`` joins these with "\n", which cannot
+    # distinguish "no lines" from "one blank line"; the list can.
+    text_lines: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +128,11 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
 
     Raises :class:`ParseError` on any syntax problem.
     """
-    lines = code.splitlines()
-    if not lines:
+    if not code:
         raise ParseError("Empty edit block")
+    # Split on "\n" only: content lines may legitimately contain characters such
+    # as "\f" or "\x85" that str.splitlines() would treat as line breaks.
+    lines = code.split("\n")
 
     # First line must be [PATH#TAG]
     m = _RE_HEADER.match(lines[0].strip())
@@ -179,8 +186,16 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
             start, end = int(m.group(1)), int(m.group(2))
             if start > end:
                 raise ParseError(f"PUT range start {start} > end {end}")
-            i, text = _collect_content(lines, i + 1)
-            ops.append(HashlineOp(kind="replace", start=start, end=end, text=text))
+            i, text_lines = _collect_content(lines, i + 1)
+            ops.append(
+                HashlineOp(
+                    kind="replace",
+                    start=start,
+                    end=end,
+                    text="\n".join(text_lines),
+                    text_lines=text_lines,
+                )
+            )
             continue
 
         # Register-paste: PUT <N @name — insert register content before line N
@@ -196,8 +211,16 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
 
         if m := _RE_PUT_BEFORE.match(line):
             n = int(m.group(1))
-            i, text = _collect_content(lines, i + 1)
-            ops.append(HashlineOp(kind="insert_before", start=n, end=n, text=text))
+            i, text_lines = _collect_content(lines, i + 1)
+            ops.append(
+                HashlineOp(
+                    kind="insert_before",
+                    start=n,
+                    end=n,
+                    text="\n".join(text_lines),
+                    text_lines=text_lines,
+                )
+            )
             continue
 
         # Register-paste: PUT >N @name — insert register content after line N
@@ -213,15 +236,31 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
 
         if m := _RE_PUT_AFTER.match(line):
             n = int(m.group(1))
-            i, text = _collect_content(lines, i + 1)
-            ops.append(HashlineOp(kind="insert_after", start=n, end=n, text=text))
+            i, text_lines = _collect_content(lines, i + 1)
+            ops.append(
+                HashlineOp(
+                    kind="insert_after",
+                    start=n,
+                    end=n,
+                    text="\n".join(text_lines),
+                    text_lines=text_lines,
+                )
+            )
             continue
 
         if m := _RE_PUT_BLOCK.match(line):
             n = int(m.group(1))
-            i, text = _collect_content(lines, i + 1)
+            i, text_lines = _collect_content(lines, i + 1)
             # end=-1 is a sentinel; resolved against live file in _apply_operations
-            ops.append(HashlineOp(kind="block_replace", start=n, end=-1, text=text))
+            ops.append(
+                HashlineOp(
+                    kind="block_replace",
+                    start=n,
+                    end=-1,
+                    text="\n".join(text_lines),
+                    text_lines=text_lines,
+                )
+            )
             continue
 
         if line.strip() == "" or line.strip().startswith("#"):
@@ -247,10 +286,10 @@ def _is_op_header(line: str) -> bool:
     )
 
 
-def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
+def _collect_content(lines: list[str], start_idx: int) -> tuple[int, list[str]]:
     """Collect ``+``-prefixed content lines starting at *start_idx*.
 
-    Returns (next_index, collected_text).
+    Returns (next_index, collected_lines).
     """
     content_lines: list[str] = []
     i = start_idx
@@ -268,7 +307,7 @@ def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
             raise ParseError(
                 f"Expected '+'-prefixed content line or next operation, got: {line!r}"
             )
-    return i, "\n".join(content_lines)
+    return i, content_lines
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +480,14 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     overlapping mutations, or a missing register.
     """
     had_trailing_newline = content.endswith("\n")
-    file_lines = content.splitlines()
+    # Line boundaries match str.splitlines() (and therefore the read tool's line
+    # numbers), but every original line keeps its own terminator. Rejoining with
+    # "\n" would turn untouched "\f", "\v", "\x85", lone "\r", ... into newlines.
+    file_lines, original_endings = _split_keep_endings(content)
     total = len(file_lines)
+    final_ending = original_endings[-1] if original_endings else ""
+    # None marks a line without an original terminator (new content).
+    endings: list[str | None] = list(original_endings)
 
     # Resolve block_replace ops to concrete replace ranges before validation/sorting
     step1: list[HashlineOp] = []
@@ -450,7 +495,13 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
         if op.kind == "block_replace":
             end = _resolve_block_end(file_lines, op.start)
             step1.append(
-                HashlineOp(kind="replace", start=op.start, end=end, text=op.text)
+                HashlineOp(
+                    kind="replace",
+                    start=op.start,
+                    end=end,
+                    text=op.text,
+                    text_lines=op.text_lines,
+                )
             )
         else:
             step1.append(op)
@@ -458,6 +509,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
 
     # Pre-scan: capture register content from CUT @name ops (original line numbers)
     registers: dict[str, list[str]] = {}
+    register_endings: dict[str, list[str | None]] = {}
     register_sources: dict[str, HashlineOp] = {}
     for op in ops:
         if op.kind == "delete" and op.register_name:
@@ -468,6 +520,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
                 )
             s, e = op.start - 1, op.end  # 0-indexed slice
             registers[op.register_name] = file_lines[s:e]
+            register_endings[op.register_name] = endings[s:e]
             register_sources[op.register_name] = op
 
     # Resolve register-read ops by attaching the original captured line list.
@@ -494,6 +547,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
                     end=op.end,
                     text=None,
                     resolved_register_lines=registers[reg],
+                    resolved_register_endings=register_endings[reg],
                 )
             )
         else:
@@ -580,26 +634,56 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
 
         if op.kind == "delete":
             del file_lines[s:e]
+            del endings[s:e]
             continue
 
-        new_lines = (
-            op.resolved_register_lines
-            if op.resolved_register_lines is not None
-            else op.text.splitlines()
-            if op.text
-            else []
-        )
+        new_endings: list[str | None]
+        if op.resolved_register_lines is not None:
+            new_lines = op.resolved_register_lines
+            new_endings = list(
+                op.resolved_register_endings
+                if op.resolved_register_endings is not None
+                else [None] * len(new_lines)
+            )
+        else:
+            if op.text_lines is not None:
+                new_lines = op.text_lines
+            else:
+                new_lines = op.text.split("\n") if op.text else []
+            new_endings = [None] * len(new_lines)
         if op.kind == "replace":
             file_lines[s:e] = new_lines
+            endings[s:e] = new_endings
         elif op.kind == "insert_before":
             file_lines[s:s] = new_lines
+            endings[s:s] = new_endings
         elif op.kind == "insert_after":
             file_lines[e:e] = new_lines
+            endings[e:e] = new_endings
 
-    result = "\n".join(file_lines)
-    if had_trailing_newline:
-        result += "\n"
-    return result
+    if not file_lines:
+        return "\n" if had_trailing_newline else ""
+    parts: list[str] = []
+    last = len(file_lines) - 1
+    for idx, (line, ending) in enumerate(zip(file_lines, endings, strict=True)):
+        # The file keeps its original final-terminator state. Elsewhere, new
+        # lines (and an unterminated last line that is no longer last) get "\n".
+        parts.append(line + (final_ending if idx == last else ending or "\n"))
+    return "".join(parts)
+
+
+def _split_keep_endings(content: str) -> tuple[list[str], list[str]]:
+    """Split like ``str.splitlines()``, returning bodies and their terminators.
+
+    The terminator of an unterminated last line is ``""``.
+    """
+    bodies: list[str] = []
+    endings: list[str] = []
+    for raw in content.splitlines(keepends=True):
+        body = raw.splitlines()[0]
+        bodies.append(body)
+        endings.append(raw[len(body) :])
+    return bodies, endings
 
 
 # ---------------------------------------------------------------------------
@@ -893,7 +977,7 @@ def execute_hashline_edit(
         return
 
     try:
-        live_content = resolved.read_text(encoding="utf-8")
+        live_content = read_text_lf(resolved)
     except (UnicodeDecodeError, PermissionError, OSError) as e:
         yield Message("system", f"hashline_edit: cannot read file: {e}")
         return
@@ -981,7 +1065,7 @@ def execute_hashline_edit(
     # Re-read before every write: ordinary and merge-recovered targets can both
     # change while confirmation is open, including when the user edits the preview.
     try:
-        post_confirm_content = resolved.read_text(encoding="utf-8")
+        post_confirm_content = read_text_lf(resolved)
     except (UnicodeDecodeError, PermissionError, OSError) as e:
         yield Message("system", f"hashline_edit: cannot re-read file before write: {e}")
         return
@@ -993,29 +1077,16 @@ def execute_hashline_edit(
         )
         return
 
-    # Write result atomically: write to a temp file in the same directory,
-    # then rename into place.  os.replace() is a single POSIX syscall (rename(2))
-    # so readers always see either the old or the new content — never a partial
-    # write.  This closes the non-atomic write window noted by the AI reviewer
-    # (the check→write TOCTOU window above is inherent to file I/O without
-    # OS-level locking and is not specific to this path).
+    # Write via the shared atomic writer (stage beside the target, then
+    # os.replace), keeping the file's line endings. Like patch/save, it refuses
+    # hard-linked targets instead of silently splitting them from their aliases.
+    # The content is LF-only here (see read_text_lf); newline= restores CRLF.
     try:
         newline = file_newline(resolved)
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            dir=resolved.parent, prefix=".gptme_hashline_", suffix=".tmp"
+        write_text_preserving_original(
+            resolved, updated.replace("\r\n", "\n"), newline=newline
         )
-        try:
-            # Keep the file's line endings: the content was read in
-            # universal-newline mode, so it is LF-only here.
-            with os.fdopen(tmp_fd, "w", encoding="utf-8", newline=newline) as fh:
-                fh.write(updated.replace("\r\n", "\n"))
-            # mkstemp creates the file as 0600; keep the original's mode.
-            shutil.copymode(resolved, tmp_name)
-        except Exception:
-            os.unlink(tmp_name)
-            raise
-        os.replace(tmp_name, resolved)
-    except (PermissionError, OSError) as e:
+    except (UnicodeEncodeError, ValueError, OSError) as e:
         yield Message("system", f"hashline_edit: write failed: {e}")
         return
 
