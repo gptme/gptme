@@ -897,6 +897,21 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
     ]
 
 
+def _strip_trailing_prose_punctuation(word: str) -> str:
+    """Drop sentence punctuation after a path (``@main.py:``, ``(see @a.py)``, ``?!``).
+
+    A closing parenthesis is only dropped when unbalanced, so ``notes(1).md`` stays.
+    """
+    while word:
+        if word[-1] in "?.,!:;":
+            word = word[:-1]
+        elif word[-1] == ")" and word.count(")") > word.count("("):
+            word = word[:-1]
+        else:
+            break
+    return word
+
+
 def _iter_discovered_paths(
     content: str, *, auto_include: bool = True
 ) -> list[_DiscoveredPath]:
@@ -1006,7 +1021,7 @@ def _iter_discovered_paths(
     # First find backtick-wrapped content
     for match in re.finditer(r"`([^`]+)`", content_no_xml):
         word = match.group(1).strip()
-        word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+        word = _strip_trailing_prose_punctuation(word)
         if is_path_like(word):
             _add_path(word)
         elif not auto_include:
@@ -1022,7 +1037,7 @@ def _iter_discovered_paths(
     content_no_backticks = re.sub(r"`[^`]+`", "", content_no_xml)
     for word in re.split(r"\s+", content_no_backticks):
         word = word.strip()
-        word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+        word = _strip_trailing_prose_punctuation(word)
         if not word:
             continue
 
