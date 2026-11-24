@@ -313,6 +313,13 @@ class TestDateSuffixStripping:
         assert props is not None
         assert props["context"] >= 200_000  # real model, not fallback 128k
 
+    def test_iso_dated_openai_snapshot_inherits_base_properties(self):
+        """OpenAI snapshots use -YYYY-MM-DD; they must resolve to the base model,
+        not fall through to the family match (gptme/gptme#5218 item 2)."""
+        props = _find_base_model_properties("openai", "gpt-4o-2024-11-20")
+        assert props is not None
+        assert props["context"] == 128_000
+
     def test_date_suffix_on_unknown_base_returns_none(self):
         """Date suffix stripping on a non-existent base should return None."""
         props = _find_base_model_properties("anthropic", "nonexistent-model-20260101")

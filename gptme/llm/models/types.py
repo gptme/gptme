@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from ...config import Config
     from ...tools.base import ToolFormat
 
-# Pattern to match date suffixes like -20250929 or -20250514
-_DATE_SUFFIX_PATTERN = re.compile(r"-\d{8}$")
+# Pattern to match date suffixes: Anthropic-style -20250929, OpenAI-style -2024-11-20
+_DATE_SUFFIX_PATTERN = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
 
 # Pattern to extract the model family prefix (letters and hyphens before a version number)
 # e.g. "claude-sonnet-4-6" -> "claude-sonnet", "gpt-5-mini" -> "gpt-", "grok-4-1-fast" -> "grok-"
