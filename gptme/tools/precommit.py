@@ -80,7 +80,9 @@ def use_checks() -> bool:
     Pre-commit checks are enabled when either:
 
     1. GPTME_CHECK=true is set explicitly, or
-    2. A .pre-commit-config.yaml file exists in any parent directory
+    2. A .pre-commit-config.yaml file exists in any parent directory and the
+       user has approved that config (its hooks run arbitrary code, so a
+       cloned repository must not enable them on its own)
 
     Any issues found are included in the context, helping catch and fix code quality
     issues before the user continues the conversation.
@@ -93,17 +95,26 @@ def use_checks() -> bool:
 
     # Check for .pre-commit-config.yaml in any parent directory
     workspace = current_workspace()
-    has_config = any(
-        parent.joinpath(".pre-commit-config.yaml").exists()
-        for parent in [workspace, *workspace.parents]
+    config_path = next(
+        (
+            parent / ".pre-commit-config.yaml"
+            for parent in [workspace, *workspace.parents]
+            if parent.joinpath(".pre-commit-config.yaml").exists()
+        ),
+        None,
     )
 
-    if explicit_enabled and not has_config:
+    if explicit_enabled and config_path is None:
         logger.warning(
             "GPTME_CHECK is enabled but no .pre-commit-config.yaml found in any parent directory"
         )
 
-    enabled = explicit_enabled or has_config
+    enabled = explicit_enabled
+    if not enabled and config_path is not None and get_precommit_runner():
+        from ..config.trust import check_precommit_trust
+
+        # Auto-enable only for an approved config: same TOFU gate as gptme.toml.
+        enabled = check_precommit_trust(config_path, workspace)
 
     # Check for a pre-commit runner (pre-commit or prek)
     if enabled and not get_precommit_runner():

@@ -133,7 +133,32 @@ class TestUseChecks:
         with _mock_config({"GPTME_CHECK": ""}), _mock_which():
             assert use_checks() is True
 
-    def test_disabled_when_no_config(self, tmp_path: Path, monkeypatch):
+    def test_auto_detect_requires_trusted_config(self, tmp_path: Path, monkeypatch):
+        """A cloned repository's hooks must not auto-run without approval."""
+        from gptme.config import trust
+
+        monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+        monkeypatch.setattr(trust, "_session_decisions", {})
+        repo = tmp_path / "repo"
+        sub = repo / "subdir"
+        sub.mkdir(parents=True)
+        monkeypatch.chdir(sub)
+        cfg = repo / ".pre-commit-config.yaml"
+        cfg.write_text("repos: []")
+        with (
+            _mock_config({"GPTME_CHECK": ""}),
+            _mock_which(),
+            patch("sys.stdin.isatty", return_value=False),
+        ):
+            assert use_checks() is False
+            trust._session_decisions.clear()
+            trust._record(trust.precommit_trust_hash(cfg), True, sub)
+            assert use_checks() is True
+            # Changing the hooks needs a fresh approval.
+            cfg.write_text("repos: [{repo: local, hooks: [{id: x, entry: evil}]}]")
+            assert use_checks() is False
+
         """Returns False when no config file and not explicitly enabled."""
         monkeypatch.chdir(tmp_path)
         with _mock_config({"GPTME_CHECK": ""}):

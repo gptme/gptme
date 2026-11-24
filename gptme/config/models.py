@@ -465,6 +465,11 @@ class ProjectConfig:
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
+    # Set by trust.withhold_untrusted() on the copy whose sensitive surfaces were
+    # removed; points at the full config so the trust prompt can show them.
+    _untrusted_original: "ProjectConfig | None" = field(
+        default=None, repr=False, compare=False
+    )
 
     @classmethod
     def from_dict(cls, config_data: dict, workspace: Path | None = None) -> Self:
