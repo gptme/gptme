@@ -249,6 +249,39 @@ def test_gnumakefile_test_target_wins_over_makefile(tmp_path: Path) -> None:
     assert command.reason.startswith("GNUmakefile ")
 
 
+def test_gnumakefile_including_makefile_with_test_target(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("include Makefile\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("make", "test")
+    assert command.reason == (
+        "GNUmakefile includes Makefile, which defines a test target"
+    )
+
+
+def test_make_include_cycle_and_variable_paths_terminate(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include a.mk $(EXTRA)\n")
+    (tmp_path / "a.mk").write_text("-include GNUmakefile b.mk\n")
+    (tmp_path / "b.mk").write_text("all:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[testenv]\ndeps = pytest\n",
+        "[testenv:py]\ndeps = pytest\ncommands =\n",
+    ],
+    ids=["deps-only", "empty-commands"],
+)
+def test_tox_ini_default_env_without_commands_is_ignored(
+    tmp_path: Path, text: str
+) -> None:
+    (tmp_path / "tox.ini").write_text(text)
+    assert discover_verification_command(tmp_path) is None
+
+
 def test_npm_requires_exact_test_script_and_previews_lifecycle(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
     package.write_text(
@@ -313,12 +346,15 @@ def test_string_pytest_mention_does_not_discover(tmp_path: Path) -> None:
 def test_unreadable_makefile_is_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    makefile = tmp_path / "Makefile"
-    makefile.write_text("test:\n\t@true\n")
+    # An unreadable GNUmakefile still shadows Makefile for make, so discovery
+    # must not fall back to it. Distinct names keep this valid on
+    # case-insensitive filesystems.
+    (tmp_path / "GNUmakefile").write_text("all:\n\t@true\n")
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
     original = Path.read_text
 
     def boom(self: Path, *args: object, **kwargs: object) -> str:
-        if self.name == "Makefile":
+        if self.name == "GNUmakefile":
             raise OSError("unreadable")
         return original(self, *args, **kwargs)  # type: ignore[arg-type]
 

@@ -403,14 +403,26 @@ def _pytest_config(workspace: Path) -> Path | None:
     return None
 
 
+def _tox_default_env_has_commands(text: str) -> bool:
+    parser = configparser.RawConfigParser(interpolation=None)
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return False
+    # [testenv:py] inherits commands from [testenv] unless it sets its own.
+    for section in ("testenv:py", "testenv"):
+        if parser.has_option(section, "commands"):
+            return bool(parser.get(section, "commands").strip())
+    return False
+
+
 def _has_tox_config(name: str, text: str) -> bool:
     if name == "tox.ini":
         # tox 4 also accepts a tox.ini without [tox]. Bare `tox` then runs only the
         # implicit `py` env, so only [testenv] or [testenv:py] give it commands; a
         # lone [testenv:lint] would pass without running anything.
-        return _ini_has_section(text, "tox") or bool(
-            _ini_sections(text) & {"testenv", "testenv:py"}
-        )
+        # A [testenv] that only lists deps has nothing to run, so require commands.
+        return _ini_has_section(text, "tox") or _tox_default_env_has_commands(text)
     if name == "pyproject.toml":
         return _toml_has_table(text, "tool", "tox")
     return _ini_has_section(text, "tox", "tox:tox")
@@ -676,6 +688,39 @@ def approved_execution_argv(
     return command.argv, bind
 
 
+_MAKE_INCLUDE = re.compile(r"(?m)^\s*(?:-include|sinclude|include)\s+(.+?)\s*$")
+
+
+def _make_test_target_file(
+    workspace: Path, makefile: Path, text: str, seen: set[Path] | None = None
+) -> Path | None:
+    """Return the file defining ``test`` for ``makefile``, following plain includes.
+
+    Include paths resolve against the workspace, as they do for ``make`` run
+    there. Paths with variables or globs are not expanded, so they are skipped.
+    """
+    if _MAKE_TEST_TARGET.search(text):
+        return makefile
+    seen = seen or {makefile.resolve()}
+    for match in _MAKE_INCLUDE.finditer(text):
+        for token in match.group(1).split():
+            if any(ch in token for ch in "$*?[%"):
+                continue
+            path = workspace / token
+            try:
+                key = path.resolve()
+                if key in seen or len(seen) > 16 or not path.is_file():
+                    continue
+                seen.add(key)
+                included = path.read_text(errors="replace")
+            except OSError:
+                continue
+            found = _make_test_target_file(workspace, path, included, seen)
+            if found is not None:
+                return found
+    return None
+
+
 def discover_verification_command(workspace: Path) -> VerificationCommand | None:
     """Discover one deterministic project-level test command."""
     pytest_config = _pytest_config(workspace)
@@ -746,7 +791,11 @@ def discover_verification_command(workspace: Path) -> VerificationCommand | None
             text = makefile.read_text(errors="replace")
         except OSError:
             return None
-        if _MAKE_TEST_TARGET.search(text):
-            return _command(("make", "test"), f"{name} defines a test target", makefile)
-        return None
+        found = _make_test_target_file(workspace, makefile, text)
+        if found is None:
+            return None
+        reason = f"{name} defines a test target"
+        if found != makefile:
+            reason = f"{name} includes {found.name}, which defines a test target"
+        return _command(("make", "test"), reason, makefile)
     return None
