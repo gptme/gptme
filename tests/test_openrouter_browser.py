@@ -22,9 +22,11 @@ def test_oauth_browser_selection(
 
     def open_url(url: str) -> bool:
         params = parse_qs(urlparse(url).query)
-        response = requests.get(
-            params["callback_url"][0], params={"code": "test-code"}, timeout=2
-        )
+        with requests.Session() as session:
+            session.trust_env = False
+            response = session.get(
+                params["callback_url"][0], params={"code": "test-code"}, timeout=2
+            )
         response.raise_for_status()
         return True
 
@@ -97,11 +99,13 @@ def test_macos_launch_failure_keeps_manual_callback_alive(
 
     def on_url_ready(_url: str) -> None:
         # A callback is available even if the automatic launch subsequently fails.
-        requests.get(
-            f"http://127.0.0.1:{servers[0].server_port}{oauth.OAUTH_CALLBACK_PATH}",
-            params={"code": "manual-code"},
-            timeout=2,
-        ).raise_for_status()
+        with requests.Session() as session:
+            session.trust_env = False
+            session.get(
+                f"http://127.0.0.1:{servers[0].server_port}{oauth.OAUTH_CALLBACK_PATH}",
+                params={"code": "manual-code"},
+                timeout=2,
+            ).raise_for_status()
 
     assert (
         oauth.oauth_get_api_key(timeout=2, on_url_ready=on_url_ready)
