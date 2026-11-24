@@ -959,3 +959,28 @@ class TestConfigActivation:
 
         assert os.environ["GPTME_ANOMALY_WATCHDOG"] == "warn"
         assert os.environ["GPTME_ANOMALY_WRITE_LIMIT"] == "5"
+
+
+@pytest.mark.parametrize("tool", ["save", "append", "patch"])
+def test_scope_escape_markdown_codeblock(tool, tmp_path, monkeypatch):
+    """A markdown block's args are its info string (``["save /abs/path"]``),
+    the default tool format. The target must be read as the tool reads it,
+    not as the relative path ``save /abs/path`` inside the workspace."""
+    from ...tools import ToolUse, init_tools
+
+    _no_log(monkeypatch)
+    init_tools([tool])
+    outside = tmp_path / "outside" / "escape.txt"
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    content = f"```{tool} {outside}\nhello\n```\n"
+    (tool_use,) = ToolUse.iter_from_content(content)
+    assert tool_use.args == [f"{tool} {outside}"]
+
+    result = _check_scope_escape(tool_use, workspace)
+    assert result is not None
+    assert "scope_escape" in result[1]
+
+    inside = f"```{tool} {workspace / 'ok.txt'}\nhello\n```\n"
+    (tool_use,) = ToolUse.iter_from_content(inside)
+    assert _check_scope_escape(tool_use, workspace) is None
