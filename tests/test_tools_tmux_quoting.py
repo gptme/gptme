@@ -6,6 +6,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -50,7 +51,16 @@ def private_tmux(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         )
         yield
     finally:
+        # tmux 3.4 leaves the socket file behind on kill-server; unlink it so
+        # each run does not leak one into $TMUX_TMPDIR/tmux-$UID.
+        socket_path = isolated_run(
+            ["tmux", "display-message", "-p", "#{socket_path}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
         isolated_run(["tmux", "kill-server"], capture_output=True)
+        if socket_path:
+            Path(socket_path).unlink(missing_ok=True)
 
 
 def capture_until(expected: str) -> str:

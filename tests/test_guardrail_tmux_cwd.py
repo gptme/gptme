@@ -52,7 +52,16 @@ def pane_tree(tmp_path, monkeypatch):
             time.sleep(0.01)
         yield process, pane
     finally:
+        # tmux 3.4 leaves the socket file behind on kill-server; unlink it so
+        # each run does not leak one into $TMUX_TMPDIR/tmux-$UID.
+        socket_path = isolated_run(
+            ["tmux", "display-message", "-p", "#{socket_path}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
         isolated_run(["tmux", "kill-server"], capture_output=True)
+        if socket_path:
+            Path(socket_path).unlink(missing_ok=True)
 
 
 def blocked(use):
