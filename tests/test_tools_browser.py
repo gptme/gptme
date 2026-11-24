@@ -1412,7 +1412,9 @@ class TestOpenPageSessionReuse:
             result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         create_page.assert_not_called()
         ctx.close.assert_not_called()
         ctx.new_page.assert_not_called()
@@ -1439,7 +1441,9 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         create_page.assert_called_once()
-        page.goto.assert_called_once_with("https://example.com")
+        page.goto.assert_called_once_with(
+            "https://example.com", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         assert bp._current_page is page
         assert bp._current_context is ctx
 
@@ -1470,7 +1474,9 @@ class TestOpenPageSessionReuse:
         ctx.close.assert_not_called()
         ctx.new_page.assert_called_once_with()
         new_page.set_extra_http_headers.assert_called_once_with(bp._OPEN_PAGE_HEADERS)
-        new_page.goto.assert_called_once_with("https://example.com/account")
+        new_page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         dead_page.close.assert_called()
         assert bp._current_page is new_page
         assert bp._current_context is ctx
@@ -1497,7 +1503,9 @@ class TestOpenPageSessionReuse:
             result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         create_page.assert_not_called()
         close.assert_not_called()
         session_ctx.close.assert_not_called()
@@ -1569,7 +1577,9 @@ class TestOpenPageSessionReuse:
             current_conversation_id.reset(token)
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         create_page.assert_not_called()
         close.assert_not_called()
         assert bp._session_owner == "conv-a"
@@ -1645,7 +1655,9 @@ class TestOpenPageSessionReuse:
         create_page.assert_called_once()
         old_page.close.assert_called()
         old_ctx.close.assert_called()
-        new_page.goto.assert_called_once_with("https://example.com/account")
+        new_page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         assert bp._current_page is new_page
         assert bp._current_context is new_ctx
         assert bp._session_owner == "conv-b"
