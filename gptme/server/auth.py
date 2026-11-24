@@ -14,6 +14,7 @@ import logging
 import os
 import secrets
 from functools import wraps
+from urllib.parse import urlsplit
 
 import flask
 from flask import jsonify, request
@@ -44,6 +45,15 @@ AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
 # document/WebSocket requests. Preview HTML is never served under /api/
 # (that would grant untrusted content the API cookie scope).
 AUTH_COOKIE_PATHS: tuple[str, ...] = ("/api/", "/preview/")
+
+# Origins (besides the server's own) trusted to make cookie-authenticated
+# state-changing requests. Populated from named ``--cors-origin`` values: those
+# are already granted credentialed CORS access, so they are trusted equally here.
+_trusted_origins: set[str] = set()
+
+# Methods that never change state; the cookie Origin check skips them.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 # Blueprint for auth endpoints
 auth_api = flask.Blueprint("auth_api", __name__)
@@ -169,6 +179,128 @@ def validate_host():
                     "validates the Host header to block DNS-rebinding attacks. "
                     "If this host is legitimate (e.g. a reverse proxy), allow it "
                     f"with: gptme-server serve --allowed-hosts {hostname}"
+                )
+            }
+        ),
+        403,
+    )
+
+
+def _forwarded_proto() -> str | None:
+    """First ``X-Forwarded-Proto`` value, as sent by a TLS-terminating proxy.
+
+    Trusting this header is safe for both uses in this module: a browser cannot
+    attach it to a cross-origin request without a CORS preflight (it is not a
+    safelisted header), and a client spoofing it on a direct connection only
+    makes its own cookie ``Secure``.
+    """
+    value = request.headers.get("X-Forwarded-Proto", "")
+    proto = value.split(",", 1)[0].strip().lower()
+    return proto or None
+
+
+def request_is_secure() -> bool:
+    """Whether the client reached the server over TLS, including via a proxy."""
+    return request.is_secure or _forwarded_proto() == "https"
+
+
+def _normalize_origin(value: str | None) -> str | None:
+    """Reduce an Origin/Referer/URL to ``scheme://host[:port]``.
+
+    Default ports are dropped and scheme/host are lowercased so equivalent
+    spellings compare equal. Returns ``None`` for ``null`` or anything without
+    a scheme and host.
+    """
+    if not value:
+        return None
+    try:
+        parts = urlsplit(value.strip())
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not hostname:
+        return None
+    scheme = parts.scheme.lower()
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None and port != _DEFAULT_PORTS.get(scheme):
+        host = f"{host}:{port}"
+    return f"{scheme}://{host}"
+
+
+def _request_origin() -> str | None:
+    """The origin the browser used to reach this server."""
+    scheme = _forwarded_proto() or request.scheme
+    return _normalize_origin(f"{scheme}://{request.host}")
+
+
+def init_origin_check(cors_origins: list[str] | None = None) -> None:
+    """Configure which extra origins may make cookie-authenticated writes.
+
+    Args:
+        cors_origins: The parsed ``--cors-origin`` list. A wildcard entry grants
+            no trust: wildcard CORS never enables credentials.
+    """
+    global _trusted_origins
+    _trusted_origins = {
+        normalized
+        for origin in (cors_origins or [])
+        if origin != "*" and (normalized := _normalize_origin(origin))
+    }
+
+
+def get_trusted_origins() -> set[str]:
+    """Origins (besides the server's own) trusted for credentialed requests."""
+    return set(_trusted_origins)
+
+
+def validate_cookie_origin():
+    """Flask ``before_request`` hook blocking cross-origin cookie-auth writes.
+
+    ``SameSite=Lax`` does not stop *same-site* pages (any other port on the same
+    host, since cookies ignore ports) from sending the auth cookie, and
+    ``multipart/form-data`` / ``text/plain`` POSTs need no CORS preflight. So a
+    state-changing request authenticated only by the cookie must come from the
+    server's own origin or a configured ``--cors-origin``.
+
+    Requests carrying an ``Authorization`` header are exempt (a forged browser
+    request cannot set one), as are requests with neither ``Origin`` nor
+    ``Referer`` (non-browser clients; browsers send ``Origin`` on every
+    ``POST``/``PUT``/``PATCH``/``DELETE`` issued by ``fetch`` or a form).
+    """
+    if not _auth_enabled or request.method in _SAFE_METHODS:
+        return None
+    if request.headers.get("Authorization"):
+        return None
+    if not request.cookies.get(AUTH_COOKIE_NAME):
+        return None
+
+    origin_header = request.headers.get("Origin")
+    referer_header = request.headers.get("Referer")
+    if origin_header is None and not referer_header:
+        return None
+
+    source = origin_header if origin_header is not None else referer_header
+    origin = _normalize_origin(source)
+    if origin is not None and (
+        origin == _request_origin() or origin in _trusted_origins
+    ):
+        return None
+
+    logger.warning(
+        "Rejected cookie-authenticated %s %s from origin %r",
+        request.method,
+        request.path,
+        source,
+    )
+    return (
+        jsonify(
+            {
+                "error": (
+                    "Cross-origin request rejected: cookie-authenticated "
+                    "state-changing requests must come from the server's own "
+                    "origin. Send an Authorization header, or trust the origin "
+                    "with: gptme-server serve --cors-origin <origin>"
                 )
             }
         ),
@@ -385,7 +517,7 @@ def set_auth_cookie():
             max_age=AUTH_COOKIE_MAX_AGE,
             httponly=True,
             samesite="Lax",
-            secure=request.is_secure,
+            secure=request_is_secure(),
             path=cookie_path,
         )
     logger.info("Auth cookie set for client")
@@ -410,7 +542,7 @@ def clear_auth_cookie():
         response.delete_cookie(
             AUTH_COOKIE_NAME,
             path=cookie_path,
-            secure=request.is_secure,
+            secure=request_is_secure(),
             samesite="Lax",
         )
     logger.info("Auth cookie cleared for client")

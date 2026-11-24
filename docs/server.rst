@@ -247,6 +247,12 @@ to that UI's origin and enable the Compose ``--cors-origin`` command.
    to hang until each full response is ready, instead of streaming token by
    token.
 
+   ``X-Forwarded-Proto`` matters too: the server uses it to mark the auth
+   cookie ``Secure`` and to recognize ``https://`` requests from the bundled UI
+   as same-origin. Keep ``Host`` set to the hostname (and port, if it is not
+   the default) that browsers use, or cookie-authenticated uploads from the UI
+   are rejected as cross-origin.
+
 **Local-only access.** If you only want the server reachable from the host
 itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
 keep the default loopback bind — open an SSH tunnel from your client with
@@ -347,11 +353,29 @@ server access:
 A malicious web page cannot send credentialed cross-origin JSON requests
 to the local server because the browser's CORS preflight blocks them: the
 server does not return ``Access-Control-Allow-Origin`` headers for arbitrary
-origins (only for the configured ``--cors-origin``). Plain forms can POST
-without CORS, but cannot set ``Content-Type: application/json``, so the
-server rejects them as malformed.
+origins (only for the configured ``--cors-origin``).
 
-**2. DNS Rebinding**
+Preflight alone is not enough. ``multipart/form-data`` and ``text/plain``
+requests need no preflight, and the ``SameSite=Lax`` auth cookie is still sent
+by *same-site* pages, which includes any other port on the same host (for
+example an agent-started dev server on ``http://127.0.0.1:8888``). So every
+state-changing request (``POST``/``PUT``/``PATCH``/``DELETE``) that is
+authenticated only by the cookie must carry an ``Origin`` (or ``Referer``)
+matching the server's own origin or a named ``--cors-origin``; anything else
+gets ``403``. Requests with an ``Authorization`` header are exempt, since a
+forged browser request cannot set one.
+
+**2. Clickjacking**
+
+The bundled UI is served with ``X-Frame-Options: SAMEORIGIN`` and
+``Content-Security-Policy: frame-ancestors 'self'`` (plus any named
+``--cors-origin``), so other origins cannot frame an authenticated UI.
+
+The public ``/api/docs/`` page loads Swagger UI from unpkg pinned with
+Subresource Integrity and a restrictive Content-Security-Policy, so a
+compromised CDN cannot run script on the origin that owns the auth cookie.
+
+**3. DNS Rebinding**
 
 A malicious site can re-resolve its hostname to ``127.0.0.1`` after the page
 loads and thereby bypass CORS. Bearer authentication still blocks access to

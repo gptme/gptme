@@ -16,7 +16,7 @@ from typing import (
     get_type_hints,
 )
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, Response, current_app, jsonify
 from pydantic import BaseModel, Field
 
 from gptme.__version__ import __version__
@@ -1438,31 +1438,76 @@ def openapi_json():
     return jsonify(generate_openapi_spec())
 
 
+# Swagger UI is loaded from unpkg on the same origin that owns the auth cookie,
+# so every asset is pinned with Subresource Integrity and the page carries a CSP
+# that only allows those pinned assets plus same-origin script (no inline JS).
+# To bump the version, recompute each hash with:
+#   curl -fsSL <url> | openssl dgst -sha384 -binary | openssl base64 -A
+_SWAGGER_UI_BASE = "https://unpkg.com/swagger-ui-dist@5.9.0/"
+_SWAGGER_UI_SRI = {
+    "swagger-ui.css": "sha384-ZJ2d83jl4Lvr6GKYzXpvQUmu+8us6T5frIryNHoLuypLK61jUnnCWZWyyrnifLda",
+    "swagger-ui-bundle.js": "sha384-yrdF3mlUytUBwQyEVFAdwuUKEC9Qqrf+IUCgFgho4O5O6irf77pMjv36FN4eTpQD",
+    "swagger-ui-standalone-preset.js": "sha384-azzkurII4f+bjmZvm3hWhj7JezshyXtwobwneRyWCCIksK61Xi0Ry3xA2am9/TWp",
+}
+_SWAGGER_UI_CSP = "; ".join(
+    [
+        "default-src 'none'",
+        f"script-src 'self' {_SWAGGER_UI_BASE}",
+        # Swagger UI sets inline style attributes at runtime.
+        f"style-src 'unsafe-inline' {_SWAGGER_UI_BASE}",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+    ]
+)
+
+
+def _swagger_asset(name: str) -> str:
+    return (
+        f'src="{_SWAGGER_UI_BASE}{name}" integrity="{_SWAGGER_UI_SRI[name]}" '
+        'crossorigin="anonymous"'
+    )
+
+
 @docs_api.route("/")
 def swagger_ui():
     """Serve Swagger UI."""
-    return """
-<!DOCTYPE html>
+    css = _SWAGGER_UI_BASE + "swagger-ui.css"
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
     <title>gptme API Documentation</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css" />
+    <link rel="stylesheet" type="text/css" href="{css}" integrity="{_SWAGGER_UI_SRI["swagger-ui.css"]}" crossorigin="anonymous" />
 </head>
 <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-standalone-preset.js"></script>
-    <script>
-        window.onload = function() {
-            SwaggerUIBundle({
-                url: '/api/docs/openapi.json',
-                dom_id: '#swagger-ui',
-                deepLinking: true,
-                presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-                layout: "StandaloneLayout"
-            });
-        };
-    </script>
+    <script {_swagger_asset("swagger-ui-bundle.js")}></script>
+    <script {_swagger_asset("swagger-ui-standalone-preset.js")}></script>
+    <script src="/api/docs/swagger-init.js"></script>
 </body>
 </html>
-    """
+"""
+    response = Response(html, mimetype="text/html")
+    response.headers["Content-Security-Policy"] = _SWAGGER_UI_CSP
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
+@docs_api.route("/swagger-init.js")
+def swagger_init():
+    """Bootstrap script for the Swagger UI page (kept out of line for the CSP)."""
+    js = """window.onload = function () {
+    SwaggerUIBundle({
+        url: '/api/docs/openapi.json',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        validatorUrl: null,
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        layout: 'StandaloneLayout'
+    });
+};
+"""
+    return Response(js, mimetype="text/javascript")
