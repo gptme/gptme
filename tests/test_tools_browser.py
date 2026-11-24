@@ -1309,6 +1309,51 @@ class TestPlaywrightMarkdownResponse:
             assert bp.read_url("https://example.com") == "before  after"
 
 
+# ── _load_page network-idle wait (gptme/gptme#5126) ───────────────────
+
+
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
+class TestLoadPageNetworkIdle:
+    """The network-idle wait after goto() is best effort: a timeout is
+    ignored, other failures are logged, and the page is read either way."""
+
+    def _load(self, wait_error: Exception):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.goto.return_value.headers = {"content-type": "text/markdown"}
+        page.text_content.return_value = "# loaded"
+        page.wait_for_load_state.side_effect = wait_error
+        managed = MagicMock(page=page)
+
+        with (
+            patch.object(bp, "_create_page", return_value=managed),
+            patch.object(bp, "get_context_options", return_value={}),
+        ):
+            result = bp._load_page(MagicMock(), "https://example.com")
+
+        page.wait_for_load_state.assert_called_once_with(
+            "networkidle", timeout=bp.NETWORK_IDLE_TIMEOUT_MS
+        )
+        managed.close.assert_called_once_with()
+        return result, bp._last_logs["errors"]
+
+    def test_network_idle_timeout_is_ignored(self):
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        result, errors = self._load(PlaywrightTimeoutError("never idle"))
+
+        assert result == ("# loaded", True)
+        assert errors == []
+
+    def test_other_network_idle_failure_is_logged(self):
+        result, errors = self._load(RuntimeError("target closed"))
+
+        assert result == ("# loaded", True)
+        assert errors == ["Navigation error: target closed"]
+
+
 # ── _create_page (CDP tab reuse vs launched contexts) ─────────────────
 
 
@@ -1412,7 +1457,9 @@ class TestOpenPageSessionReuse:
             result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         create_page.assert_not_called()
         ctx.close.assert_not_called()
         ctx.new_page.assert_not_called()
@@ -1439,7 +1486,9 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         create_page.assert_called_once()
-        page.goto.assert_called_once_with("https://example.com")
+        page.goto.assert_called_once_with(
+            "https://example.com", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         assert bp._current_page is page
         assert bp._current_context is ctx
 
@@ -1470,7 +1519,9 @@ class TestOpenPageSessionReuse:
         ctx.close.assert_not_called()
         ctx.new_page.assert_called_once_with()
         new_page.set_extra_http_headers.assert_called_once_with(bp._OPEN_PAGE_HEADERS)
-        new_page.goto.assert_called_once_with("https://example.com/account")
+        new_page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         dead_page.close.assert_called()
         assert bp._current_page is new_page
         assert bp._current_context is ctx
@@ -1497,7 +1548,9 @@ class TestOpenPageSessionReuse:
             result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         create_page.assert_not_called()
         close.assert_not_called()
         session_ctx.close.assert_not_called()
@@ -1569,7 +1622,9 @@ class TestOpenPageSessionReuse:
             current_conversation_id.reset(token)
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         create_page.assert_not_called()
         close.assert_not_called()
         assert bp._session_owner == "conv-a"
@@ -1645,7 +1700,9 @@ class TestOpenPageSessionReuse:
         create_page.assert_called_once()
         old_page.close.assert_called()
         old_ctx.close.assert_called()
-        new_page.goto.assert_called_once_with("https://example.com/account")
+        new_page.goto.assert_called_once_with(
+            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
         assert bp._current_page is new_page
         assert bp._current_context is new_ctx
         assert bp._session_owner == "conv-b"
