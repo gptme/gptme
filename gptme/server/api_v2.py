@@ -668,20 +668,29 @@ def _restore_conversation_mcp_secrets(
     """Swap redacted ``***`` MCP secrets in a config PATCH body for stored values.
 
     Clients echo the redacted config back on save; writing the sentinel would
-    replace the real secret. Matches servers by name, and only when the
-    destination (``command``/``args``/``url``) is unchanged, so a kept secret
-    never follows a server to a new endpoint. ``load_stored`` is called at most
-    once, and only when a redacted value needs restoring. Raises ValueError when
-    a redacted secret has no unambiguous stored value to keep.
+    replace the real secret. A body server matches the saved server with the
+    same name; when several saved servers share a name, the n-th body entry with
+    that name matches the n-th saved one, but only if the body has exactly as
+    many entries with that name (otherwise the match is ambiguous). A secret is
+    only kept when the destination (``command``/``args``/``url``) is unchanged,
+    so it never follows a server to a new endpoint. ``load_stored`` is called
+    at most once, and only when a redacted value needs restoring. Raises
+    ValueError when a redacted secret has no unambiguous stored value to keep.
     """
     mcp = body.get("mcp")
     if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
         return
-    stored_servers: list | None = None
-    for srv in mcp["servers"]:
-        if not isinstance(srv, dict):
-            continue
+    body_servers = [srv for srv in mcp["servers"] if isinstance(srv, dict)]
+    body_name_counts: dict[str, int] = {}
+    for srv in body_servers:
         name = str(srv.get("name", ""))
+        body_name_counts[name] = body_name_counts.get(name, 0) + 1
+    stored_servers: list | None = None
+    seen: dict[str, int] = {}
+    for srv in body_servers:
+        name = str(srv.get("name", ""))
+        occurrence = seen.get(name, 0)
+        seen[name] = occurrence + 1
         for field_name in ("env", "headers"):
             values = srv.get(field_name)
             if not isinstance(values, dict):
@@ -693,21 +702,27 @@ def _restore_conversation_mcp_secrets(
                     stored = load_stored()
                     stored_servers = list(stored.servers) if stored else []
                 matches = [s for s in stored_servers if s.name == name]
-                if len(matches) > 1:
+                if len(matches) > 1 and len(matches) != body_name_counts[name]:
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but several saved "
-                        "MCP servers share this name; send the real value"
+                        "MCP servers share this name and the request changes how "
+                        "many there are; send the real value"
                     )
-                original = getattr(matches[0], field_name, None) if matches else None
-                if not original or key not in original:
+                saved = matches[occurrence] if occurrence < len(matches) else None
+                original = getattr(saved, field_name, None) if saved else None
+                if saved is None or not original or key not in original:
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but has no "
                         "saved value to keep; send the real value"
                     )
-                saved = matches[0]
+                args = srv.get("args", [])
+                if not isinstance(args, list) or not all(
+                    isinstance(a, str) for a in args
+                ):
+                    raise ValueError(f"{name}: args must be a list of strings")
                 if (
                     srv.get("command", "") != saved.command
-                    or list(srv.get("args") or []) != list(saved.args)
+                    or args != list(saved.args)
                     or srv.get("url", "") != saved.url
                 ):
                     raise ValueError(

@@ -6400,18 +6400,10 @@ def test_v2_conversation_config_patch_keeps_secret_only_for_same_destination(
     assert getattr(stored_server, field) != value
 
 
-def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
-    client: FlaskClient,
-):
-    """Duplicate saved server names make a ``***`` restore ambiguous: reject it.
-
-    Runtime lookups use the first server with a name; restoring from any other
-    entry would swap that server's credential.
-    """
+def _save_duplicate_name_mcp_servers(conversation_id: str) -> Path:
     from gptme.config.models import MCPServerConfig
     from gptme.dirs import get_logs_dir
 
-    conversation_id = create_conversation(client)["conversation_id"]
     logdir = get_logs_dir() / conversation_id
     config = ChatConfig.from_logdir(logdir)
     config.mcp = MCPConfig(
@@ -6422,8 +6414,43 @@ def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
         ],
     )
     config.save()
+    return logdir
+
+
+def test_v2_conversation_config_patch_duplicate_server_names_keep_own_secrets(
+    client: FlaskClient,
+):
+    """Echoing a config with duplicate server names (a webui rename) keeps each
+    entry's own secret instead of swapping or rejecting.
+
+    Runtime lookups use the first server with a name, so restoring any other
+    entry's value onto it would swap the active credential.
+    """
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
 
     data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["chat"]["name"] = "renamed"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.name == "renamed"
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
+
+
+def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
+    client: FlaskClient,
+):
+    """Dropping one of several same-name servers makes a ``***`` restore
+    ambiguous: reject it rather than guess which saved secret to keep."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["mcp"]["servers"] = data["mcp"]["servers"][1:]
     response = client.patch(
         f"/api/v2/conversations/{conversation_id}/config", json=data
     )
@@ -6432,6 +6459,22 @@ def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
     stored = ChatConfig.from_logdir(logdir)
     assert stored.mcp is not None
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
+
+
+@pytest.mark.parametrize("args", [1, "mcp-search", [1]])
+def test_v2_conversation_config_patch_rejects_invalid_args_with_kept_secret(
+    client: FlaskClient, mcp_conv_config_file, args
+):
+    """Non-list ``args`` next to a kept secret is a 400, not a 500."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    next(s for s in data["mcp"]["servers"] if s["name"] == "search")["args"] = args
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400
+    assert "args must be a list of strings" in response.get_json()["error"]
 
 
 def test_v2_conversation_config_patch_rejected_restore_creates_no_workspace(
@@ -6480,8 +6523,17 @@ def test_v2_conversation_step_config_changed_event_redacts_mcp_secrets(
 
     with (
         unittest.mock.patch.object(SessionManager, "add_event", side_effect=capture),
+        # Report progress like a started worker so the route returns at once
+        # instead of waiting out its startup timeout.
         unittest.mock.patch(
-            "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+            "gptme.server.api_v2_sessions._start_step_thread",
+            side_effect=lambda **kwargs: (
+                real_add_event(
+                    kwargs["conversation_id"],
+                    {"type": "generation_progress", "token": "test"},
+                )
+                or True
+            ),
         ),
     ):
         response = client.post(
