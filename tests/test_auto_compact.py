@@ -2285,8 +2285,10 @@ def test_manual_trim_writes_compaction_event(tmp_path, monkeypatch):
     assert events[0]["messages"] == {"before": 3, "after": 2}
 
 
-def test_manual_trim_keeps_master_log_and_recovery_refs(tmp_path):
+def test_manual_trim_keeps_master_log_and_recovery_refs(tmp_path, monkeypatch):
     """Manual trim must not rewrite the master log its recovery refs point into."""
+    # The test relies on the default head retention; pin it against the host env.
+    monkeypatch.setenv("GPTME_AUTOCOMPACT_KEEP_HEAD", "2")
     import json
     import re
     from pathlib import Path
