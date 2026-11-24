@@ -502,7 +502,7 @@ def prompt_workspace(
             # Glob matches are relative to the workspace as given, which may
             # be a symlink or relative path, so try both spellings.
             rels: list[str] = []
-            for base in (workspace, workspace_resolved):
+            for base in (workspace, workspace.absolute(), workspace_resolved):
                 try:
                     rels.append(str(f.relative_to(base)))
                 except ValueError:
