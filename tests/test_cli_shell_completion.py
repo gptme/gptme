@@ -10,6 +10,11 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from gptme.cli.argparse_completion import (
+    ARGPARSE_PARSERS,
+    generate_argparse_completion,
+    load_parser,
+)
 from gptme.cli.setup import _generate_click_completion, _setup_completions
 from gptme.tui.main import main as tui
 
@@ -61,16 +66,14 @@ def test_setup_installs_entry_points_and_updates_legacy(tmp_path, monkeypatch, s
     _setup_completions()
     entry_points = importlib.metadata.distribution("gptme").entry_points
     for ep in entry_points:
-        if ep.group != "console_scripts" or ep.name in {
-            "gptme-acp",
-            "gptme-eval-trends",
-            "gptme-convert",
-            "gptme-wut",
-        }:
+        if ep.group != "console_scripts" or ep.name == "gptme-acp":
             continue
         content = (directory / filename(ep.name)).read_text()
         assert ep.name in content
-        assert f"_{ep.name.upper().replace('-', '_')}_COMPLETE" in content
+        if ep.name in ARGPARSE_PARSERS:
+            assert f"Static: completing never runs {ep.name}." in content
+        else:
+            assert f"_{ep.name.upper().replace('-', '_')}_COMPLETE" in content
     assert legacy.read_text() == "legacy gptme-only completion\n"
     before = {p.name: p.stat().st_mtime_ns for p in directory.iterdir()}
     _setup_completions()
@@ -189,13 +192,109 @@ def test_declining_install_leaves_files_untouched(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_non_click_transports_have_no_generated_completion(tmp_path, monkeypatch):
+def test_non_click_transports_have_no_protocol_completion(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("SHELL", "/bin/fish")
     monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
     _setup_completions()
-    for name in ["gptme-acp", "gptme-convert", "gptme-eval-trends", "gptme-wut"]:
-        assert not (tmp_path / ".config/fish/completions" / f"{name}.fish").exists()
+    directory = tmp_path / ".config/fish/completions"
+    # ACP is a stdio protocol transport: no completion at all.
+    assert not (directory / "gptme-acp.fish").exists()
+    # Argparse CLIs get static scripts that never call back into the program.
+    for name in ARGPARSE_PARSERS:
+        content = (directory / f"{name}.fish").read_text()
+        assert "_COMPLETE" not in content
+        assert f"complete -c {name} -e" in content
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
+@pytest.mark.parametrize(
+    ("prog", "args", "partial", "expected", "unexpected"),
+    [
+        ("gptme-convert", [], "", {"convert", "check-tools", "list-formats"}, set()),
+        ("gptme-convert", ["convert"], "--q", {"--quality"}, {"convert"}),
+        (
+            "gptme-convert",
+            ["convert", "--quality"],
+            "",
+            {"low", "medium", "high"},
+            set(),
+        ),
+        ("gptme-convert", ["convert", "--input"], "in", {"input.txt"}, {"low"}),
+        ("gptme-eval-trends", [], "--re", {"--results-dir", "--regressions"}, set()),
+        ("gptme-eval-trends", ["--format"], "", {"table", "json"}, set()),
+        ("gptme-eval-trends", ["--model"], "", set(), {"input.txt"}),
+        ("gptme-wut", [], "--l", {"--lines"}, set()),
+        ("gptme-wut", ["--lines"], "", set(), {"input.txt"}),
+    ],
+)
+def test_argparse_completion_runs_in_shell_without_running_cli(
+    tmp_path, shell, prog, args, partial, expected, unexpected
+):
+    if not shutil.which(shell):
+        pytest.skip(f"{shell} is not installed")
+    parser = load_parser(prog)
+    assert parser is not None
+    # Completion must never invoke the program: tmux capture, file conversion
+    # and eval-result reads are real operations, not completion queries.
+    marker = tmp_path / "ran"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / prog).write_text(f"#!/bin/sh\ntouch {marker}\n")
+    (bin_dir / prog).chmod(0o755)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    (cwd / "input.txt").write_text("")
+    script = generate_argparse_completion(shell, prog, parser)
+    assert script is not None
+    source = tmp_path / "completion"
+    source.write_text(script)
+    func = "_" + prog.replace("-", "_") + "_completion"
+    words = [prog, *args, partial]
+    if shell == "zsh":
+        quoted = " ".join(f"'{w}'" for w in words)
+        code = (
+            f"compdef() {{ :; }}; source {source}; "
+            'compadd() { [[ $1 == -- ]] && shift; print -l -- "$@"; }; '
+            "_files() { print -l -- ${words[CURRENT]}*(N); }; "
+            f"words=({quoted}); CURRENT={len(words)}; {func}"
+        )
+    elif shell == "fish":
+        code = f"source {source}; complete -C '{' '.join(words)}'"
+    else:
+        quoted = " ".join(f"'{w}'" for w in words)
+        code = (
+            f"source {source}; COMP_WORDS=({quoted}); COMP_CWORD={len(words) - 1}; "
+            f'{func}; printf "%s\\n" "${{COMPREPLY[@]}}"'
+        )
+    result = subprocess.run(
+        [shell, "-c", code],
+        check=False,
+        text=True,
+        capture_output=True,
+        cwd=cwd,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    # Fish prints "candidate<TAB>description".
+    candidates = {line.split("\t")[0] for line in result.stdout.splitlines()}
+    assert expected <= candidates, result.stdout
+    assert not unexpected & candidates, result.stdout
+    assert not marker.exists()
+
+
+def test_argparse_parsers_match_cli_behavior():
+    # Factoring out build_parser must not change what the CLIs accept.
+    from gptme.cli.wut import build_parser as wut
+    from gptme.eval.trends import build_parser as trends
+    from gptme.tools.convert import build_parser as convert
+
+    assert wut().parse_args(["-l", "5", "--", "-m", "x"]).lines == 5
+    args = trends().parse_args(["--format", "json", "--regressions"])
+    assert (args.format, args.regressions) == ("json", True)
+    args = convert().parse_args(["convert", "-i", "a", "-o", "b.pdf"])
+    assert (args.cmd, args.quality, args.dry_run) == ("convert", "medium", False)
 
 
 def test_completion_installer_cli(tmp_path, monkeypatch):

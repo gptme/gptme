@@ -34,18 +34,22 @@ def get_tmux_content(lines: int | None = None):
     return result.stdout
 
 
-def main():
-    if os.name == "nt":
-        print("gptme-wut requires tmux, which is not available on Windows.")
-        sys.exit(1)
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="gptme-wut", description=__doc__)
     parser.add_argument(
         "-l", "--lines", type=int, help="Number of lines to capture from the end"
     )
     parser.add_argument(
         "gptme_args", nargs="*", help="Additional arguments to pass to gptme"
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    if os.name == "nt":
+        print("gptme-wut requires tmux, which is not available on Windows.")
+        sys.exit(1)
+    args = build_parser().parse_args()
 
     content = get_tmux_content(args.lines)
 

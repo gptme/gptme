@@ -123,14 +123,24 @@ def _install_click_completions(shell: str) -> None:
         "zsh": data_home / "zsh/completions",
     }
     directory = directories[shell]
-    # ACP is a stdio transport with no CLI options. The others use argparse,
-    # not Click. Do not install scripts that would run them during completion.
-    non_click = {"gptme-acp", "gptme-eval-trends", "gptme-convert", "gptme-wut"}
-    scripts = {
-        ep.name: _generate_click_completion(shell, ep.name)
-        for ep in importlib.metadata.distribution("gptme").entry_points
-        if ep.group == "console_scripts" and ep.name not in non_click
-    }
+    # ACP is a stdio transport with no CLI options. Argparse CLIs get static
+    # scripts generated from their parsers: a Click script would run them on Tab.
+    from .argparse_completion import (
+        ARGPARSE_PARSERS,
+        generate_argparse_completion,
+        load_parser,
+    )
+
+    scripts: dict[str, str | None] = {}
+    for ep in importlib.metadata.distribution("gptme").entry_points:
+        if ep.group != "console_scripts" or ep.name == "gptme-acp":
+            continue
+        if ep.name in ARGPARSE_PARSERS:
+            parser = load_parser(ep.name)
+            if parser is not None:
+                scripts[ep.name] = generate_argparse_completion(shell, ep.name, parser)
+        else:
+            scripts[ep.name] = _generate_click_completion(shell, ep.name)
     updates: dict[Path, str] = {}
     for name, script in scripts.items():
         if script is None:
