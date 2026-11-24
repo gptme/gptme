@@ -513,7 +513,7 @@ def auth_grok_subscription():
 @click.option(
     "--no-browser",
     is_flag=True,
-    help="Print the sign-in URL without opening a browser automatically.",
+    help="Print the sign-in URL without opening a browser (use one on this machine).",
 )
 def auth_openrouter(no_browser: bool):
     """Authenticate with OpenRouter via PKCE OAuth and store a permanent API key.
@@ -533,16 +533,15 @@ def auth_openrouter(no_browser: bool):
         sys.exit(1)
 
     console.print("\n[bold]OpenRouter Authentication[/bold]\n")
-    console.print("This will open your browser to sign in to openrouter.ai.")
+    if not no_browser:
+        console.print("This will open your browser to sign in to openrouter.ai.")
     console.print(
         "After sign-in, a permanent API key will be created and saved to your"
         " gptme config.\n"
     )
 
     def on_url_ready(url: str) -> bool:
-        console.print(
-            "Open this URL in your browser if it does not open automatically:"
-        )
+        console.print("Open this URL in a browser on this machine to sign in:")
         console.print(url, markup=False, highlight=False, soft_wrap=True)
         return not no_browser
 

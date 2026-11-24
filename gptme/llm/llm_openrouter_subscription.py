@@ -149,7 +149,10 @@ def oauth_get_api_key(
                 # browser fallback (which can select lynx or require DISPLAY).
                 import click
 
-                opened = click.launch(auth_url) == 0
+                try:
+                    opened = click.launch(auth_url) == 0
+                except OSError:
+                    opened = False
             else:
                 opened = webbrowser.open(auth_url)
             if not opened:

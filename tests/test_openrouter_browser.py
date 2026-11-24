@@ -68,3 +68,43 @@ def test_oauth_can_skip_macos_browser(monkeypatch: pytest.MonkeyPatch) -> None:
         oauth.oauth_get_api_key(timeout=0, on_url_ready=lambda _url: False)
     native_open.assert_not_called()
     browser_open.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [OSError("open unavailable"), 1])
+def test_macos_launch_failure_keeps_manual_callback_alive(
+    monkeypatch: pytest.MonkeyPatch, failure: OSError | int
+) -> None:
+    monkeypatch.setattr(oauth, "OAUTH_CALLBACK_PORT", 0)
+    # Use the port actually bound by HTTPServer, since port 0 picks a free one.
+    server_type = oauth.http.server.HTTPServer
+    servers = []
+
+    def make_server(*args, **kwargs):
+        server = server_type(*args, **kwargs)
+        servers.append(server)
+        return server
+
+    monkeypatch.setattr(oauth.http.server, "HTTPServer", make_server)
+    monkeypatch.setattr("sys.platform", "darwin")
+    native_open = Mock(
+        side_effect=failure if isinstance(failure, OSError) else None,
+        return_value=failure,
+    )
+    monkeypatch.setattr("click.launch", native_open)
+    response = Mock()
+    response.json.return_value = {"key": "sk-or-manual-callback"}
+    monkeypatch.setattr(oauth.requests, "post", Mock(return_value=response))
+
+    def on_url_ready(_url: str) -> None:
+        # A callback is available even if the automatic launch subsequently fails.
+        requests.get(
+            f"http://127.0.0.1:{servers[0].server_port}{oauth.OAUTH_CALLBACK_PATH}",
+            params={"code": "manual-code"},
+            timeout=2,
+        ).raise_for_status()
+
+    assert (
+        oauth.oauth_get_api_key(timeout=2, on_url_ready=on_url_ready)
+        == "sk-or-manual-callback"
+    )
+    native_open.assert_called_once()
