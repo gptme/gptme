@@ -262,14 +262,18 @@ def get_models_url(config: Config) -> str:
        → uses server_url + /v1 as the models base
     2. ``GPTME_CLOUD_MODELS_URL`` environment variable
     3. ``GPTME_CLOUD_BASE_URL`` env var when pointing at a non-Supabase server
-       → env-var-only users with custom OpenAI-compatible APIs
+       → env-var-only users with custom OpenAI-compatible APIs. Skipped when
+       the token has its own ``base_url``: chat ignores the env URL then, and
+       model listing must not send that token to a different host.
     4. Default: Supabase functions/v1 base
     """
     token_data = _load_token()
+    token_has_base_url = False
     if token_data:
         # Custom-server token (server_url without explicit base_url)
         base_url_field = token_data.get("base_url")
         server_url_field = token_data.get("server_url")
+        token_has_base_url = isinstance(base_url_field, str) and bool(base_url_field)
         if (
             not (isinstance(base_url_field, str) and base_url_field)
             and isinstance(server_url_field, str)
@@ -289,8 +293,11 @@ def get_models_url(config: Config) -> str:
     # For env-var-only users with a custom server (GPTME_CLOUD_BASE_URL not pointing
     # at Supabase), use the same base URL for model listing — standard OpenAI-compatible
     # APIs serve both /chat/completions and /models from the same base.
+    # Not when the token carries its own base_url: chat then ignores
+    # GPTME_CLOUD_BASE_URL (see get_base_url), and model listing sends the same
+    # bearer, so following the env host here would leak the token to it.
     base_url = config.get_env("GPTME_CLOUD_BASE_URL")
-    if base_url and not is_supabase_service_url(base_url):
+    if base_url and not token_has_base_url and not is_supabase_service_url(base_url):
         return base_url.rstrip("/")
 
     return DEFAULT_MODELS_BASE_URL
