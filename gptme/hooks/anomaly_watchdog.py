@@ -210,7 +210,16 @@ def _extract_paths(tool_use: Any) -> list[Path]:
             paths.append(Path(raw))
 
     if tool_use.args:
-        paths.append(Path(tool_use.args[0]))
+        if tool_use.tool in ("save", "append", "patch"):
+            # Resolve the path exactly as the tool does: a markdown block's
+            # args are its info string (``["save /abs/path"]``), so reading
+            # ``args[0]`` raw yields the relative path ``save /abs/path``,
+            # which always resolves inside the workspace.
+            from ..tools.base import get_path  # fmt: skip
+
+            paths.append(get_path(tool_use.content or "", tool_use.args, None))
+        else:
+            paths.append(Path(tool_use.args[0]))
 
     if tool_use.tool == "patch_many":
         paths.extend(_patch_many_paths(tool_use))

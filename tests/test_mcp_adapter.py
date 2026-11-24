@@ -570,7 +570,16 @@ def test_load_mcp_server_from_config_override_without_prior_entry(
         _set_available_tools_cache(None)
 
 
-@pytest.mark.parametrize("override", [{"args": 42}, {"env": "FOO=1"}])
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"args": 42},
+        {"env": "FOO=1"},
+        # #5152: a list command was str()-coerced to "['uvx', 'x']"
+        {"command": ["uvx", "x"]},
+        {"url": ["http://localhost/mcp"]},
+    ],
+)
 def test_invalid_override_returns_failure_without_config_changes(
     override: dict,
 ) -> None:
@@ -581,6 +590,23 @@ def test_invalid_override_returns_failure_without_config_changes(
     assert "Failed to load server 'my-server'" in result
     assert cfg.user.mcp is None
     assert "my-server" not in _dynamic_servers
+
+
+@pytest.mark.parametrize(
+    "override", [{"command": ["uvx", "x"]}, {"url": 42}, {"transport": ["http"]}]
+)
+def test_invalid_override_on_configured_server_is_rejected(override: dict) -> None:
+    """A wrongly-typed command/url must not be assigned raw onto a known server (#5152)."""
+    cfg = Config()
+    existing = MCPServerConfig(name="known", command="uvx", args=["known-server"])
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[existing])
+    with patch("gptme.tools.mcp_adapter.get_config", return_value=cfg):
+        result = load_mcp_server("known", override)
+    assert "Failed to load server 'known'" in result
+    assert "must be a string" in result
+    assert existing.command == "uvx"
+    assert existing.url == ""
+    assert "known" not in _dynamic_servers
 
 
 def test_load_mcp_server_override_without_command_or_url_still_needs_a_source():

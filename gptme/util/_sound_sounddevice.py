@@ -284,7 +284,9 @@ def play_with_sounddevice(data: Any, sample_rate: int, volume: float = 1.0):
             if time.time() - start_time > timeout:
                 log.warning("Audio playback timed out, stopping")
                 sd.stop()
-                break
+                # Report it: callers such as `gptme-util sound` must not treat
+                # a stalled playback as success (#5152).
+                raise TimeoutError(f"audio playback did not finish in {timeout}s")
             time.sleep(0.1)
 
         log.debug("Finished playing audio chunk")

@@ -95,6 +95,20 @@ def test_html_export_script_data_round_trip(tmp_path, field, payload):
     assert message.to_dict()["content"] == message.content
 
 
+def test_html_export_declares_utf8(tmp_path):
+    """The file is written as UTF-8, so the page must say so: without a declared
+    charset, browsers decode a local file as windows-1252 and literal template
+    text such as the "—" in the omitted-attachment label renders as "â€”"."""
+    output = tmp_path / "export.html"
+    message = Message("user", "see file", files=[tmp_path / "pic.png"])
+    with patch(CDN_PATCH, return_value=CDN_STUB):
+        export_chat_to_html("synthetic", Log([message]), output)
+    raw = output.read_bytes()
+    assert "—".encode() in raw, "fixture must contain non-ASCII template text"
+    # HTML requires the declaration within the first 1024 bytes.
+    assert b'<meta charset="utf-8">' in raw[:1024]
+
+
 def test_replace_or_fail_basic():
     """Successful replacement returns modified string."""
     result = replace_or_fail("<title>old</title>", "old", "new")

@@ -903,3 +903,15 @@ def test_read_large_file_stops_scanning_as_soon_as_output_is_full():
     assert not total_exact
     assert not invalid
     assert reader.tell() <= 12
+
+
+def test_read_nul_byte_path_reports_and_continues(tmp_path: Path):
+    """A NUL byte in one batch path must not fail the whole batch (#5152)."""
+    good = tmp_path / "ok.txt"
+    good.write_text("KNOWN_GOOD\n")
+    bad = f"{tmp_path}/bad\x00name.txt"
+
+    messages = list(execute_read(f"{bad}\n{good}\n", None, None))
+    assert len(messages) == 2
+    assert "Cannot resolve path" in messages[0].content
+    assert "KNOWN_GOOD" in messages[1].content

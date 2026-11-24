@@ -122,8 +122,8 @@ class Patch:
             return new_content
 
         # Fallback: try relaxed matching (treat whitespace-only lines as equivalent)
-        actual_original = self._find_relaxed_match(content)
-        if actual_original is None:
+        match_span = self._find_relaxed_match(content)
+        if match_span is None:
             # if original chunk not found, include file contents in error for fast recovery
             file_contents = (
                 f"Here are the actual file contents:\n```original\n{content}\n```"
@@ -132,8 +132,11 @@ class Patch:
             )
             raise ValueError(f"original chunk not found in file\n{file_contents}")
 
-        # Apply the replacement using the actual matched content
-        new_content = content.replace(actual_original, self.updated, 1)
+        # Splice at the matched lines. str.replace would hit the first
+        # occurrence of the matched text, which can be earlier in the file
+        # (e.g. the tail of a more-indented line) than the relaxed match.
+        start, end = match_span
+        new_content = content[:start] + self.updated + content[end:]
         if new_content == content:
             raise ValueError(
                 "patch did not change the file "
@@ -141,10 +144,11 @@ class Patch:
             )
         return new_content
 
-    def _find_relaxed_match(self, content: str) -> str | None:
+    def _find_relaxed_match(self, content: str) -> tuple[int, int] | None:
         """
         Find a match for self.original in content using relaxed whitespace matching.
-        Returns the actual matched substring from content, or None if no match found.
+        Returns the (start, end) character span of the matched lines in content,
+        or None if no match found.
         Treats lines with only whitespace as equivalent regardless of whitespace content.
         """
         original_lines = self.original.splitlines(keepends=True)
@@ -155,9 +159,7 @@ class Patch:
         for i in range(len(content_lines) - len(original_lines) + 1):
             window = content_lines[i : i + len(original_lines)]
             if self._lines_match_relaxed(window, original_lines):
-                # Found a match - extract the actual substring
-                actual_match = "".join(window)
-                matches.append((i, actual_match))
+                matches.append(i)
 
         if len(matches) == 0:
             return None
@@ -168,7 +170,13 @@ class Patch:
                 "Provide more surrounding context to make the match unique."
             )
 
-        return matches[0][1]
+        # Only calculate character offsets for the unique matching window.
+        i = matches[0]
+        start = sum(len(line) for line in content_lines[:i])
+        end = start + sum(
+            len(line) for line in content_lines[i : i + len(original_lines)]
+        )
+        return start, end
 
     def _lines_match_relaxed(
         self, window_lines: list[str], original_lines: list[str]

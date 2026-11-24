@@ -90,32 +90,36 @@ def copy() -> bool:
         user32.SetClipboardData.restype = wintypes.HANDLE
         user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
 
+        # Allocate and fill the movable buffer (UTF-16 text plus its
+        # terminating null) before touching the clipboard, so an allocation or
+        # lock failure leaves the user's existing clipboard intact (#5152).
+        data = ctypes.create_unicode_buffer(text)
+        size = ctypes.sizeof(data)
+        handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, size)
+        if not handle:
+            print("Failed to allocate clipboard memory.")
+            return False
+        locked = kernel32.GlobalLock(handle)
+        if not locked:
+            kernel32.GlobalFree(handle)
+            print("Failed to lock clipboard memory.")
+            return False
+        try:
+            ctypes.memmove(locked, data, size)
+        finally:
+            kernel32.GlobalUnlock(handle)
+
         # Open with an owner window when the thread has one so that
         # EmptyClipboard() leaves a valid owner; fall back to NULL otherwise.
         owner = user32.GetActiveWindow()
         if not user32.OpenClipboard(owner):
+            kernel32.GlobalFree(handle)
             print("Failed to open Windows clipboard.")
             return False
         try:
             user32.EmptyClipboard()
-            # Allocate a movable buffer sized for the UTF-16 string plus its
-            # terminating null, then copy the text in. SetClipboardData takes
-            # ownership of the handle on success, so it must not be freed here.
-            data = ctypes.create_unicode_buffer(text)
-            size = ctypes.sizeof(data)
-            handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, size)
-            if not handle:
-                print("Failed to allocate clipboard memory.")
-                return False
-            locked = kernel32.GlobalLock(handle)
-            if not locked:
-                kernel32.GlobalFree(handle)
-                print("Failed to lock clipboard memory.")
-                return False
-            try:
-                ctypes.memmove(locked, data, size)
-            finally:
-                kernel32.GlobalUnlock(handle)
+            # SetClipboardData takes ownership of the handle on success, so it
+            # must only be freed on failure.
             if not user32.SetClipboardData(CF_UNICODETEXT, handle):
                 kernel32.GlobalFree(handle)
                 print("Failed to set Windows clipboard data.")

@@ -207,6 +207,23 @@ _HTTP_OAUTH_METADATA_NOTE = (
 )
 
 
+def _describe_oauth_error(error: Exception) -> str:
+    """Name the OAuth stage that failed instead of blaming a cached token."""
+    if isinstance(error, OAuthRegistrationError):
+        return (
+            "MCP OAuth dynamic client registration failed: "
+            f"{error}. The authorization server refused to register gptme as a "
+            "client; no token was requested. Check whether the server allows "
+            "dynamic client registration, or configure [mcp.servers.headers] "
+            "with an Authorization value."
+        )
+    if isinstance(error, OAuthTokenError):
+        return f"MCP OAuth token request failed: {error}"
+    if isinstance(error, OAuthFlowError):
+        return f"MCP OAuth failed: {error}"
+    return str(error)
+
+
 def _diagnose_http_auth_failure(
     url: str, headers: dict[str, str] | None = None, oauth_attempted: bool = False
 ) -> str | None:
@@ -575,7 +592,7 @@ class MCPClient:
                 else None
             )
             if oauth_error is not None:
-                raise RuntimeError(str(oauth_error)) from None
+                raise RuntimeError(_describe_oauth_error(oauth_error)) from None
             tls_message = await asyncio.to_thread(_diagnose_https_tls_failure, url)
             if tls_message:
                 raise RuntimeError(tls_message) from None
