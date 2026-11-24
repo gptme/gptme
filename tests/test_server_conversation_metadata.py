@@ -91,6 +91,58 @@ class TestMetadata:
         resp = client.patch(f"/api/v2/conversations/{cid}/metadata", json=body)
         assert resp.status_code == 400
 
+    def test_null_unstars(self, client: FlaskClient):
+        cid = _create_conv(client)
+        url = f"/api/v2/conversations/{cid}/metadata"
+        client.patch(url, json={"starred": True})
+        resp = client.patch(url, json={"starred": None})
+        assert resp.status_code == 200
+        assert resp.get_json()["starred"] is False
+
+    def test_folder_without_conversation_is_404(self, client: FlaskClient):
+        from gptme.dirs import get_logs_dir
+
+        cid = f"empty-{uuid4().hex[:8]}"
+        (get_logs_dir() / cid).mkdir(parents=True)
+        assert client.get(f"/api/v2/conversations/{cid}/metadata").status_code == 404
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/metadata", json={"starred": True}
+        )
+        assert resp.status_code == 404
+        assert not (get_logs_dir() / cid / "metadata.toml").exists()
+
+    def test_list_etag_tells_null_from_none_text(self, client: FlaskClient):
+        cid = _create_conv(client)
+        url = f"/api/v2/conversations/{cid}/metadata"
+        client.patch(url, json={"description": "None"})
+        etag = client.get("/api/v2/conversations?limit=1000").headers["ETag"]
+        client.patch(url, json={"description": None})
+        resp = client.get(
+            "/api/v2/conversations?limit=1000", headers={"If-None-Match": etag}
+        )
+        assert resp.status_code == 200
+        assert _list_item(client, cid)["description"] is None
+
+    def test_scan_racing_an_edit_is_not_cached(self, client: FlaskClient, monkeypatch):
+        """A list scan that overlaps an invalidation must not refill the cache."""
+        import gptme.server.api_v2 as api_v2
+
+        _create_conv(client)
+        api_v2._invalidate_conversations_cache()
+        real_scan = api_v2.get_user_conversations
+
+        def scan_with_concurrent_edit(*args, **kwargs):
+            api_v2._invalidate_conversations_cache()  # e.g. a star landing
+            yield from real_scan(*args, **kwargs)
+
+        monkeypatch.setattr(api_v2, "get_user_conversations", scan_with_concurrent_edit)
+        assert client.get("/api/v2/conversations?limit=1000").status_code == 200
+        assert api_v2._conversations_cache is None
+
+        monkeypatch.setattr(api_v2, "get_user_conversations", real_scan)
+        client.get("/api/v2/conversations?limit=1000")
+        assert api_v2._conversations_cache is not None
+
     def test_unknown_conversation_is_404(self, client: FlaskClient):
         cid = f"missing-{uuid4().hex[:8]}"
         assert client.get(f"/api/v2/conversations/{cid}/metadata").status_code == 404
@@ -121,6 +173,16 @@ class TestConfigPatchModelValidation:
         )
         assert resp.status_code == 400
         assert "zzz-not-a-model" in resp.get_json()["error"]
+
+    def test_model_is_saved_trimmed(self, client: FlaskClient):
+        cid = _create_conv(client)
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": " openai/gpt-4o "}},
+        )
+        assert resp.status_code == 200, resp.get_json()
+        config = client.get(f"/api/v2/conversations/{cid}/config").get_json()
+        assert config["chat"]["model"] == "openai/gpt-4o"
 
     @pytest.mark.parametrize(
         "model", ["openai/gpt-4o", "openai/some-future-model", "gpt-4o"]

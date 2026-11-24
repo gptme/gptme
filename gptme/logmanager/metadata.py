@@ -61,8 +61,8 @@ def validate_metadata_patch(patch: dict[str, Any]) -> str | None:
     allowed = {"starred", "description", "tags", "pinned_order"}
     if unknown := sorted(set(patch) - allowed):
         return f"Unknown metadata field(s): {', '.join(unknown)}"
-    if "starred" in patch and not isinstance(patch["starred"], bool):
-        return "starred must be a boolean"
+    if "starred" in patch and not isinstance(patch["starred"], bool | type(None)):
+        return "starred must be a boolean or null"
     if "description" in patch and not isinstance(
         patch["description"], str | type(None)
     ):

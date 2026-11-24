@@ -805,9 +805,12 @@ def _etag_conversations(conversations: "list[ConversationMeta]") -> str:
     h = hashlib.md5()
     for c in conversations:
         # Metadata edits (star, tags, ...) do not touch the log's mtime.
+        # JSON keeps a null description distinct from the text "None".
         h.update(
-            f"{c.id}:{c.modified}:{c.starred}:{c.pinned_order}:"
-            f"{c.description}:{c.tags}\n".encode()
+            json.dumps(
+                [c.id, c.modified, c.starred, c.pinned_order, c.description, c.tags]
+            ).encode()
+            + b"\n"
         )
     return h.hexdigest()[:16]
 
@@ -3080,11 +3083,8 @@ def api_conversation_metadata_get(conversation_id: str):
     if error := _validate_conversation_id(conversation_id):
         return error
     logdir = get_logs_dir() / conversation_id
-    if not logdir.is_dir():
-        return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
-            404,
-        )
+    if not (logdir / "conversation.jsonl").is_file():
+        return _conversation_not_found(conversation_id)
     return flask.jsonify(read_metadata(logdir).to_dict())
 
 
@@ -3116,15 +3116,20 @@ def api_conversation_metadata_patch(conversation_id: str):
     if error_msg := validate_metadata_patch(req_json):
         return flask.jsonify({"error": error_msg}), 400
     logdir = get_logs_dir() / conversation_id
-    if not logdir.is_dir():
-        return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
-            404,
-        )
+    # Check under the lock: a DELETE that wins the lock removes the folder.
     with SessionManager.conversation_lock(conversation_id):
+        if not (logdir / "conversation.jsonl").is_file():
+            return _conversation_not_found(conversation_id)
         meta = update_metadata(logdir, req_json)
     _invalidate_conversations_cache()
     return flask.jsonify(meta.to_dict())
+
+
+def _conversation_not_found(conversation_id: str):
+    return (
+        flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+        404,
+    )
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
@@ -3203,6 +3208,8 @@ def api_conversation_config_patch(conversation_id: str):
         if isinstance(chat_patch.get("model"), str):
             # Saving an unroutable model makes every later step fail; reject it
             # here like /step does (gptme/gptme#5187).
+            # Save the same trimmed value that passed the check.
+            chat_patch["model"] = chat_patch["model"].strip()
             try:
                 _validate_conversation_model(chat_patch["model"])
             except ValueError as exc:
@@ -4485,6 +4492,21 @@ def _invalidate_conversations_cache() -> None:
         _conversations_cache_complete = False
         _conversations_cache_logs_dir = None
         _conversations_cache_time = 0.0
+
+
+def _store_conversations_cache(
+    conversations: list[ConversationMeta], logs_dir: Path, scan_gen: int
+) -> None:
+    """Cache a full list scan unless an invalidation ran during the scan."""
+    global \
+        _conversations_cache, \
+        _conversations_cache_logs_dir, \
+        _conversations_cache_time
+    if scan_gen != _conversations_cache_gen:
+        return
+    _conversations_cache = conversations
+    _conversations_cache_logs_dir = logs_dir
+    _conversations_cache_time = time.monotonic()
 
 
 def _update_conversation_in_cache(conv_id: str) -> None:

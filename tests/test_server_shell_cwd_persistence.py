@@ -7,6 +7,8 @@ shell output reported it (gptme/gptme#5187).
 """
 
 import contextvars
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -80,3 +82,70 @@ def test_closed_shell_is_not_reused(tmp_path: Path, conv: str) -> None:
     close_conversation_shell(conv)
     second = _tool_call(conv, tmp_path, get_shell)
     assert second is not first
+
+
+def _run_call(conv_id: str, workspace: Path, cmd: str, out: dict, key: str) -> None:
+    from gptme.tools.shell import execute_shell_impl
+
+    def call():
+        msgs = list(execute_shell_impl(cmd, logdir=None, timeout=30))
+        out[key] = ("\n".join(m.content for m in msgs), time.monotonic())
+
+    _tool_call(conv_id, workspace, call)
+
+
+@pytest.mark.timeout(30)
+def test_parallel_calls_do_not_share_the_shell(tmp_path: Path, conv: str) -> None:
+    """Two approved calls of one reply can run in parallel server threads.
+
+    The reused shell is one Bash process, so the second call must wait for the
+    first instead of interleaving with it.
+    """
+    _tool_call(conv, tmp_path, get_shell)  # register the conversation shell
+    out: dict[str, tuple[str, float]] = {}
+    first = threading.Thread(
+        target=_run_call,
+        args=(conv, tmp_path, "sleep 1; echo first-done", out, "first"),
+    )
+    first.start()
+    time.sleep(0.3)
+    second_started = time.monotonic()
+    _run_call(conv, tmp_path, "echo second-done", out, "second")
+    first.join(10)
+
+    assert "first-done" in out["first"][0]
+    assert "second-done" not in out["first"][0]
+    assert "second-done" in out["second"][0]
+    assert "first-done" not in out["second"][0]
+    # The second call waited for the first one to finish.
+    assert out["second"][1] >= out["first"][1]
+    assert out["second"][1] - second_started >= 0.5
+
+
+@pytest.mark.timeout(30)
+def test_promoted_call_hands_the_shell_off(
+    tmp_path: Path, conv: str, monkeypatch
+) -> None:
+    """A waiting call gets a new shell once the first is promoted to a job."""
+    from gptme.tools.shell_background import reset_background_jobs
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.5")
+    reset_background_jobs()
+    try:
+        _tool_call(conv, tmp_path, get_shell)
+        out: dict[str, tuple[str, float]] = {}
+        first = threading.Thread(
+            target=_run_call, args=(conv, tmp_path, "sleep 5", out, "first")
+        )
+        first.start()
+        time.sleep(0.2)
+        started = time.monotonic()
+        _run_call(conv, tmp_path, "echo second-done", out, "second")
+        first.join(10)
+
+        assert "Promoted to background shell job" in out["first"][0]
+        assert "second-done" in out["second"][0]
+        # Not blocked behind the 5s background job.
+        assert out["second"][1] - started < 3
+    finally:
+        reset_background_jobs()

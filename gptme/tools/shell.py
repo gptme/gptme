@@ -77,7 +77,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -669,6 +669,9 @@ class ShellSession:
         self._restart_notice = None
         self._restarting = False
         self._closed = False
+        # Held by one tool call at a time; see _claim_shell().
+        self._call_lock = threading.Lock()
+        self._detached = False
         # Serialize process replacement with external close, not command execution.
         self._lifecycle_lock = threading.RLock()
         self._active_output = None
@@ -1276,6 +1279,7 @@ class ShellSession:
         # The in-flight worker still calls _set_cwd when the command finishes.
         # Freeze process-wide chdir so a later `cd` cannot jump the CLI cwd
         # after a replacement shell has already taken over.
+        self._detached = True
         self._skip_os_chdir = True
         atexit.unregister(self.close)
 
@@ -3190,11 +3194,51 @@ def _format_shell_output(
     return msg
 
 
+def _claim_shell() -> ShellSession:
+    """Return this context's shell, held for one tool call.
+
+    A server conversation reuses one shell across tool calls (gptme/gptme#5187),
+    and two approved calls can run in parallel threads. Bash cannot interleave
+    two commands, so a second call waits until the first finishes or hands the
+    shell off to a background job. A shell that was promoted or closed while we
+    waited is no longer this context's shell, so resolve again.
+    """
+    while True:
+        shell = get_shell()
+        shell._call_lock.acquire()
+        if not shell._closed and not shell._detached:
+            return shell
+        shell._call_lock.release()
+        if _shell_var.get() is shell:
+            _shell_var.set(None)
+
+
 def execute_shell_impl(
     cmd: str, logdir: Path | None, timeout: float | None = None
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
-    shell = get_shell()
+    shell = _claim_shell()
+    held = True
+
+    def release_shell() -> None:
+        nonlocal held
+        if held:
+            held = False
+            shell._call_lock.release()
+
+    try:
+        yield from _execute_shell_call(shell, cmd, logdir, timeout, release_shell)
+    finally:
+        release_shell()
+
+
+def _execute_shell_call(
+    shell: ShellSession,
+    cmd: str,
+    logdir: Path | None,
+    timeout: float | None,
+    release_shell: Callable[[], None],
+) -> Generator[Message, None, None]:
     allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
@@ -3305,6 +3349,8 @@ def execute_shell_impl(
                 # the job keeps the RAM-only callback path.
                 adopted = adopt_foreground_capture(job, shell.capture_segments())
                 _replace_promoted_shell(shell)
+                # The job owns this shell now; a waiting call gets a new one.
+                release_shell()
 
                 def publish() -> None:
                     worker.join()
