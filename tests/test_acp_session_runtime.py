@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import gc
 import threading
 import time
 import uuid
+import warnings
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -50,6 +52,11 @@ def _close_session_runtime(
         raise AssertionError(f"Step worker for session {session_id} did not exit")
 
 
+def _assert_runtime_loop_stopped(runtime: Any) -> None:
+    assert runtime._loop is None
+    assert runtime._loop_thread is None
+
+
 class _DummyBlock:
     def __init__(self, text: str):
         self.text = text
@@ -61,6 +68,7 @@ class _DummyClient:
         self.kwargs = kwargs
         self.started = False
         self.closed = False
+        self.close_calls = 0
         self.prompt_calls: list[tuple[str, str]] = []
         self.prompt_max_tokens: list[int | None] = []
         self.set_model_calls: list[tuple[str, str]] = []
@@ -72,6 +80,7 @@ class _DummyClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         self.closed = True
+        self.close_calls += 1
 
     async def new_session(self, cwd: str | Path | None = None, **kwargs: Any) -> str:
         return "sess-test"
@@ -206,6 +215,129 @@ def test_runtime_reuses_client_across_asyncio_run_cycles(monkeypatch, tmp_path):
         ("sess-test", "turn two"),
     ]
     _run(runtime.close())
+
+
+def test_runtime_close_is_idempotent_for_concurrent_callers(monkeypatch, tmp_path):
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        client = _DummyClient(*args, **kwargs)
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    async def close_concurrently() -> None:
+        await asyncio.gather(runtime.close(), runtime.close())
+
+    _run(close_concurrently())
+    _run(runtime.close())
+
+    assert len(created) == 1
+    assert created[0].close_calls == 1
+    _assert_runtime_loop_stopped(runtime)
+
+
+def test_runtime_close_waits_for_inflight_startup(monkeypatch, tmp_path):
+    import gptme.server.acp_session_runtime as mod
+
+    startup_entered = threading.Event()
+    allow_startup = threading.Event()
+    created: list[_DummyClient] = []
+
+    class _SlowStartingClient(_DummyClient):
+        async def new_session(self, cwd: str | Path | None = None, **kwargs: Any) -> str:
+            startup_entered.set()
+            while not allow_startup.is_set():
+                await asyncio.sleep(0.01)
+            return await super().new_session(cwd=cwd, **kwargs)
+
+    def _factory(*args, **kwargs):
+        client = _SlowStartingClient(*args, **kwargs)
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def close_during_startup() -> None:
+        start_task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(startup_entered.wait, 2)
+        close_task = asyncio.create_task(runtime.close())
+        await asyncio.sleep(0.02)
+        allow_startup.set()
+        await asyncio.gather(start_task, close_task)
+
+    _run(close_during_startup())
+
+    assert len(created) == 1
+    assert created[0].started
+    assert created[0].close_calls == 1
+    _assert_runtime_loop_stopped(runtime)
+
+
+def test_runtime_closes_dead_child_and_stops_loop(tmp_path):
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+
+    class _DeadProcess:
+        pid = 12345
+
+        def poll(self) -> int:
+            return 1
+
+    class _DeadClient:
+        _process = _DeadProcess()
+
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            self.close_calls += 1
+
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    client = _DeadClient()
+    runtime._client = client  # type: ignore[assignment]
+    runtime._session_id = "dead-session"
+    runtime._ensure_loop()
+
+    _run(runtime.close())
+
+    assert client.close_calls == 1
+    _assert_runtime_loop_stopped(runtime)
+
+
+def test_runtime_termination_stops_loop_without_client(tmp_path):
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    runtime._ensure_loop()
+
+    runtime.terminate_subprocess_sync()
+
+    _assert_runtime_loop_stopped(runtime)
+
+
+def test_runtime_rejects_operations_during_shutdown_without_unawaited_warnings(
+    tmp_path,
+):
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.close())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(RuntimeError, match="ACP runtime is closing"):
+            _run(runtime.start())
+        with pytest.raises(RuntimeError, match="ACP runtime is closing"):
+            _run(runtime.prompt("late prompt"))
+        gc.collect()
+
+    assert not [warning for warning in caught if "was never awaited" in str(warning.message)]
 
 
 def test_runtime_sets_session_model_on_start(monkeypatch, tmp_path):
@@ -968,6 +1100,10 @@ def test_explicit_use_acp_false_overrides_default(
     import gptme.server.api_v2_sessions as sessions_mod
 
     def _skip_step_worker(*args, **kwargs):
+        sessions_mod.SessionManager.add_event(
+            kwargs["conversation_id"],
+            {"type": "generation_progress", "token": "test"},
+        )
         session = kwargs["session"]
         session.generating = False
         session.generating_since = None
@@ -1009,6 +1145,10 @@ def test_without_env_var_default_remains_false(
     import gptme.server.api_v2_sessions as sessions_mod
 
     def _skip_step_worker(*args, **kwargs):
+        sessions_mod.SessionManager.add_event(
+            kwargs["conversation_id"],
+            {"type": "generation_progress", "token": "test"},
+        )
         session = kwargs["session"]
         session.generating = False
         session.generating_since = None
@@ -1104,6 +1244,7 @@ def test_health_check_cleans_dead_subprocess(monkeypatch, tmp_path):
         {"_process": type("P", (), {"pid": 99, "poll": lambda self: 1})()},
     )()
     session.acp_runtime = runtime
+    threads_before = set(threading.enumerate())
 
     with SessionManager._lock:
         SessionManager._sessions["dead-session"] = session
@@ -1114,6 +1255,15 @@ def test_health_check_cleans_dead_subprocess(monkeypatch, tmp_path):
 
         # Session should have been removed
         assert "dead-session" not in SessionManager._sessions
+        close_threads = {
+            thread
+            for thread in set(threading.enumerate()) - threads_before
+            if thread.name == "acp-close"
+        }
+        for thread in close_threads:
+            thread.join(timeout=5)
+        assert not any(thread.is_alive() for thread in close_threads)
+        assert runtime._client is None
     finally:
         # Cleanup in case test failed
         with SessionManager._lock:

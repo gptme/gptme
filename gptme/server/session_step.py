@@ -285,9 +285,6 @@ def _run_health_check() -> None:
                 session.conversation_id,
                 acp_runtime.process_pid,
             )
-            # Null out acp_runtime before remove_session so it doesn't
-            # spawn a close_acp_runtime_bg thread for an already-dead process.
-            session.acp_runtime = None
             SessionManager.remove_session(session_id)
 
 
