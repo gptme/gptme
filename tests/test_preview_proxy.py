@@ -387,10 +387,14 @@ class TestPreviewProxyHTTP:
             "application/atom+xml; charset=utf-8",
             "application/mathml+xml",
             "text/xsl",
+            "text/plain, application/xhtml+xml",  # browsers use the last valid type
+            "text/plain,text/html",
+            ["text/plain", "text/html"],  # repeated header, joined by requests
+            "not a media type",
         ],
     )
     def test_script_capable_or_untyped_response_is_sandboxed(
-        self, client: FlaskClient, content_type: str | None
+        self, client: FlaskClient, content_type: str | list[str] | None
     ):
         """XML documents browsers render, and untyped bodies, must be sandboxed too."""
         body = (
@@ -401,8 +405,11 @@ class TestPreviewProxyHTTP:
         class _Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)
-                if content_type is not None:
-                    self.send_header("Content-Type", content_type)
+                values = (
+                    [content_type] if isinstance(content_type, str) else content_type
+                )
+                for value in values or []:
+                    self.send_header("Content-Type", value)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
