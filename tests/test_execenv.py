@@ -317,7 +317,8 @@ class TestDockerClaudeCodeEnv:
         assert shlex.quote(prompt) in command
         assert shlex.quote("claude-sonnet-4-6") in command
         assert "--max-turns 42" in command
-        assert shlex.quote(",".join(tools)) in command
+        assert f"--tools {shlex.quote(','.join(tools))}" in command
+        assert f"--allowedTools {shlex.quote(','.join(tools))}" in command
 
     @patch("subprocess.run")
     @patch("subprocess.Popen")

@@ -10,6 +10,7 @@ from gptme.eval.agents.claude_code import (
     WORKSPACE_INSTRUCTION,
     ClaudeCodeAgent,
     is_claude_code_model,
+    map_tools_to_claude_code,
     parse_claude_code_model,
 )
 from gptme.util.cost_tracker import CostTracker
@@ -179,7 +180,7 @@ def test_agent_custom_max_turns_forwarded_locally():
 
 
 def test_agent_tools_forwarded():
-    """Test that tools parameter is forwarded as --allowedTools."""
+    """Test that tools are mapped to Claude Code names and restrict the run."""
     agent = ClaudeCodeAgent(
         model="claude-code/claude-sonnet-4-6", tools=["shell", "read"]
     )
@@ -207,9 +208,9 @@ def test_agent_tools_forwarded():
         agent.act(None, "test")
 
         cmd = mock_run.call_args[0][0]
-        assert "--allowedTools" in cmd
-        idx = cmd.index("--allowedTools")
-        assert cmd[idx + 1] == "shell,read"
+        # gptme names are translated; --tools restricts, --allowedTools approves
+        assert cmd[cmd.index("--tools") + 1] == "Bash,Read,Glob,Grep"
+        assert cmd[cmd.index("--allowedTools") + 1] == "Bash,Read,Glob,Grep"
 
 
 def test_agent_docker_mode():
@@ -276,7 +277,7 @@ def test_agent_docker_mode_with_tools():
         mock_env.run_claude_code.assert_called_once_with(
             prompt=WORKSPACE_INSTRUCTION + "test",
             model="claude-sonnet-4-6",
-            tools=["shell", "read"],
+            tools=["Bash", "Read", "Glob", "Grep"],
             max_turns=30,
         )
 
@@ -344,3 +345,69 @@ def test_parse_usage_ndjson():
     assert entry.cost == pytest.approx(0.0025)
     assert entry.model == "claude-sonnet-4-6"
     # autouse reset_cost_tracker fixture handles cleanup
+
+
+def _local_cmd(agent: ClaudeCodeAgent) -> list[str]:
+    mock_result = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    with (
+        patch(
+            "gptme.eval.agents.claude_code.shutil.which",
+            return_value="/usr/bin/claude",
+        ),
+        patch(
+            "gptme.eval.agents.claude_code.subprocess.run",
+            return_value=mock_result,
+        ) as mock_run,
+    ):
+        agent.act(None, "test")
+    return mock_run.call_args[0][0]
+
+
+def test_map_tools_to_claude_code():
+    assert map_tools_to_claude_code(["read", "save"]) == [
+        "Read",
+        "Glob",
+        "Grep",
+        "Write",
+    ]
+    # Claude Code names pass through; duplicates collapse, order is kept
+    assert map_tools_to_claude_code(["patch", "Edit", "Bash", "shell"]) == [
+        "Edit",
+        "Bash",
+    ]
+
+
+def test_map_tools_drops_unknown_with_warning(caplog):
+    with caplog.at_level("WARNING", logger="gptme.eval.agents.claude_code"):
+        assert map_tools_to_claude_code(["save", "ipython"]) == ["Write"]
+    assert "ipython" in caplog.text
+
+
+def test_agent_only_unknown_tools_disables_all_tools():
+    """Unmappable tools must not silently fall back to an unrestricted run."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", tools=["ipython"])
+    cmd = _local_cmd(agent)
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert "--allowedTools" not in cmd
+
+
+def test_agent_no_tools_means_no_restriction():
+    cmd = _local_cmd(ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6"))
+    assert "--tools" not in cmd
+    assert "--allowedTools" not in cmd
+
+
+def test_agent_isolates_user_settings_by_default():
+    cmd = _local_cmd(ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6"))
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
+    assert "--strict-mcp-config" in cmd
+
+
+def test_agent_include_user_context_keeps_user_settings():
+    cmd = _local_cmd(
+        ClaudeCodeAgent(
+            model="claude-code/claude-sonnet-4-6", include_user_context=True
+        )
+    )
+    assert "--setting-sources" not in cmd
+    assert "--strict-mcp-config" not in cmd

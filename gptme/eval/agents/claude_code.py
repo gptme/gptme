@@ -35,6 +35,47 @@ WORKSPACE_INSTRUCTION = (
 )
 
 
+# gptme tool names -> Claude Code built-in tool names. ``read`` includes the
+# read-only discovery tools (Glob, Grep) Claude Code uses in place of shelling
+# out to ls/grep; ``append`` needs Edit for existing files and Write otherwise.
+GPTME_TO_CLAUDE_CODE_TOOLS: dict[str, tuple[str, ...]] = {
+    "shell": ("Bash",),
+    "read": ("Read", "Glob", "Grep"),
+    "save": ("Write",),
+    "append": ("Edit", "Write"),
+    "patch": ("Edit",),
+    "morph": ("Edit",),
+    "browser": ("WebFetch", "WebSearch"),
+}
+
+
+def map_tools_to_claude_code(tools: list[str]) -> list[str]:
+    """Translate gptme tool names to Claude Code tool names.
+
+    Names that already look like Claude Code tools (capitalized, e.g. ``Bash``)
+    pass through unchanged. Unknown gptme names are dropped with a warning.
+    Order is preserved and duplicates removed.
+    """
+    mapped: list[str] = []
+    unknown: list[str] = []
+    for tool in tools:
+        if tool in GPTME_TO_CLAUDE_CODE_TOOLS:
+            names: tuple[str, ...] = GPTME_TO_CLAUDE_CODE_TOOLS[tool]
+        elif tool[:1].isupper():
+            names = (tool,)
+        else:
+            unknown.append(tool)
+            continue
+        mapped.extend(n for n in names if n not in mapped)
+    if unknown:
+        logger.warning(
+            "ClaudeCodeAgent: no Claude Code equivalent for gptme tool(s) %r; "
+            "they are not available to the agent.",
+            unknown,
+        )
+    return mapped
+
+
 def is_claude_code_model(model: str) -> bool:
     """Check if a model string requests the Claude Code agent."""
     return model.startswith(CLAUDE_CODE_MODEL_PREFIX)
@@ -87,11 +128,6 @@ class ClaudeCodeAgent(Agent):
 
     def _act_local(self, store: FileStore, prompt: str) -> Files:
         """Execute Claude Code directly on the host."""
-        if not self.include_user_context:
-            logger.warning(
-                "include_user_context=False has no effect for ClaudeCodeAgent — "
-                "the Claude Code CLI reads its own user config (e.g. ~/.claude/) unconditionally."
-            )
         claude_bin = shutil.which("claude")
         if claude_bin is None:
             raise FileNotFoundError(
@@ -117,14 +153,18 @@ class ClaudeCodeAgent(Agent):
             str(self.max_turns),
         ]
 
-        if self.tools:
-            logger.warning(
-                "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
-                "match Claude Code's --allowedTools identifiers. "
-                "Tool restrictions may not be fully enforced.",
-                self.tools,
-            )
-            cmd.extend(["--allowedTools", ",".join(self.tools)])
+        if not self.include_user_context:
+            # Keep the host's hooks, MCP servers and permission allowlists out
+            # of the eval: they change both behaviour and available tools.
+            cmd.extend(["--setting-sources", "", "--strict-mcp-config"])
+
+        cc_tools = self._claude_code_tools()
+        if cc_tools is not None:
+            # --tools restricts the built-in set; --allowedTools pre-approves
+            # them so the non-interactive run does not stall on permissions.
+            cmd.extend(["--tools", ",".join(cc_tools)])
+            if cc_tools:
+                cmd.extend(["--allowedTools", ",".join(cc_tools)])
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
@@ -178,13 +218,7 @@ class ClaudeCodeAgent(Agent):
             timeout=self.timeout,
         )
 
-        if self.tools:
-            logger.warning(
-                "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
-                "match Claude Code's --allowedTools identifiers. "
-                "Tool restrictions may not be fully enforced.",
-                self.tools,
-            )
+        cc_tools = self._claude_code_tools()
 
         try:
             # Start the container first so startup failures don't create a
@@ -194,7 +228,7 @@ class ClaudeCodeAgent(Agent):
             stdout, stderr, exit_code = docker_env.run_claude_code(
                 prompt=eval_prompt,
                 model=self.cc_model,
-                tools=self.tools,
+                tools=cc_tools,
                 max_turns=self.max_turns,
             )
 
@@ -213,6 +247,12 @@ class ClaudeCodeAgent(Agent):
 
         print("--- Finished generation (Claude Code, Docker-isolated) ---\n")
         return store.download()
+
+    def _claude_code_tools(self) -> list[str] | None:
+        """Claude Code tool names for ``self.tools``; None means no restriction."""
+        if not self.tools:
+            return None
+        return map_tools_to_claude_code(self.tools)
 
     def _parse_usage(self, stdout: str) -> None:
         """Extract usage info from Claude Code NDJSON output and record into CostTracker.

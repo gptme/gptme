@@ -971,7 +971,7 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             prompt: The user prompt to process
             model: Model identifier (e.g., "claude-sonnet-4-6")
             max_turns: Maximum number of conversation turns (default: 30)
-            tools: List of allowed tools (default: all)
+            tools: Claude Code tool names to allow (None: all, []: none)
 
         Returns:
             Tuple of (stdout, stderr, exit_code)
@@ -993,8 +993,11 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             str(max_turns),
         ]
 
-        if tools:
-            cmd_parts.extend(["--allowedTools", shlex.quote(",".join(tools))])
+        if tools is not None:
+            # --tools restricts the built-in set; --allowedTools pre-approves it.
+            cmd_parts.extend(["--tools", shlex.quote(",".join(tools))])
+            if tools:
+                cmd_parts.extend(["--allowedTools", shlex.quote(",".join(tools))])
 
         command = " ".join(cmd_parts)
 
