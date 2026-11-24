@@ -981,8 +981,17 @@ class Subagent:
         # copied from the parent; skip them so the count reflects only this
         # subagent's tool calls, not the parent's inherited history.
         own_msgs = log[self.fork_message_count :]
+        # The "tool" override parses markdown blocks *and* native calls, so a
+        # native-format child's calls are counted regardless of the parent's
+        # current tool format.
         n_tool_uses = sum(
-            len(list(ToolUse.iter_from_content(message.content)))
+            len(
+                list(
+                    ToolUse.iter_from_content(
+                        message.content, tool_format_override="tool"
+                    )
+                )
+            )
             for message in own_msgs
             if message.role == "assistant"
         )
@@ -1054,16 +1063,25 @@ class Subagent:
                 # Only recover adjacent, tool-free prose from this child's history:
                 # never cross a user turn (harness nudges excepted), tool
                 # invocation, or fork boundary.
-                if complete_tool.kwargs is not None and len(native_tools) == 1:
+                if complete_tool.kwargs is not None:
                     from ...context import strip_reasoning
                     from ...message import _strip_think_sig
 
+                    # Prose precedes the message's first call; ``complete`` may
+                    # share the message with other calls (e.g. [save, complete]).
+                    first_call_start = min(
+                        (t.start for t in native_tools if t.start is not None),
+                        default=complete_tool.start,
+                    )
                     # Reasoning and provider signatures are not a report. Strip
                     # them before deciding whether to recover preceding prose.
                     summary, _ = strip_reasoning(
-                        _strip_think_sig(terminal_msg.content[: complete_tool.start])
+                        _strip_think_sig(terminal_msg.content[:first_call_start])
                     )
-                    if not summary:
+                    # Only walk back to earlier messages when ``complete`` was
+                    # the message's sole call: other calls in this message are
+                    # work done after any earlier prose.
+                    if not summary and len(native_tools) == 1:
                         for previous in reversed(
                             log[self.fork_message_count : terminal_index]
                         ):
