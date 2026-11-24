@@ -3971,6 +3971,99 @@ def test_resume_via_llm_target_scales_with_provider_usage(tmp_path, monkeypatch)
     assert any(m.content.startswith("answer 19 ") for m in manager.log.messages)
 
 
+def test_native_compaction_tail_targets_ratio(tmp_path, monkeypatch):
+    """Anthropic-native compaction must size the kept tail toward
+    TRIM_TARGET_RATIO of the budget too, not the full budget. Sizing to the
+    full budget keeps more whole steps verbatim, so the view lands just under
+    the trigger and the next turn compacts again."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager, prepare_messages
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+    from gptme.tools.autocompact import native_anthropic as native
+    from gptme.tools.autocompact.resume import (
+        _apply_native_compaction,
+        _split_recent_tail,
+    )
+
+    filler = "lorem ipsum dolor sit amet " * 30
+    messages = [Message("system", "system prompt")]
+    for i in range(12):
+        messages.append(Message("user", f"turn {i} {filler}"))
+        messages.append(Message("assistant", f"answer {i} {filler}"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+
+    captured: list[Message] = []
+    monkeypatch.setattr(native, "anthropic_compaction_supported", lambda _: True)
+
+    def compact(prefix, *args, **kwargs):
+        captured.extend(prefix)
+        return Message(
+            "assistant",
+            "summary",
+            metadata={
+                "anthropic_compaction_block": {
+                    "type": "compaction",
+                    "content": "summary",
+                    "signature": "signed",
+                }
+            },
+        )
+
+    monkeypatch.setattr(native, "anthropic_native_compact", compact)
+    budget = 6000
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+    prepared = prepare_messages(messages)
+    head = prepared[:1]
+    body = prepared[1:]
+    head_tokens = len_tokens(head, model="gpt-4")
+
+    # What the pre-fix sizing (full budget) would have kept verbatim.
+    _, full_budget_tail = _split_recent_tail(
+        body, budget - head_tokens - native.COMPACT_MAX_TOKENS, model="gpt-4"
+    )
+    target_limit = int(budget * TRIM_TARGET_RATIO) - (
+        head_tokens + native.COMPACT_MAX_TOKENS
+    )
+    _, target_tail = _split_recent_tail(body, target_limit, model="gpt-4")
+    # Sanity: the fixture must discriminate the two sizings.
+    assert target_tail and len(target_tail) < len(full_budget_tail)
+
+    results = list(
+        _apply_native_compaction(
+            manager,
+            prepared,
+            use_view_branch=False,
+            compact_instructions=None,
+            keep_recent_tokens=100_000,
+            keep_head=0,
+            model_meta=SimpleNamespace(
+                model="gpt-4",
+                context=16_384,
+                max_output=8192,
+                full="openai/gpt-4",
+                context_budget=None,
+            ),
+            llm_unlocked=None,
+        )
+    )
+    assert any("Native compaction completed" in m.content for m in results)
+
+    new_msgs = manager.log.messages
+    kept = [m for m in new_msgs[1:] if not native.compaction_block_of(m)]
+    # Recent steps are still kept verbatim, bounded by the target.
+    assert kept and kept[-1].content.startswith("answer 11 ")
+    assert len_tokens(kept, model="gpt-4") <= target_limit
+    # A step the full-budget sizing would have kept is summarized instead.
+    newly_summarized = [m for m in full_budget_tail if m not in kept]
+    assert newly_summarized
+    assert all(m in captured for m in newly_summarized)
+
+
 def test_truncate_to_tokens_preserves_tail_sections():
     """Truncation must keep the checkpoint's tail (Open Items, Context Files),
     not only its beginning — otherwise the agent loses its remaining work."""
