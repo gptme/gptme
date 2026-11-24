@@ -10,6 +10,7 @@ from contextlib import AsyncExitStack
 from typing import Any
 from urllib.parse import urlparse
 
+import anyio
 import httpx
 import mcp.types as types  # Import all types
 from mcp import ClientSession
@@ -69,6 +70,12 @@ class MCPInterruptedError(Exception):
 
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates MCP connection failure"""
+    # A closed or broken transport stream: str() of these is empty.
+    if isinstance(
+        error,
+        (anyio.ClosedResourceError, anyio.BrokenResourceError, anyio.EndOfStream),
+    ):
+        return True
     error_msg = str(error).lower()
     return any(
         phrase in error_msg
@@ -352,6 +359,8 @@ class MCPClient:
         # instances to overwrite each other's loops.
         logger.debug(f"Init - Loop ID: {id(self.loop)}")
         self.session: ClientSession | None = None
+        # stdio read stream; its writer closes when the server's stdout hits EOF.
+        self._read_stream: Any = None
         self.tools: types.ListToolsResult | None = None
         self.stack: AsyncExitStack | None = None
         self.roots: list[types.Root] = []
@@ -490,6 +499,7 @@ class MCPClient:
                 stdio_client(server_params)
             )
             read, write = transport
+            self._read_stream = read
 
             csession = ClientSession(
                 read,
@@ -727,6 +737,31 @@ class MCPClient:
             if acquired:
                 self._op_lock.release()
 
+    async def _unless_transport_closed(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        """Await ``coro``, failing fast if the stdio server's stdout closes.
+
+        The event loop only runs during a call, so when a stdio server exits
+        between calls the SDK notices the EOF only after the next request is
+        sent, and that request then waits forever for a response. Race the
+        request against the read stream's writer closing so the caller gets a
+        connection error its auto-restart can act on.
+        """
+        stream = self._read_stream
+        if stream is None:
+            return await coro
+        request = asyncio.ensure_future(coro)
+        try:
+            while not request.done():
+                if stream.statistics().open_send_streams == 0:
+                    raise ConnectionError(
+                        "MCP server connection closed: the server process exited"
+                    )
+                await asyncio.wait({request}, timeout=0.1)
+            return request.result()
+        finally:
+            if not request.done():
+                request.cancel()
+
     def call_tool(self, tool_name: str, arguments: dict) -> str:
         """Synchronous tool call method.
 
@@ -742,8 +777,9 @@ class MCPClient:
             session = self.session
             if session is None:
                 raise RuntimeError("Should not be None")
-
-            result = await session.call_tool(tool_name, arguments)
+            result = await self._unless_transport_closed(
+                session.call_tool(tool_name, arguments)
+            )
             # Safely access content for logging
             if (
                 result.content
