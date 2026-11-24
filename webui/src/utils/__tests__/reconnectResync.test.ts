@@ -310,4 +310,16 @@ describe('mergeReconnectSnapshot', () => {
     const { log } = mergeReconnectSnapshot([system, user], [system, user, reply], opts);
     expect(log).toEqual([system, user, reply]);
   });
+
+  it('drops a row a peer deleted during the outage instead of resurrecting it', () => {
+    const victim: Message = {
+      role: 'assistant',
+      content: 'deleted by a peer',
+      timestamp: '2026-11-24T10:00:01Z',
+    };
+    // Aligned overlap: the snapshot still starts at the same message, but the
+    // peer deleted `victim`, so it must not be appended as if it arrived live.
+    const { log } = mergeReconnectSnapshot([user, victim, reply], [user, reply], opts);
+    expect(log).toEqual([user, reply]);
+  });
 });

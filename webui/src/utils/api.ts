@@ -163,10 +163,12 @@ const RECONNECT_RESYNC_LIMIT = 50;
  *   so the kept rows would carry wrong indices for edit/delete.
  * - Otherwise the snapshot becomes the new window (`window` is returned so the
  *   caller resets pagination).
- * - Local rows absent from the snapshot survive: unsaved prompts and the last
- *   `arrivedCount` rows, which arrived over the new stream while the request
- *   was in flight. An incomplete assistant survives only while generation is
- *   still running; otherwise the server has finished (or dropped) it.
+ * - Local rows absent from the snapshot survive only when they are unsaved
+ *   prompts or the last `arrivedCount` rows, which arrived over the new stream
+ *   while the request was in flight. An incomplete assistant survives only
+ *   while generation is still running; otherwise the server has finished (or
+ *   dropped) it. Any other absent complete row was deleted by another client
+ *   and is dropped rather than resurrected at a fabricated position.
  */
 export function mergeReconnectSnapshot(
   local: Message[],
@@ -200,25 +202,27 @@ export function mergeReconnectSnapshot(
   });
   const snapshotStart = options.snapshotHasMore ? options.snapshotOffset : 0;
   const anchor = snapshot.length > 0 ? local.findIndex((entry) => matches(entry, snapshot[0])) : -1;
+  // A local row the snapshot does not have survives only if it is an
+  // unacknowledged prompt or a row the stream delivered while the request was
+  // in flight. A complete row the server no longer has was deleted by another
+  // client; keeping it would resurrect it at a fabricated position, and the
+  // positional edit/delete guard does not cover persisted rows.
+  const arrivedFrom = local.length - Math.max(0, options.arrivedCount);
+  const survives = (entry: Message, index: number) =>
+    !inSnapshot(entry) &&
+    (options.generating || !isIncomplete(entry)) &&
+    (entry._status === 'pending' ||
+      entry._status === 'failed' ||
+      index >= arrivedFrom ||
+      isIncomplete(entry));
   if (anchor >= 0 && options.localOffset + anchor === snapshotStart) {
-    const tail = local
-      .slice(anchor)
-      .filter((entry) => !inSnapshot(entry) && (options.generating || !isIncomplete(entry)));
+    const tail = local.slice(anchor).filter((entry, index) => survives(entry, index + anchor));
     return { log: [...local.slice(0, anchor), ...merged, ...tail] };
   }
   // No aligned overlap: older local rows cannot be placed relative to the
   // snapshot. Keep rows the server has not acknowledged yet, plus rows that
   // arrived during the request (the snapshot may predate them).
-  const arrivedFrom = local.length - Math.max(0, options.arrivedCount);
-  const kept = local.filter(
-    (entry, index) =>
-      !inSnapshot(entry) &&
-      (options.generating || !isIncomplete(entry)) &&
-      (entry._status === 'pending' ||
-        entry._status === 'failed' ||
-        index >= arrivedFrom ||
-        isIncomplete(entry))
-  );
+  const kept = local.filter(survives);
   return {
     log: [...merged, ...kept],
     window: { logOffset: snapshotStart, hasMoreBefore: options.snapshotHasMore },
