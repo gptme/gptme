@@ -1,6 +1,5 @@
 """Browser selection for the OpenRouter API-key OAuth flow."""
 
-import socket
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
@@ -15,17 +14,27 @@ def test_oauth_browser_selection(
     monkeypatch: pytest.MonkeyPatch, platform: str
 ) -> None:
     """macOS uses Launch Services, not webbrowser's terminal-browser fallback."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    monkeypatch.setattr(oauth, "OAUTH_CALLBACK_PORT", port)
+    # Bind port 0 and use the port HTTPServer picked: probing a free port and
+    # releasing it lets another process take it before the listener binds.
+    monkeypatch.setattr(oauth, "OAUTH_CALLBACK_PORT", 0)
+    server_type = oauth.http.server.HTTPServer
+    servers = []
+
+    def make_server(*args, **kwargs):
+        server = server_type(*args, **kwargs)
+        servers.append(server)
+        return server
+
+    monkeypatch.setattr(oauth.http.server, "HTTPServer", make_server)
 
     def open_url(url: str) -> bool:
-        params = parse_qs(urlparse(url).query)
+        callback = urlparse(parse_qs(urlparse(url).query)["callback_url"][0])
         with requests.Session() as session:
             session.trust_env = False
             response = session.get(
-                params["callback_url"][0], params={"code": "test-code"}, timeout=2
+                f"http://127.0.0.1:{servers[0].server_port}{callback.path}",
+                params={"code": "test-code"},
+                timeout=2,
             )
         response.raise_for_status()
         return True
