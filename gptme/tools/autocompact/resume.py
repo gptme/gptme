@@ -5,7 +5,6 @@ context files, and manages conversation resumption.
 """
 
 import logging
-import os
 import re
 from collections import Counter
 from collections.abc import Callable, Generator
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ... import llm
+from ...credentials import get_credentials_dir
 from ...dirs import get_config_dir
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
@@ -200,12 +200,12 @@ def _is_secret_bearing_path(path: Path) -> bool:
 def _gptme_config_dirs() -> list[Path]:
     """gptme's resolved config/credential directories, wherever XDG puts them.
 
-    ``credentials.py`` stores keys under ``$XDG_CONFIG_HOME/gptme``; a relocated
-    config home has no ``.config`` part for ``_is_secret_bearing_path`` to match.
+    Uses the credential writer's own path helper, so a relocated (or empty,
+    hence cwd-relative) ``XDG_CONFIG_HOME`` is covered: such a store has no
+    ``.config`` part for ``_is_secret_bearing_path`` to match.
     """
-    xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     dirs = []
-    for d in (get_config_dir(), Path(xdg) / "gptme"):
+    for d in (get_config_dir(), get_credentials_dir()):
         try:
             dirs.append(d.resolve())
         except (OSError, RuntimeError):

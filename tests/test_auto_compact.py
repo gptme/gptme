@@ -984,6 +984,22 @@ def test_load_context_files_skips_relocated_gptme_config_dir(tmp_path, monkeypat
     assert [p for p, _ in loaded] == ["notes.md"]
 
 
+def test_load_context_files_skips_cwd_credential_store_when_xdg_empty(
+    tmp_path, monkeypatch
+):
+    """An empty XDG_CONFIG_HOME puts the writer's store under ./gptme; skip it."""
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    monkeypatch.chdir(tmp_path)
+    store = tmp_path / "gptme"
+    store.mkdir()
+    (store / "credentials.toml").write_text('[openai]\napi_key = "sk-private"\n')
+
+    loaded = _load_context_files(["gptme/credentials.toml"], workspace=tmp_path)
+    assert loaded == []
+
+
 @pytest.mark.parametrize(
     "credential_path", ["config.env.local", "staging.env.production"]
 )
