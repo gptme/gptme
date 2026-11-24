@@ -181,6 +181,60 @@ def test_api_conversation_list_paginated_cursor_preserves_equal_timestamps(
     assert page2_data["next_cursor"] is None
 
 
+def test_api_conversation_list_paginated_ignores_truncated_legacy_cache(
+    client: FlaskClient, monkeypatch
+):
+    """A bare list call caches at most 1000 conversations; pagination must not treat that as the full list."""
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    api_v2_module._invalidate_conversations_cache()
+
+    base = ConversationMeta(
+        id="seed",
+        name="seed",
+        path="/tmp/seed/conversation.jsonl",
+        created=0.0,
+        modified=0.0,
+        messages=1,
+        branches=1,
+        workspace="",
+        agent_name=None,
+        agent_path=None,
+        agent_avatar=None,
+        agent_urls=None,
+        model=None,
+        total_cost=0.0,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_cache_read_tokens=0,
+        last_message_role="user",
+        last_message_preview="preview",
+    )
+    conversations = [
+        replace(base, id=f"c{i:04d}", name=f"c{i}", modified=float(2000 - i))
+        for i in range(1001)
+    ]
+    monkeypatch.setattr(
+        api_v2_module,
+        "get_user_conversations",
+        lambda detail=False: iter(conversations),
+    )
+
+    # Warm the cache through the legacy bare-list path (capped at 1000).
+    assert client.get("/api/v2/conversations").status_code == 200
+
+    page1 = client.get("/api/v2/conversations?paginated=1&limit=1000").get_json()
+    assert len(page1["conversations"]) == 1000
+    assert page1["next_cursor"] is not None
+
+    page2 = client.get(
+        f"/api/v2/conversations?paginated=1&limit=10&cursor={page1['next_cursor']}"
+    ).get_json()
+    assert [item["id"] for item in page2["conversations"]] == ["c1000"]
+    assert page2["next_cursor"] is None
+
+
 def test_api_conversation_search(client: FlaskClient, tmp_path, monkeypatch):
     """Test that search parameter filters conversations by name."""
 

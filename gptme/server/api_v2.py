@@ -1455,7 +1455,8 @@ def api_conversations():
     global \
         _conversations_cache, \
         _conversations_cache_logs_dir, \
-        _conversations_cache_time
+        _conversations_cache_time, \
+        _conversations_cache_complete
     logs_dir = conversations_module.get_logs_dir()
 
     # Cursor pagination path — returns {conversations: [...], next_cursor: string|null}
@@ -1466,6 +1467,7 @@ def api_conversations():
             _cached = _conversations_cache
             if (
                 _cached is not None
+                and _conversations_cache_complete
                 and _conversations_cache_logs_dir == logs_dir
                 and (time.monotonic() - _conversations_cache_time)
                 < _CONVERSATIONS_CACHE_TTL
@@ -1477,6 +1479,7 @@ def api_conversations():
                 _conversations_cache = full_list
                 _conversations_cache_logs_dir = logs_dir
                 _conversations_cache_time = time.monotonic()
+                _conversations_cache_complete = True
                 record_cache_result(hit=False)
                 n_msgs = sum(c.messages for c in full_list)
                 update_conversation_metrics(len(full_list), n_msgs)
@@ -1592,6 +1595,7 @@ def api_conversations():
         _conversations_cache = all_conversations
         _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
+        _conversations_cache_complete = len(all_conversations) < 1000
         record_cache_result(hit=False)
         n_msgs = sum(c.messages for c in all_conversations)
         update_conversation_metrics(len(all_conversations), n_msgs)
@@ -4321,6 +4325,9 @@ _CONVERSATIONS_CACHE_TTL = (
 _conversations_cache: list[ConversationMeta] | None = None
 _conversations_cache_logs_dir: Path | None = None
 _conversations_cache_time: float = 0.0
+# False when the cached list was capped (legacy bare-list fill stops at 1000),
+# so cursor pagination must not treat it as the full list.
+_conversations_cache_complete: bool = False
 
 
 def _invalidate_conversations_cache() -> None:
@@ -4328,8 +4335,10 @@ def _invalidate_conversations_cache() -> None:
     global \
         _conversations_cache, \
         _conversations_cache_logs_dir, \
-        _conversations_cache_time
+        _conversations_cache_time, \
+        _conversations_cache_complete
     _conversations_cache = None
+    _conversations_cache_complete = False
     _conversations_cache_logs_dir = None
     _conversations_cache_time = 0.0
 
