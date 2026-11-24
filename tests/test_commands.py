@@ -928,3 +928,56 @@ def test_help_lists_commands_outside_curated_list():
     snapshot = next(line for line in lines if line.startswith("  /snapshot"))
     # The handler docstring is used, not a placeholder.
     assert "/snapshot command" not in snapshot
+
+
+def _noop_handler(ctx: CommandContext) -> Generator[Message, None, None]:
+    yield from ()
+
+
+def test_session_help_omits_commands_of_unloaded_tools(monkeypatch):
+    """In-chat /help lists only commands the session can run; a curated
+    tool-owned entry like /commit is hidden when its tool is not loaded, while
+    the session-less `gptme --help` keeps the full curated list."""
+    from gptme.commands import _gen_help
+
+    def listed(**kwargs) -> set[str]:
+        lines = _gen_help(incl_langtags=False, **kwargs)
+        return {line.split()[0] for line in lines if line.startswith("  /")}
+
+    monkeypatch.setitem(_command_registry, "commit", _noop_handler)
+    monkeypatch.setitem(_command_owners, "commit", "autocommit")
+    monkeypatch.setattr("gptme.tools.has_tool", lambda name: False)
+    # /compact is not registered at all (autocompact tool never initialized).
+    monkeypatch.delitem(_command_registry, "compact", raising=False)
+    monkeypatch.delitem(_command_owners, "compact", raising=False)
+
+    session = listed(session=True)
+    assert "/commit" not in session
+    assert "/compact" not in session
+    assert {"/help", "/undo", "/tokens"} <= session
+    assert {"/commit", "/compact"} <= listed()
+
+    monkeypatch.setattr("gptme.tools.has_tool", lambda name: name == "autocommit")
+    assert "/commit" in listed(session=True)
+
+
+def test_command_listing_tolerates_concurrent_registration(monkeypatch):
+    """Listing commands must not raise if another thread registers a command
+    mid-iteration (e.g. a server conversation loading a tool during /help)."""
+    from gptme.commands import base
+
+    real_enabled = base._command_enabled_in_session
+    key = "_concurrently_registered_cmd"
+
+    def enabled_and_register(name: str) -> bool:
+        if key not in _command_registry:
+            _command_registry[key] = _noop_handler
+        return real_enabled(name)
+
+    monkeypatch.setattr(base, "_command_enabled_in_session", enabled_and_register)
+    try:
+        get_commands_with_descriptions()
+        _command_registry.pop(key, None)
+        get_user_commands()
+    finally:
+        _command_registry.pop(key, None)
