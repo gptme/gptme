@@ -5,6 +5,8 @@ afterwards waits forever for a response unless the client notices the closed
 transport and raises a connection error the auto-restart path acts on.
 """
 
+import os
+import signal
 import sys
 import textwrap
 import threading
@@ -21,6 +23,9 @@ from gptme.tools.mcp_adapter import _call_mcp_tool_with_retry
 
 SERVER_SRC = textwrap.dedent(
     """
+    import os
+    import sys
+
     from mcp.server.fastmcp import FastMCP
 
     app = FastMCP("tiny")
@@ -32,6 +37,8 @@ SERVER_SRC = textwrap.dedent(
 
 
     if __name__ == "__main__":
+        with open(sys.argv[1], "w") as f:
+            f.write(str(os.getpid()))
         app.run("stdio")
     """
 )
@@ -61,10 +68,12 @@ def test_closed_transport_stream_triggers_restart():
 
 @pytest.mark.timeout(60)
 def test_call_after_server_death_fails_fast(tmp_path):
-    psutil = pytest.importorskip("psutil")
     server = tmp_path / "tiny_server.py"
     server.write_text(SERVER_SRC)
-    srv = MCPServerConfig(name="tiny", command=sys.executable, args=[str(server)])
+    pid_file = tmp_path / "server.pid"
+    srv = MCPServerConfig(
+        name="tiny", command=sys.executable, args=[str(server), str(pid_file)]
+    )
     client = MCPClient(
         config=Config(user=UserConfig(mcp=MCPConfig(enabled=True, servers=[srv])))
     )
@@ -72,16 +81,9 @@ def test_call_after_server_death_fails_fast(tmp_path):
     try:
         assert client.call_tool("echo", {"text": "1"}) == "echo:1"
 
-        # The server crashes (OOM, segfault, idle exit) between two calls.
-        victims = [
-            p
-            for p in psutil.Process().children(recursive=True)
-            if str(server) in " ".join(p.cmdline())
-        ]
-        assert victims, "stdio server process not found"
-        for p in victims:
-            p.kill()
-        psutil.wait_procs(victims, timeout=5)
+        # The server crashes (OOM, segfault, idle exit) between two calls, while
+        # the client's event loop is stopped: the EOF is not processed yet.
+        os.kill(int(pid_file.read_text()), getattr(signal, "SIGKILL", signal.SIGTERM))
         time.sleep(0.5)
 
         outcome: dict = {}
@@ -142,3 +144,44 @@ def test_server_dying_mid_call_is_not_retried():
         anyio.run(client._unless_transport_closed, request())
     assert not _is_connection_error(info.value)
     assert "result is unknown" in str(info.value)
+
+
+def test_eof_pending_from_between_calls_is_seen_before_send():
+    """An EOF queued while the loop was stopped must count as died-before-send.
+
+    The reader closes the stream only once the loop runs again. If the request
+    were sent first, the close would read as "died mid-call" and the safe
+    restart would be skipped.
+    """
+    sent = []
+
+    async def request():
+        sent.append(True)
+        await anyio.sleep(10)
+
+    async def scenario():
+        writer, reader = anyio.create_memory_object_stream[object](0)
+        client = MCPClient.__new__(MCPClient)
+        client._read_stream = reader
+
+        async def reader_sees_eof():
+            # fd readiness, StreamReader wakeup, then the writer closes
+            for _ in range(3):
+                await anyio.sleep(0)
+            writer.close()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(reader_sees_eof)
+            await anyio.sleep(0)  # the reader task is scheduled, not yet run
+            try:
+                await client._unless_transport_closed(request())
+            except Exception as e:
+                return e
+            finally:
+                reader.close()
+        return None
+
+    error = anyio.run(scenario)
+    assert isinstance(error, ConnectionError), error
+    assert _is_connection_error(error)
+    assert sent == []

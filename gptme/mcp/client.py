@@ -54,6 +54,11 @@ MCP_CLOSE_TIMEOUT_S = 5.0
 MCP_INITIALIZE_TIMEOUT_S = 5.0
 MCP_INITIALIZE_OAUTH_TIMEOUT_S = DEFAULT_FLOW_TIMEOUT_S + 30.0
 
+# Event-loop passes given to the stdio reader before a request is sent, so an
+# EOF that arrived while the loop was stopped closes the stream first. A pending
+# EOF needs a few passes (fd readiness, StreamReader wakeup, writer close).
+_PRE_SEND_DRAIN_STEPS = 20
+
 
 def _initialize_timeout(auth: httpx.Auth | None) -> float:
     """Return the handshake budget for a transport with (or without) OAuth."""
@@ -749,6 +754,14 @@ class MCPClient:
         stream = self._read_stream
         if stream is None:
             return await coro
+        # The loop was stopped since the last call, so an EOF from a server that
+        # exited in between is still unprocessed. Let the reader task run first:
+        # without this the closed stream is seen only after the request is sent,
+        # which reads as "died mid-call" and skips a safe restart.
+        for _ in range(_PRE_SEND_DRAIN_STEPS):
+            if stream.statistics().open_send_streams == 0:
+                break
+            await asyncio.sleep(0)
         if stream.statistics().open_send_streams == 0:
             # Died before this request was sent: retrying after a restart is safe.
             coro.close()
