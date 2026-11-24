@@ -1,5 +1,6 @@
 import fnmatch
 import logging
+import os
 import re
 import subprocess
 from collections.abc import Generator
@@ -281,6 +282,50 @@ def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
     return result
 
 
+def _file_owner_uid(path: Path) -> int | None:
+    """Owner uid of ``path``'s target, or None where ownership is unavailable."""
+    try:
+        return path.stat().st_uid
+    except (OSError, AttributeError):
+        return None
+
+
+def _is_loadable_agent_file(agent_file: Path) -> bool:
+    """Whether a discovered agent file is safe to embed in the prompt.
+
+    - A symlink is followed only to a regular file that looks like an
+      instruction file (an agent-file name or ``*.md``). Shared identity files
+      symlinked from elsewhere keep working, but a cloned repo committing
+      ``AGENTS.md -> ~/.ssh/id_ed25519`` cannot pull a key or ``.env`` into the
+      prompt.
+    - On POSIX, files owned by another (non-root) user are skipped. Outside home
+      the walk reaches shared directories such as ``/tmp``, where any local
+      user can plant an ``AGENTS.md``.
+    """
+    if agent_file.is_symlink():
+        target = agent_file.resolve()
+        if not target.is_file():
+            return False
+        if target.name not in AGENT_FILES and target.suffix.lower() != ".md":
+            logger.warning(
+                "Skipping agent file %s: symlink target %s is not an instruction file",
+                agent_file,
+                target,
+            )
+            return False
+    getuid = getattr(os, "getuid", None)
+    if getuid is not None:
+        owner = _file_owner_uid(agent_file)
+        if owner is not None and owner not in (getuid(), 0):
+            logger.warning(
+                "Skipping agent file %s: owned by another user (uid %s)",
+                agent_file,
+                owner,
+            )
+            return False
+    return True
+
+
 def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
@@ -321,7 +366,7 @@ def find_agent_files_in_tree(
     for dir_path in dirs_to_check:
         for filename in AGENT_FILES:
             agent_file = dir_path / filename
-            if agent_file.exists():
+            if agent_file.exists() and _is_loadable_agent_file(agent_file):
                 resolved = str(agent_file.resolve())
                 if resolved not in _exclude:
                     if filename in _cross_tool_files:

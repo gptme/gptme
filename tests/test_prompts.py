@@ -928,3 +928,62 @@ def test_profile_system_prompt_included_in_stats():
     assert cacheable_diff > 0, (
         "Profile system prompt should be counted in cacheable_tokens"
     )
+
+
+def test_agent_file_symlink_to_non_instruction_file_is_not_loaded(
+    tmp_path: Path, monkeypatch
+):
+    """A cloned repo's `AGENTS.md -> ~/.ssh/id_ed25519` must not reach the prompt."""
+    from gptme.prompts.workspace import find_agent_files_in_tree
+
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "id_ed25519").write_text("PRIVATE KEY")
+    repo = home / "src" / "repo"
+    repo.mkdir(parents=True)
+    (repo / "AGENTS.md").symlink_to("../../.ssh/id_ed25519")
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+
+    assert find_agent_files_in_tree(repo) == []
+
+
+def test_agent_file_symlink_to_shared_markdown_still_loads(tmp_path: Path, monkeypatch):
+    """Shared agent identity files symlinked from outside the tree keep working."""
+    from gptme.prompts.workspace import find_agent_files_in_tree
+
+    home = tmp_path / "home"
+    shared = home / "agents" / "shared" / "identity.md"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("# Being Alice")
+    repo = home / "alice"
+    repo.mkdir()
+    (repo / "AGENTS.md").symlink_to(shared)
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+
+    assert find_agent_files_in_tree(repo) == [repo / "AGENTS.md"]
+
+
+def test_agent_file_owned_by_another_user_is_not_loaded(tmp_path: Path, monkeypatch):
+    """Outside home the walk reaches shared dirs like /tmp, where any local user
+    can plant an AGENTS.md; files owned by someone else are skipped."""
+    from gptme.prompts import workspace
+
+    if not hasattr(os, "getuid"):
+        pytest.skip("POSIX ownership only")
+    project = tmp_path / "proj"
+    project.mkdir()
+    planted = tmp_path / "AGENTS.md"
+    planted.write_text("planted by another user")
+    own = project / "AGENTS.md"
+    own.write_text("mine")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "elsewhere-home")
+
+    real_uid = os.getuid()
+    monkeypatch.setattr(
+        workspace,
+        "_file_owner_uid",
+        lambda p: real_uid + 1 if p.resolve() == planted.resolve() else real_uid,
+    )
+    found = workspace.find_agent_files_in_tree(project)
+    assert planted not in found
+    assert own in found
