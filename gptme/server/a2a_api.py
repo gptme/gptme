@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -473,9 +474,17 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
                 # lock makes this final read see them, so a failure that lands
                 # between the read above and this check is not missed. Another
                 # holder (e.g. a deferred watch wake) may stall, so wait only
-                # for the time left before the deadline.
-                remaining = max(deadline - time.monotonic(), 0.0)
+                # for the time left before the deadline. Cap the wait at
+                # TIMEOUT_MAX so an unlimited (inf) timeout cannot overflow.
+                remaining = min(
+                    max(deadline - time.monotonic(), 0.0), threading.TIMEOUT_MAX
+                )
                 if not session.step_lock.acquire(timeout=remaining):
+                    # read_events uses its own lock, so an error posted since
+                    # the first read is still visible without step_lock.
+                    events, event_index = session.read_events(event_index)
+                    if handle(events):
+                        return
                     break
                 try:
                     events, event_index = session.read_events(event_index)

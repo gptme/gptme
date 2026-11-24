@@ -310,6 +310,117 @@ def test_a2a_final_drain_respects_blocking_timeout(client, monkeypatch, tmp_path
     assert elapsed < 3
 
 
+def test_a2a_final_drain_timeout_still_reports_posted_error(
+    client, monkeypatch, tmp_path
+):
+    """An error posted while a stalled holder owns step_lock is still reported."""
+    import threading
+
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.5")
+    holder_has_lock = threading.Event()
+    release_holder = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        session.generating = False
+        real_read_events = session.read_events
+        posted: list[bool] = []
+
+        def read_then_post_error(abs_index):
+            events, next_index = real_read_events(abs_index)
+            if not posted:
+                # The error lands just after the first (empty) read, while a
+                # deferred wake still holds step_lock.
+                posted.append(True)
+                session_step_module.SessionManager.add_event(
+                    conversation_id,
+                    cast(EventType, {"type": "error", "error": "late failure"}),
+                )
+            return events, next_index
+
+        session.read_events = read_then_post_error
+
+        def stalled_holder():
+            with session.step_lock:
+                holder_has_lock.set()
+                release_holder.wait(5)
+
+        holder = threading.Thread(target=stalled_holder)
+        holders.append(holder)
+        holder.start()
+        assert holder_has_lock.wait(5)
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    try:
+        response = client.post("/api/a2a", json=_send_message_request("stall"))
+    finally:
+        release_holder.set()
+        for holder in holders:
+            holder.join(5)
+
+    assert response.status_code == 200
+    error = response.get_json()["error"]
+    assert error["data"][0]["reason"] == "TASK_FAILED"
+    task_id = error["data"][0]["metadata"]["taskId"]
+    assert (tmp_path / task_id / "a2a_failed.json").exists()
+
+
+def test_a2a_unlimited_blocking_timeout_does_not_fail_idle_step(
+    client, monkeypatch, tmp_path
+):
+    """GPTME_A2A_BLOCKING_TIMEOUT=inf must not overflow the final lock wait."""
+    import gptme.server.a2a_api as a2a_api_module
+    from gptme.message import Message
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "inf")
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        session.generating = False
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("idle"))
+
+    assert response.status_code == 200
+    assert "error" not in response.get_json()
+
+
 def test_a2a_resume_clears_failure_sentinel(client, monkeypatch, tmp_path):
     """Resuming a failed task (SendMessage with its id) clears the sentinel."""
     import gptme.server.a2a_api as a2a_api_module
