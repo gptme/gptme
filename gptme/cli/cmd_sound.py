@@ -30,7 +30,7 @@ volume_option = click.option(
 def _sound_names() -> list[str]:
     from ..util.sound import media_path
 
-    return sorted(p.stem for p in media_path.glob("*.wav"))
+    return sorted(p.stem for p in media_path.glob("*.wav") if p.is_file())
 
 
 def _ring_terminal_bell() -> None:
@@ -89,12 +89,14 @@ def play(name: str, bell: bool, volume: float) -> None:
     """Play a bundled sound by NAME (default: bell). See `sound list`."""
     from ..util.sound import media_path
 
-    path = media_path / f"{name}.wav"
-    if not path.exists():
+    available = _sound_names()
+    if name not in available:
+        listed = ", ".join(available) or "(none)"
         raise click.BadParameter(
-            f"unknown sound {name!r}, available: {', '.join(_sound_names())}",
+            f"unknown sound {name!r}, available: {listed}",
             param_hint="NAME",
         )
+    path = media_path / f"{name}.wav"
     if bell:
         _ring_terminal_bell()
     if not _play(path, volume):

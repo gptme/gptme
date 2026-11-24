@@ -334,8 +334,16 @@ def test_match_dedup_without_session_or_with_bad_state(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     write_entry(tmp_path / "mem", "release-policy", keywords=["stable release"])
     no_session = _hook("stable release", None)
-    assert _match_names(no_session, "--dedup-session") == ["release-policy"]
-    assert _match_names(no_session, "--dedup-session") == ["release-policy"]
+    for _ in range(2):
+        res = CliRunner().invoke(
+            util_main,
+            ["memory", "match", "--prompt", "-", "--format", "json", "--dedup-session"],
+            input=no_session,
+        )
+        assert res.exit_code == 0, res.output
+        assert [h["name"] for h in json.loads(res.stdout)["hits"]] == ["release-policy"]
+        assert "--dedup-session" in res.stderr
+        assert "--session-id" in res.stderr
     assert not (tmp_path / "state").exists()
 
     from gptme.memory.match import _seen_file
@@ -347,6 +355,53 @@ def test_match_dedup_without_session_or_with_bad_state(tmp_path, monkeypatch):
         "release-policy"
     ]
     assert len(json.loads(bad.read_text())["seen"]) == 1  # rewritten, not ignored
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["memory", "match", "--prompt", "zap thing", "--dedup-session"],
+        ["memory", "match", "zap thing", "--dedup-session"],
+        [
+            "memory",
+            "match",
+            "--prompt",
+            "zap thing",
+            "--dedup-session",
+            "--session-id",
+            "",
+        ],
+    ],
+)
+def test_match_dedup_requires_session_id_without_hook_payload(
+    tmp_path, monkeypatch, args
+):
+    """--dedup-session fails with usage error when no session id can be supplied (#5214)."""
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "mem"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    write_entry(tmp_path / "mem", "zap-rule", keywords=["zap thing"], body="body")
+    result = CliRunner().invoke(util_main, args)
+    assert result.exit_code == 2, result.output
+    assert "--dedup-session" in result.output
+    assert "--session-id" in result.output
+    assert not (tmp_path / "state").exists()
+
+    # With an explicit --session-id, the first run delivers and the second is empty.
+    ok_args = [
+        "memory",
+        "match",
+        "--prompt",
+        "zap thing",
+        "--dedup-session",
+        "--session-id",
+        "S1",
+    ]
+    first = CliRunner().invoke(util_main, ok_args)
+    assert first.exit_code == 0, first.output
+    assert "zap-rule" in first.output
+    second = CliRunner().invoke(util_main, ok_args)
+    assert second.exit_code == 0, second.output
+    assert second.output == ""
 
 
 def test_match_dedup_explicit_session_id_for_plain_text(tmp_path, monkeypatch):

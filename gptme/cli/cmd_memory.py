@@ -439,6 +439,17 @@ def memory_match(
         prompt if prompt is not None else query, pre_tool
     )
     session_key = session_id or payload_session
+    if dedup_session and not session_key:
+        if prompt != "-":
+            raise click.UsageError(
+                "--dedup-session requires --session-id "
+                "(or a hook payload with session_id via --prompt -)"
+            )
+        click.echo(
+            "Warning: --dedup-session has no effect without --session-id "
+            "or a hook payload session_id",
+            err=True,
+        )
     lessons = (
         lesson_candidates(lesson_dirs, include_default=with_lessons)
         if text.strip() and (with_lessons or lesson_dirs)

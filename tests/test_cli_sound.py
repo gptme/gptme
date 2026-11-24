@@ -14,8 +14,37 @@ def test_sound_list():
 
 def test_sound_play_unknown():
     result = CliRunner().invoke(main, ["sound", "play", "nonexistent"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "unknown sound" in result.output
+
+
+def test_sound_play_rejects_path_traversal(tmp_path):
+    """sound play only accepts bundled sound names, never traversal or arbitrary paths (#5214)."""
+    import os
+
+    from gptme.util.sound import media_path
+
+    evil_dir = tmp_path / "x"
+    evil_dir.mkdir()
+    evil_wav = evil_dir / "evil.wav"
+    evil_wav.write_bytes((media_path / "bell.wav").read_bytes())
+
+    rel_traversal = os.path.relpath(evil_wav.with_suffix(""), media_path)
+    abs_target = str(evil_wav.with_suffix(""))
+
+    with patch("gptme.cli.cmd_sound._play", return_value=True) as play_mock:
+        for bad_name in (rel_traversal, abs_target, "../bell", "sub/bell", "bell\x00"):
+            result = CliRunner().invoke(main, ["sound", "play", bad_name, "--no-bell"])
+            assert result.exit_code == 2, (bad_name, result.output)
+            assert "unknown sound" in result.output
+            assert "available:" in result.output
+            assert "bell" in result.output
+        play_mock.assert_not_called()
+
+        ok = CliRunner().invoke(main, ["sound", "play", "bell", "--no-bell"])
+        assert ok.exit_code == 0, ok.output
+        play_mock.assert_called_once()
+        assert play_mock.call_args.args[0] == media_path / "bell.wav"
 
 
 def test_sound_ding_plays_bell():
