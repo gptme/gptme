@@ -4152,8 +4152,10 @@ class TestMaxTimeWatchdog:
         # Should not raise
         _timeout_subagent("nonexistent-agent", 5.0)
 
-    def test_timeout_subagent_cancels_running_thread(self, tmp_path):
-        """_timeout_subagent() sets timeout result for a running thread-mode subagent."""
+    def test_timeout_subagent_stops_running_thread_at_checkpoint(
+        self, tmp_path: Path
+    ) -> None:
+        """The watchdog publishes timeout and the next STEP_PRE stops the worker."""
         from gptme.tools.subagent.api import _timeout_subagent
         from gptme.tools.subagent.types import (
             _subagent_results,
@@ -4163,15 +4165,21 @@ class TestMaxTimeWatchdog:
         )
 
         barrier = threading.Barrier(2)
-        stop = threading.Event()
+        step_ready = threading.Event()
+        stopped = threading.Event()
+        manager = MagicMock(logdir=tmp_path)
 
-        def slow_fn():
-            barrier.wait()  # Signal we're running
-            stop.wait(60)  # Would run forever without a cancel
+        def slow_fn() -> None:
+            barrier.wait(timeout=5)
+            if step_ready.wait(timeout=5):
+                try:
+                    list(_subagent_control_hook(manager))
+                except SessionCompleteException:
+                    stopped.set()
 
         t = threading.Thread(target=slow_fn, daemon=True)
         t.start()
-        barrier.wait()  # Ensure thread is alive before proceeding
+        barrier.wait(timeout=5)
 
         try:
             sa = Subagent(
@@ -4185,7 +4193,7 @@ class TestMaxTimeWatchdog:
             with _subagents_lock:
                 _subagents.append(sa)
 
-            _timeout_subagent("running-thread", 0.5)
+            _timeout_subagent("running-thread", 0.5, expected_run=sa)
 
             with _subagent_results_lock:
                 result = _subagent_results.get("running-thread")
@@ -4193,6 +4201,11 @@ class TestMaxTimeWatchdog:
             assert result is not None
             assert result.status == "timeout"
             assert "0.5s" in (result.result or "")
+
+            step_ready.set()
+            assert stopped.wait(timeout=2)
+            assert sa.status().status == "timeout"
+            assert "timed out" in manager.append.call_args.args[0].content.lower()
 
             # Completion notification should be queued
             notifications = []
@@ -4205,7 +4218,7 @@ class TestMaxTimeWatchdog:
                 n[1] == "running-thread" and n[2] == "timeout" for n in notifications
             )
         finally:
-            stop.set()
+            step_ready.set()
             t.join(timeout=1)
 
     def test_subagent_wait_returns_cached_timeout_while_thread_is_still_alive(
