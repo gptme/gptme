@@ -238,6 +238,7 @@ def test_agent_docker_mode():
             model="claude-sonnet-4-6",
             tools=None,
             max_turns=30,
+            include_user_context=False,
         )
         mock_env.cleanup.assert_called_once()
 
@@ -279,6 +280,7 @@ def test_agent_docker_mode_with_tools():
             model="claude-sonnet-4-6",
             tools=["Bash", "Read", "Glob", "Grep"],
             max_turns=30,
+            include_user_context=False,
         )
 
 
@@ -372,9 +374,25 @@ def test_map_tools_to_claude_code():
     ]
     # Claude Code names pass through; duplicates collapse, order is kept
     assert map_tools_to_claude_code(["patch", "Edit", "Bash", "shell"]) == [
+        "Read",
         "Edit",
         "Bash",
     ]
+
+
+def test_agent_patch_only_can_read_before_editing():
+    """Claude Code refuses to Edit an unread file, so ``patch`` must carry Read."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", tools=["patch"])
+    cmd = _local_cmd(agent)
+    assert cmd[cmd.index("--tools") + 1] == "Read,Edit"
+
+
+def test_agent_explicit_empty_tools_disables_all_tools():
+    """``tools=[]`` must not fall back to Claude Code's default tool set."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", tools=[])
+    cmd = _local_cmd(agent)
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert "--allowedTools" not in cmd
 
 
 def test_map_tools_drops_unknown_with_warning(caplog):

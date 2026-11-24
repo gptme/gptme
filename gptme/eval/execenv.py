@@ -963,6 +963,7 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         model: str,
         max_turns: int = 30,
         tools: list[str] | None = None,
+        include_user_context: bool = True,
     ) -> tuple[str, str, int]:
         """
         Run Claude Code CLI inside the Docker container.
@@ -972,6 +973,8 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             model: Model identifier (e.g., "claude-sonnet-4-6")
             max_turns: Maximum number of conversation turns (default: 30)
             tools: Claude Code tool names to allow (None: all, []: none)
+            include_user_context: When False, ignore Claude Code settings and
+                MCP config found in the mounted workspace (as the local path does)
 
         Returns:
             Tuple of (stdout, stderr, exit_code)
@@ -992,6 +995,11 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             "--max-turns",
             str(max_turns),
         ]
+
+        if not include_user_context:
+            cmd_parts.extend(
+                ["--setting-sources", shlex.quote(""), "--strict-mcp-config"]
+            )
 
         if tools is not None:
             # --tools restricts the built-in set; --allowedTools pre-approves it.

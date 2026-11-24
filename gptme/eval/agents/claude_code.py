@@ -38,13 +38,14 @@ WORKSPACE_INSTRUCTION = (
 # gptme tool names -> Claude Code built-in tool names. ``read`` includes the
 # read-only discovery tools (Glob, Grep) Claude Code uses in place of shelling
 # out to ls/grep; ``append`` needs Edit for existing files and Write otherwise.
+# Claude Code refuses to Edit a file it has not Read, so edit tools carry Read.
 GPTME_TO_CLAUDE_CODE_TOOLS: dict[str, tuple[str, ...]] = {
     "shell": ("Bash",),
     "read": ("Read", "Glob", "Grep"),
     "save": ("Write",),
     "append": ("Edit", "Write"),
-    "patch": ("Edit",),
-    "morph": ("Edit",),
+    "patch": ("Read", "Edit"),
+    "morph": ("Read", "Edit"),
     "browser": ("WebFetch", "WebSearch"),
 }
 
@@ -230,6 +231,7 @@ class ClaudeCodeAgent(Agent):
                 model=self.cc_model,
                 tools=cc_tools,
                 max_turns=self.max_turns,
+                include_user_context=self.include_user_context,
             )
 
             if exit_code != 0:
@@ -249,8 +251,12 @@ class ClaudeCodeAgent(Agent):
         return store.download()
 
     def _claude_code_tools(self) -> list[str] | None:
-        """Claude Code tool names for ``self.tools``; None means no restriction."""
-        if not self.tools:
+        """Claude Code tool names for ``self.tools``; None means no restriction.
+
+        An explicit empty list stays empty, so a run that asked for no tools
+        gets ``--tools ""`` rather than Claude Code's default set.
+        """
+        if self.tools is None:
             return None
         return map_tools_to_claude_code(self.tools)
 

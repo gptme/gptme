@@ -319,6 +319,25 @@ class TestDockerClaudeCodeEnv:
         assert "--max-turns 42" in command
         assert f"--tools {shlex.quote(','.join(tools))}" in command
         assert f"--allowedTools {shlex.quote(','.join(tools))}" in command
+        # Workspace settings are honoured unless the caller isolates them
+        assert "--setting-sources" not in command
+
+    @patch("subprocess.run")
+    @patch("subprocess.Popen")
+    def test_run_claude_code_isolates_workspace_settings(self, mock_popen, mock_run):
+        """include_user_context=False keeps workspace settings and MCP out, as locally."""
+        mock_run.return_value = MagicMock(stdout="container123\n", returncode=0)
+        mock_process = MagicMock()
+        mock_process.communicate.return_value = ('{"type":"result"}\n', "")
+        mock_process.returncode = 0
+        mock_popen.return_value = mock_process
+
+        DockerClaudeCodeEnv().run_claude_code(
+            prompt="p", model="claude-sonnet-4-6", include_user_context=False
+        )
+
+        command = mock_popen.call_args[0][0][-1]
+        assert "--setting-sources '' --strict-mcp-config" in command
 
     @patch("subprocess.run")
     @patch("subprocess.Popen")
