@@ -1036,6 +1036,8 @@ def test_load_context_files_rejects_templates_in_credential_directories(
         ".npmrc",
         ".pypirc",
         "certs/server.pem",
+        "keys/id_ed25519",
+        "deploy/client.p12",
         ".config/gh/hosts.yml",
         ".docker/config.json",
         ".kube/config",
