@@ -36,6 +36,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Generator
+from pathlib import Path
 
 from ..message import Message
 from ..util.gh import (
@@ -48,6 +49,7 @@ from ..util.gh import (
     merge_github_pr,
     parse_github_ref,
     parse_github_url,
+    redact_gh_output,
 )
 from ..util.workspace import get_workspace_cwd
 from . import Parameter, ToolSpec, ToolUse
@@ -441,7 +443,12 @@ def _resolve_ref(
     if not ref:
         return None, Message("system", f"Error: No {entity_name} provided")
 
-    github_info = parse_github_ref(ref, default_type=default_type)
+    # A bare #N / N resolves against the session's checkout (the same cwd the
+    # CLI pass-through runs gh in), not the host process cwd.
+    cwd = get_workspace_cwd()
+    github_info = parse_github_ref(
+        ref, workspace=Path(cwd) if cwd else None, default_type=default_type
+    )
     if not github_info:
         return None, Message(
             "system",
@@ -576,21 +583,12 @@ def _handle_pr_merge(
 
 
 def _redact_passthrough_output(text: str) -> str:
-    """Apply the shell's credential-redaction policy to gh pass-through output.
+    """Apply the shell's credential-redaction policy to gh tool output.
 
-    ``gh auth token`` and similar commands print credentials on stdout. Shell,
-    tmux and python output already passes this policy before it is shown inline
-    or written to ``tool-outputs/``; the gh pass-through did neither, so a
-    retained ``tool-outputs/gh/`` file could hold what the rest of the pipeline
-    redacts. Same switch (``GPTME_SHELL_REDACT_SECRETS``) and same heuristic --
-    this is not a general secret scanner.
+    A retained ``tool-outputs/gh/`` file must not hold what the rest of the
+    pipeline redacts; see ``redact_gh_output`` for the policy.
     """
-    from ..config import get_config
-    from ..util.redact import redact_secret_values_from_output
-
-    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
-        return text
-    return redact_secret_values_from_output(text)[0]
+    return redact_gh_output(text)
 
 
 def _save_oversized_output(text: str, command_info: str):

@@ -139,6 +139,29 @@ def test_pr_view_actions_status_reads_every_page() -> None:
     assert len(endpoints) == 2
 
 
+def test_pr_view_actions_status_caps_names_per_state() -> None:
+    """Counts stay exact; passing names are capped harder than failures."""
+    runs = [
+        {"id": i, "name": f"check-{i}", "status": "completed", "conclusion": "success"}
+        for i in range(150)
+    ]
+    for i in range(30):
+        runs[100 + i]["conclusion"] = "failure"
+    with patch("gptme.util.gh.subprocess.run", side_effect=_paged_transport(runs, [])):
+        text = _get_github_actions_status("o", "r", SHA)
+    assert text is not None
+    failure_line, success_line = text.splitlines()
+    assert failure_line.startswith("❌ 30 checks failure: check-100, ")
+    assert "check-124" in failure_line
+    assert "check-125" not in failure_line
+    assert failure_line.endswith("(+5 more)")
+    assert success_line.startswith("✅ 120 checks success: check-0, ")
+    assert "check-4," in success_line
+    assert "check-5," not in success_line
+    assert success_line.endswith("(+115 more)")
+    assert len(text) < 1000
+
+
 def test_pr_view_actions_status_omitted_on_incomplete_listing() -> None:
     """A page that ends early must not be summarized as the full picture."""
     runs = [
@@ -154,3 +177,70 @@ def test_pr_view_actions_status_omitted_on_incomplete_listing() -> None:
 
     with patch("gptme.util.gh.subprocess.run", side_effect=transport):
         assert _get_github_actions_status("o", "r", SHA) is None
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_bare_merge_ref_resolves_against_session_workspace(
+    form: str, tmp_path, monkeypatch
+) -> None:
+    """A bare PR number must resolve against the session checkout, which is the
+    cwd the CLI pass-through used, not the host process cwd."""
+    from gptme.util.workspace import workspace_scope
+
+    seen_cwds: list[str | None] = []
+
+    def remote(cmd: list[str], **kwargs: object) -> SimpleNamespace:
+        seen_cwds.append(kwargs.get("cwd"))  # type: ignore[arg-type]
+        url = (
+            "git@github.com:session/repo.git"
+            if kwargs.get("cwd")
+            else "git@github.com:host/repo.git"
+        )
+        return SimpleNamespace(returncode=0, stdout=url + "\n", stderr="")
+
+    with (
+        workspace_scope(tmp_path),
+        patch("gptme.util.gh.subprocess.run", side_effect=remote),
+        patch(
+            "gptme.tools.gh.merge_github_pr",
+            return_value={"success": True, "message": "synthetic", "sha": "m"},
+        ) as merge,
+    ):
+        invoke(f"pr merge 42 --squash --match-head-commit {SHA}", form)
+    assert seen_cwds == [str(tmp_path)]
+    assert merge.call_args.args == ("session", "repo", "42")
+
+
+def test_run_log_redacted_before_truncation() -> None:
+    """Wherever the tail cut lands, no fragment of the credential survives.
+
+    Redacting only the final output misses a token whose key name was clipped
+    away, leaving the value (or part of it) the filter no longer recognizes.
+    """
+    from gptme.tools.gh import _redact_passthrough_output
+    from gptme.util.gh import get_github_run_logs
+
+    secret = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+    meta = {
+        "status": "completed",
+        "conclusion": "failure",
+        "jobs": [{"name": "build", "conclusion": "failure", "databaseId": 1}],
+    }
+    leaks: list[int] = []
+    for pad in range(0, 2200, 5):
+        log = f"setup {'x' * 3000} GITHUB_TOKEN={secret} {'y' * pad}\nError: failed\n"
+
+        def transport(cmd: list[str], log: str = log, **kwargs: object):
+            out = json.dumps(meta) if "--json" in cmd else log
+            return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+        with (
+            patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh"),
+            patch("gptme.util.gh.subprocess.run", side_effect=transport),
+        ):
+            text = get_github_run_logs("123", max_tokens=500)
+        assert text is not None
+        text = _redact_passthrough_output(text)  # what the tool shows
+        if any(secret[i : i + 8] in text for i in range(len(secret) - 7)):
+            leaks.append(pad)
+    assert leaks == []

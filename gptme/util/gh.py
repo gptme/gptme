@@ -210,6 +210,22 @@ def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
         page += 1
 
 
+#: States whose check names matter most; they get a larger name budget.
+_ATTENTION_STATES = frozenset({"failure", "cancelled", "action_required", "timed_out"})
+#: Per-state name caps for the ``pr view`` Actions summary. Counts stay exact;
+#: only the listed names are capped, so a large CI matrix's passing jobs do not
+#: crowd the context while failures stay visible.
+_CHECK_NAMES_ATTENTION_LIMIT = 25
+_CHECK_NAMES_OTHER_LIMIT = 5
+
+
+def _cap_check_names(names: list[str], attention: bool) -> str:
+    limit = _CHECK_NAMES_ATTENTION_LIMIT if attention else _CHECK_NAMES_OTHER_LIMIT
+    if len(names) <= limit:
+        return ", ".join(names)
+    return f"{', '.join(names[:limit])}, ... (+{len(names) - limit} more)"
+
+
 def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
     """Get GitHub Actions status for a commit SHA."""
     try:
@@ -273,9 +289,8 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
                 if len(checks) == 1:
                     lines.append(f"{emoji} {checks[0]}: {state}")
                 else:
-                    lines.append(
-                        f"{emoji} {len(checks)} checks {state}: {', '.join(checks)}"
-                    )
+                    names = _cap_check_names(checks, state in _ATTENTION_STATES)
+                    lines.append(f"{emoji} {len(checks)} checks {state}: {names}")
 
         # Add any remaining states not in priority order
         for state, checks in status_summary.items():
@@ -283,9 +298,9 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
                 if len(checks) == 1:
                     lines.append(f"❓ {checks[0]}: {state}")
                 else:
-                    lines.append(
-                        f"❓ {len(checks)} checks {state}: {', '.join(checks)}"
-                    )
+                    # Unknown states may need action: give them the larger cap.
+                    names = _cap_check_names(checks, True)
+                    lines.append(f"❓ {len(checks)} checks {state}: {names}")
 
         return "\n".join(lines) if lines else None
 
@@ -1056,6 +1071,23 @@ def get_github_pr_content(url: str) -> str | None:
 DEFAULT_LOG_MAX_TOKENS = 4000
 
 
+def redact_gh_output(text: str) -> str:
+    """Apply the shell's credential-redaction policy to gh output.
+
+    ``gh auth token`` and similar commands print credentials on stdout, and CI
+    job logs can echo them. Shell, tmux and python output already pass this
+    policy before it is shown inline or written to ``tool-outputs/``. Same
+    switch (``GPTME_SHELL_REDACT_SECRETS``) and same heuristic -- this is not a
+    general secret scanner.
+    """
+    from ..config import get_config
+    from .redact import redact_secret_values_from_output
+
+    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        return text
+    return redact_secret_values_from_output(text)[0]
+
+
 def _truncate_log_tail(text: str, max_chars: int, hint: str = "") -> str:
     """Trim a CI log to ``max_chars`` by dropping the *head*, not the tail.
 
@@ -1178,7 +1210,10 @@ def get_github_run_logs(
             ``gh`` resolves the repository from the current checkout.
 
     Returns:
-        Formatted string with run info and failure logs, or None on error
+        Formatted string with run info and failure logs, or None on error.
+        Raw job-log text is credential-redacted (``redact_gh_output``) before
+        failure extraction and truncation, so a credential is never clipped into
+        a fragment the filter no longer recognizes.
     """
     if not shutil.which("gh"):
         logger.debug("gh CLI not available")
@@ -1282,7 +1317,7 @@ def get_github_run_logs(
             timeout=60,
         )
         all_log_text = (
-            log_result.stdout
+            redact_gh_output(log_result.stdout)
             if log_result.returncode == 0 and log_result.stdout.strip()
             else ""
         )
@@ -1359,7 +1394,7 @@ def get_github_run_logs(
                 )
                 if api_result.returncode == 0 and api_result.stdout.strip():
                     extracted = _truncate_log_tail(
-                        _extract_failure_sections(api_result.stdout),
+                        _extract_failure_sections(redact_gh_output(api_result.stdout)),
                         tokens_per_job * 4,
                     )
                     output += f"\n```\n{extracted}\n```\n"
