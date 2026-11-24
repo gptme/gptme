@@ -290,6 +290,9 @@ def _run_health_check() -> None:
             # but still release the runtime: its dedicated loop thread would
             # otherwise outlive the session.
             session.acp_runtime = None
+            SessionManager.remove_session(session_id)
+            # Release only after removal, so no /step can reach the session
+            # while the runtime is being shut down.
             try:
                 acp_runtime.terminate_subprocess_sync(timeout=1.0)
             except Exception:
@@ -298,7 +301,6 @@ def _run_health_check() -> None:
                     session_id,
                     exc_info=True,
                 )
-            SessionManager.remove_session(session_id)
 
 
 def _cleanup_all_acp_sessions() -> None:

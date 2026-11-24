@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import sys
 import threading
 import time
 import uuid
@@ -1296,10 +1297,12 @@ def test_loop_calls_cancels_pending_futures_on_close():
     assert calls.closed
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="needs POSIX signals and os.WNOHANG"
+)
 def test_terminate_asyncio_process_sync_kills_term_ignoring_child():
     """Fallback termination outside the owning loop escalates to SIGKILL."""
     import subprocess
-    import sys
 
     from gptme.server.acp_session_runtime import _terminate_asyncio_process_sync
 
