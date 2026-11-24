@@ -141,6 +141,19 @@ def _run_script_hook(
             process.wait()
             logger.warning("Script hook %s failed: %s", hook.event, exc)
             return
+        except BaseException:
+            # Ctrl-C: the hook runs in its own session, so SIGINT never reached
+            # it. Stop it before the interrupt propagates, or it keeps running
+            # unwatched after trigger_hook swallows the KeyboardInterrupt.
+            _terminate_process_tree(process)
+            try:
+                process.wait(timeout=_PROCESS_REAP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                logger.error(
+                    "Script hook process %d did not exit after interrupt",
+                    process.pid,
+                )
+            raise
 
         if process.returncode != 0:
             output.seek(0)
