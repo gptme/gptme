@@ -33,8 +33,11 @@ pub fn sanitize_filename(suggested: &Path) -> Option<String> {
             !c.is_control() && !matches!(*c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
         })
         .collect();
-    let cleaned = cleaned.trim();
-    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+    // Windows strips trailing dots and spaces from file names (`report.`
+    // becomes `report`), so drop them here; that also turns dot-only names
+    // like `...` into an empty, rejected name.
+    let cleaned = cleaned.trim().trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() {
         None
     } else {
         Some(cleaned.to_string())
@@ -224,6 +227,23 @@ mod tests {
     #[test]
     fn sanitize_rejects_names_that_clean_to_nothing() {
         assert_eq!(sanitize_filename(Path::new("\u{0}")), None);
+    }
+
+    #[test]
+    fn sanitize_strips_trailing_dots_and_spaces() {
+        assert_eq!(
+            sanitize_filename(Path::new("report.")),
+            Some("report".to_string())
+        );
+        assert_eq!(
+            sanitize_filename(Path::new("notes.md. . ")),
+            Some("notes.md".to_string())
+        );
+        assert_eq!(sanitize_filename(Path::new("...")), None);
+        assert_eq!(
+            sanitize_filename(Path::new(".hidden")),
+            Some(".hidden".to_string())
+        );
     }
 
     #[test]

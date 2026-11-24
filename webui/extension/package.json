@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "build": "bash build.sh",
-    "watch": "bash build.sh --watch"
+    "watch": "bash build.sh --watch",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.7",

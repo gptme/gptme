@@ -23,6 +23,7 @@ from ..config import ChatConfig, get_project_config
 from ..config.chat import chat_config_lock
 from ..dirs import get_logs_dir
 from .manager import Log
+from .metadata import read_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,11 @@ class ConversationMeta:
     models_usage: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_message_role: str | None = None
     last_message_preview: str | None = None
+    # User-edited fields from the metadata.toml sidecar (see metadata.py)
+    starred: bool = False
+    description: str | None = None
+    tags: list[str] = field(default_factory=list)
+    pinned_order: int | None = None
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -442,6 +448,7 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
     # path (used by the list/search endpoint) skips this per-directory
     # glob since the webui list view doesn't display branch counts.
     n_branches = 1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))) if detail else 1
+    user_meta = read_metadata(conv_fn.parent)
     return ConversationMeta(
         id=conv_id,
         name=display_name,
@@ -463,6 +470,10 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
         models_usage=models_usage,
         last_message_role=last_msg_role,
         last_message_preview=last_msg_preview,
+        starred=user_meta.starred,
+        description=user_meta.description,
+        tags=user_meta.tags,
+        pinned_order=user_meta.pinned_order,
     )
 
 

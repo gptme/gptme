@@ -771,6 +771,24 @@ class JsonRpcResponse(BaseModel):
     error: dict[str, Any] | None = Field(None, description="Error object")
 
 
+class ConversationMetadataResponse(BaseModel):
+    """User-edited conversation metadata (metadata.toml sidecar)."""
+
+    starred: bool = Field(False, description="Whether the conversation is starred")
+    description: str | None = Field(None, description="Free-form description")
+    tags: list[str] = Field(default_factory=list, description="Tags")
+    pinned_order: int | None = Field(None, description="Sidebar pin position")
+
+
+class ConversationMetadataPatchRequest(BaseModel):
+    """Partial metadata update; ``null`` clears a field."""
+
+    starred: bool | None = Field(None, description="Star or unstar")
+    description: str | None = Field(None, description="Free-form description")
+    tags: list[str] | None = Field(None, description="Tags")
+    pinned_order: int | None = Field(None, description="Sidebar pin position")
+
+
 class ConversationConfigUpdateResponse(BaseModel):
     """Result of a conversation config update."""
 

@@ -40,7 +40,11 @@ from gptme.config import (
     set_config_value,
 )
 from gptme.credentials import get_stored_api_key
-from gptme.llm import PROVIDER_API_KEYS, list_available_providers
+from gptme.llm import (
+    PROVIDER_API_KEYS,
+    get_provider_from_model,
+    list_available_providers,
+)
 from gptme.llm.constants import OPENROUTER_APP_HEADERS
 from gptme.llm.models import (
     PROVIDERS,
@@ -80,6 +84,11 @@ from ..logmanager import (
 )
 from ..logmanager import conversations as conversations_module
 from ..logmanager.fork import copy_messages_for_fork as _copy_messages_for_fork
+from ..logmanager.metadata import (
+    read_metadata,
+    update_metadata,
+    validate_metadata_patch,
+)
 from ..message import Message
 from ..prompt_queue import drain_prompt_queue
 from ..tools import get_toolchain, get_tools, init_tools
@@ -112,6 +121,8 @@ from .openapi_docs import (
     ConversationConfigUpdateResponse,
     ConversationCreateRequest,
     ConversationListResponse,
+    ConversationMetadataPatchRequest,
+    ConversationMetadataResponse,
     ConversationResponse,
     DeployStatusResponse,
     DeployTriggerResponse,
@@ -328,6 +339,40 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
             f"Model {trimmed_model} does not match provider {expected_provider}"
         )
     return trimmed_model
+
+
+def _validate_conversation_model(model: str) -> None:
+    """Reject a conversation model the next step could not run.
+
+    A qualified ``provider/model`` must name a built-in, configured or plugin
+    provider; that is the check that fails the step. A bare name must be a
+    known model or a provider name, since it has no provider to route to
+    otherwise. Unknown model names under a known provider stay allowed:
+    providers ship models before gptme's metadata lists them, and those run
+    with fallback metadata.
+    """
+    model = model.strip()
+    if not model:
+        return
+    if "/" in model:
+        get_provider_from_model(model)  # raises "Unknown provider: ..."
+        if not model.split("/", 1)[1].strip():
+            raise ValueError(
+                "model must include a model name after the provider prefix"
+            )
+    else:
+        # A bare provider name (e.g. a configured custom provider) selects that
+        # provider's default model; check it before resolving the name as a
+        # model, which a custom provider without default_model cannot do.
+        try:
+            get_provider_from_model(f"{model}/")
+            return
+        except ValueError:
+            pass
+        if get_model(model).provider == "unknown":
+            raise ValueError(
+                f"Unknown model: {model} (use a fully qualified provider/model)"
+            )
 
 
 def _effective_model_for_effort_validation(chat_config: ChatConfig) -> str | None:
@@ -759,7 +804,11 @@ def _etag_conversations(conversations: "list[ConversationMeta]") -> str:
     """Compute a stable ETag from conversation IDs and modification times."""
     h = hashlib.md5()
     for c in conversations:
-        h.update(f"{c.id}:{c.modified}\n".encode())
+        # Metadata edits (star, tags, ...) do not touch the log's mtime.
+        h.update(
+            f"{c.id}:{c.modified}:{c.starred}:{c.pinned_order}:"
+            f"{c.description}:{c.tags}\n".encode()
+        )
     return h.hexdigest()[:16]
 
 
@@ -3012,6 +3061,72 @@ def api_commands():
     return flask.jsonify({"commands": get_user_commands()})
 
 
+@v2_api.route(
+    "/api/v2/conversations/<string:conversation_id>/metadata", methods=["GET"]
+)
+@require_auth
+@api_doc(
+    summary="Get conversation metadata",
+    description="Starred state, description, tags and pin order of a conversation.",
+    responses={
+        200: ConversationMetadataResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+    },
+    tags=["conversations"],
+)
+def api_conversation_metadata_get(conversation_id: str):
+    """Get the user-edited metadata of a conversation."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    logdir = get_logs_dir() / conversation_id
+    if not logdir.is_dir():
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+    return flask.jsonify(read_metadata(logdir).to_dict())
+
+
+@v2_api.route(
+    "/api/v2/conversations/<string:conversation_id>/metadata", methods=["PATCH"]
+)
+@require_auth
+@api_doc(
+    summary="Update conversation metadata",
+    description=(
+        "Partially update starred/description/tags/pinned_order. Stored in a "
+        "metadata.toml sidecar, separate from the chat config. null clears a field."
+    ),
+    request_body=ConversationMetadataPatchRequest,
+    responses={
+        200: ConversationMetadataResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+    },
+    tags=["conversations"],
+)
+def api_conversation_metadata_patch(conversation_id: str):
+    """Update the user-edited metadata of a conversation."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    req_json = request.get_json(silent=True)
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+    if error_msg := validate_metadata_patch(req_json):
+        return flask.jsonify({"error": error_msg}), 400
+    logdir = get_logs_dir() / conversation_id
+    if not logdir.is_dir():
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+    with SessionManager.conversation_lock(conversation_id):
+        meta = update_metadata(logdir, req_json)
+    _invalidate_conversations_cache()
+    return flask.jsonify(meta.to_dict())
+
+
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])
 @require_auth
 @api_doc(
@@ -3085,6 +3200,13 @@ def api_conversation_config_patch(conversation_id: str):
             return flask.jsonify(
                 {"error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-5-5')"}
             ), 400
+        if isinstance(chat_patch.get("model"), str):
+            # Saving an unroutable model makes every later step fail; reject it
+            # here like /step does (gptme/gptme#5187).
+            try:
+                _validate_conversation_model(chat_patch["model"])
+            except ValueError as exc:
+                return flask.jsonify({"error": str(exc)}), 400
 
     normalized_tools, forbidden = _resolve_requested_tools(tool_allowlist)
     if forbidden:

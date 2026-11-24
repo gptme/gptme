@@ -662,6 +662,9 @@ class ShellSession:
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
+        # The workspace this shell was started in. A server conversation only
+        # reuses its registered shell while its workspace is unchanged.
+        self._seed_cwd = cwd
         self._memory_limit = _get_memory_limit()
         self._restart_notice = None
         self._restarting = False
@@ -2475,6 +2478,8 @@ def get_shell() -> ShellSession:
     the shell in a conversation-level registry for cleanup via SESSION_END hooks.
     """
     shell = _shell_var.get()
+    if shell is None and (shell := _adopt_conversation_shell()) is not None:
+        _shell_var.set(shell)
     if shell is None:
         # Prefer the promotion seed over the server skip-chdir flag.
         workspace = _promoted_next_cwd.get() or _workspace_cwd.get()
@@ -2483,6 +2488,39 @@ def get_shell() -> ShellSession:
         _shell_var.set(shell)
         # Register for conversation-level cleanup if in a server context
         _register_conversation_shell(shell)
+    return shell
+
+
+def _adopt_conversation_shell() -> ShellSession | None:
+    """Return the server conversation's live shell, if one can be reused.
+
+    The server runs every tool call in a fresh thread, so ``_shell_var`` starts
+    empty each turn. Without reuse, each call built a new shell in the
+    workspace root: a ``cd`` (and any ``export``) from an earlier turn was lost,
+    although that turn's output had reported the directory change
+    (gptme/gptme#5187). The CLI keeps one shell in its main context, so this
+    makes the server match it.
+
+    Only shells from a server session (``_workspace_cwd`` set) are reused, and
+    only while the conversation's workspace still matches the shell's seed. A
+    pending promotion seed wins, since it carries newer state.
+    """
+    workspace = _workspace_cwd.get()
+    if workspace is None or _promoted_next_cwd.get() is not None:
+        return None
+    try:
+        from ..hooks import current_conversation_id
+    except ImportError:
+        return None
+    conv_id = current_conversation_id.get()
+    if conv_id is None:
+        return None
+    with _conv_shell_lock:
+        shell = _conversation_shells.get(conv_id)
+    if shell is None or getattr(shell, "_closed", False):
+        return None
+    if getattr(shell, "_seed_cwd", None) != workspace:
+        return None
     return shell
 
 
