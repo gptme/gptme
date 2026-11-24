@@ -122,6 +122,17 @@ def compute_trends(
             passed = sum(1 for r in runs_sorted if r["passed"])
             pass_rate = passed / total
 
+            # Check pass_rate first to catch intermittent tests before binary direction.
+            # Require at least 4 runs to avoid misclassifying single-change tests as flaky.
+            # A single status change (pass, pass, pass, fail) is a regression or
+            # improvement, not flakiness: require at least two flips.
+            flip_at = [
+                i
+                for i in range(1, total)
+                if runs_sorted[i - 1]["passed"] != runs_sorted[i]["passed"]
+            ]
+            flips = len(flip_at)
+
             entry = {
                 "model": model_key,
                 "test": test_name,
@@ -129,19 +140,16 @@ def compute_trends(
                 "previous_passed": previous["passed"],
                 "latest_run": latest["run"],
                 "previous_run": previous["run"],
+                # The runs on either side of the most recent status change:
+                # with [pass, pass, fail, fail] the last two runs both failed,
+                # so previous/latest alone do not show when the test broke.
+                "changed_from_run": runs_sorted[flip_at[-1] - 1]["run"]
+                if flip_at
+                else None,
+                "changed_to_run": runs_sorted[flip_at[-1]]["run"] if flip_at else None,
                 "pass_rate": round(pass_rate, 3),
                 "total_runs": total,
             }
-
-            # Check pass_rate first to catch intermittent tests before binary direction.
-            # Require at least 4 runs to avoid misclassifying single-change tests as flaky.
-            # A single status change (pass, pass, pass, fail) is a regression or
-            # improvement, not flakiness: require at least two flips.
-            flips = sum(
-                1
-                for a, b in zip(runs_sorted, runs_sorted[1:])
-                if a["passed"] != b["passed"]
-            )
             # With exactly one flip the direction is fixed wherever it landed:
             # [pass, pass, fail, fail] broke and stayed broken, so it is a
             # regression even though the last two runs agree.

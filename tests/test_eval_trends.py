@@ -442,6 +442,25 @@ def test_earlier_single_flip_keeps_its_direction(tmp_path):
     }
 
 
+def test_single_flip_reports_the_runs_around_the_change(tmp_path):
+    """[pass, pass, fail, fail]: previous/latest are both failures, so the
+    entry also names the runs on either side of the change."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": f"2026010{i + 1}_000000Z",
+                "rows": [("model-a", "markdown", "hello", passed)],
+            }
+            for i, passed in enumerate(["true", "true", "false", "false"])
+        ],
+    )
+    (entry,) = compute_trends(load_all_results(tmp_path))["regressions"]
+    assert entry["previous_passed"] is False
+    assert entry["changed_from_run"] == "20260102_000000Z"
+    assert entry["changed_to_run"] == "20260103_000000Z"
+
+
 def test_provider_pinned_model_keeps_at_suffix(tmp_path):
     """An OpenRouter provider pin (`model@provider`) is part of the model name."""
     _create_eval_results(
