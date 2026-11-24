@@ -89,7 +89,12 @@ def test_call_after_server_death_fails_fast(tmp_path):
         if hasattr(os, "waitid"):
             # Block until it has exited, without reaping it: the client's
             # child watcher still owns the exit status.
-            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+            try:
+                os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+            except ChildProcessError:
+                # asyncio's watcher thread (Python 3.11) reaped it first:
+                # the server has already exited.
+                pass
         else:
             time.sleep(0.5)
 
