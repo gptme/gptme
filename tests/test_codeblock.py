@@ -3593,3 +3593,55 @@ def test_streaming_holds_heredoc_until_its_terminator_arrives():
             continue
         for block in Codeblock.iter_from_markdown(full[:cut], streaming=True):
             assert block.content == expected, f"prefix {full[:cut]!r}"
+
+
+def test_py_block_triple_quoted_fence_is_literal():
+    """`py` needs the same triple-quote tracking as `ipython`.
+
+    A bare fence inside a triple-quoted Python string is literal source, not a
+    markdown delimiter. Before the fix the `py` block was cut at the first fence.
+    """
+    md = '```py\ntext = """\n```\nexample\n```\n"""\nprint(text)\n```\n'
+    blocks = Codeblock.iter_from_markdown(md)
+    assert len(blocks) == 1
+    assert blocks[0].lang == "py"
+    assert blocks[0].content == 'text = """\n```\nexample\n```\n"""\nprint(text)'
+
+
+def test_extract_codeblocks_bare_arithmetic_shift_is_not_a_heredoc():
+    """A `$`-less `((...))` arithmetic command is not a heredoc opener.
+
+    `shift=3; (( mask = 1 << shift ))` made the scanner read `shift` as a
+    heredoc delimiter, keeping the block open and swallowing later fences.
+    """
+    md = "```shell\nshift=3; (( mask = 1 << shift ))\necho $mask\n```\n"
+    expected = "shift=3; (( mask = 1 << shift ))\necho $mask"
+    # Streaming: the old window-hits-end fallback confirmed the phantom `shift`
+    # terminator and held the block open forever, so no block was emitted.
+    assert [b.content for b in Codeblock.iter_from_markdown(md, streaming=True)] == [
+        expected
+    ]
+
+
+def test_extract_codeblocks_long_heredoc_past_confirmation_window():
+    """A heredoc terminator beyond 200 lines must still be honoured.
+
+    The old bounded look-ahead gave up, so the first inner fence closed the
+    shell block and only the start of the file write survived.
+    """
+    body = "\n".join(f"body {i}" for i in range(250))
+    full = f"```shell\ncat > README.md <<'EOF'\n{body}\n```\ntail\nEOF\n```\n"
+    expected = "cat > README.md <<'EOF'\n" + body + "\n```\ntail\nEOF"
+    assert [b.content for b in Codeblock.iter_from_markdown(full)] == [expected]
+
+
+def test_streaming_long_heredoc_is_never_truncated():
+    """Streaming must not emit a truncated command past the old 200-line window."""
+    body = "\n".join(f"body {i}" for i in range(250))
+    full = f"```shell\ncat > README.md <<'EOF'\n{body}\n```\ntail\nEOF\n```\n"
+    expected = "cat > README.md <<'EOF'\n" + body + "\n```\ntail\nEOF"
+    for cut in range(1, len(full) + 1):
+        if full[cut - 1] != "\n":
+            continue
+        for block in Codeblock.iter_from_markdown(full[:cut], streaming=True):
+            assert block.content == expected, f"prefix {full[:cut]!r}"

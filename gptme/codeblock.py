@@ -216,6 +216,19 @@ def _find_heredoc_terminator(
             i = (j + 2) if j != -1 else n
             continue
         elif (
+            c == "("
+            and not in_single
+            and not in_double
+            and i + 1 < n
+            and line[i + 1] == "("
+        ):
+            # Bare `((...))` arithmetic command (`(( mask = 1 << shift ))`):
+            # `<<` inside is a bit-shift, never a heredoc. Skip to the matching
+            # `))`. `$((...))` is handled above; this covers the `$`-less form.
+            j = line.find("))", i + 2)
+            i = (j + 2) if j != -1 else n
+            continue
+        elif (
             c == "<"
             and i + 1 < n  # guard: need line[i+1] for the look-ahead
             and line[i + 1] == "<"
@@ -497,14 +510,19 @@ def _line_fence_states(
                 candidate, qs_single, qs_double, qs_ansi = _find_heredoc_terminator(
                     line, qs_single, qs_double, qs_ansi
                 )
-                if candidate is not None and any(
-                    later.strip() == candidate for later in lines[i + 1 : i + 201]
+                # Scan to the end: a real heredoc terminator can sit arbitrarily
+                # far from its opener (a long file write). A bounded window would
+                # give up and let an inner fence close the block, emitting a
+                # truncated command. Openers are rare, so the scan is cheap.
+                if candidate is not None and (
+                    streaming
+                    or any(later.strip() == candidate for later in lines[i + 1 :])
                 ):
                     heredoc_terminator = candidate
             elif line.strip() == heredoc_terminator:
                 heredoc_terminator = None
                 qs_single = qs_double = qs_ansi = False
-        elif outer_lang == "ipython":
+        elif outer_lang in ("ipython", "py"):
             ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
                 line, ipy_td, ipy_ts, ipy_s, ipy_d
             )
@@ -1195,15 +1213,18 @@ def _extract_codeblocks(
                                 line, _qs_in_single, _qs_in_double, _qs_in_ansi_c
                             )
                         )
-                        _confirm_window = lines[i + 1 : i + 1 + 200]
-                        # While streaming, a window that reaches the end of the
-                        # text may simply not contain the terminator *yet*: keep
-                        # the heredoc open so an inner fence can't close the block
-                        # early. The final non-streaming parse settles it.
-                        _window_hits_end = i + 1 + 200 >= len(lines)
+                        # Scan to the end: a real heredoc terminator can sit
+                        # arbitrarily far from its opener (a long file write). A
+                        # bounded window would give up and let an inner fence close
+                        # the block, emitting a truncated command. In streaming the
+                        # terminator may not have arrived yet, so a confirmed opener
+                        # keeps the block open unconditionally.
+                        _confirm_window = lines[i + 1 :]
                         if candidate is not None and (
-                            any(later.strip() == candidate for later in _confirm_window)
-                            or (streaming and _window_hits_end)
+                            streaming
+                            or any(
+                                later.strip() == candidate for later in _confirm_window
+                            )
                         ):
                             heredoc_terminator = candidate
                     elif line.strip() == heredoc_terminator:
@@ -1216,7 +1237,7 @@ def _extract_codeblocks(
                         _qs_in_single = False
                         _qs_in_double = False
                         _qs_in_ansi_c = False
-                elif lang == "ipython":
+                elif lang in ("ipython", "py"):
                     # Update triple-quoted-string state line-by-line so that
                     # bare fences inside ``"""..."""`` or ``'''...'''`` are
                     # treated as literal Python content rather than block closers.
