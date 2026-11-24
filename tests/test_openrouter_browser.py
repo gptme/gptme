@@ -29,6 +29,11 @@ def test_oauth_browser_selection(
 
     def open_url(url: str) -> bool:
         callback = urlparse(parse_qs(urlparse(url).query)["callback_url"][0])
+        assert (callback.scheme, callback.hostname, callback.port) == (
+            "http",
+            "localhost",
+            0,
+        )
         with requests.Session() as session:
             session.trust_env = False
             response = session.get(
