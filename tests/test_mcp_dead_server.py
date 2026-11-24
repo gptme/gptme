@@ -5,6 +5,7 @@ afterwards waits forever for a response unless the client notices the closed
 transport and raises a connection error the auto-restart path acts on.
 """
 
+import asyncio
 import os
 import signal
 import sys
@@ -83,8 +84,14 @@ def test_call_after_server_death_fails_fast(tmp_path):
 
         # The server crashes (OOM, segfault, idle exit) between two calls, while
         # the client's event loop is stopped: the EOF is not processed yet.
-        os.kill(int(pid_file.read_text()), getattr(signal, "SIGKILL", signal.SIGTERM))
-        time.sleep(0.5)
+        pid = int(pid_file.read_text())
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+        if hasattr(os, "waitid"):
+            # Block until it has exited, without reaping it: the client's
+            # child watcher still owns the exit status.
+            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+        else:
+            time.sleep(0.5)
 
         outcome: dict = {}
 
@@ -129,6 +136,27 @@ def test_server_dead_before_send_is_retryable():
         anyio.run(client._unless_transport_closed, request())
     assert _is_connection_error(info.value)
     assert sent == []
+
+
+def test_cancel_before_send_closes_the_request():
+    """A cancel during the pre-send drain must not leak the unsent coroutine."""
+    stream = _FakeStream(1)
+
+    async def request():
+        pass
+
+    async def scenario():
+        coro = request()
+        client = _bare_client(stream)
+        task = asyncio.ensure_future(client._unless_transport_closed(coro))
+        await asyncio.sleep(0)  # task is now inside the drain
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return coro
+
+    coro = asyncio.run(scenario())
+    assert coro.cr_frame is None  # closed, so no "never awaited" warning
 
 
 def test_server_dying_mid_call_is_not_retried():

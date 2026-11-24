@@ -758,10 +758,15 @@ class MCPClient:
         # exited in between is still unprocessed. Let the reader task run first:
         # without this the closed stream is seen only after the request is sent,
         # which reads as "died mid-call" and skips a safe restart.
-        for _ in range(_PRE_SEND_DRAIN_STEPS):
-            if stream.statistics().open_send_streams == 0:
-                break
-            await asyncio.sleep(0)
+        try:
+            for _ in range(_PRE_SEND_DRAIN_STEPS):
+                if stream.statistics().open_send_streams == 0:
+                    break
+                await asyncio.sleep(0)
+        except BaseException:
+            # Cancelled (e.g. by close()) before the request was scheduled.
+            coro.close()
+            raise
         if stream.statistics().open_send_streams == 0:
             # Died before this request was sent: retrying after a restart is safe.
             coro.close()
