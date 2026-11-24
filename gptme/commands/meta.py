@@ -273,11 +273,35 @@ def cmd_plugin(ctx: CommandContext) -> None:
         print("Available commands: list, info")
 
 
-def _gen_help(incl_langtags: bool = True) -> Generator[str, None, None]:
-    """Generate help text."""
+def _gen_help(
+    incl_langtags: bool = True, *, session: bool = False
+) -> Generator[str, None, None]:
+    """Generate help text.
+
+    With ``session=True`` (the in-chat ``/help``), list only commands this
+    session can run: curated entries whose command is not registered, or whose
+    owning tool is not loaded (e.g. ``/commit`` without ``autocommit``), are
+    omitted. Without a session (``gptme --help``), every curated entry is shown.
+    """
+    from .base import get_commands_with_descriptions  # fmt: skip
+
+    # Commands registered outside the curated list above (e.g. /snapshot,
+    # /account, and tool-owned ones like /skills or /lesson when their tool is
+    # loaded) must show up too, or /help understates what the session can run.
+    registered = get_commands_with_descriptions()
+    curated = set(action_descriptions)
+    extra = [(name, desc) for name, desc in registered if name not in curated]
+    curated_entries = list(action_descriptions.items())
+    if session:
+        from .base import get_user_commands  # fmt: skip
+
+        enabled = {cmd.lstrip("/") for cmd in get_user_commands()}
+        curated_entries = [(c, d) for c, d in curated_entries if c in enabled]
+    entries = curated_entries + extra
+
     yield "Available commands:"
-    max_cmdlen = max(len(cmd) for cmd in COMMANDS)
-    for cmd, desc in action_descriptions.items():
+    max_cmdlen = max(len(cmd) for cmd, _ in entries)
+    for cmd, desc in entries:
         yield f"  /{cmd.ljust(max_cmdlen)}  {desc}"
 
     yield "\b"
@@ -308,5 +332,5 @@ def _gen_help(incl_langtags: bool = True) -> Generator[str, None, None]:
 
 def _help():
     """Print help message."""
-    for line in _gen_help():
+    for line in _gen_help(session=True):
         print(line)

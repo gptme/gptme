@@ -726,13 +726,44 @@ class TestPromptUser:
 class TestPromptProject:
     """Tests for prompt_project in templates.py."""
 
-    def test_no_project_yields_nothing(self):
-        """When not in a git repo, no project prompt is generated."""
+    def test_no_project_yields_nothing(self, tmp_path):
+        """Outside a git repo and without a gptme.toml, no project prompt is generated."""
         from gptme.prompts import prompt_project
+        from gptme.util.workspace import workspace_scope
 
-        with patch("gptme.prompts.templates.get_project_git_dir", return_value=None):
+        with (
+            patch("gptme.prompts.templates.get_project_git_dir", return_value=None),
+            workspace_scope(tmp_path),
+        ):
             msgs = list(prompt_project())
         assert len(msgs) == 0
+
+    def test_non_git_workspace_with_gptme_toml(self, tmp_path):
+        """A non-git workspace's gptme.toml ``prompt`` and ``base_prompt`` are
+        applied, like its ``files`` (#5179)."""
+        from gptme.prompts import prompt_gptme, prompt_project
+        from gptme.util.workspace import workspace_scope
+
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "gptme.toml").write_text(
+            'prompt = "PROJPROMPT_MARKER is gptme."\n'
+            'base_prompt = "BASEPROMPT_MARKER custom base."\n'
+        )
+
+        with (
+            patch("gptme.prompts.templates.get_project_git_dir", return_value=None),
+            workspace_scope(ws),
+        ):
+            msgs = list(prompt_project())
+            base_msgs = list(prompt_gptme(interactive=True))
+
+        assert len(msgs) == 1
+        assert msgs[0].content.startswith("## Current Project: ws")
+        assert "PROJPROMPT_MARKER is gptme." in msgs[0].content
+        base = base_msgs[0].content
+        # The default base prompt ("You are ...") is replaced, not prepended.
+        assert base.startswith("BASEPROMPT_MARKER custom base.")
 
     def test_project_with_info(self):
         """Project with info shows project name and description."""

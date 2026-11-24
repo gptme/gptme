@@ -10,7 +10,7 @@ from ..llm.models import get_model
 from ..message import Message
 from ..tools import FUNCTION_CALL_TOOL, ToolFormat, ToolSpec
 from ..util import clock
-from ..util.workspace import workspace_scope
+from ..util.workspace import current_workspace, workspace_scope
 from . import _xml_section
 from .skills import prompt_skills_summary
 
@@ -324,7 +324,7 @@ Do not provide examples or ask for permission before running commands.
 Proceed directly with the most appropriate actions to complete the task.
 """.strip()
 
-    projectdir = get_project_git_dir()
+    projectdir = _get_project_dir()
     project_config = get_project_config(projectdir)
     base_prompt = (
         project_config.base_prompt
@@ -393,15 +393,31 @@ def prompt_user(
     yield Message("system", prompt_content)
 
 
+def _get_project_dir() -> Path | None:
+    """Directory whose ``gptme.toml`` supplies the project prompt options.
+
+    The git root when there is one; otherwise a non-git workspace that has its
+    own ``gptme.toml``, so ``prompt``/``base_prompt`` apply there just like the
+    ``files`` option already does (#5179).
+    """
+    if projectdir := get_project_git_dir():
+        return projectdir
+    workspace = current_workspace()
+    if get_project_config(workspace, quiet=True) is not None:
+        return workspace
+    return None
+
+
 def prompt_project(
     tool_format: ToolFormat = "markdown",
 ) -> Generator[Message, None, None]:
     """
-    Generate the project-specific prompt based on the current Git repository.
+    Generate the project-specific prompt for the current Git repository, or for
+    a non-git workspace that has its own ``gptme.toml``.
 
     Project-specific prompt can be set in the :ref:`global-config` or :ref:`project-config` files.
     """
-    projectdir = get_project_git_dir()
+    projectdir = _get_project_dir()
     if not projectdir:
         return
 

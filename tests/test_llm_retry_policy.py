@@ -109,6 +109,24 @@ def test_openai_lazy_client_materializes_with_sdk_retries_disabled(monkeypatch):
     assert client._materialize().max_retries == SDK_MAX_RETRIES
 
 
+def test_openai_client_ignores_shell_openai_base_url(monkeypatch):
+    """OPENAI_BASE_URL is for local/ only; openai/ must not send its key there (#5179)."""
+    from gptme.config import Config
+    from gptme.llm import llm_openai
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.delenv("LLM_PROXY_URL", raising=False)
+    monkeypatch.delitem(llm_openai.clients, "openai", raising=False)
+    llm_openai.init("openai", Config())
+
+    client = llm_openai.get_client("openai")
+    assert isinstance(client, llm_openai._LazyClient)
+    assert (
+        str(client._materialize().base_url).rstrip("/") == "https://api.openai.com/v1"
+    )
+
+
 @pytest.mark.parametrize(
     ("provider", "env_var", "extra_env"),
     [

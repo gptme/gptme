@@ -130,6 +130,11 @@ def _replay_tool(log, tool_name: str) -> None:
         tool_module = None
 
     for msg in log:
+        # Only the conversation's own tool calls: the system prompt's tool
+        # examples (and user-pasted snippets) are not operations to restore,
+        # matching /replay last|all, which also replay assistant messages only.
+        if msg.role != "assistant":
+            continue
         for tooluse in ToolUse.iter_from_content(msg.content):
             if tooluse.tool != tool_name:
                 continue

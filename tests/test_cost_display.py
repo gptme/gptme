@@ -952,3 +952,14 @@ def test_print_inline_cost_no_output_in_json_mode(monkeypatch):
     ):
         print_inline_cost(msg)
     mock_console.print.assert_not_called()
+
+
+def test_display_costs_without_data_points_to_context_not_itself():
+    """With no recorded usage, /tokens must not tell the user to run /tokens (#5179)."""
+    from gptme.util.cost_display import display_costs
+
+    with patch("gptme.util.console.log") as log:
+        display_costs(None, None)
+    output = " ".join(str(c.args[0]) for c in log.call_args_list)
+    assert "/context" in output
+    assert "/tokens" not in output
