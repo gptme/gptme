@@ -35,6 +35,8 @@ from typing import Any
 
 import requests
 
+from ..util.file_write import write_private_text
+
 logger = logging.getLogger(__name__)
 
 # xAI OAuth configuration (same client ID as grok CLI)
@@ -193,8 +195,7 @@ def _save_tokens(auth: SubscriptionAuth) -> None:
         "refresh_token": auth.refresh_token,
         "expires_at": auth.expires_at,
     }
-    token_path.write_text(json.dumps(data, indent=2))
-    token_path.chmod(0o600)
+    write_private_text(token_path, json.dumps(data, indent=2))
     logger.debug(f"Saved grok subscription tokens to {token_path}")
 
 

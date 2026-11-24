@@ -52,6 +52,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 import requests
 
 from ..message import Message, MessageMetadata
+from ..util.file_write import write_private_text
 from .openai_responses import (
     _extract_usage_token_counts,
     _messages_to_responses_input,
@@ -167,8 +168,7 @@ def _save_tokens(auth: SubscriptionAuth) -> None:
         "account_id": auth.account_id,
         "expires_at": auth.expires_at,
     }
-    token_path.write_text(json.dumps(data, indent=2))
-    token_path.chmod(0o600)
+    write_private_text(token_path, json.dumps(data, indent=2))
     logger.debug(f"Saved tokens to {token_path}")
 
 

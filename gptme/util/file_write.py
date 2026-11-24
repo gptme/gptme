@@ -176,3 +176,28 @@ def write_text_preserving_original(path: Path, content: str, *, newline: str) ->
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def write_private_text(path: Path, content: str) -> None:
+    """Replace ``path`` with ``content`` at mode 0600, never exposing a partial file.
+
+    The bytes go to a sibling temp file created exclusively at 0600 (mkstemp),
+    then ``os.replace`` swaps it in. A failed write leaves the previous file
+    intact and is never readable by other users, unlike ``write_text`` followed
+    by ``chmod``.
+    """
+    import tempfile
+
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+    temporary = Path(name)
+    try:
+        try:
+            stream = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with stream:
+            stream.write(content)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
