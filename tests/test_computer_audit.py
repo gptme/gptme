@@ -1400,3 +1400,24 @@ def test_multiline_string_after_comment_triple_quote_not_corrupted():
     assert len(records) == 1, f"Expected 1 record, got {len(records)}: {records}"
     assert records[0]["action"] == "fill_native"
     assert records[0]["value_len"] == len("\n!important\n")
+
+
+def test_audit_log_cli_finds_calls_without_preloaded_tools(tmp_path, monkeypatch):
+    """A bare `gptme-util computer audit-log` process has no tools loaded."""
+    from gptme.tools import clear_tools, get_tools
+
+    conv_dir = tmp_path / "bare-cli-conv"
+    msgs = [
+        _msg("user", "click it"),
+        _msg("assistant", _ipython_block("computer('left_click', coordinate=[1, 2])")),
+    ]
+    _write_conv_jsonl(conv_dir / "conversation.jsonl", msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+    clear_tools()
+    assert not get_tools()
+
+    result = CliRunner().invoke(
+        audit_log, [conv_dir.name, "--json"], catch_exceptions=False
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)[0]["action"] == "left_click"

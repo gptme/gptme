@@ -299,6 +299,13 @@ def audit_log(
         gptme-util computer audit-log --jsonl | jq 'select(.risk_level == "sensitive")'
         gptme-util computer audit-log --agent-id computer-task-abc12345
     """
+    # ToolUse.is_runnable needs the ipython tool loaded; a bare CLI process
+    # has no tools, so every call was skipped ("No computer-use actions found").
+    from ..tools import get_tools, init_tools
+
+    if not get_tools():
+        init_tools()
+
     logs_dir = get_logs_dir()
 
     if agent_id is not None and conversation:
