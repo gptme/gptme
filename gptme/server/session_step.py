@@ -286,8 +286,18 @@ def _run_health_check() -> None:
                 acp_runtime.process_pid,
             )
             # Null out acp_runtime before remove_session so it doesn't
-            # spawn a close_acp_runtime_bg thread for an already-dead process.
+            # spawn a close_acp_runtime_bg thread for an already-dead process,
+            # but still release the runtime: its dedicated loop thread would
+            # otherwise outlive the session.
             session.acp_runtime = None
+            try:
+                acp_runtime.terminate_subprocess_sync(timeout=1.0)
+            except Exception:
+                logger.debug(
+                    "Failed to release dead ACP runtime for session %s",
+                    session_id,
+                    exc_info=True,
+                )
             SessionManager.remove_session(session_id)
 
 

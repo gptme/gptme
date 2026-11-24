@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 import threading
+import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
+    import concurrent.futures
     from collections.abc import Callable, Coroutine
     from pathlib import Path
 
@@ -31,6 +34,67 @@ from gptme.acp.client import GptmeAcpClient
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
+
+
+class _LoopCalls:
+    """Book-keeping for calls submitted to one runtime loop.
+
+    Once ``closed`` is set no new call is accepted, and every call still
+    pending when the loop shuts down is cancelled, so a caller waiting on it
+    is released instead of hanging on a future nobody will complete.
+    """
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.futures: set[concurrent.futures.Future[Any]] = set()
+        self.closed = False
+
+    def close_and_cancel(self) -> None:
+        with self.lock:
+            self.closed = True
+            leftovers = list(self.futures)
+            self.futures.clear()
+        for fut in leftovers:
+            fut.cancel()
+
+    def discard(self, fut: concurrent.futures.Future[Any]) -> None:
+        with self.lock:
+            self.futures.discard(fut)
+
+
+def _terminate_asyncio_process_sync(proc: Any, timeout: float) -> None:
+    """SIGTERM then SIGKILL a process whose event loop is unavailable.
+
+    ``asyncio.subprocess.Process.wait()`` is a coroutine without a timeout, so
+    a caller outside the owning loop has to reap by pid instead.
+    """
+    pid = getattr(proc, "pid", None)
+
+    def _reaped(deadline: float) -> bool:
+        if not isinstance(pid, int) or not hasattr(os, "WNOHANG"):
+            return getattr(proc, "returncode", None) is not None
+        while True:
+            try:
+                if os.waitpid(pid, os.WNOHANG)[0] != 0:
+                    return True
+            except ChildProcessError:
+                # Not (or no longer) our child: reaped elsewhere.
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        return
+    if _reaped(time.monotonic() + timeout):
+        return
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+    _reaped(time.monotonic() + 1.0)
 
 
 def extract_text_from_prompt_response(resp: Any) -> str:
@@ -98,6 +162,7 @@ class AcpSessionRuntime:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
         self._loop_lock = threading.Lock()
+        self._loop_calls: _LoopCalls | None = None
 
     @property
     def session_id(self) -> str | None:
@@ -107,18 +172,25 @@ class AcpSessionRuntime:
 
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         """Return the runtime's event loop, starting its thread if needed."""
+        return self._ensure_loop_calls()[0]
+
+    def _ensure_loop_calls(self) -> tuple[asyncio.AbstractEventLoop, _LoopCalls]:
         with self._loop_lock:
             loop = self._loop
             thread = self._loop_thread
+            calls = self._loop_calls
             if (
                 loop is not None
                 and not loop.is_closed()
                 and thread is not None
                 and thread.is_alive()
+                and calls is not None
+                and not calls.closed
             ):
-                return loop
+                return loop, calls
 
             loop = asyncio.new_event_loop()
+            calls = _LoopCalls()
             running = threading.Event()
 
             def _run_loop() -> None:
@@ -147,6 +219,9 @@ class AcpSessionRuntime:
                         )
                     finally:
                         loop.close()
+                        # Release callers whose call was accepted but never
+                        # started before the loop stopped.
+                        calls.close_and_cancel()
 
             thread = threading.Thread(
                 target=_run_loop, daemon=True, name="acp-runtime-loop"
@@ -155,16 +230,26 @@ class AcpSessionRuntime:
             running.wait(timeout=5.0)
             self._loop = loop
             self._loop_thread = thread
-            return loop
+            self._loop_calls = calls
+            return loop, calls
 
     def _stop_loop(self, join_timeout: float = 5.0) -> None:
         """Stop the runtime loop thread (no-op if not running)."""
         with self._loop_lock:
             loop = self._loop
             thread = self._loop_thread
+            calls = self._loop_calls
             self._loop = None
             self._loop_thread = None
+            self._loop_calls = None
+        if calls is not None:
+            # Reject new work from here on; pending calls are cancelled once
+            # the loop thread finishes.
+            with calls.lock:
+                calls.closed = True
         if loop is None or loop.is_closed():
+            if calls is not None:
+                calls.close_and_cancel()
             return
         try:
             loop.call_soon_threadsafe(loop.stop)
@@ -185,14 +270,25 @@ class AcpSessionRuntime:
         **kwargs: Any,
     ) -> _T:
         """Run ``func(*args, **kwargs)`` on the runtime loop and await its result."""
-        loop = self._ensure_loop()
+        loop, calls = self._ensure_loop_calls()
         try:
             current = asyncio.get_running_loop()
         except RuntimeError:  # pragma: no cover - always called from a coroutine
             current = None
         if current is loop:
             return await func(*args, **kwargs)
-        fut = asyncio.run_coroutine_threadsafe(func(*args, **kwargs), loop)
+        coro = func(*args, **kwargs)
+        with calls.lock:
+            if calls.closed:
+                coro.close()
+                raise RuntimeError("ACP runtime is shutting down")
+            try:
+                fut = asyncio.run_coroutine_threadsafe(coro, loop)
+            except RuntimeError:
+                coro.close()
+                raise
+            calls.futures.add(fut)
+        fut.add_done_callback(calls.discard)
         return await asyncio.wrap_future(fut)
 
     # -- lifecycle ----------------------------------------------------------
@@ -322,6 +418,9 @@ class AcpSessionRuntime:
             if self._close_on_loop_sync(timeout):
                 return
             if proc is None:
+                return
+            if not isinstance(proc, subprocess.Popen):
+                _terminate_asyncio_process_sync(proc, timeout)
                 return
             try:
                 proc.terminate()
