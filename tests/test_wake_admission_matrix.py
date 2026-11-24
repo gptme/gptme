@@ -373,3 +373,38 @@ def test_cli_step_pre_claims_every_branch(logs_dir, monkeypatch) -> None:
         assert not _queued(main_job) and not _queued(feature_job)
     finally:
         sb.reset_background_jobs(cid, all_conversations=False)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
+def test_kill_during_failed_wake_keeps_the_completion(
+    logs_dir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A kill recorded while a wake holds the claimed completion must not
+    replace that completion with only the late notice when the wake fails."""
+    from gptme.tools import shell_background as sb
+
+    cid = "matrix-shell-kill-window"
+    job = None
+    try:
+        job = _run_job(cid)  # no server session yet: stays queued
+        assert _queued(job)
+
+        def kill_then_refuse(*args, **kwargs) -> bool:
+            sb._record_kill_reason(job, "Processes left over were killed.")
+            return False
+
+        monkeypatch.setattr(SessionManager, "request_watch_wake", kill_then_refuse)
+        monkeypatch.setattr(
+            SessionManager,
+            "get_sessions_for_conversation",
+            unittest.mock.MagicMock(return_value=[object()]),
+        )
+        assert sb.wake_server_for_completed_jobs(cid) is False
+
+        step_manager = unittest.mock.Mock(chat_id=cid, current_branch="main")
+        (message,) = list(sb.background_job_completion_hook(step_manager))
+        assert f"Background shell job #{job.id} finished" in message.content
+        assert "Processes left over were killed." in message.content
+        assert not _queued(job)
+    finally:
+        _cleanup_job(cid, job)

@@ -1692,12 +1692,21 @@ def _requeue_completed_jobs(
             # Teardown may have run meanwhile: never resurrect its event.
             if _background_jobs.get(job.conversation_id, {}).get(job.id) is not job:
                 continue
-            # A kill notice recorded meanwhile already re-queued the job and
-            # supersedes the claimed one: keep it, and do not queue it twice.
+            if id(job) in queued:
+                # A kill recorded while this completion was claimed saw it
+                # notified but not queued, took it as delivered and re-queued
+                # the job with a late notice. The completion never went out:
+                # fold the reason into it, or its render becomes the notice
+                # alone and the job's output is lost.
+                if notice is None and job._late_kill_notice is not None:
+                    job.kill_reason = job._late_kill_notice
+                    job._late_kill_notice = None
+                # Otherwise the claimed item was itself a notice; the newer one
+                # supersedes it. Either way, do not queue the job twice.
+                continue
             if job._late_kill_notice is None:
                 job._late_kill_notice = notice
-            if id(job) not in queued:
-                live.append(job)
+            live.append(job)
         _completion_queue.queue.extendleft(reversed(live))
         _completion_queue.not_empty.notify(len(live))
 
