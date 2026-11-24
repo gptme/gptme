@@ -80,6 +80,10 @@ from gptme.tools.base import ToolUse
         "bash -s - arg <<'EOF'\nprintenv\nEOF",
         'echo "$(printf %s "$API_KEY")"',
         'API_KEY=synthetic echo "$OTHER_TOKEN"',
+        # In zsh and ksh, -F selects floating-point variables and prints values.
+        "zsh -c 'typeset -Fx'",
+        "ksh -c 'typeset -F -x'",
+        "zsh <<'EOF'\ntypeset -Fx\nEOF",
     ],
 )
 def test_credential_output_is_blocked(command, monkeypatch):
@@ -132,6 +136,7 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "declare -F",
         "declare -Fx",
         "typeset -F -x",
+        "bash -c 'declare -Fx'",
         "declare -x FOO=bar",
         "shopt -s nullglob",
         "shopt -ou xtrace",

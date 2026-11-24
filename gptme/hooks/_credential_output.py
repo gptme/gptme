@@ -112,7 +112,7 @@ def _shell_options(args: list[str]) -> tuple[bool, str | None, bool]:
     return False, script, not command_string and (stdin_mode or i == len(args))
 
 
-def _command_reason(words: list[str], depth: int) -> str | None:
+def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
     if not words:
         return None
     name, args = PurePosixPath(words[0]).name, words[1:]
@@ -141,11 +141,12 @@ def _command_reason(words: list[str], depth: int) -> str | None:
         if not args or any(arg.startswith("-") and "p" in arg[1:] for arg in args):
             return _REASON
         # `declare -x` / `typeset -x` with no names list every exported
-        # variable with its value, like `export -p`. `-F` lists function
-        # names only, so `declare -Fx` prints no values.
+        # variable with its value, like `export -p`. In bash `-F` lists
+        # function names only, so `declare -Fx` prints no values. In zsh and
+        # ksh `-F` selects floating-point variables and still prints values.
         if name != "export" and all(arg.startswith(("-", "+")) for arg in args):
             flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
-            if "x" in flags and "F" not in flags:
+            if "x" in flags and ("F" not in flags or shell != "bash"):
                 return _REASON
     if name == "shopt":
         # `shopt -o -s xtrace` / `shopt -os xtrace` is `set -x`.
@@ -157,7 +158,7 @@ def _command_reason(words: list[str], depth: int) -> str | None:
         if xtrace:
             return _REASON
         if script and name in _SHELLS:
-            return credential_output_reason(script, depth + 1)
+            return credential_output_reason(script, depth + 1, shell=name)
     return None
 
 
@@ -184,7 +185,9 @@ def _prints_secret_expansion(node: "Node") -> bool:
     return False
 
 
-def credential_output_reason(command: str, depth: int = 0) -> str | None:
+def credential_output_reason(
+    command: str, depth: int = 0, shell: str = "bash"
+) -> str | None:
     """Return a static refusal reason, never matched source or variable values.
 
     Covers literal shell options, env/printenv, shell state dumps, sensitive
@@ -211,7 +214,7 @@ def credential_output_reason(command: str, depth: int = 0) -> str | None:
                 if any(arg.startswith("BASH_XTRACEFD=") for arg in raw_words[1:]):
                     return _REASON
             words = _unwrap(raw_words)
-            if reason := _command_reason(words, depth):
+            if reason := _command_reason(words, depth, shell):
                 return reason
             if words and PurePosixPath(words[0]).name in {"echo", "printf"}:
                 if _prints_secret_expansion(node):
@@ -226,7 +229,9 @@ def credential_output_reason(command: str, depth: int = 0) -> str | None:
                         for child in redirect.named_children:
                             if child.type == "heredoc_body":
                                 if reason := credential_output_reason(
-                                    (child.text or b"").decode(), depth + 1
+                                    (child.text or b"").decode(),
+                                    depth + 1,
+                                    shell=PurePosixPath(words[0]).name,
                                 ):
                                     return reason
         pending.extend(node.named_children)
