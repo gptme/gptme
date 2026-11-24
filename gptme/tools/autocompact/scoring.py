@@ -209,6 +209,15 @@ _RELATIVE_FILE_PATH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_./-])(?:\./)?(?:[A-Za-z0-9_.-]+/)+\.?[A-Za-z0-9_.-]+\.[A-Za-z0-9]+"
 )
 _URL_PATTERN = re.compile(r'https?://[^\s<>"\')]+')
+# Bare filenames such as data1.csv or README.md, so `cat data1.csv` output is
+# protected when a later message names data1.csv. The stem must contain a
+# letter and be at least two characters ("1.2", "e.g" don't match) and the
+# extension must start with a letter ("v1.2", "python3.11" don't match).
+_BARE_FILENAME_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_./~\\-])(?=[A-Za-z0-9_-]{2})"
+    r"[A-Za-z0-9_-]*[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*"
+    r"\.[A-Za-z][A-Za-z0-9]{0,9}(?![A-Za-z0-9_/\\(-])"
+)
 _ERROR_INDICATOR_PATTERNS = [
     re.compile(r"\b(error|exception|traceback)\b", re.IGNORECASE),
     re.compile(r"\bfailed\b", re.IGNORECASE),
@@ -471,12 +480,14 @@ _PRUNE_MIN_AGE = 3
 def _extract_file_paths(content: str) -> set[str]:
     """Return all file-path-like tokens found in content.
 
-    Includes absolute Unix/Windows paths and relative paths such as
-    ``src/config.py`` so a later mention of that file still counts as a
-    reference.
+    Includes absolute Unix/Windows paths, relative paths such as
+    ``src/config.py`` and bare filenames such as ``data1.csv`` so a later
+    mention of that file still counts as a reference.
     """
-    return set(_FILE_PATH_PATTERN.findall(content)) | set(
-        _RELATIVE_FILE_PATH_PATTERN.findall(content)
+    return (
+        set(_FILE_PATH_PATTERN.findall(content))
+        | set(_RELATIVE_FILE_PATH_PATTERN.findall(content))
+        | set(_BARE_FILENAME_PATTERN.findall(content))
     )
 
 
