@@ -46,15 +46,17 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          # pull_requests[] is empty for fork PRs — look up by head SHA instead.
-          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          # pull_requests[] is empty for fork PRs — look up by head SHA and
+          # branch instead, so a second open PR at the same commit is not picked.
           # Collect all matching PR numbers first, then take the first.
           # Piping --paginate directly to head -1 triggers SIGPIPE and can abort
           # the step under pipefail before GITHUB_OUTPUT is written.
           PR_NUMBERS=$(gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
             --paginate \
-            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" \
+            --jq '.[] | select(.head.sha == env.HEAD_SHA and .head.ref == env.HEAD_BRANCH) | .number' \
             2>/dev/null || true)
           PR_NUMBER=$(echo "${PR_NUMBERS}" | head -1)
           if [ -z "$PR_NUMBER" ]; then

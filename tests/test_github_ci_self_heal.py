@@ -462,9 +462,10 @@ def test_workflow_run_steps_do_not_interpolate_branch_names() -> None:
     # workflow_run.head_branch is the triggering branch name, which a PR author
     # chooses; expression-interpolating it into a run script makes it code.
     for step in _workflow_steps():
-        script = step.get("run", "")
-        assert "head_branch" not in script, step["name"]
-        assert "headRefName }}" not in script, step["name"]
+        for expression in step.get("run", "").split("${{")[1:]:
+            expression = expression.split("}}", 1)[0]
+            assert "head_branch" not in expression, step["name"]
+            assert "headRefName" not in expression, step["name"]
 
 
 def test_workflow_checkouts_do_not_persist_credentials() -> None:
