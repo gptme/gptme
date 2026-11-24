@@ -374,7 +374,9 @@ def _format_toml_value(value: object) -> str:
         # the lowercase literals.
         return "true" if value else "false"
     if isinstance(value, float):
-        return f"{value:.6f}"
+        # repr() is the shortest exact form and valid TOML (incl. inf/nan);
+        # fixed-point truncated small costs such as 3e-07 to 0.0.
+        return repr(value)
     return str(value)
 
 
@@ -385,7 +387,11 @@ def _format_toml_inline_table(d: dict) -> str:
     an absent key is what the ``total=False`` metadata types read back as
     ``None``.
     """
-    items = [f'"{k}" = {_format_toml_member(v)}' for k, v in d.items() if v is not None]
+    items = [
+        f'"{escape_string(str(k))}" = {_format_toml_member(v)}'
+        for k, v in d.items()
+        if v is not None
+    ]
     return f"{{ {', '.join(items)} }}"
 
 
@@ -580,12 +586,14 @@ class Message:
                        If set, will truncate at first newline or max_length, whichever comes first.
         """
         if max_length is not None:
-            first_newline = self.content.find("\n")
+            # Leading blank lines would make the first line empty.
+            stripped = self.content.lstrip("\n")
+            first_newline = stripped.find("\n")
             max_length = (
                 min(max_length, first_newline) if first_newline != -1 else max_length
             )
-            content = self.content[:max_length]
-            if len(content) < len(self.content):
+            content = stripped[:max_length]
+            if len(content) < len(stripped):
                 content += "..."
             temp_msg = self.replace(content=content)
             return format_msgs([temp_msg], oneline=True, highlight=highlight)[0]
@@ -628,7 +636,9 @@ class Message:
         else:
             metadata_toml = ""
         # Serialize call_id only if present (avoid serializing "None" as string)
-        call_id_toml = f'call_id = "{self.call_id}"' if self.call_id else ""
+        call_id_toml = (
+            f'call_id = "{escape_string(self.call_id)}"' if self.call_id else ""
+        )
         extra = (
             flags_toml
             + "\n"
@@ -804,7 +814,7 @@ def format_msgs(
                         lang = block.split("\n", 1)[0]
                         content = block.split("\n", 1)[-1]
                         fmt = "underline blue"
-                        block = f"[{fmt}]{lang}\n[/{fmt}]" + rich_to_str(
+                        block = f"[{fmt}]{escape_markup(lang)}\n[/{fmt}]" + rich_to_str(
                             Syntax(
                                 content.rstrip().replace("[", r"\["),
                                 lang,
