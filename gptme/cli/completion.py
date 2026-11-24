@@ -36,9 +36,15 @@ def complete_model(
             data = tomlkit.loads(path.read_text(encoding="utf-8")).unwrap()
         except (OSError, UnicodeError, tomlkit.exceptions.TOMLKitError):
             continue
-        providers = _merge_config_data(
-            providers, {"providers": data.get("providers", [])}
-        )
+        entries = data.get("providers", [])
+        if not isinstance(entries, list):
+            continue
+        entries = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+        ]
+        providers = _merge_config_data(providers, {"providers": entries})
     for provider in _parse_providers(providers.get("providers", []), strict=False):
         if provider.default_model:
             names.add(provider.name)

@@ -14,6 +14,13 @@ from gptme.cli.setup import _generate_click_completion, _setup_completions
 from gptme.tui.main import main as tui
 
 
+@pytest.fixture(autouse=True)
+def isolate_completion_install_paths(monkeypatch):
+    # Home-only mocks must not leave a developer's active XDG paths writable.
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_tui_model_completion(shell):
     env = {"_GPTME_TUI_COMPLETE": f"{shell}_complete"}
@@ -79,7 +86,7 @@ def test_generated_script_runs_in_shell(tmp_path, shell):
     response = (
         "plain\\nopenrouter/synthetic-model\\n_\\n"
         if shell == "zsh"
-        else "plain,openrouter/synthetic-model\\n"
+        else "plain,openrouter/synthetic-model\\nplain,shell,browser\\n"
     )
     command.write_text(
         "#!/bin/sh\n"
@@ -101,7 +108,7 @@ def test_generated_script_runs_in_shell(tmp_path, shell):
             "_gptme_tui_completion"
         )
     elif shell == "fish":
-        code = f"source {source}; complete -C 'gptme-tui --model openrouter/'"
+        code = f"source {source}; complete -C 'gptme-tui --model '"
     else:
         code = (
             f"source {source}; COMP_WORDS=(gptme-tui --model openrouter/); "
@@ -117,6 +124,8 @@ def test_generated_script_runs_in_shell(tmp_path, shell):
     )
     assert result.returncode == 0, result.stderr
     assert "openrouter/synthetic-model" in result.stdout
+    if shell == "fish":
+        assert "shell,browser" in result.stdout
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -221,7 +230,7 @@ def test_custom_cli_types_keep_legacy_fish_value_completions(tmp_path, monkeypat
     logs = tmp_path / "logs"
     (logs / "my-conversation").mkdir(parents=True)
     (logs / "my-conversation/conversation.jsonl").touch()
-    monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs)
+    monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda **kw: logs)
     assert [
         item.value for item in ConversationName().shell_complete(ctx, param, "my-")
     ] == ["my-conversation"]
@@ -361,12 +370,15 @@ def test_dspy_without_extra_still_reports_normal_invocation(monkeypatch, caplog)
     assert "pip install gptme[dspy]" in caplog.text
 
 
-def test_tools_completion_does_not_initialize_user_config(tmp_path):
+@pytest.mark.parametrize(
+    "words", ["gptme --tools sh", "gptme --tools shell --model sh"]
+)
+def test_tools_completion_does_not_initialize_user_config(tmp_path, words):
     env = {
         **os.environ,
         "HOME": str(tmp_path),
         "_GPTME_COMPLETE": "fish_complete",
-        "COMP_WORDS": "gptme --tools sh",
+        "COMP_WORDS": words,
         "COMP_CWORD": "sh",
     }
     result = subprocess.run(
@@ -382,5 +394,51 @@ def test_tools_completion_does_not_initialize_user_config(tmp_path):
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert "shell" in result.stdout
+    if words == "gptme --tools sh":
+        assert "shell" in result.stdout
     assert not (tmp_path / ".config/gptme/config.toml").exists()
+
+
+def test_model_completion_skips_malformed_provider_names(tmp_path, monkeypatch):
+    import click
+
+    from gptme.cli.completion import complete_model
+
+    config = tmp_path / "config.toml"
+    config.write_text(
+        '[[providers]]\nname = ["relay"]\nbase_url = "https://relay.invalid"\n'
+    )
+    monkeypatch.setattr("gptme.config.user.config_path", str(config))
+    values = complete_model(
+        click.Context(tui), click.Option(["--model"]), "openrouter/"
+    )
+    assert values
+
+
+def test_name_completion_does_not_create_logs(tmp_path, monkeypatch):
+    import click
+
+    from gptme.cli.main import ConversationName
+
+    logs = tmp_path / "missing-logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    assert (
+        ConversationName().shell_complete(
+            click.Context(tui), click.Option(["--name"]), ""
+        )
+        == []
+    )
+    assert not logs.exists()
+
+
+def test_zsh_instruction_quotes_space_in_path(tmp_path, monkeypatch, capsys):
+    import shlex
+
+    from gptme.cli.setup import _install_click_completions
+
+    data = tmp_path / "data with spaces"
+    monkeypatch.setattr("gptme.cli.setup.console.width", 1000)
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
+    _install_click_completions("zsh")
+    assert shlex.quote(str(data / "zsh/completions")) in capsys.readouterr().out

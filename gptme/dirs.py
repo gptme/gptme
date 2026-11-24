@@ -64,13 +64,14 @@ def get_state_dir() -> Path:
     return Path(user_state_dir("gptme"))
 
 
-def get_logs_dir() -> Path:
-    """Get the path for **conversation logs** (not to be confused with the logger file)"""
+def get_logs_dir(*, create: bool = True) -> Path:
+    """Get the conversation logs path, optionally without creating it."""
     if logs_home := _get_env_path("GPTME_LOGS_HOME"):
         path = Path(logs_home)
     else:
         path = get_data_dir() / "logs"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 

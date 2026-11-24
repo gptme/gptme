@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -94,7 +95,13 @@ def _generate_click_completion(shell: str, prog_name: str = "gptme") -> str | No
     complete_var = f"_{identifier.upper()}_COMPLETE"
     func_name = f"_{identifier}_completion"
 
-    return cls.source_template % {
+    template = cls.source_template
+    if shell == "fish":
+        # Click's template splits every comma, truncating comma-separated values.
+        template = template.replace(
+            'string split "," $completion', 'string split -m 1 "," $completion'
+        )
+    return template % {
         "complete_func": func_name,
         "complete_var": complete_var,
         "prog_name": prog_name,
@@ -155,7 +162,7 @@ def _install_click_completions(shell: str) -> None:
     if shell == "zsh":
         console.print(
             "   Add this to ~/.zshrc before compinit, if not already present:\n"
-            f"   fpath=({path_with_tilde(directory)} $fpath)"
+            f"   fpath=({shlex.quote(str(directory))} $fpath)"
         )
     elif shell == "bash":
         console.print(

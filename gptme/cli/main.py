@@ -328,6 +328,8 @@ class CommaSeparatedChoice(click.ParamType):
         # Click keeps the leading "=" for short options passed as `-x=value`.
         # Normalize that form so documented examples like `-t=-browser` work.
         value = value.removeprefix("=")
+        if ctx is not None and ctx.resilient_parsing:
+            return value
         parts = [v.strip() for v in value.split(",") if v.strip()]
         if not parts:
             self.fail("value cannot be empty.", param, ctx)
@@ -408,7 +410,7 @@ class ConversationName(click.ParamType):
     def shell_complete(self, ctx, param, incomplete):
         from click.shell_completion import CompletionItem
 
-        logs = get_logs_dir()
+        logs = get_logs_dir(create=False)
         if not logs.is_dir():
             return []
         return [
