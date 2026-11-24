@@ -2,10 +2,13 @@
 Session management commands: log, undo, edit, rename, fork, delete, exit, restart, clear.
 """
 
+import os
 import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..logmanager import LogManager
     from ..message import Message
 
@@ -97,6 +100,26 @@ def _complete_delete(partial: str, prev_args: list[str]) -> list[tuple[str, str]
     return completions
 
 
+def _is_current_conversation(logdir: "Path", conv_id: str) -> bool:
+    """Whether ``conv_id`` names the active conversation's directory.
+
+    Compares the directories, not just the names: on case-insensitive
+    filesystems (macOS, Windows) 'My-Conv' names the same directory as
+    'my-conv', and a symlinked alias points at it too.
+    """
+    if logdir.name == conv_id:
+        return True
+    from ..dirs import get_logs_dir
+    from ..util.conversation_ids import is_valid_conversation_id
+
+    if not is_valid_conversation_id(conv_id):
+        return False
+    try:
+        return os.path.samefile(get_logs_dir() / conv_id, logdir)
+    except OSError:
+        return False
+
+
 @command("delete", aliases=["rm"], completer=_complete_delete)
 def cmd_delete(ctx: CommandContext) -> None:
     """Delete a conversation by ID.
@@ -131,7 +154,7 @@ def cmd_delete(ctx: CommandContext) -> None:
     conv_id = args[0]
 
     # Prevent deleting current conversation
-    if ctx.manager.logdir.name == conv_id:
+    if _is_current_conversation(ctx.manager.logdir, conv_id):
         print("❌ Cannot delete the current conversation.")
         print("   Start a new conversation first, then delete this one.")
         return

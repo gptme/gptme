@@ -19,7 +19,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import islice
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, BinaryIO
 
 import tomlkit
@@ -472,6 +472,25 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
     )
 
 
+def _conversation_dir(logs_dir: PurePath, conv_id: str) -> PurePath | None:
+    """Return ``logs_dir / conv_id`` only if it is the direct child named ``conv_id``.
+
+    Path-like ids ('x/', '../y') would resolve outside the single logs-dir
+    child they claim to name, e.g. letting /delete remove arbitrary dirs.
+    Joining also honours Windows drive prefixes ('D:x' replaces ``logs_dir``,
+    'C:x' collapses to ``logs_dir / 'x'``), so the joined result is checked
+    structurally as well.
+    """
+    from ..util.conversation_ids import is_valid_conversation_id
+
+    if not is_valid_conversation_id(conv_id):
+        return None
+    conv_dir = logs_dir / conv_id
+    if conv_dir.parent != logs_dir or conv_dir.name != conv_id:
+        return None
+    return conv_dir
+
+
 def get_conversation_meta_direct(
     conv_id: str,
     *,
@@ -486,15 +505,12 @@ def get_conversation_meta_direct(
 
     Returns None when the conversation directory or JSONL file does not exist.
     """
-    from ..util.conversation_ids import is_valid_conversation_id
-
-    # Path-like ids ('x/', '../y') would resolve outside the single logs-dir
-    # child they claim to name, e.g. letting /delete remove arbitrary dirs.
-    if not is_valid_conversation_id(conv_id):
-        return None
     if logs_dir is None:
         logs_dir = get_logs_dir()
-    conv_fn = logs_dir / conv_id / "conversation.jsonl"
+    conv_dir = _conversation_dir(logs_dir, conv_id)
+    if conv_dir is None:
+        return None
+    conv_fn = Path(conv_dir) / "conversation.jsonl"
     if not conv_fn.exists():
         return None
     return _meta_from_file(conv_fn, detail=detail)

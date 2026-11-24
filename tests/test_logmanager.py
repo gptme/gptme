@@ -682,22 +682,27 @@ def test_undo_on_empty_log():
     assert len(log.log) == 0
 
 
-def test_undo_early_return_persists_to_disk(tmp_path: Path, monkeypatch):
-    """Regression: undo() must persist when early-return path fires (log only had /undo command)."""
+def test_undo_lone_command_message_persists_to_disk(tmp_path: Path, monkeypatch):
+    """Undoing a log whose only message is a command line removes it on disk.
+
+    A trailing '/undo' line is an ordinary message to undo(); undoing again on
+    the now-empty log takes the "Nothing to undo" early return and must keep
+    the (empty) log persisted.
+    """
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
-    logdir = tmp_path / "logs" / "test-undo-early-return"
+    logdir = tmp_path / "logs" / "test-undo-lone-command"
     log = LogManager(logdir=logdir)
-    # A log whose only content is an /undo command message
     log.append(Message("user", "/undo"))
     assert len(log.log) == 1
 
-    # undo() strips the /undo msg, sees empty log, and takes the early-return path
     log.undo(quiet=True)
     assert len(log.log) == 0
+    assert len(LogManager.load(logdir).log) == 0
 
-    # Reload from disk — the strip must survive
-    reloaded = LogManager.load(logdir)
-    assert len(reloaded.log) == 0
+    # Empty log: early-return path
+    log.undo(quiet=True)
+    assert len(log.log) == 0
+    assert len(LogManager.load(logdir).log) == 0
 
 
 def test_undo_persists_to_disk(tmp_path: Path, monkeypatch):
@@ -1707,5 +1712,39 @@ def test_get_conversations_skips_conversation_deleted_during_listing(
 
     monkeypatch.setattr(conversations, "_conversation_files", files_then_delete)
     assert [c.id for c in conversations.get_conversations()] == ["keep"]
+
+
+@pytest.mark.parametrize("conv_id", ["D:evil", "C:evil", "c:evil"])
+def test_conversation_dir_rejects_windows_drive_prefixes(conv_id: str):
+    """A drive-prefixed id must not replace or collapse the logs dir on join."""
+    from pathlib import PureWindowsPath
+
+    from gptme.logmanager.conversations import _conversation_dir
+
+    logs = PureWindowsPath("C:/Users/u/logs")
+    assert _conversation_dir(logs, conv_id) is None
+    assert _conversation_dir(logs, "ok-conv") == logs / "ok-conv"
+
+
+def test_delete_refuses_alias_of_current_conversation(tmp_path: Path, monkeypatch):
+    """/delete compares directories, not names, before deleting.
+
+    On case-insensitive filesystems 'Current-Conv' is the active chat's
+    directory; a symlinked alias reproduces that on any filesystem.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    (logs / "alias").symlink_to(logs / "current-conv", target_is_directory=True)
+
+    cmd = Message("user", "/delete --force alias", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert (logs / "current-conv" / "conversation.jsonl").exists()
+    assert (logs / "alias").exists()
 
 
