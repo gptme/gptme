@@ -91,6 +91,10 @@ def parse_options_from_kwargs(kwargs: dict[str, str]) -> tuple[str | None, list[
         if options and options[0].endswith("?"):
             question = options[0]
             options = options[1:]
+    elif options and options[0] == question.strip():
+        # Models often pass the question and repeat it as the first line of
+        # ``options`` (the content-block form); it is not a selectable option.
+        options = options[1:]
     return (question, options)
 
 
