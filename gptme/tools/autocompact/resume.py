@@ -197,6 +197,15 @@ def _is_secret_bearing_path(path: Path) -> bool:
     return name == ".env" or ".env." in name or name.endswith(".env")
 
 
+# Secret holders inside gptme's config dir: provider keys, ``[env]`` keys,
+# subscription OAuth tokens and MCP OAuth tokens (``gptme.mcp.oauth.TOKEN_DIRNAME``,
+# not imported because that module needs the optional ``mcp`` extra).
+_CONFIG_SECRET_FILES = frozenset(
+    {"credentials.toml", "config.toml", "config.local.toml"}
+)
+_CONFIG_SECRET_DIRS = frozenset({"oauth", "mcp-oauth"})
+
+
 def _gptme_config_dirs() -> list[Path]:
     """gptme's resolved config/credential directories, wherever XDG puts them.
 
@@ -211,6 +220,24 @@ def _gptme_config_dirs() -> list[Path]:
         except (OSError, RuntimeError):
             continue
     return dirs
+
+
+def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
+    """True for gptme's own secret files under a resolved config dir.
+
+    Only the known secret holders are matched, not the whole directory: with an
+    empty ``XDG_CONFIG_HOME`` that directory is ``./gptme``, which in gptme's
+    own repository is the source tree.
+    """
+    for d in config_dirs:
+        if not path.is_relative_to(d):
+            continue
+        parts = path.relative_to(d).parts
+        if len(parts) == 1 and parts[0].lower() in _CONFIG_SECRET_FILES:
+            return True
+        if len(parts) > 1 and parts[0].lower() in _CONFIG_SECRET_DIRS:
+            return True
+    return False
 
 
 def _load_context_files(
@@ -267,7 +294,7 @@ def _load_context_files(
         if (
             _is_secret_bearing_path(candidate)
             or _is_secret_bearing_path(full_path)
-            or any(full_path.is_relative_to(d) for d in config_dirs)
+            or _is_config_secret(full_path, config_dirs)
         ):
             logger.warning("Skipping credential-bearing context file: %s", file_path)
             continue

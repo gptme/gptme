@@ -996,8 +996,19 @@ def test_load_context_files_skips_cwd_credential_store_when_xdg_empty(
     store.mkdir()
     (store / "credentials.toml").write_text('[openai]\napi_key = "sk-private"\n')
 
-    loaded = _load_context_files(["gptme/credentials.toml"], workspace=tmp_path)
-    assert loaded == []
+    (store / "oauth").mkdir()
+    (store / "oauth" / "openai_subscription.json").write_text('{"t": "x"}\n')
+    (store / "resume.py").write_text("# source, not a secret\n")
+
+    loaded = _load_context_files(
+        [
+            "gptme/credentials.toml",
+            "gptme/oauth/openai_subscription.json",
+            "gptme/resume.py",
+        ],
+        workspace=tmp_path,
+    )
+    assert [p for p, _ in loaded] == ["gptme/resume.py"]
 
 
 @pytest.mark.parametrize(
