@@ -30,13 +30,19 @@ import webbrowser
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from pydantic import AnyUrl, ValidationError
 
 from ..dirs import get_config_dir
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +304,37 @@ def _can_prompt_for_browser() -> bool:
         return False
 
 
+class _RecordingOAuthClientProvider(OAuthClientProvider):
+    """``OAuthClientProvider`` that records SDK OAuth failures before re-raising.
+
+    A registration or token-exchange failure raised inside the auth flow is
+    swallowed by the streamable-HTTP transport, which only reports a
+    cancellation. Without this record the caller would blame a cached token
+    that may not even exist (#5152).
+    """
+
+    def __init__(self, *args, errors: list[Exception], **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._errors = errors
+
+    async def async_auth_flow(
+        self, request: httpx.Request
+    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        flow = super().async_auth_flow(request)
+        try:
+            next_request = await flow.__anext__()
+            while True:
+                response = yield next_request
+                next_request = await flow.asend(response)
+        except StopAsyncIteration:
+            return
+        except OAuthFlowError as e:
+            self._errors.append(e)
+            raise
+        finally:
+            await flow.aclose()
+
+
 @dataclass
 class OAuthHandler:
     """An ``httpx`` auth handler plus the loopback listener it owns.
@@ -380,7 +417,7 @@ def build_oauth_provider(
         # nonce opaque here avoids a second, subtly different check.
         return code, state
 
-    provider = OAuthClientProvider(
+    provider = _RecordingOAuthClientProvider(
         server_url=url,
         client_metadata=metadata,
         storage=FileTokenStorage(
@@ -389,6 +426,7 @@ def build_oauth_provider(
         redirect_handler=redirect_handler,
         callback_handler=callback_handler,
         timeout=timeout,
+        errors=errors,
     )
     return OAuthHandler(provider=provider, receiver=receiver, errors=errors)
 

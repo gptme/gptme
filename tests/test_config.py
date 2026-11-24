@@ -4063,3 +4063,26 @@ def test_stale_provider_recovery_cannot_overwrite_newer_save(tmp_path):
     assert doc is not None
     assert doc.unwrap()["providers"][0]["base_url"] == "http://localhost/v1"
     assert config_file.read_bytes() == newer
+
+
+@pytest.mark.parametrize(
+    ("xdg", "expected_base"),
+    [
+        ("{tmp}/xdg", "{tmp}/xdg"),
+        ("", "{home}/.config"),
+        ("   ", "{home}/.config"),
+        # The XDG spec says a relative value must be ignored.
+        ("relative/dir", "{home}/.config"),
+    ],
+)
+def test_user_config_path_honors_xdg_config_home(
+    monkeypatch, tmp_path, xdg: str, expected_base: str
+):
+    """config.toml follows XDG_CONFIG_HOME like get_config_dir() does (#5152)."""
+    from gptme.config.user import _default_config_path
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", xdg.format(tmp=tmp_path))
+    expected = Path(expected_base.format(tmp=tmp_path, home=home))
+    assert Path(_default_config_path()) == expected / "gptme" / "config.toml"

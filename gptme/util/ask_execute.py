@@ -67,6 +67,17 @@ def print_preview(
     print()
 
 
+def _execution_error(e: Exception) -> Message:
+    """Result message for an exception caught inside execute_with_confirmation.
+
+    Carries the structured ``tool_status: "failed"`` signal so the server and
+    ACP report the tool call as failed rather than completed.
+    """
+    return Message(
+        "system", f"Error during execution: {e}", metadata={"tool_status": "failed"}
+    )
+
+
 def execute_with_confirmation(
     code: str | None,
     args: list[str] | None,
@@ -177,7 +188,10 @@ def execute_with_confirmation(
         except Exception as e:
             if os.getenv("PYTEST_CURRENT_TEST") and not isinstance(e, ValueError):
                 raise
-            yield Message("system", f"Error during execution: {e}")
+            # Mark the result as failed: the exception is swallowed here, so
+            # ToolUse.execute never sees it and would otherwise report the call
+            # as completed (#5152).
+            yield _execution_error(e)
             return
 
         # Add edit notification if content was edited
@@ -187,4 +201,4 @@ def execute_with_confirmation(
     except Exception as e:
         if os.getenv("PYTEST_CURRENT_TEST") and not isinstance(e, ValueError):
             raise
-        yield Message("system", f"Error during execution: {e}")
+        yield _execution_error(e)

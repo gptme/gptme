@@ -205,8 +205,20 @@ def _read_config_text(path: str | Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _default_config_path() -> str:
+    """Path of the user config file, honoring ``XDG_CONFIG_HOME``.
+
+    Falls back to ``~/.config`` (also on macOS and Windows, where gptme has
+    always kept its config there). A relative ``XDG_CONFIG_HOME`` is ignored,
+    as the XDG Base Directory spec requires.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    base = xdg if xdg and os.path.isabs(xdg) else os.path.expanduser("~/.config")
+    return os.path.join(base, "gptme", "config.toml")
+
+
 # Define the path to the config file
-config_path = os.path.expanduser("~/.config/gptme/config.toml")
+config_path = _default_config_path()
 
 
 def _filter_known_fields(

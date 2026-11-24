@@ -273,7 +273,10 @@ class TestCopy:
         ):
             assert copy() is False
 
-        kernel32.GlobalAlloc.assert_not_called()
+        # The buffer is filled before the clipboard is opened, so it is ours
+        # to free; the clipboard was never emptied or closed.
+        kernel32.GlobalFree.assert_called_once()
+        user32.EmptyClipboard.assert_not_called()
         user32.CloseClipboard.assert_not_called()
 
     def test_copy_windows_set_failure_frees_handle(self):
@@ -292,7 +295,7 @@ class TestCopy:
         user32.CloseClipboard.assert_called_once()
 
     def test_copy_windows_alloc_failure(self):
-        """Returns False without reaching SetClipboardData when allocation fails."""
+        """Leaves the existing clipboard untouched when allocation fails."""
         set_copytext("no memory")
         fake, user32, kernel32 = self._windows_ctypes(alloc_ok=False)
 
@@ -304,10 +307,12 @@ class TestCopy:
 
         kernel32.GlobalLock.assert_not_called()
         user32.SetClipboardData.assert_not_called()
-        user32.CloseClipboard.assert_called_once()
+        # The clipboard is never opened, so its current content survives.
+        user32.OpenClipboard.assert_not_called()
+        user32.EmptyClipboard.assert_not_called()
 
     def test_copy_windows_lock_failure_frees_handle(self):
-        """Frees the handle and never sets data when GlobalLock fails."""
+        """Frees the handle and leaves the clipboard untouched when GlobalLock fails."""
         set_copytext("cannot lock")
         fake, user32, kernel32 = self._windows_ctypes(lock_ok=False)
 
@@ -319,7 +324,8 @@ class TestCopy:
 
         kernel32.GlobalFree.assert_called_once()
         user32.SetClipboardData.assert_not_called()
-        user32.CloseClipboard.assert_called_once()
+        user32.OpenClipboard.assert_not_called()
+        user32.EmptyClipboard.assert_not_called()
 
     def test_copy_unsupported_platform(self):
         """Returns False on an unrecognized platform."""
