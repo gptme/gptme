@@ -37,6 +37,36 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # On PRs, the macOS PyInstaller leg runs only when packaging inputs change.
+  # It was ~13% of gptme's PR job-minutes, and PR runs share the free-plan
+  # concurrency with master. The ubuntu leg still builds and smoke-tests the
+  # frozen server on every PR (missing hidden imports are OS-independent);
+  # master pushes, dispatches and tags always build both.
+  changes:
+    name: Detect packaging changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pull-requests: read
+    outputs:
+      packaging: ${{ steps.filter.outputs.packaging }}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dorny/paths-filter@v4
+      id: filter
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        filters: |
+          packaging:
+            - 'scripts/pyinstaller/**'
+            - 'scripts/build_server_executable.sh'
+            - 'scripts/smoke_frozen_server.py'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'Makefile'
+            - '.github/workflows/build.yml'
+
   build-docker:
     name: Docker
     runs-on: ubuntu-latest
@@ -207,6 +237,10 @@ jobs:
 
   build-pyinstaller:
     name: PyInstaller binaries on ${{ matrix.os }}
+    needs: changes
+    # changes is skipped off-PR; run anyway. An empty output (skipped or failed
+    # detection) is not 'false', so both OSes build: fail open.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
@@ -214,7 +248,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]  # windows-latest
+        os: ${{ fromJSON(needs.changes.outputs.packaging == 'false' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}  # windows-latest
         python_version: ['3.13']
 
     steps:
