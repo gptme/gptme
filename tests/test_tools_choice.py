@@ -123,6 +123,18 @@ def test_parse_kwargs_question_in_options():
     assert options == ["Foo", "Bar"]
 
 
+def test_parse_kwargs_question_repeated_in_options():
+    """A question passed separately and repeated as the first options line is not an option."""
+    question, options = parse_options_from_kwargs(
+        {
+            "question": "Which language?",
+            "options": "Which language?\nPython\nRust\nGo",
+        }
+    )
+    assert question == "Which language?"
+    assert options == ["Python", "Rust", "Go"]
+
+
 def test_parse_kwargs_empty_options():
     """Empty options string returns empty list."""
     question, options = parse_options_from_kwargs({"options": ""})
