@@ -108,6 +108,84 @@ describe('resyncLogAfterReconnect (#5145)', () => {
     expect(state().hasMoreBefore.get()).toBe(true);
   });
 
+  it('resets the window when the anchor row moved to a different server index', async () => {
+    // A peer deleted an earlier message during the outage: `user` was server
+    // index 8 locally (offset 7 + 1) but the snapshot now starts it at 7.
+    const older: Message = { role: 'user', content: 'old', timestamp: '2026-11-24T09:00:00Z' };
+    replaceLog(ID, [older, user]);
+    state().logOffset.set(7);
+    state().hasMoreBefore.set(true);
+    jest
+      .spyOn(client, 'getConversation')
+      .mockResolvedValue(response([user, reply], { has_more: true, before: 7 }));
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([user, reply]);
+    expect(state().logOffset.get()).toBe(7);
+  });
+
+  it('keeps rows that arrived on the new stream while the request was in flight', async () => {
+    const peerPrompt: Message = {
+      role: 'user',
+      content: 'peer',
+      timestamp: '2026-11-24T10:00:09Z',
+    };
+    replaceLog(ID, [user]);
+    jest.spyOn(client, 'getConversation').mockImplementation(async () => {
+      conversations$.get(ID)!.data.log.push(peerPrompt); // SSE message_added
+      return response([reply, toolOutput], { has_more: true, before: 60 });
+    });
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([reply, toolOutput, peerPrompt]);
+  });
+
+  it('serializes overlapping resyncs so the newer reconnect is not discarded', async () => {
+    replaceLog(ID, [user]);
+    let releaseFirst!: () => void;
+    const get = jest
+      .spyOn(client, 'getConversation')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseFirst = () => resolve(response([user, reply]));
+          })
+      )
+      .mockResolvedValueOnce(response([user, reply, toolOutput]));
+
+    const first = client.resyncLogAfterReconnect(ID);
+    const second = client.resyncLogAfterReconnect(ID);
+    expect(get).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(state().data.log.get()).toEqual([user, reply, toolOutput]);
+  });
+
+  it('runs a queued resync even if the first request failed', async () => {
+    replaceLog(ID, [user]);
+    let rejectFirst!: (error: Error) => void;
+    jest
+      .spyOn(client, 'getConversation')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          })
+      )
+      .mockResolvedValueOnce(response([user, reply]));
+
+    const first = client.resyncLogAfterReconnect(ID);
+    const second = client.resyncLogAfterReconnect(ID);
+    rejectFirst(new Error('offline'));
+    await Promise.all([first, second]);
+
+    expect(state().data.log.get()).toEqual([user, reply]);
+  });
+
   it('discards the snapshot when the log was edited during the request', async () => {
     replaceLog(ID, [user, streaming]);
     jest.spyOn(client, 'getConversation').mockImplementation(async () => {
@@ -141,7 +219,13 @@ describe('resyncLogAfterReconnect (#5145)', () => {
 });
 
 describe('mergeReconnectSnapshot', () => {
-  const opts = { generating: false, snapshotOffset: 0, snapshotHasMore: false };
+  const opts = {
+    generating: false,
+    localOffset: 0,
+    snapshotOffset: 0,
+    snapshotHasMore: false,
+    arrivedCount: 0,
+  };
 
   it('preserves the local timestamp spelling and client status of saved rows', () => {
     const local: Message = { ...user, timestamp: '2026-11-24T10:00:00Z', _status: 'sent' };

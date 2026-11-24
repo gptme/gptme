@@ -149,19 +149,28 @@ const RECONNECT_RESYNC_LIMIT = 50;
  * (the server starts the new stream at its current event count), so the
  * snapshot is the only way to recover them.
  *
- * - When the local log contains the snapshot's first message, older pages the
+ * - When the local log contains the snapshot's first message at the same
+ *   server index (`localOffset + anchor === snapshot start`), older pages the
  *   user loaded are kept and the snapshot replaces everything from there on.
- * - Otherwise the gap is larger than the window and the snapshot becomes the
- *   new window (`window` is returned so the caller resets pagination).
- * - Local rows absent from the snapshot survive: unsaved prompts and rows that
- *   arrived over the new stream while the snapshot was in flight. An
- *   incomplete assistant survives only while generation is still running;
- *   otherwise the server has finished (or dropped) it and the snapshot wins.
+ *   An index mismatch means history shifted (e.g. a peer deleted a message),
+ *   so the kept rows would carry wrong indices for edit/delete.
+ * - Otherwise the snapshot becomes the new window (`window` is returned so the
+ *   caller resets pagination).
+ * - Local rows absent from the snapshot survive: unsaved prompts and the last
+ *   `arrivedCount` rows, which arrived over the new stream while the request
+ *   was in flight. An incomplete assistant survives only while generation is
+ *   still running; otherwise the server has finished (or dropped) it.
  */
 export function mergeReconnectSnapshot(
   local: Message[],
   snapshot: Message[],
-  options: { generating: boolean; snapshotOffset: number; snapshotHasMore: boolean }
+  options: {
+    generating: boolean;
+    localOffset: number;
+    snapshotOffset: number;
+    snapshotHasMore: boolean;
+    arrivedCount: number;
+  }
 ): { log: Message[]; window?: { logOffset: number; hasMoreBefore: boolean } } {
   const isIncomplete = (entry: Message) => 'isComplete' in entry && entry.isComplete === false;
   const matches = (entry: Message, saved: Message) =>
@@ -182,28 +191,30 @@ export function mergeReconnectSnapshot(
         : {}),
     } as Message;
   });
+  const snapshotStart = options.snapshotHasMore ? options.snapshotOffset : 0;
   const anchor = snapshot.length > 0 ? local.findIndex((entry) => matches(entry, snapshot[0])) : -1;
-  if (anchor >= 0) {
+  if (anchor >= 0 && options.localOffset + anchor === snapshotStart) {
     const tail = local
       .slice(anchor)
       .filter((entry) => !inSnapshot(entry) && (options.generating || !isIncomplete(entry)));
     return { log: [...local.slice(0, anchor), ...merged, ...tail] };
   }
-  // No overlap: local saved rows cannot be placed relative to the snapshot.
-  // Keep only rows the server has not acknowledged yet.
-  const unsaved = local.filter(
-    (entry) =>
+  // No aligned overlap: older local rows cannot be placed relative to the
+  // snapshot. Keep rows the server has not acknowledged yet, plus rows that
+  // arrived during the request (the snapshot may predate them).
+  const arrivedFrom = local.length - Math.max(0, options.arrivedCount);
+  const kept = local.filter(
+    (entry, index) =>
       !inSnapshot(entry) &&
+      (options.generating || !isIncomplete(entry)) &&
       (entry._status === 'pending' ||
         entry._status === 'failed' ||
-        (options.generating && isIncomplete(entry)))
+        index >= arrivedFrom ||
+        isIncomplete(entry))
   );
   return {
-    log: [...merged, ...unsaved],
-    window: {
-      logOffset: options.snapshotHasMore ? options.snapshotOffset : 0,
-      hasMoreBefore: options.snapshotHasMore,
-    },
+    log: [...merged, ...kept],
+    window: { logOffset: snapshotStart, hasMoreBefore: options.snapshotHasMore },
   };
 }
 
@@ -594,6 +605,8 @@ export class ApiClient {
   // (reconnect budget exhausted, e.g. during a server/proxy outage) can be
   // re-opened later without the component re-subscribing. Cleared only by the
   // public closeEventStream(), i.e. when the app deliberately stops listening.
+  // In-flight reconnect resyncs, keyed by conversation (see resyncLogAfterReconnect).
+  private logResyncs = new Map<string, { rerun: boolean; running: Promise<void> }>();
   private eventCallbacks = new Map<string, Parameters<ApiClient['subscribeToEvents']>[1]>();
   // Slow background retries for streams whose fast reconnect budget ran out.
   private deadStreamRetries = new Map<string, { attempt: number; timer?: number }>();
@@ -1937,10 +1950,44 @@ export class ApiClient {
    * authoritative log, so the snapshot is discarded in that case.
    */
   async resyncLogAfterReconnect(conversationId: string): Promise<void> {
+    // Serialize per conversation. Concurrent requests would read the same
+    // logRevision, and the first write would make the second (possibly newer)
+    // snapshot look stale. A reconnect during a resync re-runs it afterwards.
+    const active = this.logResyncs.get(conversationId);
+    if (active) {
+      active.rerun = true;
+      return active.running;
+    }
+    const entry: { rerun: boolean; running: Promise<void> } = {
+      rerun: false,
+      running: Promise.resolve(),
+    };
+    this.logResyncs.set(conversationId, entry);
+    entry.running = (async () => {
+      try {
+        for (;;) {
+          entry.rerun = false;
+          try {
+            await this.resyncLogOnce(conversationId);
+          } catch (error) {
+            if (!entry.rerun) throw error;
+            continue;
+          }
+          if (!entry.rerun) return;
+        }
+      } finally {
+        this.logResyncs.delete(conversationId);
+      }
+    })();
+    return entry.running;
+  }
+
+  private async resyncLogOnce(conversationId: string): Promise<void> {
     const state = conversations$.get(conversationId);
     // A branch view shows branches[branch], not the main log this window holds.
     if (!state?.peek() || state.currentBranch.peek() !== 'main') return;
     const revision = currentLogRevision(conversationId);
+    const lengthAtStart = state.data.log.peek().length;
     const data = await this.getConversation(conversationId, { limit: RECONNECT_RESYNC_LIMIT });
     if (
       !state.peek() ||
@@ -1953,8 +2000,10 @@ export class ApiClient {
     const local = state.data.log.peek() as Message[];
     const { log, window } = mergeReconnectSnapshot(local, data.log as Message[], {
       generating: state.isGenerating.peek(),
+      localOffset: state.logOffset.peek(),
       snapshotOffset: data.before ?? 0,
       snapshotHasMore: data.has_more ?? false,
+      arrivedCount: local.length - lengthAtStart,
     });
     const logOffset = window ? window.logOffset : state.logOffset.peek();
     const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();

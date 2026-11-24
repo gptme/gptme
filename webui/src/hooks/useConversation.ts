@@ -1651,11 +1651,15 @@ export function useConversation(conversationId: string, serverId?: string) {
     if (loadingOlderMessagesRef.current) return;
     loadingOlderMessagesRef.current = true;
     isLoadingOlderMessages$.set(true);
+    const revision = conv$.logRevision.peek();
     try {
       const data = await api.getConversation(conversationId, {
         limit: 50,
         before: logOffset,
       });
+      // A reconnect resync or edit replaced the window while this page was in
+      // flight; the page no longer adjoins the displayed log.
+      if (conv$.logRevision.peek() !== revision || conv$.logOffset.peek() !== logOffset) return;
       prependLogPage(
         conversationId,
         data.log,

@@ -467,6 +467,32 @@ describe('useConversation', () => {
     expect(resync).toHaveBeenCalledWith('chat-placeholder');
   });
 
+  it('discards an older page fetched before a reconnect resync replaced the window', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.logOffset.set(10);
+    conv$.hasMoreBefore.set(true);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    let resolvePage!: (data: unknown) => void;
+    (primaryClient.getConversation as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => (resolvePage = resolve))
+    );
+    let loading!: Promise<void>;
+    act(() => {
+      loading = result.current.loadOlderMessages();
+    });
+    // Resync replaced the window (bumping logRevision) while the page was in flight.
+    act(() => conv$.logRevision.set((revision) => revision + 1));
+    await act(async () => {
+      resolvePage({
+        log: [{ role: 'user', content: 'stale older', timestamp: '2026-06-06T00:00:00.000Z' }],
+        has_more: false,
+      });
+      await loading;
+    });
+    expect(conv$.data.log.get().map((message) => message.content)).not.toContain('stale older');
+    expect(conv$.logOffset.get()).toBe(10);
+  });
+
   it('clears stale pending approval when reconnect reports no pending tools', async () => {
     renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());
