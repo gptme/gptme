@@ -1588,18 +1588,20 @@ def main(
                 logger.error(
                     f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
                 )
+        lock_error = _is_conversation_lock_error(e)
         if not config.chat.interactive:
             error_class, exit_code = _classify_fatal_error(e)
-            _write_terminal_error_to_log(
-                logdir, error_class, exit_code, _format_fatal_error(e)
-            )
+            if not lock_error:
+                _write_terminal_error_to_log(
+                    logdir, error_class, exit_code, _format_fatal_error(e)
+                )
         else:
             exit_code = 1
         # the conversation is saved; say how to get back to it once the
         # cause is fixed (printed at exit if the log is nonempty).
         # A live lock is the exception: resume is the same failing command
         # (gptme#2607).
-        if not _is_conversation_lock_error(e):
+        if not lock_error:
             show_resume_hint_on_exit = True
         sys.exit(exit_code)
     finally:
@@ -1774,6 +1776,34 @@ def _format_fatal_error(e: BaseException) -> str:
     return str(e)
 
 
+def _has_http_status_code(e: BaseException, emsg: str, codes: tuple[int, ...]) -> bool:
+    """Return True if ``e`` carries one of ``codes`` as an HTTP status code.
+
+    Checks structured ``status_code`` / ``response.status_code`` attributes
+    first, then falls back to standalone status-code tokens in ``emsg`` so
+    bare substrings inside longer numbers (e.g. ``PID 14032``, ``140352 tokens``,
+    ``4013 ms``) or non-status quantities do not misfire.
+    """
+    status = getattr(e, "status_code", None)
+    if status is None:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+    if isinstance(status, int) and not isinstance(status, bool):
+        return status in codes
+
+    import re
+
+    code_alt = "|".join(str(c) for c in codes)
+    for match in re.finditer(rf"(?<![\w.])(?:{code_alt})(?![\w]|\.\d)", emsg):
+        before = emsg[: match.start()]
+        after = emsg[match.end() :]
+        if re.search(r"\b(?:pid|port|line)\s*[:=#]?\s*$", before, re.IGNORECASE):
+            continue
+        if re.match(r"\s*(?:tokens?|ms|sec(?:ond)?s?|bytes?)\b", after, re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
 def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
     """Classify a fatal exception into (error_class, exit_code).
 
@@ -1781,13 +1811,16 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
     unclassified exceptions is ("generic", 1) to preserve the existing
     behaviour.
     """
+    if _is_conversation_lock_error(e):
+        return "generic", 1
+
     etype = type(e).__name__
     emsg = str(e)
     emsg_lower = emsg.lower()
 
     # Rate-limit / quota exhausted — temporary, retry later (exit 75)
     if etype == "RateLimitError" or (
-        "429" in emsg
+        _has_http_status_code(e, emsg, (429,))
         and (
             "rate" in emsg_lower
             or "usage_limit_reached" in emsg_lower
@@ -1798,17 +1831,21 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
         return "rate_limit", EXIT_RATE_LIMIT
 
     # Authentication / permission denied — needs credential update (exit 76)
-    if etype in ("AuthenticationError", "PermissionDeniedError", "GptmeAuthError") or (
-        "401" in emsg or "403" in emsg
-    ):
+    if etype in (
+        "AuthenticationError",
+        "PermissionDeniedError",
+        "GptmeAuthError",
+    ) or _has_http_status_code(e, emsg, (401, 403)):
         return "auth_error", EXIT_AUTH_ERROR
 
     # Model / service unavailable — 404 or 503 response (exit 77).
     # SDK-native: NotFoundError (404) and ServiceUnavailableError (503) match by type
     # name.  InternalServerError covers HTTP 500/502/504 — those are generic server
     # errors, not a predictable availability failure, so they fall through to exit 1.
-    if etype in ("NotFoundError", "ServiceUnavailableError") or (
-        "404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower
+    if (
+        etype in ("NotFoundError", "ServiceUnavailableError")
+        or _has_http_status_code(e, emsg, (404, 503))
+        or "model_unavailable" in emsg_lower
     ):
         return "model_unavailable", EXIT_MODEL_UNAVAIL
 
@@ -1823,6 +1860,8 @@ def _write_terminal_error_to_log(
     This gives machine-readable evidence of the failure in the same
     ``conversation.jsonl`` that callers inspect for assistant output, instead
     of silently ending the log at the user prompt.
+
+    Refuses to append when another process holds ``logdir/.lock``.
     """
     log_file = logdir / "conversation.jsonl"
     if not logdir.exists():
@@ -1837,11 +1876,44 @@ def _write_terminal_error_to_log(
             "exit_code": exit_code,
         },
     }
+    lock_fd = None
+    locked_here = False
+    fcntl_mod = None
+    lockfile = logdir / ".lock"
     try:
+        if lockfile.exists():
+            try:
+                fcntl_mod = importlib.import_module("fcntl")
+            except ImportError:
+                fcntl_mod = None
+            if fcntl_mod is not None:
+                try:
+                    lock_fd = open(lockfile, "rb")
+                    fcntl_mod.flock(lock_fd, fcntl_mod.LOCK_EX | fcntl_mod.LOCK_NB)
+                    locked_here = True
+                except (BlockingIOError, OSError):
+                    if lock_fd is not None:
+                        lock_fd.close()
+                        lock_fd = None
+                    try:
+                        pid_str = lockfile.read_text().strip()
+                        lock_pid = int(pid_str) if pid_str.isdigit() else None
+                    except OSError:
+                        lock_pid = None
+                    if lock_pid != os.getpid():
+                        return
         with open(log_file, "a") as f:
             f.write(json.dumps(event) + "\n")
     except OSError:
         pass  # best-effort — don't mask the original failure
+    finally:
+        if lock_fd is not None:
+            if locked_here and fcntl_mod is not None:
+                try:
+                    fcntl_mod.flock(lock_fd, fcntl_mod.LOCK_UN)
+                except OSError:
+                    pass
+            lock_fd.close()
 
 
 def _read_stdin() -> str:

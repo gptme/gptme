@@ -7,6 +7,9 @@ When gptme --non-interactive encounters a fatal LLM startup error, it should:
 
 import importlib
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -143,6 +146,114 @@ def _setup_cli_mocks(
             RuntimeError("something unexpected"),
             "generic",
             1,
+        ),
+        # Regression: substrings inside longer numbers must NOT misfire
+        (
+            RuntimeError("Another gptme instance (PID 14032) is using /tmp/logs/foo"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Context limit exceeded: 140352 tokens"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Request timed out after 4013 ms"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Request timed out after 5030 ms"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Found 4040 items"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Model claude-opus-4-7-20260401 failed"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Rate limit reset in 4290 ms"),
+            "generic",
+            1,
+        ),
+        # Regression: standalone non-status quantities (PID / tokens / ms) must NOT misfire
+        (
+            RuntimeError("Another gptme instance (PID 403) is using /tmp/logs/foo"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Another gptme instance (PID 1234) is using /tmp/logs/404"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Context limit exceeded: 403 tokens"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Request timed out after 401 ms"),
+            "generic",
+            1,
+        ),
+        # Genuine standalone / HTTP-status messages must still classify properly
+        (
+            RuntimeError("401 Unauthorized"),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
+        (
+            RuntimeError("HTTP 403"),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
+        (
+            RuntimeError("HTTP 403 Forbidden"),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
+        (
+            RuntimeError("status 401"),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
+        (
+            RuntimeError("status 404"),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        (
+            RuntimeError("status 503"),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        (
+            ValueError("HTTP 404 Not Found"),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        (
+            ValueError("Error code: 403 - permission denied"),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
+        (
+            ValueError("HTTP/1.1 503 Service Unavailable"),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        (
+            ValueError("401"),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
         ),
     ],
 )
@@ -309,3 +420,106 @@ def test_fatal_error_prints_resume_hint(
     for handler in handlers:
         handler()
     assert "gptme --name test-crash-hint" in capsys.readouterr().out
+
+
+def test_lock_refusal_does_not_append_to_conversation_log(
+    tmp_path: Path,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runner: CliRunner,
+) -> None:
+    """A lock-refused non-interactive run must exit 1 and leave conversation.jsonl untouched."""
+    logdir = cli.get_logs_dir() / "locked-unit-conv"
+    logdir.mkdir(parents=True, exist_ok=True)
+    log_file = logdir / "conversation.jsonl"
+    original_content = '{"role":"user","content":"active session"}\n'
+    log_file.write_text(original_content)
+
+    # Use a PID containing "403" to also guard against exit-code misclassification.
+    _setup_cli_mocks(
+        monkeypatch,
+        tmp_path,
+        chat_raises=RuntimeError(
+            f"Another gptme instance (PID 14032) is using {logdir}"
+        ),
+    )
+    result = runner.invoke(
+        cli.main, ["--non-interactive", "--name", "locked-unit-conv", "ping"]
+    )
+
+    assert result.exit_code == 1
+    assert log_file.read_text() == original_content
+
+
+def test_lock_refusal_with_live_holder_leaves_conversation_log_untouched(
+    tmp_path: Path,
+) -> None:
+    """Real subprocess lock refusal must not write to the holder's conversation.jsonl."""
+    data_dir = tmp_path / "data"
+    state_dir = tmp_path / "state"
+    env = os.environ.copy()
+    env.pop("PYTEST_CURRENT_TEST", None)
+    env.pop("GPTME_LOGS_HOME", None)
+    env["XDG_DATA_HOME"] = str(data_dir)
+    env["XDG_STATE_HOME"] = str(state_dir)
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "config")
+    env["HOME"] = str(tmp_path)
+    env["OPENAI_BASE_URL"] = "http://127.0.0.1:1/v1"
+    env["OPENAI_API_KEY"] = "dummy"
+
+    logdir = data_dir / "gptme" / "logs" / "locked-live-conv"
+    logdir.mkdir(parents=True, exist_ok=True)
+    log_file = logdir / "conversation.jsonl"
+    original_content = json.dumps({"role": "user", "content": "active session"}) + "\n"
+    log_file.write_text(original_content)
+
+    holder_code = (
+        "import sys, time; "
+        "from pathlib import Path; "
+        "from gptme.logmanager import LogManager; "
+        "m = LogManager(logdir=Path(sys.argv[1]), lock=True); "
+        "print('LOCKED', flush=True); "
+        "time.sleep(30)"
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_code, str(logdir)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    try:
+        assert holder.stdout is not None
+        ready = holder.stdout.readline().strip()
+        assert ready == "LOCKED", (
+            f"Lock holder failed to start: {holder.stderr.read() if holder.stderr else ''}"
+        )
+
+        # Direct call to _write_terminal_error_to_log must also respect the live lock.
+        cli._write_terminal_error_to_log(logdir, "generic", 1, "should not be written")
+        assert log_file.read_text() == original_content
+
+        # Full non-interactive CLI run refused on the lock.
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gptme",
+                "--non-interactive",
+                "--name",
+                "locked-live-conv",
+                "-m",
+                "local/test",
+                "ping",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        assert proc.returncode == 1, proc.stderr
+        assert "Another gptme instance" in proc.stderr
+        assert log_file.read_text() == original_content
+    finally:
+        holder.terminate()
+        holder.wait(timeout=5)
