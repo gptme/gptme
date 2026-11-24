@@ -589,6 +589,10 @@ class Message:
             # Leading blank lines (incl. CRLF/whitespace-only ones) would make
             # the first line empty; keep the first text line's indentation.
             stripped = re.sub(r"^(?:[^\S\n]*\n)+", "", self.content)
+            if not stripped:
+                # All-blank message: keep the original so the preview still
+                # shows the sender with a "..." placeholder.
+                stripped = self.content
             first_newline = stripped.find("\n")
             max_length = (
                 min(max_length, first_newline) if first_newline != -1 else max_length

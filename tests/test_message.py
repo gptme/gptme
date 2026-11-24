@@ -1149,7 +1149,7 @@ def test_format_highlight_shows_codeblock_langtag_verbatim(langtag: str) -> None
     msg = Message("user", f"see:\n```{langtag}\nprint(1)\n```\n")
     rendered = format_msgs([msg], highlight=True)[0]
     # Match the whole label line: a trailing backslash must not be doubled.
-    assert f"```{langtag}\n" in rich_to_str(rendered)
+    assert f"```{langtag}\n" in rich_to_str(rendered, width=120)
 
 
 @pytest.mark.parametrize("prefix", ["\n", "\n\n", "\r\n", " \n\t\n", "  \r\n\n"])
@@ -1162,3 +1162,16 @@ def test_format_max_length_skips_leading_blank_lines(monkeypatch, prefix: str) -
     )
     msg = Message("user", f"{prefix}Please fix the login bug in auth.py")
     assert "Please fix the login bug" in msg.format(max_length=100)
+
+
+@pytest.mark.parametrize("content", ["\n", "\n\n", " \n\t\n", "\r\n"])
+def test_format_max_length_all_blank_keeps_sender(monkeypatch, content: str) -> None:
+    """An all-blank message still previews as its sender plus a placeholder."""
+    from os import terminal_size
+
+    monkeypatch.setattr(
+        "shutil.get_terminal_size", lambda *args, **kwargs: terminal_size((200, 24))
+    )
+    preview = Message("assistant", content).format(max_length=100)
+    assert preview.startswith("Assistant:")
+    assert preview.endswith("...")
