@@ -77,6 +77,45 @@ Reference pages:
    cli/sessions
    cli/evaluation
 
+Shell completions
+-----------------
+
+Install or refresh completions without starting a chat:
+
+.. code-block:: bash
+
+    gptme-util completions --shell bash   # or zsh / fish
+
+    # From a source checkout:
+    make install-completions COMPLETION_SHELL=fish
+
+The in-chat ``/setup`` command also installs completions for the detected shell.
+Re-run installation after upgrading to add newly shipped commands. Existing
+completions, including legacy Fish symlinks, are updated with confirmation.
+
+Options, subcommands, and choices come from the CLI definitions, so each command
+gets its own options rather than inheriting those of ``gptme``. Model completion
+in ``gptme``, ``gptme-tui``, and ``gptme-server serve`` uses bundled model metadata
+and custom-provider defaults without network requests or authentication. You can
+still enter model IDs that are not in the bundled list.
+
+Fish loads the files from ``~/.config/fish/completions`` automatically. Bash needs
+``bash-completion`` installed and enabled; otherwise source the generated files
+in ``~/.local/share/bash-completion/completions`` from ``~/.bashrc``. For Zsh, add
+this before ``compinit`` in ``~/.zshrc``:
+
+.. code-block:: zsh
+
+    fpath=(~/.local/share/zsh/completions $fpath)
+    autoload -Uz compinit
+    compinit
+
+Restart the shell after installation. These completions cover the Click-based
+entry points, including optional commands when their extras are installed.
+``gptme-wut``, ``gptme-convert``, and ``gptme-eval-trends`` currently use argparse
+and are not covered; ``gptme-acp`` is a stdio protocol transport, not an interactive
+CLI.
+
 Common invocations
 ------------------
 

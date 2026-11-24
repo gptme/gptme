@@ -29,6 +29,7 @@ import gptme
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..util.multiprompt import group_prompt_args as _group_prompt_args
+from .completion import complete_model
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -619,6 +620,7 @@ def _same_env_executable(name: str) -> str | None:
     "--model",
     default=None,
     callback=_validate_model_param,
+    shell_complete=complete_model,
     help="Model to use, e.g. {model_examples}. If only provider given then a default is used.",
 )
 @click.option(

@@ -11,6 +11,7 @@ import click
 if TYPE_CHECKING:
     from .app import GptmeApp
 
+from ..cli.completion import complete_model
 from ..config import setup_config_from_cli
 from ..dirs import get_logs_dir
 from ..init import init, init_logging
@@ -157,6 +158,7 @@ def _current_dir() -> Path:
     "--model",
     default=None,
     help="Model to use (e.g. anthropic/claude-sonnet-4-6).",
+    shell_complete=complete_model,
 )
 @click.option(
     "-w",
