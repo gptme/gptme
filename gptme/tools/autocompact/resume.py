@@ -150,12 +150,31 @@ def _parse_context_files(content: str) -> list[str]:
     return unique_paths
 
 
-_SECRET_DIR_PARTS = frozenset({".ssh", ".gnupg", ".aws"})
+_SECRET_DIR_PARTS = frozenset(
+    {".ssh", ".gnupg", ".pgp", ".aws", ".azure", ".kube", ".docker"}
+)
+# Credential directories under ``.config``.
+_SECRET_CONFIG_DIRS = frozenset({"secrets", "gh", "gcloud", "gptme"})
+_SECRET_FILE_NAMES = frozenset(
+    {
+        ".envrc",
+        ".netrc",
+        ".git-credentials",
+        ".pgpass",
+        ".npmrc",
+        ".pypirc",
+        "id_rsa",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+    }
+)
+_SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".pkcs12", ".keystore")
 _ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
 
 
 def _is_secret_bearing_path(path: Path) -> bool:
-    """True for files that hold credentials (dotenv files, key directories).
+    """True for files that hold credentials (dotenv, rc and key files, key dirs).
 
     Resume re-injects context files verbatim into the next prompt, so a model
     that merely inspected ``secrets/posthog.env`` would otherwise ship every
@@ -163,10 +182,12 @@ def _is_secret_bearing_path(path: Path) -> bool:
     """
     parts = tuple(part.lower() for part in path.parts)
     if _SECRET_DIR_PARTS.intersection(parts) or any(
-        a == ".config" and b == "secrets" for a, b in zip(parts, parts[1:])
+        a == ".config" and b in _SECRET_CONFIG_DIRS for a, b in zip(parts, parts[1:])
     ):
         return True
     name = path.name.lower()
+    if name in _SECRET_FILE_NAMES or name.endswith(_SECRET_SUFFIXES):
+        return True
     if name.endswith(_ENV_TEMPLATE_SUFFIXES):
         return False
     return name == ".env" or ".env." in name or name.endswith(".env")

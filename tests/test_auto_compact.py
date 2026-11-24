@@ -1026,6 +1026,35 @@ def test_load_context_files_rejects_templates_in_credential_directories(
     assert loaded == [(template.name, "TOKEN=\n")]
 
 
+@pytest.mark.parametrize(
+    "credential_path",
+    [
+        ".envrc",
+        ".netrc",
+        ".git-credentials",
+        ".pgpass",
+        ".npmrc",
+        ".pypirc",
+        "certs/server.pem",
+        ".config/gh/hosts.yml",
+        ".docker/config.json",
+        ".kube/config",
+    ],
+)
+def test_load_context_files_skips_common_credential_files(tmp_path, credential_path):
+    """Resume must not inline credential files a checkpoint happens to list."""
+    from gptme.tools.autocompact import _load_context_files
+
+    credential = tmp_path / credential_path
+    credential.parent.mkdir(parents=True, exist_ok=True)
+    credential.write_text("password ghp_SECRET\n")
+    (tmp_path / "notes.txt").write_text("ordinary\n")
+
+    loaded = _load_context_files([credential_path, "notes.txt"], workspace=tmp_path)
+
+    assert loaded == [("notes.txt", "ordinary\n")]
+
+
 @pytest.mark.parametrize("credential_path", [".env", ".config/secrets/posthog.env"])
 @pytest.mark.parametrize("credential_is_link", [True, False])
 def test_load_context_files_rejects_credential_symlinks(
