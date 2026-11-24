@@ -510,7 +510,12 @@ def auth_grok_subscription():
 
 
 @main.command("openrouter")
-def auth_openrouter():
+@click.option(
+    "--no-browser",
+    is_flag=True,
+    help="Print the sign-in URL without opening a browser automatically.",
+)
+def auth_openrouter(no_browser: bool):
     """Authenticate with OpenRouter via PKCE OAuth and store a permanent API key.
 
     Opens a browser so you can sign in to openrouter.ai.  After successful
@@ -534,8 +539,15 @@ def auth_openrouter():
         " gptme config.\n"
     )
 
+    def on_url_ready(url: str) -> bool:
+        console.print(
+            "Open this URL in your browser if it does not open automatically:"
+        )
+        console.print(url, markup=False, highlight=False, soft_wrap=True)
+        return not no_browser
+
     try:
-        api_key = oauth_get_api_key()
+        api_key = oauth_get_api_key(on_url_ready=on_url_ready)
     except RuntimeError as exc:
         console.print(f"\n[red bold]✗ Authentication failed: {exc}[/red bold]")
         sys.exit(1)

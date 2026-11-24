@@ -33,6 +33,7 @@ import http.server
 import logging
 import secrets
 import socket
+import sys
 import threading
 from collections.abc import Callable
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -143,10 +144,17 @@ def oauth_get_api_key(
         if on_url_ready is not None:
             should_open_browser = on_url_ready(auth_url) is not False
         if should_open_browser:
-            opened = webbrowser.open(auth_url)
+            if sys.platform == "darwin":
+                # Use Launch Services instead of webbrowser's AppleScript/terminal
+                # browser fallback (which can select lynx or require DISPLAY).
+                import click
+
+                opened = click.launch(auth_url) == 0
+            else:
+                opened = webbrowser.open(auth_url)
             if not opened:
                 logger.warning(
-                    "webbrowser.open() returned False for OpenRouter OAuth; URL: %s",
+                    "Could not open browser for OpenRouter OAuth; visit: %s",
                     auth_url,
                 )
 

@@ -139,3 +139,34 @@ def test_persistent_network_error_stops_at_deadline_and_reports_cause():
     # 900s deadline / 5s interval = 180 polls (+1 authorize call)
     assert post.call_count == 181
     save.assert_not_called()
+
+
+@pytest.mark.parametrize("no_browser", [False, True])
+def test_openrouter_prints_url_before_browser_launch(no_browser: bool) -> None:
+    """The sign-in URL stays usable when automatic browser selection fails."""
+    import io
+
+    from rich.console import Console
+
+    url = "https://openrouter.ai/auth?callback_url=test&code_challenge=test"
+    output = io.StringIO()
+
+    def authenticate(*, on_url_ready):
+        should_open = on_url_ready(url)
+        assert url in output.getvalue()
+        assert should_open is (not no_browser)
+        return "sk-or-test-cli"
+
+    with (
+        patch("gptme.cli.auth.console", Console(file=output, width=200)),
+        patch(
+            "gptme.llm.llm_openrouter_subscription.oauth_get_api_key",
+            side_effect=authenticate,
+        ),
+        patch("gptme.config.set_config_value") as save,
+    ):
+        result = CliRunner().invoke(
+            main, ["openrouter"] + (["--no-browser"] if no_browser else [])
+        )
+    assert result.exit_code == 0, (result.output, result.exception)
+    save.assert_called_once_with("env.OPENROUTER_API_KEY", "sk-or-test-cli", local=True)
