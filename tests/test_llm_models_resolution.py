@@ -1079,3 +1079,41 @@ class TestModelMetaEdgeCases:
         m1 = ModelMeta(provider="openai", model="test", context=128_000)
         m2 = ModelMeta(provider="openai", model="test", context=64_000)
         assert m1 != m2
+
+
+@pytest.mark.parametrize(
+    ("bare", "expected_provider"),
+    [
+        ("grok-4.6", "xai"),
+        ("deepseek-v4-pro", "deepseek"),
+        # Already vendor-first by dict order; must stay that way.
+        ("gpt-5.5", "openai"),
+    ],
+)
+def test_bare_model_name_prefers_vendor_api(bare, expected_provider):
+    from gptme.llm.models import get_model
+
+    assert get_model(bare).provider == expected_provider
+
+
+def test_every_shared_bare_name_resolves_to_a_vendor():
+    """A name listed by a vendor and a reseller never resolves to the reseller."""
+    from gptme.llm.models import MODELS, get_model
+    from gptme.llm.models.resolution import _RESELLER_PROVIDERS
+
+    vendor_names = {
+        name
+        for provider, models in MODELS.items()
+        if provider not in _RESELLER_PROVIDERS
+        for name in models
+    }
+    shared = {
+        name
+        for provider, models in MODELS.items()
+        if provider in _RESELLER_PROVIDERS
+        for name in models
+        if name in vendor_names
+    }
+    assert shared  # the guard is vacuous if no names overlap
+    for name in sorted(shared):
+        assert get_model(name).provider not in _RESELLER_PROVIDERS, name
