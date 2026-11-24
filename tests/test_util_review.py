@@ -3483,8 +3483,13 @@ class TestLocalReviewArtifactIngestion:
     ) -> None:
         path = tmp_path / "review.json"
         raw = _local_review_artifact()
-        raw["elapsed_s"] = json.loads(elapsed_json)
-        path.write_text(json.dumps(raw), encoding="utf-8")
+        raw["elapsed_s"] = None
+        path.write_text(
+            json.dumps(raw).replace(
+                '"elapsed_s": null', f'"elapsed_s": {elapsed_json}'
+            ),
+            encoding="utf-8",
+        )
 
         artifact = ReviewArtifact.load(path)
         assert artifact.review_duration_s == 0.0
@@ -3499,9 +3504,14 @@ class TestLocalReviewArtifactIngestion:
         self, tmp_path: Path, elapsed_json: str
     ) -> None:
         raw = _local_review_artifact()
-        raw.update(elapsed_s=json.loads(elapsed_json), findings=[])
+        raw.update(elapsed_s=None, findings=[])
         path = tmp_path / "review.json"
-        path.write_text(json.dumps(raw), encoding="utf-8")
+        path.write_text(
+            json.dumps(raw).replace(
+                '"elapsed_s": null', f'"elapsed_s": {elapsed_json}'
+            ),
+            encoding="utf-8",
+        )
         result = CliRunner().invoke(
             util_main, ["review", "watch", "--artifact", str(path)]
         )
