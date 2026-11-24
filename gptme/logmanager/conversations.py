@@ -503,8 +503,15 @@ def get_conversation_meta_direct(
     access instead of O(N_conversations) — suitable for partial cache updates
     where only one conversation changed.
 
-    Returns None when the conversation directory or JSONL file does not exist.
+    Returns None when the conversation directory or JSONL file does not exist,
+    or when ``conv_id`` is not a valid conversation id.
     """
+    from ..util.conversation_ids import is_valid_conversation_id
+
+    # Reject invalid ids before get_logs_dir(), which may create directories
+    # (and raise) as a side effect; _conversation_dir() still checks the join.
+    if not is_valid_conversation_id(conv_id):
+        return None
     if logs_dir is None:
         logs_dir = get_logs_dir()
     conv_dir = _conversation_dir(logs_dir, conv_id)

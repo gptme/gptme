@@ -1726,7 +1726,21 @@ def test_conversation_dir_rejects_windows_drive_prefixes(conv_id: str):
     assert _conversation_dir(logs, "ok-conv") == logs / "ok-conv"
 
 
-def test_delete_refuses_alias_of_current_conversation(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("conv_id", ["../evil", "x/y", "a\\b", ".", ""])
+def test_conversation_meta_direct_invalid_id_skips_logs_dir(conv_id: str, monkeypatch):
+    """Invalid ids return None before get_logs_dir() can create dirs or raise."""
+    from gptme.logmanager import conversations
+
+    def _boom():
+        raise AssertionError("get_logs_dir() must not be called for invalid ids")
+
+    monkeypatch.setattr(conversations, "get_logs_dir", _boom)
+    assert conversations.get_conversation_meta_direct(conv_id) is None
+
+
+def test_delete_refuses_alias_of_current_conversation(
+    tmp_path: Path, monkeypatch, requires_symlinks
+):
     """/delete compares directories, not names, before deleting.
 
     On case-insensitive filesystems 'Current-Conv' is the active chat's
