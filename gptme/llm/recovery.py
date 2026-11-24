@@ -257,7 +257,11 @@ def is_transient_provider_error(error: BaseException) -> bool:
         # once with a forced tool call, and replaying the same request again
         # fails the same way (gemini-4-neon: 11/11 attempts).
         return False
-    if isinstance(error, EmptyStreamError) and _empty_reply_ends_turn.get():
+    if (
+        isinstance(error, EmptyStreamError)
+        and _empty_reply_ends_turn.get()
+        and error.normal_finish
+    ):
         # The caller accepts an empty reply as the model ending its turn (e.g.
         # gpt-6.1-sol after its last tool result, with no `complete` tool):
         # replaying it repeats the same empty answer up to the attempt limit.

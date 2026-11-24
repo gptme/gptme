@@ -104,12 +104,14 @@ def _empty_reply_ends_turn(messages: list[Message]) -> bool:
         return False
     if not messages or messages[-1].role != "system":
         return False
-    last_assistant = next(
-        (m for m in reversed(messages) if m.role == "assistant"), None
-    )
-    return last_assistant is not None and any(
-        True for _ in ToolUse.iter_from_content(last_assistant.content)
-    )
+    # Only this turn's tool results count: a newer user prompt (even one
+    # followed by a STEP_PRE notice) is owed a real answer.
+    for msg in reversed(messages):
+        if msg.role == "user":
+            return False
+        if msg.role == "assistant":
+            return any(True for _ in ToolUse.iter_from_content(msg.content))
+    return False
 
 
 class IdleNotificationWake:
@@ -1028,6 +1030,17 @@ def _process_message_conversation(
         if command_consumed:
             break
 
+        # step() ended the turn on an empty reply (see _empty_reply_ends_turn):
+        # the last assistant message still holds the previous tool call, so
+        # the runnable check below would otherwise generate again.
+        if any(
+            msg.role == "system"
+            and msg.ui_only
+            and "session_stop_outcome" in (msg.metadata or {})
+            for msg in response_msgs
+        ):
+            break
+
         # Tool execution can consume Ctrl-C itself and yield paired results.
         # Stop before compaction or another generation, just as for a decline.
         if any(
@@ -1694,17 +1707,25 @@ def step(
                     logdir=logdir,
                     max_tokens=max_tokens,
                 )
-        except EmptyStreamError:
-            if not empty_ends_turn:
+        except EmptyStreamError as exc:
+            # Only a normal finish is the model ending its turn; a malformed or
+            # cut-off response stays a provider error.
+            if not (empty_ends_turn and exc.normal_finish):
                 raise
-            # Same outcome as a text-only final reply, without persisting an
-            # empty assistant message.
             logger.warning(
                 "Model ended the run with an empty reply after a tool result"
             )
-            raise SessionCompleteException(
-                "Empty reply after the last tool result"
-            ) from None
+            # End the turn through the normal loop (background jobs still get
+            # their wait) and leave a hidden stop marker so a resume returns to
+            # the prompt instead of regenerating. No empty assistant message.
+            yield Message(
+                "system",
+                "Model ended the turn with an empty reply.",
+                ui_only=True,
+                hide=True,
+                metadata={"session_stop_outcome": "completed"},
+            )
+            return
         # Retain the parser even for replies with no calls: XML examples in a
         # markdown explanation must not become writes after a format switch.
         msg_response = msg_response.replace(

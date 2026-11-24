@@ -309,6 +309,8 @@ class EmptyStreamError(httpx.RemoteProtocolError):
         # e.g. Gemini's MALFORMED_RESPONSE: deterministic for the same request,
         # so not worth replaying (see recovery.is_transient_provider_error)
         self.native_finish_reason = (metadata or {}).get("native_finish_reason")
+        # Responses API `response.incomplete`: the provider cut the reply off.
+        self.incomplete = bool((metadata or {}).get("incomplete"))
         usage = (metadata or {}).get("usage")
         detail = f" (usage: {usage})" if usage else ""
         if self.native_finish_reason:
@@ -319,6 +321,11 @@ class EmptyStreamError(httpx.RemoteProtocolError):
         super().__init__(
             f"Provider stream for {model} ended without any output{detail}"
         )
+
+    @property
+    def normal_finish(self) -> bool:
+        """The provider finished normally: the model chose to say nothing."""
+        return not self.native_finish_reason and not self.incomplete
 
 
 _CONTEXT_LENGTH_ERROR_CODES = frozenset(

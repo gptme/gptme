@@ -1935,6 +1935,11 @@ def _stream_responses(
             reasoning_effort=reasoning_effort,
             served_model=served_model,
         )
+    if incomplete:
+        captured_metadata = cast(
+            MessageMetadata,
+            {**(captured_metadata or {"model": model}), "incomplete": True},
+        )
     return phases.metadata(captured_metadata, "".join(output))
 
 
