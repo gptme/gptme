@@ -3547,3 +3547,63 @@ def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
     assert list(_extract_codeblocks(markdown)) == [
         Codeblock("save a.md", expected, fence=fence)
     ]
+
+
+@pytest.mark.parametrize("width", [4, 5, 6, 7])
+def test_wide_save_fence_with_nested_block_then_shell(width: int) -> None:
+    """A 6-backtick opener with a real 6-backtick closer is not a joined fence.
+
+    Regression for gptme/gptme#5199: the adjacent closer/opener split rewrote
+    any ``^`{6}lang`` line to three backticks, so the real closer never matched
+    and the block plus every later block was dropped.
+    """
+    fence = "`" * width
+    markdown = (
+        f"{fence}save README.md\n# Doc\n```bash\npip install x\n```\n{fence}\n\n"
+        "Then check it:\n```shell\ncat README.md\n```\n"
+    )
+    assert [(b.lang, b.content) for b in _extract_codeblocks(markdown)] == [
+        ("save README.md", "# Doc\n```bash\npip install x\n```"),
+        ("shell", "cat README.md"),
+    ]
+
+
+@pytest.mark.parametrize("closer_width", [4, 5])
+def test_exec_block_accepts_longer_closer(closer_width: int) -> None:
+    """CommonMark accepts any closer at least as long as the opener.
+
+    Regression for gptme/gptme#5199: a ```` ```` ```` closer after a ```` ``` ````
+    shell opener was not accepted, dropping both commands.
+    """
+    closer = "`" * closer_width
+    markdown = f"```shell\nls -la\n{closer}\n\nNext:\n```shell\npwd\n```\n"
+    assert [(b.lang, b.content) for b in _extract_codeblocks(markdown)] == [
+        ("shell", "ls -la"),
+        ("shell", "pwd"),
+    ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_wide_save_fence_thinking_tag_is_literal(streaming: bool) -> None:
+    """Fence-state tracking agrees that a six-backtick save is a real block."""
+    markdown = "``````save a.md\n<thinking>\n``````\n\n```shell\nls\n```\n"
+    assert [
+        (b.lang, b.content) for b in _extract_codeblocks(markdown, streaming=streaming)
+    ] == [("save a.md", "<thinking>"), ("shell", "ls")]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_unfinished_thinking_after_longer_closer_extracts_nothing(
+    streaming: bool,
+) -> None:
+    """A longer closer puts a later thinking tag outside fences, as extraction does."""
+    markdown = "```shell\nls\n````\n\n<thinking>\n```shell\nrm -rf x\n```\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_exec_block_longer_fence_before_code_stays_literal() -> None:
+    """Unconfirmed by a blank line, a wider fence inside a shell block is content."""
+    markdown = "```shell\nls\n````\npwd\n```\n"
+    assert [(b.lang, b.content) for b in _extract_codeblocks(markdown)] == [
+        ("shell", "ls\n````\npwd")
+    ]

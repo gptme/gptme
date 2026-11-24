@@ -386,6 +386,55 @@ _EXEC_LANGS = frozenset(
 _SHELL_LANGS = _EXEC_LANGS - {"ipython"}
 
 
+def _closes_outer_fence(
+    lines: list[str],
+    i: int,
+    line_fence_len: int,
+    fence_len: int,
+    lang: str,
+    streaming: bool,
+) -> bool:
+    """Whether the bare fence ``lines[i]`` (*line_fence_len* wide) closes a depth-1 block.
+
+    The exact opener width always qualifies. CommonMark also accepts a longer
+    closer; exec blocks honor that, since a bare fence is never a nested opener
+    there, but only when a blank line or the end of the message confirms it — a
+    wider fence followed by more code stays literal content. Other blocks (save,
+    patch, ...) keep requiring the exact width: their content may hold literal
+    fences of other widths.
+    """
+    if line_fence_len == fence_len:
+        return True
+    if line_fence_len < fence_len or lang not in _EXEC_LANGS:
+        return False
+    if i + 1 >= len(lines):
+        return not streaming
+    if lines[i + 1].strip():
+        return False
+    # In streaming mode a trailing "" from split("\n") is not a real blank line.
+    return not (streaming and i + 1 == len(lines) - 1)
+
+
+def _last_six_backtick_bare_fence(lines: list[str]) -> int:
+    """Index of the last bare fence of exactly six backticks, or -1."""
+    for i in range(len(lines) - 1, -1, -1):
+        if re.match(r"^`{6}\s*$", lines[i]):
+            return i
+    return -1
+
+
+def _is_joined_fence(line: str, i: int, last_six_bare: int) -> bool:
+    """Whether a depth-0 line of six backticks plus a tag is a joined closer+opener.
+
+    Models sometimes glue a closer to the next opener ("``````shell" instead of
+    a closing fence line followed by "```shell"). A genuine six-backtick opener
+    has a later six-backtick bare fence to close it; only without one is the
+    line split into two triple fences. *last_six_bare* is from
+    :func:`_last_six_backtick_bare_fence`.
+    """
+    return bool(re.match(r"^`{6}[^`\s]", line)) and last_six_bare <= i
+
+
 def _line_fence_states(
     text: str, streaming: bool = False
 ) -> list[tuple[int, bool, str]]:
@@ -432,9 +481,10 @@ def _line_fence_states(
     heredoc_terminator: str | None = None
     # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
     ambiguous_fence_kept = False
+    last_six_bare = _last_six_backtick_bare_fence(lines)
     for i, line in enumerate(lines):
         if depth == 0:
-            scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
+            scan = line[3:] if _is_joined_fence(line, i, last_six_bare) else line
             fence_match = re.match(r"^(`{3,})", scan)
             if fence_match:
                 fence_len = len(fence_match.group(1))
@@ -501,7 +551,9 @@ def _line_fence_states(
         if line_fence_match:
             line_fence_len = len(line_fence_match.group(1))
             is_bare_fence = line.strip() == "`" * line_fence_len
-            is_outer_close = is_bare_fence and line_fence_len == fence_len
+            is_outer_close = is_bare_fence and _closes_outer_fence(
+                lines, i, line_fence_len, fence_len, outer_lang, streaming
+            )
             if is_outer_close or (is_bare_fence and depth > 1):
                 if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
                     states.append((depth, False, outer_lang))
@@ -1053,6 +1105,7 @@ def _extract_codeblocks(
 
     lines = markdown.split("\n")
     outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
+    last_six_bare = _last_six_backtick_bare_fence(lines)
     i = 0
 
     while i < len(lines):
@@ -1062,8 +1115,9 @@ def _extract_codeblocks(
         # next one opens on the same line, e.g. "``````patch file.py" instead of
         # "```\n```patch file.py". ToolUse._to_markdown always emits triple fences,
         # so six leading backticks followed immediately by a language tag is a good
-        # signal that the first three backticks belong to the previous block.
-        if re.match(r"^`{6}[^`\s]", line):
+        # signal that the first three backticks belong to the previous block —
+        # unless a later bare fence can close a genuine six-backtick block.
+        if _is_joined_fence(line, i, last_six_bare):
             line = line[3:]
             lines[i] = line
 
@@ -1221,9 +1275,12 @@ def _extract_codeblocks(
                     line_fence_len = len(line_fence_match.group(1))
                     # Check if this is a bare fence (only backticks on the line)
                     is_bare_fence = line.strip() == "`" * line_fence_len
-                    # For closing the outer block, need exact match of opening fence length
+                    # For closing the outer block, need exact match of opening fence
+                    # length (or at least as long, for exec langs).
                     # For inner nested blocks, any bare fence can close them
-                    is_outer_close = is_bare_fence and line_fence_len == fence_len
+                    is_outer_close = is_bare_fence and _closes_outer_fence(
+                        lines, i, line_fence_len, fence_len, lang, streaming
+                    )
                     if is_outer_close or (is_bare_fence and nesting_depth > 1):
                         # Bare fence - determine if opening or closing based on context
                         # A fence inside an open quoted string or a Python
