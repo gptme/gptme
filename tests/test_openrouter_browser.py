@@ -97,8 +97,10 @@ def test_macos_launch_failure_keeps_manual_callback_alive(
     response.json.return_value = {"key": "sk-or-manual-callback"}
     monkeypatch.setattr(oauth.requests, "post", Mock(return_value=response))
 
-    def on_url_ready(_url: str) -> None:
-        # A callback is available even if the automatic launch subsequently fails.
+    def complete_manual_callback(*_args: object) -> None:
+        # The warning is emitted only after launch fails. Deliver the user's
+        # callback then, not while on_url_ready runs before the launch attempt.
+        native_open.assert_called_once()
         with requests.Session() as session:
             session.trust_env = False
             session.get(
@@ -107,8 +109,13 @@ def test_macos_launch_failure_keeps_manual_callback_alive(
                 timeout=2,
             ).raise_for_status()
 
+    launch_warning = Mock(side_effect=complete_manual_callback)
+    monkeypatch.setattr(oauth.logger, "warning", launch_warning)
+    urls: list[str] = []
+
     assert (
-        oauth.oauth_get_api_key(timeout=2, on_url_ready=on_url_ready)
+        oauth.oauth_get_api_key(timeout=2, on_url_ready=urls.append)
         == "sk-or-manual-callback"
     )
-    native_open.assert_called_once()
+    native_open.assert_called_once_with(urls[0])
+    launch_warning.assert_called_once()
