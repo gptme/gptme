@@ -3,22 +3,34 @@
 This module provides a small lifecycle wrapper around :class:`gptme.acp.client.GptmeAcpClient`
 for running one ACP subprocess per server-side conversation/session.
 
+The ACP stdio transport (subprocess pipes, reader tasks and the
+``spawn_agent_process`` async context) is bound to the event loop that created
+it. Server steps each run in their own short-lived ``asyncio.run`` loop, so the
+runtime owns a dedicated, long-lived event loop thread and executes all ACP
+client work there. Callers on any loop simply ``await`` the runtime's methods;
+the work is marshalled onto the runtime loop and the result is awaited back.
+
 It is intentionally decoupled from the current V2 SSE/tool-confirmation loop so it can be
 introduced incrementally.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
-from typing import TYPE_CHECKING, Any
+import threading
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
     from pathlib import Path
 
 from gptme.acp.client import GptmeAcpClient
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 def extract_text_from_prompt_response(resp: Any) -> str:
@@ -82,12 +94,114 @@ class AcpSessionRuntime:
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
 
+        # Dedicated event loop owning the ACP transport (see module docstring).
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
+        self._loop_lock = threading.Lock()
+
     @property
     def session_id(self) -> str | None:
         return self._session_id
 
+    # -- runtime event loop -------------------------------------------------
+
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        """Return the runtime's event loop, starting its thread if needed."""
+        with self._loop_lock:
+            loop = self._loop
+            thread = self._loop_thread
+            if (
+                loop is not None
+                and not loop.is_closed()
+                and thread is not None
+                and thread.is_alive()
+            ):
+                return loop
+
+            loop = asyncio.new_event_loop()
+            running = threading.Event()
+
+            def _run_loop() -> None:
+                asyncio.set_event_loop(loop)
+                loop.call_soon(running.set)
+                try:
+                    loop.run_forever()
+                finally:
+                    try:
+                        # Cancel in-flight calls so callers awaiting them via
+                        # run_coroutine_threadsafe are released, not left hanging.
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            loop.run_until_complete(
+                                asyncio.gather(*pending, return_exceptions=True)
+                            )
+                        # Finalize the spawn_agent_process async generator (and
+                        # any other) on its own loop, not via GC on another one.
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+                    except Exception:
+                        logger.debug(
+                            "Failed to shut down ACP runtime async generators",
+                            exc_info=True,
+                        )
+                    finally:
+                        loop.close()
+
+            thread = threading.Thread(
+                target=_run_loop, daemon=True, name="acp-runtime-loop"
+            )
+            thread.start()
+            running.wait(timeout=5.0)
+            self._loop = loop
+            self._loop_thread = thread
+            return loop
+
+    def _stop_loop(self, join_timeout: float = 5.0) -> None:
+        """Stop the runtime loop thread (no-op if not running)."""
+        with self._loop_lock:
+            loop = self._loop
+            thread = self._loop_thread
+            self._loop = None
+            self._loop_thread = None
+        if loop is None or loop.is_closed():
+            return
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            # Loop closed concurrently.
+            return
+        if (
+            thread is not None
+            and thread is not threading.current_thread()
+            and thread.is_alive()
+        ):
+            thread.join(timeout=join_timeout)
+
+    async def _run_on_loop(
+        self,
+        func: Callable[..., Coroutine[Any, Any, _T]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        """Run ``func(*args, **kwargs)`` on the runtime loop and await its result."""
+        loop = self._ensure_loop()
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:  # pragma: no cover - always called from a coroutine
+            current = None
+        if current is loop:
+            return await func(*args, **kwargs)
+        fut = asyncio.run_coroutine_threadsafe(func(*args, **kwargs), loop)
+        return await asyncio.wrap_future(fut)
+
+    # -- lifecycle ----------------------------------------------------------
+
     async def start(self) -> None:
         """Start ACP subprocess and create ACP session if not already started."""
+        await self._run_on_loop(self._start_impl)
+
+    async def _start_impl(self) -> None:
         if self._client is not None and self._session_id is not None:
             return
 
@@ -143,8 +257,13 @@ class AcpSessionRuntime:
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
+        return await self._run_on_loop(self._prompt_impl, message, max_tokens)
+
+    async def _prompt_impl(
+        self, message: str, max_tokens: int | None
+    ) -> tuple[str, Any]:
         if self._client is None or self._session_id is None:
-            await self.start()
+            await self._start_impl()
 
         if self._client is None or self._session_id is None:
             raise RuntimeError(
@@ -190,40 +309,84 @@ class AcpSessionRuntime:
     def terminate_subprocess_sync(self, timeout: float = 3.0) -> None:
         """Terminate the ACP subprocess synchronously.
 
-        Safer than ``close()`` in atexit handlers where the asyncio event loop
-        may already be partially torn down.  Falls back to SIGKILL if SIGTERM
-        does not succeed within *timeout* seconds.
+        Safer than ``close()`` in atexit handlers where the caller's asyncio
+        machinery may already be partially torn down. If the runtime loop is
+        still alive, the client is first closed gracefully on that loop; on
+        failure (or timeout) the subprocess is signalled directly, falling back
+        to SIGKILL if SIGTERM does not succeed within *timeout* seconds.
         """
-        if self._client is None:
-            return
-        proc = getattr(self._client, "_process", None)
-        if proc is None:
-            return
         try:
-            proc.terminate()
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
+            if self._client is None:
+                return
+            proc = getattr(self._client, "_process", None)
+            if self._close_on_loop_sync(timeout):
+                return
+            if proc is None:
+                return
             try:
-                proc.kill()
-                proc.wait(timeout=1.0)  # reap zombie after SIGKILL
-            except Exception:
-                logger.debug(
-                    "Failed to kill ACP subprocess after SIGTERM timeout", exc_info=True
-                )
+                proc.terminate()
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1.0)  # reap zombie after SIGKILL
+                except Exception:
+                    logger.debug(
+                        "Failed to kill ACP subprocess after SIGTERM timeout",
+                        exc_info=True,
+                    )
         finally:
             # Clear references so the runtime is left in a consistent state.
             # Mirrors what close() does asynchronously; prevents accidental reuse.
             self._client = None
             self._session_id = None
+            self._stop_loop(join_timeout=1.0)
+
+    def _close_on_loop_sync(self, timeout: float) -> bool:
+        """Gracefully close the client on the live runtime loop.
+
+        Returns True if the client was closed, False if the caller should fall
+        back to signalling the subprocess directly.
+        """
+        with self._loop_lock:
+            loop = self._loop
+            thread = self._loop_thread
+        if (
+            loop is None
+            or loop.is_closed()
+            or thread is None
+            or not thread.is_alive()
+            or thread is threading.current_thread()
+        ):
+            return False
+        try:
+            fut = asyncio.run_coroutine_threadsafe(self._close_impl(), loop)
+            fut.result(timeout=timeout)
+            return True
+        except Exception:
+            logger.debug(
+                "Graceful ACP close on runtime loop failed; terminating subprocess",
+                exc_info=True,
+            )
+            return False
 
     async def close(self) -> None:
         """Close ACP subprocess/session. Safe to call multiple times."""
+        if self._client is not None:
+            try:
+                await self._run_on_loop(self._close_impl)
+            finally:
+                self._stop_loop()
+        else:
+            self._stop_loop()
+
+    async def _close_impl(self) -> None:
         if self._client is None:
             return
-
-        await self._client.__aexit__(None, None, None)
+        client = self._client
         self._client = None
         self._session_id = None
+        await client.__aexit__(None, None, None)
 
     async def __aenter__(self) -> AcpSessionRuntime:
         await self.start()

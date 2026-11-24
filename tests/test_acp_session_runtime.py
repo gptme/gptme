@@ -26,6 +26,28 @@ def _run(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _stop_acp_runtime_loops(monkeypatch):
+    """Stop the dedicated event-loop thread of every runtime a test creates.
+
+    Many tests never close their runtime; without this each would leak an
+    ``acp-runtime-loop`` daemon thread.
+    """
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+
+    runtimes: list[AcpSessionRuntime] = []
+    orig_init = AcpSessionRuntime.__init__
+
+    def _tracking_init(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        runtimes.append(self)
+
+    monkeypatch.setattr(AcpSessionRuntime, "__init__", _tracking_init)
+    yield
+    for rt in runtimes:
+        rt._stop_loop()
+
+
 class _DummyBlock:
     def __init__(self, text: str):
         self.text = text
@@ -1058,3 +1080,236 @@ def test_health_monitor_start_stop():
     finally:
         # Stop should clean up; always run so the thread never leaks on failure
         stop_session_health_monitor()
+
+
+# ---------------------------------------------------------------------------
+# Regression: runtime must survive across per-step asyncio.run loops (#5177)
+# ---------------------------------------------------------------------------
+
+_ECHO_AGENT = (
+    "import sys\n"
+    "for line in sys.stdin:\n"
+    "    sys.stdout.write('echo:' + line)\n"
+    "    sys.stdout.flush()\n"
+)
+
+
+class _LoopBoundClient:
+    """Fake ACP client whose transport is bound to the loop that started it.
+
+    Mirrors ``acp.stdio.spawn_agent_process``: an asyncio subprocess held open
+    by an async-generator context manager. Using it from a different (or
+    closed) event loop than the one that entered it breaks, like the real one.
+    """
+
+    def __init__(self, workspace: Path, **kwargs: Any) -> None:
+        self._on_update = kwargs.get("on_update")
+        self._ctx: Any = None
+        self._process: Any = None
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.closed = False
+
+    async def __aenter__(self):
+        import sys
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _spawn():
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                _ECHO_AGENT,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+            )
+            try:
+                yield proc
+            finally:
+                if proc.returncode is None:
+                    proc.terminate()
+                    await proc.wait()
+
+        self.loop = asyncio.get_running_loop()
+        self._ctx = _spawn()
+        self._process = await self._ctx.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._ctx is not None:
+            await self._ctx.__aexit__(exc_type, exc, tb)
+        self._ctx = None
+        self.closed = True
+
+    async def new_session(self, cwd: str | Path | None = None, **kwargs: Any) -> str:
+        return "sess-loop"
+
+    async def prompt(
+        self, session_id: str, message: str, max_tokens: int | None = None
+    ):
+        assert asyncio.get_running_loop() is self.loop, "used from foreign loop"
+        assert self._process.stdin is not None
+        assert self._process.stdout is not None
+        self._process.stdin.write(message.replace("\n", " ").encode() + b"\n")
+        await self._process.stdin.drain()
+        line = await asyncio.wait_for(self._process.stdout.readline(), 10)
+        if not line:
+            raise ConnectionError("Connection closed")
+        return {"text": line.decode().rstrip("\n")}
+
+    async def set_session_model(self, session_id: str, model_id: str) -> None:
+        pass
+
+    def set_on_update(self, on_update):
+        self._on_update = on_update
+
+
+def test_runtime_survives_across_event_loops(monkeypatch, tmp_path):
+    """Each server step runs in its own asyncio.run(); the ACP subprocess and
+    its transport must outlive those loops (#5177)."""
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    try:
+        for i in range(3):
+            text, _ = _run(runtime.prompt(f"turn {i}"))
+            assert text == f"echo:turn {i}"
+            assert runtime.is_subprocess_alive()
+
+        # One subprocess served all turns.
+        assert len(created) == 1
+        proc = created[0]._process
+    finally:
+        _run(runtime.close())
+
+    assert created[0].closed is True
+    assert proc.returncode is not None
+    assert not runtime.is_subprocess_alive()
+    # The dedicated loop thread is stopped on close.
+    assert runtime._loop_thread is None
+
+
+def test_runtime_terminate_sync_closes_gracefully(monkeypatch, tmp_path):
+    """terminate_subprocess_sync() closes the client on the runtime loop."""
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    proc = created[0]._process
+    assert runtime.is_subprocess_alive()
+
+    runtime.terminate_subprocess_sync()
+
+    assert created[0].closed is True
+    assert proc.returncode is not None
+    assert runtime.session_id is None
+    assert runtime._loop_thread is None
+
+
+def test_acp_step_second_turn_reuses_live_runtime(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A server-hosted ACP conversation must handle more than one turn (#5177)."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.session_step as sessions_mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    monkeypatch.setattr(sessions_mod, "trigger_hook", lambda *args, **kwargs: [])
+
+    from gptme.logmanager import LogManager
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    session = ConversationSession(id="sid-2turn", conversation_id=conversation_id)
+    session.use_acp = True
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    session.acp_runtime = runtime
+    with SessionManager._lock:
+        SessionManager._sessions["sid-2turn"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-2turn")
+
+    try:
+        for content in ["first turn", "second turn"]:
+            resp = client.post(
+                f"/api/v2/conversations/{conversation_id}",
+                json={"role": "user", "content": content},
+            )
+            assert resp.status_code == 200
+            # Like _start_acp_step_thread: one asyncio.run() per step.
+            _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+            assert runtime.is_subprocess_alive()
+
+        errors = [e for e in session.events if e["type"] == "error"]
+        assert errors == []
+        assert session.last_error is None
+        assert len(created) == 1
+
+        manager = LogManager.load(conversation_id)
+        assistant_msgs = [
+            m.content for m in manager.log.messages if m.role == "assistant"
+        ]
+        assert assistant_msgs == ["echo:first turn", "echo:second turn"]
+    finally:
+        _run(runtime.close())
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-2turn", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-2turn")
+
+
+def test_runtime_stop_loop_releases_inflight_prompt(monkeypatch, tmp_path):
+    """Stopping the runtime loop mid-prompt cancels the caller instead of hanging."""
+    import gptme.server.acp_session_runtime as mod
+
+    started = threading.Event()
+
+    class _HangingClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            started.set()
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _HangingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    result: list[BaseException] = []
+
+    def _caller() -> None:
+        try:
+            asyncio.run(runtime.prompt("hang"))
+        except BaseException as e:
+            result.append(e)
+
+    t = threading.Thread(target=_caller, daemon=True)
+    t.start()
+    assert started.wait(5)
+    runtime._stop_loop()
+    t.join(5)
+    assert not t.is_alive()
+    assert len(result) == 1
+    assert isinstance(result[0], asyncio.CancelledError)
