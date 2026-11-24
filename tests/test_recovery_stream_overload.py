@@ -244,21 +244,14 @@ def test_anthropic_sse_error_event_classification(
 ) -> None:
     """Anthropic raises a mid-stream SSE error event as APIStatusError(status=200)."""
     import anthropic
+    import httpx2
 
     client = anthropic.Anthropic(api_key="offline", max_retries=0)
     body = {"type": "error", "error": {"type": error_type, "message": "x"}}
-    try:
-        response = httpx.Response(
-            200, request=httpx.Request("POST", "https://offline.invalid")
-        )
-        error = client._make_status_error(str(body), body=body, response=response)
-    except Exception:  # SDK built on httpx2
-        import httpx2
-
-        response2 = httpx2.Response(
-            200, request=httpx2.Request("POST", "https://offline.invalid")
-        )
-        error = client._make_status_error(str(body), body=body, response=response2)
+    response = httpx2.Response(
+        200, request=httpx2.Request("POST", "https://offline.invalid")
+    )
+    error = client._make_status_error(str(body), body=body, response=response)
     assert error.status_code == 200
     mark_llm_reply_origin(error)
     assert recovery.is_transient_provider_error(error) is transient
