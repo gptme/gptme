@@ -222,3 +222,30 @@ def test_mid_conversation_system_messages_keep_instructions_prefix_stable(
         "role": "developer",
         "content": notice[1],
     }
+
+
+@pytest.mark.parametrize("tools", [[], None])
+def test_tool_output_kept_as_text_without_tools(tools) -> None:
+    """Without tools, a call_id tool result must reach the input as text.
+
+    Autocompact summaries call ``reply(..., tools=[])``; the assistant's
+    ``@tool(call_id)`` stays text, so the result has no function_call to pair
+    with and used to be dropped as an orphan (gptme/gptme#5218 item 12).
+    """
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+
+    output = "UNIQUE-TOOL-OUTPUT-42: 3 tests failed in test_foo.py"
+    _, items, responses_tools = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run the tests"),
+            Message("assistant", 'Running.\n@shell(call_abc): {"command": "pytest"}'),
+            Message("system", output, call_id="call_abc"),
+            Message("user", "Summarize the conversation so far."),
+        ],
+        "openai/gpt-5",
+        tools,
+    )
+    assert responses_tools is None
+    assert not any(i.get("type") == "function_call_output" for i in items)
+    assert any(output in str(i.get("content")) for i in items), items

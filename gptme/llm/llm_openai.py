@@ -509,6 +509,24 @@ def _prepare_messages_for_responses_api(
             replay = replay_responses_output(msg.content, captured)
             if replay is not None:
                 message["responses_items"] = replay
+    if not tools:
+        # Without tools, _handle_tools never turns ``@tool(call_id): ...`` text
+        # into function_call items, so a result keyed by call_id would be
+        # dropped as an orphan. Send it as plain system text instead (as Chat
+        # Completions does), unless a replayed native call still pairs with it.
+        replayed_call_ids = {
+            item.get("call_id")
+            for message in dicts
+            for item in message.get("responses_items", [])
+            if item.get("type") == "function_call"
+        }
+        for message in dicts:
+            if (
+                message["role"] == "system"
+                and message.get("call_id")
+                and message["call_id"] not in replayed_call_ids
+            ):
+                message.pop("call_id")
     messages_dicts: Iterable[dict[str, Any]] = _process_msgs(dicts, model_meta)
 
     if tools:
