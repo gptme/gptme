@@ -130,6 +130,8 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "python3 script.py --api-key $API_KEY",
         "compgen -e",
         "declare -F",
+        "declare -Fx",
+        "typeset -F -x",
         "declare -x FOO=bar",
         "shopt -s nullglob",
         "shopt -ou xtrace",

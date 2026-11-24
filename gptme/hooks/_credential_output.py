@@ -141,9 +141,11 @@ def _command_reason(words: list[str], depth: int) -> str | None:
         if not args or any(arg.startswith("-") and "p" in arg[1:] for arg in args):
             return _REASON
         # `declare -x` / `typeset -x` with no names list every exported
-        # variable with its value, like `export -p`.
+        # variable with its value, like `export -p`. `-F` lists function
+        # names only, so `declare -Fx` prints no values.
         if name != "export" and all(arg.startswith(("-", "+")) for arg in args):
-            if any(arg.startswith("-") and "x" in arg[1:] for arg in args):
+            flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
+            if "x" in flags and "F" not in flags:
                 return _REASON
     if name == "shopt":
         # `shopt -o -s xtrace` / `shopt -os xtrace` is `set -x`.
