@@ -367,7 +367,7 @@ def test_prompt_workspace_exclude_absolute_file_via_relative_symlinked_workspace
     (real / "gptme.toml").write_text(
         f"""
 [prompt]
-files = ["README.md", "{link / "dist" / "bundle.js"}"]
+files = ["README.md", "{(link / "dist" / "bundle.js").as_posix()}"]
 exclude = ["dist/*"]
 """
     )
