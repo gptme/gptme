@@ -1286,6 +1286,42 @@ describe('ApiClient event stream reconnection', () => {
     expect(JSON.parse(init.body)).toEqual({ elicit_id: 'el-1', action: 'accept', value: 'a' });
   });
 
+  it('maps pending elicitations from the connected snapshot', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const onReconnectState = jest.fn();
+    await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onReconnectState });
+    MockEventSource.instances[0].emitMessage({
+      type: 'connected',
+      session_id: 's1',
+      pending_elicitations: [
+        {
+          type: 'elicit_pending',
+          elicit_id: 'el-1',
+          elicit_type: 'choice',
+          prompt: 'Pick',
+          options: ['a', 'b'],
+        },
+      ],
+    });
+    expect(onReconnectState).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        pendingElicitations: [
+          expect.objectContaining({
+            id: 'el-1',
+            type: 'choice',
+            prompt: 'Pick',
+            options: ['a', 'b'],
+          }),
+        ],
+      })
+    );
+
+    // Older servers omit the field: no snapshot rather than "nothing pending".
+    MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 's1' });
+    expect(onReconnectState.mock.calls.at(-1)![0].pendingElicitations).toBeUndefined();
+  });
+
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { observable } from '@legendapp/state';
 import { ChatInput } from '../ChatInput';
 import { AttachmentUploadError } from '@/utils/api';
+import type { PendingElicitation } from '@/stores/conversations';
 
 const mockUploadFiles = jest.fn();
 
@@ -16,6 +17,7 @@ const mockConversation$ = observable<{
   executingTool: null;
   chatConfig: MockChatConfig;
   pendingModel?: string;
+  pendingElicitation?: PendingElicitation | null;
 }>({
   isGenerating: false,
   executingTool: null,
@@ -254,6 +256,23 @@ describe('ChatInput', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear queued message' }));
     expect(screen.getByText('Queued: saved prompt')).toBeInTheDocument();
     confirm.mockRestore();
+  });
+
+  it('queues messages while awaiting an elicitation, including the answer submission gap', async () => {
+    const onSend = jest.fn().mockResolvedValue(undefined);
+    mockConversation$.pendingElicitation.set({ id: 'question', type: 'text', prompt: 'Name?' });
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'next turn' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByText('Queued: next turn')).toBeInTheDocument();
+    act(() => {
+      mockConversation$.isGenerating.set(true);
+      mockConversation$.pendingElicitation.set(null);
+    });
+    expect(onSend).not.toHaveBeenCalled();
+    act(() => mockConversation$.isGenerating.set(false));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('next turn', expect.any(Object)));
   });
 
   it('does not flush a queued message while its edit is open', async () => {

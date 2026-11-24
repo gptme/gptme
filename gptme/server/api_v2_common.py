@@ -250,6 +250,7 @@ class ConnectedEvent(BaseEvent):
     generating: NotRequired[bool]
     latest_user_timestamp: NotRequired[str | None]
     pending_tools: NotRequired[list]
+    pending_elicitations: NotRequired[list["ElicitPendingEvent"]]
 
 
 class PingEvent(BaseEvent):
