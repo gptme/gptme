@@ -1578,11 +1578,9 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
             # No tool call: the helper returns no parts, so keep the reply text.
             # Otherwise a signed thinking block would replace the whole answer.
-            if not content_parts and not tool_uses:
-                if isinstance(cleaned_content, list):
-                    content_parts = list(cleaned_content)
-                elif cleaned_content.strip():
-                    content_parts = [{"type": "text", "text": cleaned_content.strip()}]
+            # _extract_thinking_content always returns stripped text.
+            if not content_parts and not tool_uses and cleaned_content:
+                content_parts = [{"type": "text", "text": cleaned_content}]
 
             # Build content array in proper order: thinking first, then text, then tools
             final_content: list[dict] = []
