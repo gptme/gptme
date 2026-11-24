@@ -252,6 +252,126 @@ def test_execute_mcp_info():
         assert "sqlite" in messages[0].content
 
 
+@pytest.mark.parametrize(
+    ("transport", "url"),
+    [
+        ("streamable-http", "https://mcp.example.net/sse?region=us&version=1"),
+        ("sse", "https://mcp.example.net/events"),
+    ],
+)
+def test_execute_mcp_info_from_official_registry(transport: str, url: str) -> None:
+    """Show the first supported remote and its declared transport."""
+    from gptme.config import Config
+
+    name = "io.github.example/remote"
+    with (
+        patch("gptme.config.get_config", return_value=Config()),
+        patch("gptme.mcp.registry.requests.get") as get,
+    ):
+        get.return_value.json.return_value = {
+            "servers": [
+                {
+                    "server": {
+                        "name": name,
+                        "description": "A remote server",
+                        "version": "1.0.0",
+                        "remotes": [
+                            {"type": "other", "url": "https://ignored.example.net/mcp"},
+                            {"type": "streamable-http", "url": ""},
+                            {"type": transport, "url": url},
+                            {
+                                "type": "streamable-http",
+                                "url": "https://later.example.net/mcp",
+                            },
+                        ],
+                    }
+                }
+            ]
+        }
+
+        (message,) = execute_mcp(f"info {name}", None, None)
+
+    assert f'url = "{url}"' in message.content
+    assert f'transport = "{transport}"' in message.content
+
+
+@pytest.mark.parametrize("include_remote", [False, True])
+def test_execute_mcp_info_for_official_registry_package(include_remote: bool) -> None:
+    """Keep package configuration for package-only and hybrid servers."""
+    from gptme.config import Config
+
+    name = "io.github.example/packaged"
+    server = {
+        "name": name,
+        "description": "A packaged server",
+        "version": "1.0.0",
+        "packages": [
+            {
+                "registryType": "npm",
+                "identifier": "@example/mcp-server",
+                "transport": {"type": "stdio"},
+            }
+        ],
+    }
+    if include_remote:
+        server["remotes"] = [{"type": "sse", "url": "https://mcp.example.net/events"}]
+
+    with (
+        patch("gptme.config.get_config", return_value=Config()),
+        patch("gptme.mcp.registry.requests.get") as get,
+    ):
+        get.return_value.json.return_value = {"servers": [{"server": server}]}
+        (message,) = execute_mcp(f"info {name}", None, None)
+
+    assert "npm install -g @example/mcp-server" in message.content
+    assert 'command = "npx"\nargs = ["@example/mcp-server"]' in message.content
+    assert "url =" not in message.content
+
+
+def test_load_remote_from_official_registry() -> None:
+    """Pass an SSE remote with a nonstandard path to the HTTP connection."""
+    from mcp.types import ListToolsResult
+
+    from gptme.config import Config
+    from gptme.mcp.client import MCPClient
+    from gptme.tools.mcp_adapter import unload_mcp_server
+
+    name = "io.github.example/remote"
+    url = "https://mcp.example.net/events"
+    connection = (ListToolsResult(tools=[]), MagicMock())
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=Config()),
+        patch("gptme.tools.mcp.confirm", return_value=True),
+        patch("gptme.mcp.registry.requests.get") as get,
+        patch("gptme.mcp.client.build_oauth_provider", return_value=None),
+        patch.object(
+            MCPClient, "_setup_http_connection", return_value=connection
+        ) as http,
+        patch.object(
+            MCPClient, "_setup_stdio_connection", return_value=connection
+        ) as stdio,
+    ):
+        get.return_value.json.return_value = {
+            "servers": [
+                {
+                    "server": {
+                        "name": name,
+                        "description": "A remote server",
+                        "version": "1.0.0",
+                        "remotes": [{"type": "sse", "url": url}],
+                    }
+                }
+            ]
+        }
+        (message,) = execute_mcp(f"load {name}", None, None)
+        try:
+            assert f"Successfully loaded server '{name}'" in message.content
+            http.assert_awaited_once_with(url, {}, use_sse=True, auth=None)
+            stdio.assert_not_awaited()
+        finally:
+            unload_mcp_server(name)
+
+
 def test_execute_mcp_unknown_command():
     """Test handling of unknown MCP commands."""
 

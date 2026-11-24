@@ -715,6 +715,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             command=server_info.command,
             args=server_info.args,
             url=server_info.url,
+            transport=server_info.transport,
         )
 
     # Apply config overrides. Save originals first so a failed connection can

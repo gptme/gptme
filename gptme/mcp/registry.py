@@ -29,6 +29,7 @@ class MCPServerInfo:
     repository: str = ""
     version: str = ""
     install_command: str = ""
+    transport: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -44,6 +45,7 @@ class MCPServerInfo:
             "repository": self.repository,
             "version": self.version,
             "install_command": self.install_command,
+            "transport": self.transport,
         }
 
 
@@ -103,6 +105,7 @@ class MCPRegistry:
                 command = ""
                 args = []
                 server_url = ""
+                server_transport = ""
                 install_command = ""
 
                 if packages:
@@ -139,6 +142,16 @@ class MCPRegistry:
                             if "default" in arg:
                                 args.append(str(arg["default"]))
 
+                # Keep the package command when both installation options exist.
+                if not command:
+                    for remote in server_data.get("remotes", []):
+                        transport = remote.get("type")
+                        remote_url = remote.get("url")
+                        if transport in ("streamable-http", "sse") and remote_url:
+                            server_url = remote_url
+                            server_transport = transport
+                            break
+
                 # Extract tags (not in current API response, but might be added)
                 tags = server_data.get("tags", [])
                 author = server_data.get("author", "")
@@ -156,6 +169,7 @@ class MCPRegistry:
                         repository=repository,
                         version=version,
                         install_command=install_command,
+                        transport=server_transport,
                     )
                 )
             return results
@@ -347,7 +361,9 @@ def format_server_details(server: MCPServerInfo) -> str:
         output.append("[[mcp.servers]]")
         output.append(f'name = "{server.name}"')
         output.append("enabled = true")
-        output.append(f'url = "{server.url}"')
+        output.append(f"url = {json.dumps(server.url, ensure_ascii=False)}")
+        if server.transport:
+            output.append(f'transport = "{server.transport}"')
         output.append("```")
 
     return "\n".join(output)
