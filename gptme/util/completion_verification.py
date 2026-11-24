@@ -368,13 +368,17 @@ def _toml_has_table(text: str, *path: str) -> bool:
     return True
 
 
-def _ini_has_section(text: str, *names: str) -> bool:
+def _ini_sections(text: str) -> set[str]:
     parser = configparser.RawConfigParser(interpolation=None)
     try:
         parser.read_string(text)
     except configparser.Error:
-        return False
-    sections = {section.lower() for section in parser.sections()}
+        return set()
+    return set(parser.sections())
+
+
+def _ini_has_section(text: str, *names: str) -> bool:
+    sections = {section.lower() for section in _ini_sections(text)}
     wanted = {name.lower() for name in names}
     return bool(sections & wanted)
 
@@ -401,7 +405,12 @@ def _pytest_config(workspace: Path) -> Path | None:
 
 def _has_tox_config(name: str, text: str) -> bool:
     if name == "tox.ini":
-        return _ini_has_section(text, "tox")
+        # tox 4 also accepts a tox.ini without [tox]. Bare `tox` then runs only the
+        # implicit `py` env, so only [testenv] or [testenv:py] give it commands; a
+        # lone [testenv:lint] would pass without running anything.
+        return _ini_has_section(text, "tox") or bool(
+            _ini_sections(text) & {"testenv", "testenv:py"}
+        )
     if name == "pyproject.toml":
         return _toml_has_table(text, "tool", "tox")
     return _ini_has_section(text, "tox", "tox:tox")
@@ -727,18 +736,17 @@ def discover_verification_command(workspace: Path) -> VerificationCommand | None
         if command is not None:
             return command
 
-    for name in ("Makefile", "makefile", "GNUmakefile"):
+    # GNU make reads only the first existing default makefile; a test target in
+    # a shadowed one would advertise a `make test` that fails.
+    for name in ("GNUmakefile", "makefile", "Makefile"):
         makefile = workspace / name
         if not makefile.is_file():
             continue
         try:
             text = makefile.read_text(errors="replace")
         except OSError:
-            continue
+            return None
         if _MAKE_TEST_TARGET.search(text):
-            command = _command(
-                ("make", "test"), f"{name} defines a test target", makefile
-            )
-            if command is not None:
-                return command
+            return _command(("make", "test"), f"{name} defines a test target", makefile)
+        return None
     return None

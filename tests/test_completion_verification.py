@@ -195,6 +195,60 @@ def test_discovers_tox_cargo_and_make(tmp_path: Path) -> None:
     assert discover_verification_command(tmp_path).argv == ("make", "test")  # type: ignore[union-attr]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[testenv]\ncommands = python -m unittest discover\n",
+        "[testenv:py]\ncommands = python -m unittest discover\n",
+    ],
+    ids=["testenv-only", "default-py-env-only"],
+)
+def test_discovers_tox_ini_without_tox_section(tmp_path: Path, text: str) -> None:
+    # tox 4 accepts a tox.ini whose only sections are [testenv] / [testenv:NAME].
+    (tmp_path / "tox.ini").write_text(text)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("tox",)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[flake8]\nmax-line-length = 88\n",
+        "[testenvironment]\nx = 1\n",
+        # Bare `tox` runs only the implicit `py` env, which has no commands here,
+        # so it would exit 0 without running the named env.
+        "[testenv:lint]\ncommands = ruff check .\n",
+        "[testenv:PY]\ncommands = python -m unittest discover\n",
+    ],
+    ids=["unrelated", "lookalike", "non-default-env-only", "wrong-case-env"],
+)
+def test_tox_ini_that_bare_tox_would_not_run_is_ignored(
+    tmp_path: Path, text: str
+) -> None:
+    (tmp_path / "tox.ini").write_text(text)
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize("shadow", ["GNUmakefile", "makefile"])
+def test_shadowed_makefile_test_target_is_ignored(tmp_path: Path, shadow: str) -> None:
+    # GNU make reads only the first existing of GNUmakefile, makefile, Makefile.
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / shadow).write_text("all:\n\t@true\n")
+    if {p.name for p in tmp_path.iterdir()} != {"Makefile", shadow}:
+        pytest.skip("case-insensitive filesystem")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_gnumakefile_test_target_wins_over_makefile(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("all:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("make", "test")
+    assert command.reason.startswith("GNUmakefile ")
+
+
 def test_npm_requires_exact_test_script_and_previews_lifecycle(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
     package.write_text(
