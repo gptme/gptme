@@ -4221,6 +4221,36 @@ class TestMaxTimeWatchdog:
             step_ready.set()
             t.join(timeout=1)
 
+    @pytest.mark.parametrize("failure", ["outcome persistence", "transcript append"])
+    def test_watchdog_checkpoint_does_not_depend_on_disk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    ) -> None:
+        sa = Subagent("watchdog-disk", "test", None, tmp_path, None)
+        monkeypatch.setattr(Subagent, "is_running", lambda run: run is sa)
+        manager = MagicMock(logdir=sa.logdir)
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        def check_step() -> None:
+            assert sa.status().status == "timeout"
+            with pytest.raises(SessionCompleteException, match="timed out"):
+                list(_subagent_control_hook(manager))
+
+        if failure == "outcome persistence":
+
+            def persist_outcome(agent_id: str) -> None:
+                assert agent_id == sa.agent_id
+                check_step()
+
+            monkeypatch.setattr(
+                subagent_types, "_persist_cached_outcome", persist_outcome
+            )
+            subagent_api._timeout_subagent(sa.agent_id, 0.5, expected_run=sa)
+        else:
+            subagent_api._timeout_subagent(sa.agent_id, 0.5, expected_run=sa)
+            manager.append.side_effect = OSError("no space left")
+            check_step()
+
     def test_subagent_wait_returns_cached_timeout_while_thread_is_still_alive(
         self, tmp_path
     ):
