@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -332,6 +333,52 @@ class TestEntrypointDiscovery:
 
         assert [p.name for p in result] == ["gptme-tts"]
         clear_entrypoint_cache()
+
+    @pytest.mark.parametrize(
+        "config_read",
+        [
+            pytest.param("open(os.environ['PLUGIN_CONFIG'])", id="environ-index"),
+            pytest.param(
+                "data = open(os.environ.get('X_PATH', 'x.toml')).read()",
+                id="environ-get",
+            ),
+            pytest.param("open(credentials_path)", id="credentials-variable"),
+            pytest.param("open(self.ssh_config_path)", id="ssh-attribute"),
+            pytest.param("open(self.environment_file)", id="environment-attribute"),
+        ],
+    )
+    def test_entry_point_loads_with_benign_config_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_read: str
+    ) -> None:
+        from gptme.plugins.entrypoints import discover_entrypoint_plugins
+
+        module = "benign_config_plugin"
+        (tmp_path / f"{module}.py").write_text(
+            "import os\n"
+            "from gptme.plugins.plugin import GptmePlugin\n"
+            f"plugin = GptmePlugin(name={module!r})\n"
+            "def read_config(self, credentials_path):\n"
+            f"    {config_read}\n",
+            encoding="utf-8",
+        )
+        dist_info = tmp_path / f"{module}-1.0.dist-info"
+        dist_info.mkdir()
+        (dist_info / "METADATA").write_text(
+            f"Name: {module}\nVersion: 1.0\n", encoding="utf-8"
+        )
+        (dist_info / "entry_points.txt").write_text(
+            f"[gptme.plugins]\n{module} = {module}:plugin\n", encoding="utf-8"
+        )
+        (dist_info / "RECORD").write_text(f"{module}.py,,\n", encoding="utf-8")
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        errors: list[tuple[str, Exception]] = []
+        try:
+            plugins = discover_entrypoint_plugins(frozenset({module}), errors=errors)
+            assert errors == []
+            assert [plugin.name for plugin in plugins] == [module]
+        finally:
+            sys.modules.pop(module, None)
 
     def test_malicious_entry_point_is_not_imported(self, tmp_path):
         """A flagged third-party entry point is skipped before ep.load() runs."""
