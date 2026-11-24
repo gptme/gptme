@@ -2732,8 +2732,18 @@ def subagent_wait(
 
     logger.info(f"Waiting for subagent {agent_id} to finish...")
 
-    if sa.execution_mode == "subprocess" and sa.process:
-        # Subprocess mode: wait for process
+    status = None
+    if sa.execution_mode == "subprocess" and sa.thread:
+        # The launcher publishes the outcome after reaping the process and
+        # collecting diagnostics. The process can exit before that is done.
+        status = sa._cached_result()
+        if status is None:
+            sa.thread.join(timeout=timeout)
+            finalizing = sa.thread.is_alive()
+            status = sa._cached_result()
+            if status is None and finalizing:
+                status = ReturnType("running")
+    elif sa.execution_mode == "subprocess" and sa.process:
         try:
             sa.process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -2754,14 +2764,13 @@ def subagent_wait(
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
 
-    # A shadowed run (another conversation's running run holds the ID) must not
-    # read the agent_id-keyed cache; sa.status() reports its own outcome.
-    cached_status = (
-        _wait_for_cached_subagent_result(sa)
-        if sa.is_running() and not sa.shadowed
-        else None
-    )
-    status = cached_status if cached_status is not None else sa.status()
+    if status is None:
+        # A shadowed run must not read the agent_id-keyed cache; sa.status()
+        # reports its own outcome.
+        if sa.is_running() and not sa.shadowed:
+            status = _wait_for_cached_subagent_result(sa)
+        if status is None:
+            status = sa.status()
     result_dict = asdict(status)
 
     # Apply output_schema parsing before truncation — the parsed object may be
