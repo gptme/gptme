@@ -10,6 +10,7 @@ import { setLocation } from '@/test-utils/location';
 const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
+const mockRetryConnection = jest.fn();
 const mockCreateConversation = jest.fn();
 const mockWaitForConversationCreation = jest.fn();
 const mockSendFailure = jest.fn();
@@ -87,6 +88,7 @@ jest.mock('@/contexts/ApiContext', () => {
       isConnected$,
       isAutoConnecting$,
       connect: mockConnect,
+      retryConnection: mockRetryConnection,
       connectionConfig: { baseUrl: mockBaseUrl },
       switchServer: jest.fn(),
     }),
@@ -106,7 +108,9 @@ jest.mock('@/hooks/useConnectionStatus', () => {
       const ctx = jest.requireMock('@/contexts/ApiContext').useApi();
       return actual.deriveConnectionStatus({
         isConnected: use$(ctx.isConnected$),
-        isAttempting: use$(ctx.isAutoConnecting$),
+        // Mirror the real hook: the auto-connect loop is not an explicit attempt.
+        isAttempting: false,
+        isAutoConnecting: use$(ctx.isAutoConnecting$),
         lastResult: use$(ctx.api.lastConnectionResult$),
         graceExpired: true,
       });
@@ -176,6 +180,7 @@ describe('WelcomeView', () => {
     setupWizard$.providerStatusVersion.set(0);
     settingsModal$.set({ open: false, category: 'appearance' });
     mockConnect.mockReset();
+    mockRetryConnection.mockReset().mockResolvedValue(undefined);
     mockCreateConversation.mockReset();
     mockWaitForConversationCreation.mockReset().mockResolvedValue(undefined);
     mockSendFailure.mockReset();
@@ -624,6 +629,34 @@ describe('WelcomeView', () => {
     });
 
     expect(await screen.findByText(/Cannot reach/i)).toBeInTheDocument();
+  });
+
+  it('shows guidance and a retry that keeps auto-connect once a probe fails mid-retry', async () => {
+    // The auto-connect loop can retry for minutes against a server that is not
+    // running. Once a probe has failed (and the grace period is over) the user
+    // gets the guidance and a retry button, and that retry must not cancel the
+    // loop: it goes through retryConnection(), not connect().
+    mockBaseUrl = 'http://my-server.example.com:5700';
+    isConnected$.set(false);
+    isAutoConnecting$.set(true);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://my-server.example.com:5700',
+      reason: 'network',
+      message: 'Failed to fetch',
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(await screen.findByText(/Cannot reach/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /retry connection/i }));
+
+    await waitFor(() => expect(mockRetryConnection).toHaveBeenCalledTimes(1));
+    expect(mockConnect).not.toHaveBeenCalled();
   });
 
   it('shows a finish-setup banner when the server has no provider configured', async () => {

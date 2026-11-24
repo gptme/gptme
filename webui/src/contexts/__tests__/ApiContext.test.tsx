@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { QueryClient } from '@tanstack/react-query';
 import { ApiProvider, shouldSkipHostedLoopbackAutoConnect, useApi } from '../ApiContext';
@@ -678,6 +678,48 @@ describe('ApiProvider mobile auto-connect', () => {
       },
       { timeout: 2000 }
     );
+  });
+
+  it('manual retry during auto-connect probes now and keeps the remaining retries', async () => {
+    setActiveServerBaseUrl('https://bob.example.com');
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'https://bob.example.com',
+        reason: 'network',
+        message: 'Could not reach server',
+      });
+      return false;
+    });
+
+    let retryFromProbe!: () => Promise<void>;
+    let autoConnecting$!: { get: () => boolean };
+    function RetryProbe() {
+      const ctx = useApi();
+      retryFromProbe = ctx.retryConnection;
+      autoConnecting$ = ctx.isAutoConnecting$;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <RetryProbe />
+      </ApiProvider>
+    );
+
+    await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(1));
+
+    // The user clicks "Retry connection" while the server is still starting.
+    await act(async () => {
+      await retryFromProbe();
+    });
+    expect(mockCheckConnection).toHaveBeenCalledTimes(2);
+    // That probe failed too, but the loop must still be alive...
+    expect(autoConnecting$.get()).toBe(true);
+
+    // ...so the server is picked up once it comes up.
+    mockCheckConnection.mockResolvedValue(true);
+    await waitFor(() => expect(isConnected$.get()).toBe(true), { timeout: 4000 });
+    expect(autoConnecting$.get()).toBe(false);
   });
 });
 

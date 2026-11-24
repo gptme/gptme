@@ -39,7 +39,7 @@ const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://loca
 
 export const WelcomeView = () => {
   const { consumeSeedPrompt } = useEmbeddedContext();
-  const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
+  const { api, isConnected$, connectionConfig, switchServer, connect, retryConnection } = useApi();
   // The new-chat draft belongs to the active server and account.
   const draftKey = composerDraftKey(connectionConfig);
   const [inputValue, setInputValue] = useComposerDraft(draftKey);
@@ -210,7 +210,7 @@ export const WelcomeView = () => {
   const handleRetryConnection = async () => {
     setIsRetryingConnection(true);
     try {
-      await connect();
+      await retryConnection();
       // connect() shows toast.success on real connection and returns silently on no-op
     } catch {
       // connect() already shows toast.error on failure; swallow to avoid double-toast

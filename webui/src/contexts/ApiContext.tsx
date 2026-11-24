@@ -57,6 +57,13 @@ interface ApiContextType {
   ) => Promise<void>;
   switchServer: (serverId: string) => Promise<void>;
   stopAutoConnect: () => void;
+  /**
+   * Manual "Retry connection": probe the server now. While the auto-connect
+   * loop is still retrying, this runs its next attempt early and keeps the
+   * remaining retries, so a server that is still starting up gets picked up by
+   * a later attempt. Otherwise it is a plain `connect()`.
+   */
+  retryConnection: () => Promise<void>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -466,6 +473,20 @@ export function ApiProvider({
     [queryClient]
   );
 
+  const retryConnection = useCallback(async () => {
+    if (!isAutoConnecting$.get()) {
+      await connect();
+      return;
+    }
+    // Run the pending attempt now instead of cancelling the loop. autoConnect
+    // bumps the generation, so an in-flight probe can't schedule a duplicate.
+    if (autoConnectTimer) {
+      clearTimeout(autoConnectTimer);
+      autoConnectTimer = null;
+    }
+    await autoConnect(false);
+  }, [autoConnect, connect]);
+
   // Handle auth code exchange on mount
   useEffect(() => {
     const handleAuthCodeExchange = async () => {
@@ -527,10 +548,10 @@ export function ApiProvider({
     : null;
   const needsTauriServerUrlSync = Boolean(
     isTauri &&
-      tauriServerBaseUrl &&
-      activeServer &&
-      isDefaultLoopbackTarget(connectionConfig.baseUrl) &&
-      connectionConfig.baseUrl.replace(/\/+$/, '') !== tauriServerBaseUrl
+    tauriServerBaseUrl &&
+    activeServer &&
+    isDefaultLoopbackTarget(connectionConfig.baseUrl) &&
+    connectionConfig.baseUrl.replace(/\/+$/, '') !== tauriServerBaseUrl
   );
 
   useEffect(() => {
@@ -626,6 +647,7 @@ export function ApiProvider({
         connect,
         switchServer,
         stopAutoConnect,
+        retryConnection,
       }}
     >
       {children}
