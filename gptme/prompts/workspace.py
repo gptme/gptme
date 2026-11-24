@@ -301,7 +301,8 @@ def _is_loadable_agent_file(agent_file: Path) -> bool:
       prompt.
     - Only regular files load, so a FIFO or device under an agent-file name
       cannot block startup on ``read_text()``.
-    - On POSIX, files owned by another (non-root) user are skipped. Outside home
+    - On POSIX, files owned by another (non-root) user are skipped unless that
+      user also owns the containing directory. Outside home
       the walk reaches shared directories such as ``/tmp``, where any local
       user can plant an ``AGENTS.md``. Both the symlink itself and its target
       must be ours or root's: another user's link to one of our files is their
@@ -324,8 +325,15 @@ def _is_loadable_agent_file(agent_file: Path) -> bool:
     getuid = getattr(os, "getuid", None)
     if getuid is not None:
         for follow in (False, True):
-            owner = _file_owner_uid(agent_file, follow_symlinks=follow)
-            if owner is not None and owner not in (getuid(), 0):
+            entry = agent_file.resolve() if follow else agent_file
+            owner = _file_owner_uid(entry, follow_symlinks=False)
+            # The containing directory's owner vouches for its entries: a
+            # bind-mounted checkout owned by uid 1000 still loads when gptme
+            # runs as root, and so does a teammate's checkout. A file planted
+            # by another user in a root-owned shared directory such as /tmp
+            # does not match its directory's owner and stays rejected.
+            dir_owner = _file_owner_uid(entry.parent)
+            if owner is not None and owner not in (getuid(), 0, dir_owner):
                 logger.warning(
                     "Skipping agent file %s: owned by another user (uid %s)",
                     agent_file,
