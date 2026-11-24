@@ -3762,18 +3762,19 @@ class GptmeApp(App):
         """Queued prompts that can join the running turn at its next step.
 
         Taken in order, stopping at the first that must wait for the turn to
-        end: a slash-command, a prompt with unconfirmed URLs, a queued skill
-        invocation (it starts its own turn), or a command-line prompt (those
-        run one turn each, like the CLI).
+        end: a slash-command, a prompt that still needs URL consent or fetching,
+        a queued skill invocation, or a command-line prompt.
         """
         taken: list[Message] = []
         while self.prompt_queue and not self._interrupt_event.is_set():
             prompt = self.prompt_queue[0]
             if isinstance(prompt, Message):
-                # queued with its URLs confirmed, or a skill invocation
-                if id(prompt) not in self._confirmed_urls:
+                # Approved URLs go through the next turn's background fetch.
+                # Prompts whose URLs were skipped can still steer immediately.
+                urls = self._confirmed_urls.get(id(prompt))
+                if urls is None or urls:
                     break
-                urls = self._confirmed_urls.pop(id(prompt))
+                del self._confirmed_urls[id(prompt)]
             elif (
                 isinstance(prompt, _SequentialPrompt)
                 or is_message_command(prompt)
@@ -4946,23 +4947,36 @@ class GptmeApp(App):
             self._send(msg, None)
 
     def _send(self, msg: Message, pre_confirmed_urls: list[str] | None) -> None:
-        # The turn starts here: fetching approved URLs can be slow and runs
-        # before _start_generation sets generating.
+        if pre_confirmed_urls:
+            self._start_generation((msg, pre_confirmed_urls))
+            return
         self._report_program_status("working")
         msg = include_paths(msg, self.workspace, pre_confirmed_urls=pre_confirmed_urls)
+        self._append_prompt(msg)
+        self._start_generation()
+
+    def _append_prompt(self, msg: Message) -> None:
+        if self._quitting:
+            return
         self.manager.append(msg)
         self._show_message(msg)
-        self._start_generation()
 
     # --------------------------------------------------------- generation
 
-    def _start_generation(self) -> None:
+    def _start_generation(
+        self, pending_prompt: tuple[Message, list[str]] | None = None
+    ) -> None:
         if self.generating or self._quitting:
             return
         logger.debug("starting generation worker")
         self._terminal_outcome = "done"
         # Snapshot the submitted prompt before hooks or generation mutate the log.
-        prompt = next((m for m in reversed(self.manager.log) if m.role == "user"), None)
+        if pending_prompt is None:
+            prompt = next(
+                (m for m in reversed(self.manager.log) if m.role == "user"), None
+            )
+        else:
+            prompt, _ = pending_prompt
         self._active_skill_invocation_id = (
             prompt.metadata.get("skill_invocation_id")
             if prompt and prompt.metadata
@@ -4972,7 +4986,10 @@ class GptmeApp(App):
         self._interrupt_event.clear()
         self._set_state("generating")
         self.run_worker(
-            self._generation_worker, thread=True, exclusive=True, group="generation"
+            functools.partial(self._generation_worker, pending_prompt),
+            thread=True,
+            exclusive=True,
+            group="generation",
         )
 
     def _web_restart_worker(self, request: int) -> None:
@@ -5009,10 +5026,34 @@ class GptmeApp(App):
         self.restart_web_url = web_url
         self._request_exit()
 
-    def _generation_worker(self) -> None:
+    def _generation_worker(
+        self, pending_prompt: tuple[Message, list[str]] | None
+    ) -> None:
         """Thread worker: run the step loop inside the captured chat context."""
         self._generation_thread = threading.get_ident()
-        self._chat_ctx.run(self._generation_body)
+
+        def run_turn() -> None:
+            if pending_prompt is not None:
+                prompt, urls = pending_prompt
+                if self._quitting:
+                    return
+                enriched = prompt
+                if not self._interrupt_event.is_set():
+                    enriched = include_paths(
+                        prompt, self.workspace, pre_confirmed_urls=urls
+                    )
+                if self._quitting:
+                    return
+                # Keep the submitted text resumable if interrupted during fetch.
+                self.call_from_thread(
+                    self._append_prompt,
+                    prompt if self._interrupt_event.is_set() else enriched,
+                )
+                if self._interrupt_event.is_set() or self._quitting:
+                    return
+            self._generation_body()
+
+        self._chat_ctx.run(run_turn)
 
     def _tui_tool_start_hook(
         self, data: ToolExecutePreData

@@ -3484,7 +3484,7 @@ async def test_url_prompt_asks_before_fetching(tmp_path, monkeypatch, key, expec
 
     monkeypatch.setattr("gptme.tui.app.include_paths", fake_include_paths)
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
-    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    monkeypatch.setattr(app, "_generation_body", lambda: None)
     async with app.run_test() as pilot:
         await pilot.pause()
         app.query_one("#input", ChatInput).text = "look at https://example.com"
@@ -3494,6 +3494,7 @@ async def test_url_prompt_asks_before_fetching(tmp_path, monkeypatch, key, expec
         assert seen == []  # nothing sent before the user answers
         await pilot.press(key)
         await pilot.pause()
+        await app.workers.wait_for_complete()
         assert not isinstance(app.screen, UrlConfirmScreen)
     assert seen == [expected]
     assert app.manager.log[-1].content == "look at https://example.com"
@@ -3893,13 +3894,17 @@ async def test_take_steer_prompts(tmp_path):
             "second",
         ]
 
-        # URLs not yet confirmed (e.g. initial prompts) wait; queued ones were
-        # confirmed when queued and join with exactly the confirmed URLs
+        # Unconfirmed URLs and approved URLs requiring a fetch both wait.
+        # Declined URLs can steer immediately.
         app.prompt_queue = ["see https://example.com"]
         assert app._take_steer_prompts() == []
         confirmed = Message("user", "see https://example.com", quiet=True)
-        app._confirmed_urls[id(confirmed)] = []
         app.prompt_queue = [confirmed]
+        app._confirmed_urls[id(confirmed)] = ["https://example.com"]
+        assert app._take_steer_prompts() == []
+        assert app.prompt_queue == [confirmed]
+        assert app._confirmed_urls[id(confirmed)] == ["https://example.com"]
+        app._confirmed_urls[id(confirmed)] = []
         assert [m.content for m in app._take_steer_prompts()] == [
             "see https://example.com"
         ]

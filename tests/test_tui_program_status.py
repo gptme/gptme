@@ -1,11 +1,17 @@
 """OSC lifecycle reports use the Textual driver, not captured stdout."""
 
+import asyncio
+import threading
+from collections.abc import Iterator
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("textual")
 
-from gptme.logmanager import LogManager
-from gptme.tui.app import GptmeApp, UrlConfirmScreen
+from gptme.logmanager import Log, LogManager
+from gptme.message import Message
+from gptme.tui.app import ChatInput, GptmeApp, UrlConfirmScreen
 from gptme.util.program_status import encode_report
 
 
@@ -192,12 +198,111 @@ async def test_tui_url_fetch_after_approval_reports_working(tmp_path, monkeypatc
         return msg
 
     monkeypatch.setattr("gptme.tui.app.include_paths", slow_include_paths)
-    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    monkeypatch.setattr(app, "_generation_body", lambda: None)
     async with app.run_test() as pilot:
         await pilot.pause()
         app._report_program_status("blocked", "permission")
         app._send(Message("user", "read https://example.com"), ["https://example.com"])
+        await app.workers.wait_for_complete()
         assert during_fetch == [encode_report("working")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interrupt", [False, True], ids=["complete", "interrupt"])
+async def test_tui_approved_url_fetch_keeps_event_loop_responsive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupt: bool
+) -> None:
+    from gptme.util.workspace import workspace_scope
+
+    url = "https://example.com"
+    queued_url = "https://example.org"
+    text = f"Read {url} and @notes.txt"
+    followup = "A follow-up while fetching" if interrupt else f"Read {queued_url} too"
+    (tmp_path / "notes.txt").write_text("local attachment")
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    with workspace_scope(tmp_path):
+        app = GptmeApp(manager, workspace=tmp_path)
+    app._statusline_cmd = None
+    entered = threading.Event()
+    release = threading.Event()
+    fetched = threading.Event()
+    ui_thread = threading.get_ident()
+    fetch_threads: list[int] = []
+    step_prompts: list[str] = []
+
+    def read_url(requested: str) -> str:
+        fetch_threads.append(threading.get_ident())
+        if requested == queued_url:
+            return "queued attachment"
+        assert requested == url
+        entered.set()
+        # Surface the inline call directly on base without stalling pytest.
+        if threading.get_ident() != ui_thread:
+            release.wait(10)
+        fetched.set()
+        return "fetched attachment"
+
+    def reply(log: Log, **kwargs: object) -> Iterator[Message]:
+        step_prompts.append(log[-1].content)
+        yield Message("assistant", "Done.")
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_PROGRAM_STATUS", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    monkeypatch.setattr("gptme.util.context.has_tool", lambda name: name == "browser")
+    monkeypatch.setattr("gptme.tools.browser.read_url", read_url)
+    monkeypatch.setattr("gptme.tui.app.step", reply)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr("gptme.tui.app.maybe_start_auto_naming", lambda *args: None)
+
+    with workspace_scope(tmp_path):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            composer = app.query_one("#input", ChatInput)
+            composer.text = text
+            await pilot.press("enter")
+            assert isinstance(app.screen, UrlConfirmScreen)
+            assert not entered.is_set()
+            try:
+                await pilot.press("y")
+                assert await asyncio.to_thread(entered.wait, 5)
+                assert ui_thread not in fetch_threads, (
+                    "URL fetched on Textual's event loop"
+                )
+                assert app._last_program_status == ("working", None)
+                assert not step_prompts
+                composer.text = followup
+                await pilot.press("enter")
+                if interrupt:
+                    assert app.prompt_queue == [followup]
+                    await pilot.press("ctrl+c")
+                    assert app.state == "interrupting…"
+                else:
+                    assert isinstance(app.screen, UrlConfirmScreen)
+                    await pilot.press("y")
+                    assert len(app.prompt_queue) == 1
+                    assert len(fetch_threads) == 1
+                assert not fetched.is_set()
+            finally:
+                release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            if interrupt:
+                assert len(fetch_threads) == 1
+                assert step_prompts == []
+                assert manager.log[-1].content == text
+                assert composer.text == followup
+                assert app._last_program_status == ("idle", None)
+            else:
+                assert len(fetch_threads) == 2
+                assert ui_thread not in fetch_threads
+                first, second = step_prompts
+                assert first.startswith(text)
+                assert "fetched attachment" in first
+                assert "local attachment" in first
+                assert second.startswith(followup)
+                assert "queued attachment" in second
 
 
 @pytest.mark.parametrize(
