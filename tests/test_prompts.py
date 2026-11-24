@@ -427,6 +427,47 @@ def test_context_cmd_receives_initial_prompt(tmp_path):
     assert any(initial_prompt in msg.content for msg in msgs)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Requires a POSIX shell")
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        pytest.param(
+            r"printf 'before\377after\r\nnext'",
+            "before\ufffdafter\nnext",
+            id="invalid-stdout",
+        ),
+        pytest.param(
+            r"printf partial; printf 'bad\377byte\n' >&2; exit 1",
+            "partial\n\n## Context Generation Error (exit 1)\n\nbad\ufffdbyte",
+            id="invalid-stderr",
+        ),
+        pytest.param(
+            "exit 7", "## Context Generation Error (exit 7)", id="silent-failure"
+        ),
+        pytest.param(
+            r"printf 'partial\n'; printf ' \n' >&2; exit 2",
+            "partial\n\n\n## Context Generation Error (exit 2)",
+            id="whitespace-stderr",
+        ),
+        pytest.param(r"printf 'café\r\nnext'", "café\nnext", id="valid-utf8"),
+    ],
+)
+def test_context_cmd_renders_output(
+    tmp_path: Path, command: str, expected: str
+) -> None:
+    """Startup keeps command output and reports failed commands in context."""
+    (tmp_path / "gptme.toml").write_text(
+        f"[prompt]\ncontext_cmd = '''{command}'''\n", encoding="utf-8"
+    )
+
+    messages = get_prompt([], workspace=tmp_path, include_user_context=False)
+
+    heading = "## Project computed context\n\n"
+    assert [msg.content for msg in messages if msg.content.startswith(heading)] == [
+        f"{heading}````{command}\n{expected}\n````"
+    ]
+
+
 def test_context_cmd_omits_oversized_initial_prompt(tmp_path, caplog):
     """Oversized prompt variables do not prevent the subprocess from spawning."""
     from gptme.prompts.context_cmd import get_project_context_cmd_output
