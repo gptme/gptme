@@ -303,3 +303,73 @@ def test_shell_background_completion_without_server_session_stays_queued(
         assert _queued(job)
     finally:
         _cleanup_job(cid, job)
+
+
+def _queue_branch_jobs(sb, cid: str):
+    """Queue one completion on ``main`` and one on ``feature`` for ``cid``."""
+    jobs = []
+    for job_id, branch in enumerate(["main", "feature"]):
+        job = sb.BackgroundJob(
+            job_id,
+            f"printf {branch}",
+            unittest.mock.Mock(),
+            0,
+            conversation_id=cid,
+            branch=branch,
+        )
+        sb._jobs_for(cid)[job.id] = job
+        jobs.append(job)
+    with sb._job_lock, sb._completion_queue.mutex:
+        sb._completion_queue.queue.extend(jobs)
+    return jobs
+
+
+def _render_by_branch(job) -> Message:
+    return Message("system", f"job #{job.id} on {job.branch}")
+
+
+def test_server_step_pre_claims_only_its_branch(logs_dir, armed, monkeypatch) -> None:
+    """A main step must not swallow a feature completion; the step-end retry
+    then wakes the feature branch with it."""
+    from gptme.tools import shell_background as sb
+
+    cid = "matrix-shell-branches"
+    monkeypatch.setattr(sb, "_completion_message", _render_by_branch)
+    wake = unittest.mock.MagicMock(wraps=SessionManager.request_watch_wake)
+    monkeypatch.setattr(SessionManager, "request_watch_wake", wake)
+    session = SessionManager.create_session(cid)
+    session.generating = True  # a main-branch step is running
+    try:
+        main_job, feature_job = _queue_branch_jobs(sb, cid)
+        step_manager = unittest.mock.Mock(chat_id=cid, current_branch="main")
+        delivered = [m.content for m in sb.background_job_completion_hook(step_manager)]
+        assert delivered == ["job #0 on main"]
+        assert not _queued(main_job)
+        assert _queued(feature_job)
+
+        session.generating = False
+        SessionManager.retry_deferred_watch_wakes(cid)
+        wake.assert_called_once()
+        assert wake.call_args.kwargs["branch"] == "feature"
+        assert "job #1 on feature" in wake.call_args.args[1].content
+        assert not _queued(feature_job)
+    finally:
+        SessionManager.remove_session(session.id)
+        sb.reset_background_jobs(cid, all_conversations=False)
+
+
+def test_cli_step_pre_claims_every_branch(logs_dir, monkeypatch) -> None:
+    """Without a server session nothing would wake the other branch later,
+    so STEP_PRE keeps delivering every queued completion."""
+    from gptme.tools import shell_background as sb
+
+    cid = "matrix-shell-branches-cli"
+    monkeypatch.setattr(sb, "_completion_message", _render_by_branch)
+    try:
+        main_job, feature_job = _queue_branch_jobs(sb, cid)
+        step_manager = unittest.mock.Mock(chat_id=cid, current_branch="main")
+        delivered = [m.content for m in sb.background_job_completion_hook(step_manager)]
+        assert delivered == ["job #0 on main", "job #1 on feature"]
+        assert not _queued(main_job) and not _queued(feature_job)
+    finally:
+        sb.reset_background_jobs(cid, all_conversations=False)

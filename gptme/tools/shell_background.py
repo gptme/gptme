@@ -1633,16 +1633,14 @@ def wake_server_for_completed_jobs(conversation_id: str | None) -> bool:
     A no-op outside a server process (the server module is never imported
     just for this) and for conversations without a server session.
     """
-    if conversation_id is None or "gptme.server.session_models" not in sys.modules:
-        return False
     if _job_lock._is_owned():  # type: ignore[attr-defined]
         # A caller holds the job lock; waking from here could invert lock
         # order with server locks. The step-end retry delivers it instead.
         return False
+    if conversation_id is None or not _has_server_session(conversation_id):
+        return False
     from ..server.session_models import SessionManager
 
-    if not SessionManager.get_sessions_for_conversation(conversation_id):
-        return False
     with _job_lock:
         jobs = _take_completed_jobs_locked(conversation_id)
         if not jobs:
@@ -2059,16 +2057,40 @@ def background_job_completion_hook(
     # paths also bind an explicit context for tools; use that only when the
     # manager cannot provide an ID. Never use process-local LogManager state here.
     conversation_id = getattr(manager, "chat_id", None) or current_conversation_id.get()
+    # A server conversation can deliver another branch's completion later via
+    # its own wake (``retry_deferred_watch_wakes`` runs once this step ends), so
+    # claim only this step's branch there. The CLI has no such wake: an
+    # off-branch completion left queued would never arrive, so take them all.
+    # Resolve this before taking the job lock (server locks come first).
+    branch = (
+        getattr(manager, "current_branch", None) or "main"
+        if _has_server_session(conversation_id)
+        else None
+    )
     # Reset takes these locks in the same order. Holding both while claiming and
     # validating completions makes delivery atomic with conversation teardown.
     with _job_lock:
-        own_jobs = _take_completed_jobs_locked(conversation_id)
+        own_jobs = _take_completed_jobs_locked(conversation_id, branch=branch)
         messages = [_completion_message(job) for job in own_jobs]
     yield from messages
 
 
-def _take_completed_jobs_locked(conversation_id: str | None) -> list[BackgroundJob]:
-    """Claim this conversation's queued completions. Caller holds ``_job_lock``."""
+def _has_server_session(conversation_id: str | None) -> bool:
+    """Whether a server session is attached (never imports the server)."""
+    if conversation_id is None or "gptme.server.session_models" not in sys.modules:
+        return False
+    from ..server.session_models import SessionManager
+
+    return bool(SessionManager.get_sessions_for_conversation(conversation_id))
+
+
+def _take_completed_jobs_locked(
+    conversation_id: str | None, branch: str | None = None
+) -> list[BackgroundJob]:
+    """Claim this conversation's queued completions. Caller holds ``_job_lock``.
+
+    With ``branch``, claim only completions started on that branch.
+    """
     with _completion_queue.mutex:
         own_jobs = cast(
             list[BackgroundJob],
@@ -2076,6 +2098,7 @@ def _take_completed_jobs_locked(conversation_id: str | None) -> list[BackgroundJ
                 job
                 for job in _completion_queue.queue
                 if job.conversation_id == conversation_id
+                and (branch is None or job.branch == branch)
                 and _background_jobs.get(conversation_id, {}).get(job.id) is job
             ],
         )
