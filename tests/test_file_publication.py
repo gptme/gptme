@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 requires_existing_replacement = pytest.mark.skipif(
     sys.platform in ("win32", "darwin"),
-    reason="existing-file replacement is intentionally refused on Windows/macOS",
+    reason="existing files are rewritten in place, not replaced, on Windows/macOS",
 )
 
 
@@ -63,47 +63,259 @@ else:
     assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
 
 
-@pytest.mark.parametrize("operation", ["helper", "save", "patch"])
-def test_windows_existing_destination_refused_before_open(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
-) -> None:
+def _simulate_platform(monkeypatch: pytest.MonkeyPatch, platform: str, **os_overrides):
+    """Isolate the platform branch without changing pathlib's host OS selection.
+
+    The same tests run on native Windows/macOS CI, where this is a no-op change.
+    """
     from types import SimpleNamespace
 
-    from gptme.tools.patch import execute_patch_impl
-    from gptme.tools.save import execute_save_impl
     from gptme.util import file_write
 
-    target = tmp_path / "target.txt"
-    target.write_bytes(b"PRIVATE\n")
-    before = target.stat()
-    opened = []
-
-    def track_open(*args, **kwargs):
-        opened.append(args[0])
-        return os.open(*args, **kwargs)
-
-    # Isolate the platform branch without changing pathlib's host OS selection.
-    # The same test runs on native Windows in the path/config CI slice.
+    if platform == "darwin":
+        monkeypatch.setattr(file_write, "sys", SimpleNamespace(platform="darwin"))
+        name = "posix"
+    else:
+        name = "nt"
     monkeypatch.setattr(
         file_write,
         "os",
-        SimpleNamespace(**(vars(os) | {"name": "nt", "open": track_open})),
+        SimpleNamespace(**(vars(os) | {"name": name} | os_overrides)),
     )
-    with pytest.raises(ValueError, match="Windows security descriptor"):
-        if operation == "helper":
-            file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
-        elif operation == "save":
-            list(execute_save_impl("PUBLIC\n", target))
-        else:
-            list(
-                execute_patch_impl(
-                    "<<<<<<< ORIGINAL\nPRIVATE\n=======\nPUBLIC\n>>>>>>> UPDATED",
-                    target,
-                )
+    return file_write
+
+
+IN_PLACE_PLATFORMS = ["nt", "darwin"]
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+@pytest.mark.parametrize("operation", ["helper", "save", "patch"])
+def test_in_place_platforms_overwrite_existing_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, operation: str
+) -> None:
+    import stat
+
+    from gptme.tools.patch import execute_patch_impl
+    from gptme.tools.save import execute_save_impl
+
+    file_write = _simulate_platform(monkeypatch, platform)
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"ORIGINAL\nwith a much longer tail than the replacement\n")
+    if os.name != "nt":
+        target.chmod(0o640)
+    before = target.stat()
+    if operation == "helper":
+        file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
+    elif operation == "save":
+        assert list(execute_save_impl("PUBLIC\n", target))
+    else:
+        assert list(
+            execute_patch_impl(
+                "<<<<<<< ORIGINAL\nwith a much longer tail than the replacement\n"
+                "=======\nPUBLIC\n>>>>>>> UPDATED",
+                target,
             )
+        )
+    expected = b"ORIGINAL\nPUBLIC\n" if operation == "patch" else b"PUBLIC\n"
+    assert target.read_bytes() == expected
+    # The inode, and with it ACLs / the security descriptor, is retained.
+    assert (target.stat().st_dev, target.stat().st_ino) == (
+        before.st_dev,
+        before.st_ino,
+    )
+    if os.name != "nt":
+        assert stat.S_IMODE(target.stat().st_mode) == 0o640
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+@pytest.mark.parametrize("newline", ["", "\r\n"])
+def test_in_place_grows_file_with_requested_line_endings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, newline: str
+) -> None:
+    file_write = _simulate_platform(monkeypatch, platform)
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"A\n")
+    file_write.write_text_preserving_original(target, "B\n" * 1000, newline=newline)
+    assert target.read_bytes() == ("B" + (newline or "\n")).encode() * 1000
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="requires extended attributes")
+def test_in_place_retains_extended_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file_write = _simulate_platform(monkeypatch, "darwin")
+    target = tmp_path / "target"
+    target.write_text("ORIGINAL\n")
+    try:
+        os.setxattr(target, "user.gptme-test", b"retain")
+    except OSError:
+        pytest.skip("filesystem does not support user extended attributes")
+    file_write.write_text_preserving_original(target, "REPLACEMENT\n", newline="")
+    assert target.read_text() == "REPLACEMENT\n"
+    assert os.getxattr(target, "user.gptme-test") == b"retain"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX hard links")
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_keeps_hard_link_aliases_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    file_write = _simulate_platform(monkeypatch, platform)
+    target = tmp_path / "target"
+    alias = tmp_path / "alias"
+    target.write_text("ORIGINAL\n")
+    os.link(target, alias)
+    file_write.write_text_preserving_original(target, "REPLACEMENT\n", newline="")
+    assert target.read_text() == alias.read_text() == "REPLACEMENT\n"
+    assert target.stat().st_ino == alias.stat().st_ino
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_encoding_error_leaves_original_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    opened = []
+    real_open = os.open
+
+    def track_open(*args, **kwargs):
+        opened.append(args[0])
+        return real_open(*args, **kwargs)
+
+    file_write = _simulate_platform(monkeypatch, platform, open=track_open)
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    with pytest.raises(UnicodeEncodeError):
+        file_write.write_text_preserving_original(target, "bad \ud800\n", newline="")
     assert not opened
-    assert target.read_bytes() == b"PRIVATE\n"
+    assert target.read_bytes() == b"ORIGINAL\n"
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+@pytest.mark.parametrize("phase", ["write", "truncate"])
+@pytest.mark.parametrize("replacement", ["R\n", "REPLACEMENT " * 100])
+def test_in_place_failure_restores_original(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    phase: str,
+    replacement: str,
+) -> None:
+    original = b"ORIGINAL CONTENT\n" * 10
+    calls = []
+
+    def write(fd, data):
+        calls.append(bytes(data))
+        if len(calls) == 1 and phase == "write":
+            os.write(fd, bytes(data[:3]))
+            raise OSError("injected write failure")
+        return os.write(fd, data)
+
+    def ftruncate(fd, length):
+        calls.append(length)
+        if len(calls) == 2 and phase == "truncate":
+            raise OSError("injected truncate failure")
+        return os.ftruncate(fd, length)
+
+    file_write = _simulate_platform(
+        monkeypatch, platform, write=write, ftruncate=ftruncate
+    )
+    target = tmp_path / "target"
+    target.write_bytes(original)
+    before = target.stat()
+    with pytest.raises(OSError, match=f"injected {phase} failure"):
+        file_write.write_text_preserving_original(target, replacement, newline="")
+    assert target.read_bytes() == original
     assert target.stat().st_ino == before.st_ino
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target"]
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_restore_failure_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    def write(fd, data):
+        raise OSError("injected write failure")
+
+    file_write = _simulate_platform(monkeypatch, platform, write=write)
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    with pytest.raises(OSError, match="injected write failure") as exc:
+        file_write.write_text_preserving_original(target, "R\n", newline="")
+    assert any("Restoring the original" in note for note in exc.value.__notes__)
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_refuses_destination_swapped_after_inspection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    swapped = tmp_path / "swapped"
+    swapped.write_bytes(b"OTHER\n")
+    real_open = os.open
+
+    def swap_then_open(path, *args, **kwargs):
+        os.replace(swapped, target)
+        return real_open(path, *args, **kwargs)
+
+    file_write = _simulate_platform(monkeypatch, platform, open=swap_then_open)
+    with pytest.raises(ValueError, match="changed while preparing"):
+        file_write.write_text_preserving_original(target, "R\n", newline="")
+    assert target.read_bytes() == b"OTHER\n"
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="requires POSIX non-root permissions",
+)
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_read_only_destination_not_bypassed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    file_write = _simulate_platform(monkeypatch, platform)
+    target = tmp_path / "target"
+    target.write_text("ORIGINAL\n")
+    target.chmod(0o444)
+    try:
+        with pytest.raises(PermissionError):
+            file_write.write_text_preserving_original(target, "R\n", newline="")
+        assert target.read_text() == "ORIGINAL\n"
+    finally:
+        target.chmod(0o644)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="requires POSIX RLIMIT_FSIZE")
+def test_in_place_real_file_size_failure_restores_original(tmp_path: Path) -> None:
+    import errno
+
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"ORIGINAL\n")
+    code = r"""
+import json, resource, signal, sys
+from pathlib import Path
+from types import SimpleNamespace
+from gptme.util import file_write
+file_write.sys = SimpleNamespace(platform="darwin")
+signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+resource.setrlimit(resource.RLIMIT_FSIZE, (128, 128))
+try:
+    file_write.write_text_preserving_original(Path(sys.argv[1]), "X" * 8192, newline="")
+except OSError as err:
+    print(json.dumps({"errno": err.errno}))
+else:
+    raise AssertionError("expected real write failure")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(target)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1])["errno"] == errno.EFBIG
+    assert target.read_bytes() == b"ORIGINAL\n"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
 
 
@@ -126,57 +338,6 @@ def test_windows_new_destination_still_created(
         list(execute_save_impl("NEW\n", target))
     assert target.read_bytes() == b"NEW\n"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["new.txt"]
-
-
-@pytest.mark.parametrize("operation", ["helper", "save", "patch"])
-def test_macos_existing_destination_refused_before_open(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
-) -> None:
-    from types import SimpleNamespace
-
-    from gptme.tools.patch import execute_patch_impl
-    from gptme.tools.save import execute_save_impl
-    from gptme.util import file_write
-
-    target = tmp_path / "target.txt"
-    target.write_bytes(b"PRIVATE\n")
-    before = target.stat()
-    opened = []
-    real_open = os.open
-
-    def track_open(*args, **kwargs):
-        opened.append(args[0])
-        return real_open(*args, **kwargs)
-
-    # Isolate both platform values without changing pathlib's host OS selection.
-    # macOS may expose no xattrs even when the file has a deny ACL.
-    monkeypatch.setattr(file_write, "sys", SimpleNamespace(platform="darwin"))
-    monkeypatch.setattr(
-        file_write,
-        "os",
-        SimpleNamespace(
-            **(
-                vars(os)
-                | {"name": "posix", "open": track_open, "listxattr": lambda path: []}
-            )
-        ),
-    )
-    with pytest.raises(ValueError, match="macOS ACL"):
-        if operation == "helper":
-            file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
-        elif operation == "save":
-            list(execute_save_impl("PUBLIC\n", target))
-        else:
-            list(
-                execute_patch_impl(
-                    "<<<<<<< ORIGINAL\nPRIVATE\n=======\nPUBLIC\n>>>>>>> UPDATED",
-                    target,
-                )
-            )
-    assert not opened
-    assert target.read_bytes() == b"PRIVATE\n"
-    assert target.stat().st_ino == before.st_ino
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
 
 
 @pytest.mark.parametrize("operation", ["helper", "save"])
@@ -370,22 +531,6 @@ def test_success_preserves_mode_symlink_and_endings(
     link.symlink_to(target)
     if simulate_macos:
         monkeypatch.setattr(sys, "platform", "darwin")
-    if os.name == "nt" or sys.platform == "darwin":
-        reason = "Windows security descriptor" if os.name == "nt" else "macOS ACL"
-        with pytest.raises(ValueError, match=reason):
-            if operation == "save":
-                list(execute_save_impl("REPLACEMENT\n", link))
-            else:
-                list(
-                    execute_patch_impl(
-                        "<<<<<<< ORIGINAL\nORIGINAL\n=======\nREPLACEMENT\n>>>>>>> UPDATED",
-                        link,
-                    )
-                )
-        assert target.read_bytes() == ("ORIGINAL" + ending).encode()
-        assert link.is_symlink()
-        assert sorted(p.name for p in tmp_path.iterdir()) == ["link.txt", "real.txt"]
-        return
     if operation == "save":
         messages = list(execute_save_impl("REPLACEMENT\n", link))
     else:
