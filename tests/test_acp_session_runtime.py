@@ -1265,6 +1265,49 @@ def test_health_check_releases_loop_thread_of_dead_runtime(monkeypatch, tmp_path
         runtime._stop_loop()
 
 
+def test_health_check_releases_runtime_when_session_removal_fails(
+    monkeypatch, tmp_path
+):
+    """A failing remove_session() must not leave the detached runtime running."""
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.server.api_v2_sessions import (
+        ConversationSession,
+        SessionManager,
+        _run_health_check,
+    )
+
+    session = ConversationSession(id="dead-rm", conversation_id="conv-dead-rm")
+    session.use_acp = True
+    runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    assert loop_thread is not None and loop_thread.is_alive()
+    runtime._client = type(
+        "C",
+        (),
+        {"_process": type("P", (), {"pid": 99, "poll": lambda self: 1})()},
+    )()
+    session.acp_runtime = runtime
+
+    def failing_remove(session_id):
+        raise OSError("cannot recreate logs dir")
+
+    monkeypatch.setattr(SessionManager, "remove_session", failing_remove)
+    with SessionManager._lock:
+        SessionManager._sessions["dead-rm"] = session
+        SessionManager._conversation_sessions["conv-dead-rm"].add("dead-rm")
+    try:
+        with pytest.raises(OSError, match="cannot recreate logs dir"):
+            _run_health_check()
+        loop_thread.join(timeout=5)
+        assert not loop_thread.is_alive()
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("dead-rm", None)
+            SessionManager._conversation_sessions.pop("conv-dead-rm", None)
+        runtime._stop_loop()
+
+
 def test_call_on_stopped_loop_raises_instead_of_hanging(tmp_path):
     """A caller that obtained the loop just before shutdown gets an error."""
     import gptme.server.acp_session_runtime as mod
