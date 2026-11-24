@@ -7,7 +7,8 @@ Single-file patches use the same writer as :doc:`save`. Where a replacement is
 staged, failed writes leave the original intact, permission bits and symlink
 targets are kept, and hard-linked destinations are refused. On Windows and macOS
 existing files are instead rewritten in place: hard-linked aliases all see the
-change, and a failed write is rolled back only on a best-effort basis. The parent directory must be writable.
+change, and a failed write is rolled back only on a best-effort basis. Staged
+writes require a writable parent directory.
 POSIX staging also requires that parent to be owned by the current user with no
 group or other write bits, including sticky shared directories, so another user
 cannot substitute the staging name. Same-user writers and hostile ancestor
