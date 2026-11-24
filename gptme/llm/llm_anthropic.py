@@ -937,11 +937,13 @@ def _chat_timeout() -> float:
 
 def _compaction_betas_kwargs(messages: list[Message]) -> dict[str, Any]:
     """Replay of a provider-native compaction block requires the compaction
-    beta on every request that carries the block."""
+    beta on every request that carries the block. The regular
+    ``messages.create``/``.stream`` endpoints have no ``betas`` parameter, so
+    the flag is sent as an ``anthropic-beta`` request header instead."""
     if any(
         m.metadata and m.metadata.get("anthropic_compaction_block") for m in messages
     ):
-        return {"betas": ["compact-2026-09-04"]}
+        return {"extra_headers": {"anthropic-beta": "compact-2026-09-04"}}
     return {}
 
 
