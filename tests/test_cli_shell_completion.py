@@ -208,3 +208,24 @@ def test_completion_installer_unknown_shell(monkeypatch):
     result = CliRunner().invoke(main, ["completions"])
     assert result.exit_code == 1
     assert "pass --shell" in result.output
+
+
+def test_custom_cli_types_keep_legacy_fish_value_completions(tmp_path, monkeypatch):
+    import click
+
+    from gptme.cli.main import CommaSeparatedChoice, ConversationName, WorkspacePath
+
+    ctx = click.Context(tui)
+    param = click.Option(["--value"])
+    tools = CommaSeparatedChoice(["shell", "save"], allow_prefixes=["+", "-"])
+    assert [item.value for item in tools.shell_complete(ctx, param, "shell,+sa")] == [
+        "shell,+save"
+    ]
+    logs = tmp_path / "logs"
+    (logs / "my-conversation").mkdir(parents=True)
+    (logs / "my-conversation/conversation.jsonl").touch()
+    monkeypatch.setattr("gptme.cli.main.get_logs_dir", lambda: logs)
+    assert [
+        item.value for item in ConversationName().shell_complete(ctx, param, "my-")
+    ] == ["my-conversation"]
+    assert WorkspacePath().shell_complete(ctx, param, "")[0].type == "dir"

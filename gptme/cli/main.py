@@ -358,6 +358,19 @@ class CommaSeparatedChoice(click.ParamType):
                 )
         return value
 
+    def shell_complete(self, ctx, param, incomplete):
+        from click.shell_completion import CompletionItem
+
+        head, separator, tail = incomplete.rpartition(",")
+        prefix = next((p for p in self.allow_prefixes if tail.startswith(p)), "")
+        partial = tail[len(prefix) :]
+        choices = self._choice_set | self._extra_choices(prefix)
+        return [
+            CompletionItem((head + separator if separator else "") + prefix + choice)
+            for choice in sorted(choices)
+            if choice.startswith(partial)
+        ]
+
     def get_metavar(
         self, param: click.Parameter, ctx: click.Context | None = None
     ) -> str | None:
@@ -370,6 +383,11 @@ class WorkspacePath(click.ParamType):
     """Click type for workspace paths: a directory path or '@log'."""
 
     name = "DIRECTORY"
+
+    def shell_complete(self, ctx, param, incomplete):
+        from click.shell_completion import CompletionItem
+
+        return [CompletionItem(incomplete, type="dir")]
 
     def convert(self, value, param, ctx):
         if value == "@log":
@@ -386,6 +404,19 @@ class ConversationName(click.ParamType):
     """Click type for conversation names stored under the logs directory."""
 
     name = "TEXT"
+
+    def shell_complete(self, ctx, param, incomplete):
+        from click.shell_completion import CompletionItem
+
+        logs = get_logs_dir()
+        if not logs.is_dir():
+            return []
+        return [
+            CompletionItem(path.name)
+            for path in sorted(logs.iterdir())
+            if path.name.startswith(incomplete)
+            and (path / "conversation.jsonl").is_file()
+        ]
 
     def convert(self, value, param, ctx):
         if value == "random":
