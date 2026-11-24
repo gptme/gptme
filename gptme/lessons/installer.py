@@ -164,81 +164,86 @@ def _is_git_url(source: str) -> bool:
     return source.startswith(("https://", "git@", "ssh://", "git://"))
 
 
-def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path | None:
-    """Clone a skill from a git repository.
+def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path | None:
+    """Clone a git repository into ``tmp`` and return the skill source directory.
+
+    The caller owns ``tmp`` and publishes the returned directory through the
+    staged local install, so nothing in the skills directory is touched here.
 
     Args:
         url: Git repository URL
         skill_path: Optional path within the repo to the skill directory
-        dest: Destination directory for the skill
+        tmp: Scratch directory to clone into (must not exist)
 
     Returns:
-        Path to the installed skill, or None on failure
+        Path to the skill directory inside the clone, or None on failure
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir) / "repo"
-        try:
-            subprocess.run(
-                [
-                    GIT_CMD,
-                    "clone",
-                    "--depth",
-                    "1",
-                    "--filter=blob:none",
-                    "--sparse",
-                    url,
-                    str(tmp),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Git clone failed: {e.stderr}")
-            return None
-        except subprocess.TimeoutExpired:
-            logger.error("Git clone timed out after 60 seconds")
-            return None
-        except FileNotFoundError:
-            logger.error("git command not found")
-            return None
+    # Only a #path install restricts the checkout; a whole-repo skill needs
+    # every subdirectory (cone-mode --sparse checks out top-level files only).
+    sparse = ["--sparse"] if skill_path else []
+    try:
+        subprocess.run(
+            [
+                GIT_CMD,
+                "clone",
+                "--depth",
+                "1",
+                "--filter=blob:none",
+                *sparse,
+                url,
+                str(tmp),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Git clone failed: {e.stderr}")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.error("Git clone timed out after 60 seconds")
+        return None
+    except FileNotFoundError:
+        logger.error("git command not found")
+        return None
 
-        # If skill_path specified, enable sparse checkout for just that path
-        if skill_path:
+    if skill_path:
+        for args, failure in (
+            (["set", skill_path], "Sparse checkout failed, using full clone"),
+            (["disable"], "Disabling sparse checkout failed"),
+        ):
             try:
                 subprocess.run(
-                    [GIT_CMD, "sparse-checkout", "set", skill_path],
+                    [GIT_CMD, "sparse-checkout", *args],
                     cwd=tmp,
                     check=True,
                     capture_output=True,
                     text=True,
                     timeout=30,
                 )
+                break
             except subprocess.CalledProcessError as e:
-                logger.warning(f"Sparse checkout failed, using full clone: {e.stderr}")
+                logger.warning(f"{failure}: {e.stderr}")
             except subprocess.TimeoutExpired:
-                logger.warning("Sparse checkout timed out, using full clone")
-
-            source_dir = tmp / skill_path
-        else:
-            source_dir = tmp
-
-        if not source_dir.exists():
-            logger.error(f"Skill path not found in repository: {skill_path}")
+                logger.warning(f"{failure}: timed out")
+        source_dir = tmp / skill_path
+    else:
+        source_dir = tmp
+        # Repository metadata is not part of the skill.
+        try:
+            shutil.rmtree(tmp / ".git")
+        except OSError as e:
+            logger.error(f"Could not drop .git from clone: {e}")
             return None
 
-        # Find SKILL.md
-        skill_md = _find_skill_md(source_dir)
-        if not skill_md:
-            logger.error(f"No SKILL.md found in {source_dir}")
-            return None
-
-        # Copy skill directory to destination
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(source_dir, dest)
-        return dest
+    # A #path (or a symlink along it) must not select a tree outside the clone.
+    if not source_dir.is_dir() or not source_dir.resolve().is_relative_to(
+        tmp.resolve()
+    ):
+        logger.error(f"Skill path not found in repository: {skill_path}")
+        return None
+    return source_dir
 
 
 def _staged_metadata_path(path: Path, dest: Path, staged: Path) -> Path:
@@ -454,8 +459,6 @@ def install_skill(
     Returns:
         Tuple of (success, message)
     """
-    from datetime import datetime, timezone
-
     skills_dir = get_skills_dir()
     skills_dir.mkdir(parents=True, exist_ok=True)
     manifest = get_manifest()
@@ -484,74 +487,22 @@ def install_skill(
         else:
             return False, f"Skill '{source}' not found in registry"
 
-    # Install from source
     if git_url:
-        # Determine temporary name for installation
-        raw_name = name or (
-            git_skill_path.split("/")[-1] if git_skill_path else "skill"
-        )
-        temp_name = _sanitize_skill_name(raw_name)
-        dest = skills_dir / temp_name
-
-        if dest.exists() and not force:
-            return (
-                False,
-                f"Skill '{temp_name}' already installed. Use --force to overwrite.",
+        # Clone to scratch space, then publish through the same staged,
+        # validated, rollback-safe path as local installs: the destination is
+        # derived from the cloned SKILL.md, never from the URL.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = _clone_skill_from_git(
+                git_url, git_skill_path, Path(tmpdir) / "repo"
             )
-
-        result = _clone_skill_from_git(git_url, git_skill_path, dest)
-        if not result:
-            return False, f"Failed to install skill from {git_url}"
-
-    elif local_path:
+            if source_dir is None:
+                return False, f"Failed to install skill from {git_url}"
+            return _install_local_skill(
+                source, source_dir.resolve(), name, force, manifest
+            )
+    if local_path:
         return _install_local_skill(source, local_path, name, force, manifest)
-    else:
-        return False, "Could not determine source type"
-
-    # Parse installed skill metadata
-    skill_md = _find_skill_md(dest)
-    if not skill_md:
-        # Clean up failed install
-        if dest.exists():
-            shutil.rmtree(dest)
-        return False, "Installed files do not contain SKILL.md"
-
-    fm = _parse_skill_frontmatter(skill_md)
-    skill_name = _sanitize_skill_name(name or fm.get("name", dest.name))
-
-    # Rename directory if skill name differs from temp name
-    if dest.name != skill_name:
-        new_dest = skills_dir / skill_name
-        if new_dest.exists() and not force:
-            shutil.rmtree(dest)
-            return (
-                False,
-                f"Skill '{skill_name}' already installed. Use --force to overwrite.",
-            )
-        if new_dest.exists():
-            shutil.rmtree(new_dest)
-        dest.rename(new_dest)
-        dest = new_dest
-
-    # Get version from metadata
-    metadata = fm.get("metadata", {})
-    version = "unknown"
-    if isinstance(metadata, dict):
-        version = metadata.get("version", "unknown")
-    if fm.get("version"):
-        version = fm["version"]
-
-    # Update manifest
-    manifest.skills[skill_name] = InstalledSkill(
-        name=skill_name,
-        version=str(version),
-        source=source,
-        install_path=str(dest),
-        installed_at=datetime.now(timezone.utc).isoformat(),
-    )
-    manifest.save(get_manifest_path())
-
-    return True, f"Installed '{skill_name}' v{version} to {dest}"
+    return False, "Could not determine source type"
 
 
 def uninstall_skill(name: str) -> tuple[bool, str]:
@@ -569,23 +520,36 @@ def uninstall_skill(name: str) -> tuple[bool, str]:
 
     # Check manifest first
     if safe_name in manifest.skills:
-        install_path = Path(manifest.skills[safe_name].install_path).resolve()
-        # Validate install_path is within skills_dir to prevent manifest-tampering attacks
-        try:
-            install_path.relative_to(skills_dir.resolve())
-        except ValueError:
-            return (
-                False,
-                f"Refusing to delete '{install_path}': not within skills directory",
-            )
-        if install_path.exists():
-            shutil.rmtree(install_path)
+        raw_path = Path(manifest.skills[safe_name].install_path)
+        if (
+            raw_path.is_symlink()
+            and raw_path.name != ".."
+            and raw_path.parent.resolve() == skills_dir.resolve()
+        ):
+            # A symlinked skill entry: remove the link, never its target.
+            raw_path.unlink()
+        else:
+            install_path = raw_path.resolve()
+            # Validate install_path is within skills_dir to prevent manifest-tampering attacks
+            try:
+                install_path.relative_to(skills_dir.resolve())
+            except ValueError:
+                return (
+                    False,
+                    f"Refusing to delete '{install_path}': not within skills directory",
+                )
+            if install_path.exists():
+                shutil.rmtree(install_path)
         del manifest.skills[safe_name]
         manifest.save(get_manifest_path())
         return True, f"Uninstalled '{safe_name}'"
 
     # Try direct directory match
     skill_dir = skills_dir / safe_name
+    if skill_dir.is_symlink():
+        # Typically a skill developed in place: remove the link, keep the source.
+        skill_dir.unlink()
+        return True, f"Removed '{name}' (not in manifest)"
     if skill_dir.exists():
         shutil.rmtree(skill_dir)
         return True, f"Removed '{name}' (not in manifest)"
