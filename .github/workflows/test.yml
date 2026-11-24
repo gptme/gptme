@@ -6,6 +6,9 @@ on:
   pull_request:
     # Stacked PRs target feature branches before their base lands on master.
     branches: [ master, 'feat/*' ]
+  # Merge queue: the queue waits for required checks on its temporary merge
+  # commit, so the required jobs below must run for merge_group events.
+  merge_group:
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
 # Every other run (master push, release, dispatch, schedule) gets its own
@@ -24,7 +27,10 @@ jobs:
   # Detect which paths changed to skip expensive jobs on config-only PRs
   # (docs-only PRs still run the no-API tests; API tests stay code-gated)
   changes:
-    name: Detect changes
+    # Unique name: tauri.yml also has a "Detect changes" job, and this one is a
+    # required check for the merge queue (a failed changes job would otherwise
+    # skip the test jobs, and skipped satisfies a required check).
+    name: Test / detect changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -38,8 +44,11 @@ jobs:
       deps: ${{ steps.filter.outputs.deps }}
     steps:
     - uses: actions/checkout@v7
+      if: github.event_name != 'merge_group'
     - uses: dorny/paths-filter@v4
       id: filter
+      # merge_group runs the core suites unconditionally (see job conditions).
+      if: github.event_name != 'merge_group'
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         filters: |
@@ -82,7 +91,7 @@ jobs:
   test-no-api:
     needs: changes
     # Always run on push to master; on PRs, only when code changed
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true'
     name: Test without API keys
     runs-on: ubuntu-latest
     # A hung xdist worker otherwise burns the 6h default (gptme/gptme#4009:
@@ -128,13 +137,13 @@ jobs:
         MODEL: local/test
         # Neither runner's integration cases may silently skip in this job.
         GPTME_TEST_REQUIRE_PRECOMMIT_RUNNERS: '1'
-      run: make test ${{ github.event_name != 'pull_request' && 'SLOW=true' || '' }}
+      run: make test ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' && 'SLOW=true' || '' }}
 
     - name: Run performance tests serially
       env:
         TERM: xterm
         MODEL: local/test
-      run: make test-perf ${{ github.event_name != 'pull_request' && 'SLOW=true' || '' }}
+      run: make test-perf ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' && 'SLOW=true' || '' }}
 
     - name: Upload visual snapshot diffs on failure
       if: failure()
@@ -163,7 +172,7 @@ jobs:
   test-minimal:
     needs: changes
     # Always run on push to master; on PRs, only when code changed
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true'
     name: Test without API keys or extras
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -304,7 +313,7 @@ jobs:
   # runner-PATH pytest cannot mask a broken project env.
   test-uv:
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true'
     name: Test with uv (lockfile smoke)
     runs-on: ubuntu-latest
     timeout-minutes: 15
