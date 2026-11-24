@@ -127,3 +127,12 @@ def test_env_source_ignores_empty_shell_var_like_get_env(
     assert get_user_config_env_source("OPENAI_API_KEY", str(isolated)) == (
         "config.local.toml"
     )
+
+
+def test_user_config_env_not_a_table_is_a_clear_error(isolated: Path):
+    """`env = []` must fail with a config error, not AttributeError."""
+    from gptme.config.user import load_user_config
+
+    isolated.write_text("env = []\n")
+    with pytest.raises(ValueError, match="env must be an object"):
+        load_user_config(str(isolated))

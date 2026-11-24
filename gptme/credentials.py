@@ -39,7 +39,7 @@ def _load_credentials_doc(path: Path | None = None, *, strict: bool = False):
     with open(path, encoding="utf-8") as f:
         try:
             return tomlkit.load(f)
-        except TOMLKitError as e:
+        except (TOMLKitError, UnicodeDecodeError) as e:
             # Readers must not take down provider discovery (and doctor) over a
             # hand-edited file; writers must not silently replace it.
             if strict:

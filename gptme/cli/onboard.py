@@ -31,7 +31,7 @@ from ..config.user import (
     get_user_config_paths,
 )
 from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
-from ..llm import list_available_providers
+from ..llm import PROVIDER_API_KEYS, list_available_providers
 from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
 from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
 
@@ -137,13 +137,15 @@ def _test_provider(provider: str) -> tuple[bool, str]:
             return True, "OAuth credentials found (not validated during onboarding)"
         return False, f"Not authenticated (run gptme auth {provider})"
 
-    env_var = PROVIDER_ENV_VARS.get(provider)
-    if not env_var:
-        return False, f"Unknown provider: {provider}"
+    # Detection also lists any provider with a key in credentials.toml (e.g.
+    # moonshot), so look that key up before rejecting a provider as unknown.
+    env_var = PROVIDER_ENV_VARS.get(provider) or PROVIDER_API_KEYS.get(provider)
+    api_key: str | None = None
 
     # Check env var first, then config file
-    api_key = os.environ.get(env_var)
-    if not api_key:
+    if env_var:
+        api_key = os.environ.get(env_var)
+    if env_var and not api_key:
         try:
             from ..config import get_config
 
@@ -156,6 +158,8 @@ def _test_provider(provider: str) -> tuple[bool, str]:
         except (OSError, ValueError):
             api_key = None
     if not api_key:
+        if not env_var:
+            return False, f"Unknown provider: {provider}"
         return False, f"No API key found (set {env_var})"
 
     return validate_api_key(api_key, provider)

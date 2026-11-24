@@ -143,3 +143,54 @@ def test_control_new_noninteractive_gets_complete(tmp_path):
     )
     assert cfg.chat is not None
     assert "complete" in (cfg.chat.tools or [])
+
+
+def test_noninteractive_resume_keeps_tools_none(tmp_path, monkeypatch):
+    """A saved `tools = []` (--tools none) is a choice, not "unset": a
+    non-interactive resume must not fall back to TOOL_ALLOWLIST/defaults."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    logdir = tmp_path / "logs" / "conv"
+    # interactive: gptme --tools none --name conv "hi"
+    setup_config_from_cli(
+        workspace=ws,
+        logdir=logdir,
+        model="openai/gpt-4o",
+        tool_allowlist="",
+        interactive=True,
+    )
+    assert ChatConfig.from_logdir(logdir).tools == []
+
+    monkeypatch.setenv("TOOL_ALLOWLIST", "shell,save")
+    cfg = setup_config_from_cli(
+        workspace=ws, logdir=logdir, interactive=False, no_confirm=True
+    )
+    assert cfg.chat is not None
+    # Same as a fresh `--tools none --non-interactive` run: only 'complete'.
+    assert cfg.chat.tools == ["complete"]
+    assert ChatConfig.from_logdir(logdir).tools == ["complete"]
+
+
+def test_noninteractive_resume_keeps_saved_hint_filter(tmp_path):
+    """Adding 'complete' on resume must not re-normalize the saved filters:
+    that expands hint:/glob entries and drops ones that match nothing now."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    logdir = tmp_path / "logs" / "conv"
+    setup_config_from_cli(
+        workspace=ws, logdir=logdir, model="openai/gpt-4o", interactive=True
+    )
+    saved = ChatConfig.from_logdir(logdir)
+    saved.tools = ["shell", "hint:no-such-hint"]
+    saved.save()
+
+    cfg = setup_config_from_cli(
+        workspace=ws, logdir=logdir, interactive=False, no_confirm=True
+    )
+    assert cfg.chat is not None
+    assert cfg.chat.tools == ["shell", "hint:no-such-hint", "complete"]
+    assert ChatConfig.from_logdir(logdir).tools == [
+        "shell",
+        "hint:no-such-hint",
+        "complete",
+    ]

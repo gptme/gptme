@@ -276,8 +276,12 @@ def _scaffold_project(
     # Symlink CLAUDE.md -> AGENTS.md
     agents_path = target / "AGENTS.md"
     claude_path = target / "CLAUDE.md"
-    # is_symlink() also catches a dangling link, which exists() reports as absent.
-    if not (claude_path.exists() or claude_path.is_symlink()):
+    if claude_path.is_symlink() and not claude_path.exists():
+        # Dangling link: replace the link itself (never write through it, the
+        # target may be outside the project) so CLAUDE.md is readable again.
+        logger.warning("Replacing dangling symlink: %s", claude_path)
+        claude_path.unlink()
+    if not claude_path.exists():
         try:
             claude_path.symlink_to("AGENTS.md")
             click.echo(f"  Created {claude_path.name} -> AGENTS.md")

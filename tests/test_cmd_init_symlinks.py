@@ -20,6 +20,10 @@ def test_dangling_claude_symlink_writes_outside_project(tmp_path):
     assert not victim.exists(), (
         f"gptme init wrote {victim} outside the project: {victim.read_text()[:40]!r}"
     )
+    # The broken link is replaced, so the project instructions are readable.
+    claude = target / "CLAUDE.md"
+    assert claude.exists()
+    assert claude.read_text() == (target / "AGENTS.md").read_text()
 
 
 def test_force_does_not_clobber_claude_md_through_agents_symlink(tmp_path):

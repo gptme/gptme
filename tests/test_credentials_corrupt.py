@@ -31,3 +31,22 @@ def test_corrupt_credentials_get_stored_api_key_returns_none(monkeypatch, tmp_pa
     from gptme.credentials import get_stored_api_key
 
     assert get_stored_api_key("anthropic") is None
+
+
+def test_non_utf8_credentials_does_not_break_reads_but_blocks_writes(
+    monkeypatch, tmp_path
+):
+    import pytest
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    cred = tmp_path / "gptme" / "credentials.toml"
+    cred.parent.mkdir(parents=True)
+    raw = b'[providers]\nanthropic = "sk-\xff\xfe"\n'
+    cred.write_bytes(raw)
+
+    from gptme.credentials import get_stored_api_key, set_stored_api_key
+
+    assert get_stored_api_key("anthropic") is None
+    with pytest.raises(ValueError, match="Cannot parse"):
+        set_stored_api_key("openai", "sk-new")
+    assert cred.read_bytes() == raw

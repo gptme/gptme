@@ -57,6 +57,7 @@ from .models import (
     UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
+    _pop_object_section,
     _stringify_env,
 )
 
@@ -707,7 +708,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
             user_identity, about=about, response_preference=resp_pref
         )
 
-    env = _stringify_env(config.pop("env", {}))
+    env = _stringify_env(_pop_object_section(config, "env"))
 
     # Parse [mcp] and [[providers]]. Runtime overlays are admin-managed: if
     # config.runtime.toml itself defines mcp/providers, those entries fail

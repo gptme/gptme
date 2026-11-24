@@ -81,3 +81,28 @@ def test_onboard_test_provider_finds_stored_key(monkeypatch):
     ok, msg = _test_provider("anthropic")
     assert ok, msg
     assert seen["key"] == "sk-ant-api03-abcdefghijklmnop"
+
+
+def test_onboard_detected_stored_provider_is_testable(monkeypatch):
+    """Every provider detection lists from credentials.toml must be testable
+    (moonshot is a runtime provider not in onboarding's env-var table)."""
+    monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
+    set_stored_api_key("moonshot", "sk-moonshot-abcdefghijklmnop")
+    assert _detect_providers()["moonshot"][0]
+
+    seen: dict[str, str] = {}
+
+    def fake_validate(key: str, provider: str) -> tuple[bool, str]:
+        seen[provider] = key
+        return True, ""
+
+    monkeypatch.setattr("gptme.cli.onboard.validate_api_key", fake_validate)
+    ok, msg = _test_provider("moonshot")
+    assert ok, msg
+    assert seen == {"moonshot": "sk-moonshot-abcdefghijklmnop"}
+
+
+def test_onboard_unknown_provider_without_key_still_rejected():
+    ok, msg = _test_provider("no-such-provider")
+    assert not ok
+    assert "Unknown provider" in msg
