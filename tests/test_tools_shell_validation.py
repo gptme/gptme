@@ -981,6 +981,123 @@ class TestSensitiveArgs:
         assert _has_sensitive_args(command)
         assert not is_allowlisted(command)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep --file=/etc/shadow notes.txt",
+            "grep --file=/root/.ssh/id_rsa notes.txt",
+            "grep --file=$HOME/.ssh/id_rsa notes.txt",
+            "grep --exclude-from=/etc/shadow -r token .",
+            "wc --files0-from=/etc/shadow",
+            "du --files0-from=$HOME/.aws/credentials",
+            "grep -f/etc/shadow notes.txt",
+            "grep -f$HOME/.ssh/id_rsa notes.txt",
+            "grep -rf/root/.ssh/id_rsa .",
+        ],
+    )
+    def test_sensitive_path_attached_to_option_not_allowlisted(self, command: str):
+        """``--flag=PATH`` and ``-fPATH`` read the path like ``-f PATH`` does.
+
+        The path must not hide inside the option word: before this check,
+        ``grep -f /etc/shadow`` needed confirmation but
+        ``grep --file=/etc/shadow`` was auto-approved.
+        """
+        assert _has_sensitive_args(command)
+        assert not is_allowlisted(command)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cut -d/ -f2 notes.txt",
+            "sort -t/ -k2 notes.txt",
+            "grep --include=*.py -r token .",
+            "grep --file=patterns.txt notes.txt",
+        ],
+    )
+    def test_harmless_attached_option_values_still_allowlisted(self, command: str):
+        """A ``/`` delimiter or a plain relative value is not a sensitive path."""
+        assert is_allowlisted(command)
+
+    @pytest.fixture
+    def fake_home(self, tmp_path, monkeypatch) -> Path:
+        """A HOME with a workspace inside it, so ``~`` is an ancestor of it."""
+        home = tmp_path / "home"
+        (home / "project").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("CDPATH", raising=False)
+        return home
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # A cd earlier in the same command moves where relative paths read.
+            "cd ~ && cat .ssh/id_rsa",
+            "cd ~/.config/gptme && cat config.toml",
+            "cd && cat .ssh/id_rsa",
+            "cd ~ ; cat .ssh/id_rsa",
+            "cd ~\ncat .ssh/id_rsa",
+            "(cd ~ && cat .ssh/id_rsa)",
+            "command cd ~ && cat .ssh/id_rsa",
+            "cd $HOME && head -c 40 .ssh/id_rsa",
+            "cd ~/.ssh && cat *",
+            "cd ~/.config/gptme && cat conf*",
+            # A cd whose destination is unknown makes later reads unknown too.
+            "cd - && cat id_rsa",
+            "cd $SOMEDIR && cat id_rsa",
+            "cd ~other && cat .ssh/id_rsa",
+            # Recursive readers pointed at a directory containing secrets.
+            "grep -r AWS_SECRET ~",
+            "grep -rh MARKER ~",
+            "grep -R MARKER $HOME",
+            "grep --recursive MARKER ~/.config",
+            "find ~ -name id_rsa",
+            "rg secret ~",
+            "ls -R ~",
+            "du -a ~",
+            "tree ~/.config",
+            "grep -r token $XDG_CONFIG_HOME",
+            "cd ~ && grep -r MARKER .",
+            "cd ~ && rg MARKER",
+        ],
+    )
+    def test_secret_reached_without_naming_it_not_allowlisted(
+        self, fake_home: Path, command: str
+    ):
+        """The read target is computed, not spelled: it must still be checked."""
+        workspace = fake_home / "project"
+        assert _has_sensitive_args(command, cwd=workspace)
+        assert not is_allowlisted(command, cwd=workspace)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd src && cat main.py",
+            "cd /tmp && ls",
+            "grep -r token .",
+            "grep -r 'end$' src",
+            "rg token src",
+            "find . -name '*.py'",
+            "du -sh .",
+            "ls ~",
+            "ls *.py",
+        ],
+    )
+    def test_cd_and_recursion_inside_workspace_still_allowlisted(
+        self, fake_home: Path, command: str
+    ):
+        """Moving or recursing within the workspace stays auto-approved."""
+        assert is_allowlisted(command, cwd=fake_home / "project")
+
+    def test_recursive_reader_from_home_cwd_not_allowlisted(self, fake_home: Path):
+        """With no directory operand, a recursive reader walks the cwd."""
+        assert not is_allowlisted("rg token", cwd=fake_home)
+        assert not is_allowlisted("grep -r token .", cwd=fake_home)
+
+    def test_relative_cd_ignored_when_cdpath_set(self, fake_home: Path, monkeypatch):
+        """CDPATH can send a relative ``cd`` anywhere, so it is unknown."""
+        monkeypatch.setenv("CDPATH", str(fake_home))
+        assert not is_allowlisted("cd .ssh && cat id_rsa", cwd=fake_home / "project")
+
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
         assert not is_allowlisted("cat /e??/shadow")

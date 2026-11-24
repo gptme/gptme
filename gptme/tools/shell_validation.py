@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
-from .shell_flags import flags_permitted
+from .shell_flags import _split_lines, flags_permitted
 
 if TYPE_CHECKING:
     from .base import ToolUse
@@ -392,6 +392,281 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
+def _attached_option_value(token: str) -> str | None:
+    """Return the value an option carries in the same word, if any.
+
+    ``grep --file=/etc/shadow`` and ``grep -f/etc/shadow`` make the program
+    read the path exactly as ``grep -f /etc/shadow`` does, but the path is not
+    a token of its own, so a whole-token scan never sees it.
+    """
+    if not token.startswith("-"):
+        return None
+    if token.startswith("--"):
+        _name, sep, value = token.partition("=")
+        return value if sep and value else None
+    # Short option with an attached value (``-f/path``, ``-rf$HOME/x``). Only
+    # absolute, home and variable spellings can name a sensitive file here; a
+    # bare ``/`` is a delimiter value (``cut -d/``, ``sort -t/``), not a path.
+    start = next((i for i, char in enumerate(token) if char in "/$~"), None)
+    if start is None:
+        return None
+    value = token[start:]
+    return value if value != "/" else None
+
+
+# Allowlisted readers that walk a directory tree. Pointing one at a directory
+# that *contains* a credential location reads (or lists) that location without
+# the argument ever naming it, e.g. ``grep -r AWS_SECRET ~``.
+_ALWAYS_RECURSIVE = frozenset({"find", "rg", "ag", "du", "tree"})
+
+
+def _is_recursive_reader(name: str, args: list[str]) -> bool:
+    """Whether this allowlisted command recurses into its directory operands."""
+    if name in _ALWAYS_RECURSIVE:
+        return True
+    if name not in ("grep", "ls"):
+        return False
+    long_flags = (
+        {"--recursive", "--dereference-recursive", "--directories=recurse"}
+        if name == "grep"
+        else {"--recursive"}
+    )
+    letters = "rR" if name == "grep" else "R"
+    for i, arg in enumerate(args):
+        if arg == "--":
+            break
+        if arg in long_flags:
+            return True
+        if arg.startswith("-") and not arg.startswith("--"):
+            if any(char in letters for char in arg[1:]):
+                return True
+            if name == "grep" and (
+                arg == "-drecurse"
+                or (arg == "-d" and i + 1 < len(args) and args[i + 1] == "recurse")
+            ):
+                return True
+    return False
+
+
+def _sensitive_locations() -> list[str]:
+    """Absolute spellings of every sensitive location, for containment checks."""
+    home = os.path.expanduser("~")
+    return [home + entry[1:] for entry in _SENSITIVE_HOME_DIRS] + [
+        prefix.rstrip("/") for prefix in _SENSITIVE_PATH_PREFIXES
+    ]
+
+
+def _contains_sensitive_location(token: str, cwd: Path | None) -> bool:
+    """Whether a directory operand is, or is an ancestor of, a sensitive location.
+
+    Used for recursive readers only: ``grep -r x ~`` reads ``~/.ssh`` although
+    no argument names it. Spellings whose target cannot be known statically
+    (``~user``, ``$VAR``) count as containing one.
+    """
+    home = os.path.expanduser("~")
+    path: str | None = None
+    if token == "~" or token.startswith("~/"):
+        path = home + token[1:]
+    elif token.startswith("~"):
+        return True
+    else:
+        for var in ("${HOME}", "$HOME"):
+            if token == var or token.startswith(var + "/"):
+                path = home + token[len(var) :]
+                break
+        else:
+            if re.match(r"^\$\{?[A-Za-z_]", token):
+                return True
+            if token.startswith("/"):
+                path = token
+            elif cwd is not None:
+                # Lexical and resolved spellings, as in _token_is_sensitive().
+                bases = {Path(os.path.normpath(cwd.absolute())), cwd.resolve()}
+                return any(
+                    _contains_sensitive_location(str(base / token), None)
+                    for base in bases
+                )
+    if path is None:
+        return False
+    path = os.path.normpath(re.sub(r"^/+", "/", path))
+    if path == "/":
+        return True
+    inside = path + "/"
+    return any(
+        location == path or location.startswith(inside)
+        for location in _sensitive_locations()
+    )
+
+
+def _cd_destinations(
+    args: list[str], cwds: list[Path | None]
+) -> list[Path | None] | None:
+    """Directories a ``cd`` with these arguments can move the shell to.
+
+    Returns None when the destination cannot be determined statically
+    (``cd -``, ``cd $VAR``, ``cd ~user``, globs, or a relative target while
+    ``CDPATH`` is set).
+    """
+    operands = list(args)
+    while operands and re.fullmatch(r"-[LPe@]+", operands[0]):
+        operands.pop(0)
+    if operands and operands[0] == "--":
+        operands.pop(0)
+    home = os.path.expanduser("~")
+    if not operands:
+        return [Path(home)]
+    target = operands[0]
+    if target == "-" or any(char in target for char in "*?[{`"):
+        return None
+    if target == "~" or target.startswith("~/"):
+        target = home + target[1:]
+    elif target.startswith("~"):
+        return None
+    else:
+        for var in ("${HOME}", "$HOME"):
+            if target == var or target.startswith(var + "/"):
+                target = home + target[len(var) :]
+                break
+    if "$" in target:
+        return None
+    if target.startswith("/"):
+        return [Path(os.path.normpath(re.sub(r"^/+", "/", target)))]
+    if os.environ.get("CDPATH"):
+        return None
+    return [
+        Path(os.path.normpath(cwd.resolve() / target)) if cwd is not None else None
+        for cwd in cwds
+    ]
+
+
+def _command_segments(cmd: str) -> list[list[str]]:
+    """Split a command into simple-command token lists.
+
+    Lines are split first (``shlex`` treats a newline as plain whitespace, so
+    ``cd ~`` and ``cat .ssh/id_rsa`` on two lines would otherwise merge), then
+    each line on list and pipeline operators. Redirection operators stay in
+    the segment so the path that follows them is still scanned.
+    """
+    segments: list[list[str]] = []
+    for line in _split_lines(strip_transparent_wrappers(cmd)):
+        try:
+            lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|><()")
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            tokens = list(lexer)
+        except ValueError:
+            tokens = line.split()
+        current: list[str] = []
+        for token in tokens:
+            if token and all(char in ";&|()" for char in token):
+                if current:
+                    segments.append(current)
+                current = []
+            else:
+                current.append(token)
+        if current:
+            segments.append(current)
+    return segments
+
+
+def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
+    """Whether one argument names a sensitive path, read from ``cwd``."""
+    if token and all(char in ";&|><()" for char in token):
+        return False
+    # Bare root directory — e.g. `find /` or `ls /`
+    if token == "/":
+        return True
+    # Path traversal that could escape to a sensitive directory.
+    # Catches both absolute traversal (e.g. /home/user/../../../etc/passwd)
+    # and relative traversal (e.g. ../../etc/passwd) — bash resolves the
+    # latter relative to the current working directory, which we cannot
+    # predict at validation time, so any `..` in a path is treated as
+    # potentially sensitive and requires explicit confirmation.
+    if ".." in token:
+        return True
+    # Shell pathname and brace expansion happen after validation. Literal
+    # tokens such as /e??/shadow or /{etc/shadow,tmp/file} can therefore
+    # become /etc/shadow at execution time. Require confirmation whenever
+    # a path-like argument contains expansion metacharacters; ordinary
+    # search patterns such as ``*.py`` remain eligible for auto-approval
+    # because they contain no path separator.
+    if "/" in token and any(char in token for char in "*?[{"):
+        return True
+    # Relative path arguments are interpreted from the persistent shell's
+    # effective cwd. Check both the lexical path (what bash uses after a
+    # ``cd`` through a symlink such as ``~/.config``) and the resolved one, so
+    # a confirmed ``cd ~/.ssh`` cannot make a later ``cat id_rsa``
+    # auto-approved, and neither can ``cd ~/.config/gptme && cat config.toml``.
+    if cwd is not None and token and not token.startswith(("/", "~", "$")):
+        bases = {Path(os.path.normpath(cwd.absolute())), cwd.resolve()}
+        for base in bases:
+            joined = str(base / token)
+            if any(char in token for char in "*?[{"):
+                # A slash-free glob expands inside ``base``: ``cat *`` from
+                # ``~/.ssh``, or ``cat conf*`` from ``~/.config/gptme``.
+                if _token_is_sensitive(base.as_posix(), None) or (
+                    _contains_sensitive_location(base.as_posix(), None)
+                ):
+                    return True
+            elif _token_is_sensitive(joined, None):
+                return True
+        return False
+    # Sensitive directory prefixes (absolute paths). Collapse repeated
+    # leading slashes before normalizing no-op dot segments: POSIX permits
+    # normpath() to preserve exactly two leading slashes even though the
+    # shell resolves //etc and /./etc to /etc on our supported platforms.
+    abs_token = (
+        os.path.normpath(re.sub(r"^/+", "/", token)) if token.startswith("/") else token
+    )
+    if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
+        return True
+    # Sensitive home-relative credential directories.
+    # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
+    # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
+    # Use a boundary check (exact match or followed by "/") to avoid
+    # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
+    normalized = token
+    home = os.path.expanduser("~")
+    if token == home or token.startswith(home + "/"):
+        normalized = "~" + token[len(home) :]
+    else:
+        for sub in ("${HOME}/", "$HOME/"):
+            if token.startswith(sub):
+                normalized = "~/" + token[len(sub) :]
+                break
+    # ~username/... spellings (e.g. ~root/.ssh/id_rsa) name another user's
+    # home dir; strip the username component and treat the rest as ~/...
+    # so the sensitive-dir boundary check below fires for those too.
+    if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
+        normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
+    # Relative path arguments are interpreted from the persistent shell's
+    # effective cwd. Resolve lexical components here so a confirmed
+    # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
+    if cwd is not None and not normalized.startswith(("/", "~")):
+        normalized = str(cwd.resolve() / normalized)
+        if normalized == home or normalized.startswith(home + "/"):
+            normalized = "~" + normalized[len(home) :]
+
+    # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
+    # still matches the ~/ prefix boundary after double-slash removal.
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    # Remove no-op ./ segments (e.g. ~/./.ssh/id_rsa → ~/.ssh/id_rsa) that
+    # bash resolves at runtime but which bypass literal prefix matching.
+    while "/./" in normalized:
+        normalized = normalized.replace("/./", "/")
+    # Resolve parent-directory (..) segments within the home-relative path
+    # (e.g. ~/tmp/../.ssh/id_rsa → ~/.ssh/id_rsa).  Tokens with ".." are
+    # already caught by the path-traversal check above; this normpath pass
+    # ensures the prefix check below is also correct as belt-and-suspenders.
+    if ".." in normalized:
+        normalized = os.path.normpath(normalized)
+    return any(
+        normalized == prefix or normalized.startswith(prefix + "/")
+        for prefix in _SENSITIVE_HOME_DIRS
+    )
+
+
 def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     """Check whether any argument in the command targets a sensitive system path.
 
@@ -407,6 +682,19 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     Also covers P4: ``find /`` traverses the entire filesystem; the ``/``
     argument is caught here.
 
+    Three spellings used to hide the path from the literal-token check:
+
+    - a value attached to an option (``grep --file=/etc/shadow``,
+      ``grep -f/etc/shadow``) is scanned as an argument of its own;
+    - a ``cd`` earlier in the same command moves the directory that later
+      relative arguments are read from (``cd ~ && cat .ssh/id_rsa``), so
+      relative arguments are resolved from every directory the command can
+      be in, and a ``cd`` whose destination is unknown requires confirmation;
+    - a recursive reader (``grep -r``, ``rg``, ``find``, ``ls -R``, ``du``)
+      pointed at a directory that *contains* a credential location
+      (``grep -r AWS_SECRET ~``) requires confirmation. With no directory
+      operand it reads the current directory, which is checked the same way.
+
     Returns True if a sensitive argument is found (approval should be denied).
     """
     # Blank heredoc bodies (stdin data) *and* headers (the << / <<- opener and
@@ -418,98 +706,39 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     # whitespace), so ``cat << - /etc/shadow`` auto-approved a genuine read;
     # regex-based blanking keeps the real path visible, so it is scanned.
     cmd_blanked = _blank_heredoc_headers(_blank_heredoc_bodies(cmd))
-    try:
-        lexer = shlex.shlex(cmd_blanked, posix=True, punctuation_chars=";&|><()")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
-        tokens = cmd_blanked.split()
+    segments = _command_segments(cmd_blanked)
 
-    # Walk all tokens after the first (which is the leading command name).
-    # punctuation_chars separates unquoted shell operators from adjacent path
-    # tokens while preserving quoted or escaped operators as literal filename
-    # characters. Compound command names also appear in this list, but command
-    # names never start with / so they are harmless.
-    for token in tokens[1:]:
-        if token and all(char in ";&|><()" for char in token):
-            continue
-        # Bare root directory — e.g. `find /` or `ls /`
-        if token == "/":
-            return True
-        # Path traversal that could escape to a sensitive directory.
-        # Catches both absolute traversal (e.g. /home/user/../../../etc/passwd)
-        # and relative traversal (e.g. ../../etc/passwd) — bash resolves the
-        # latter relative to the current working directory, which we cannot
-        # predict at validation time, so any `..` in a path is treated as
-        # potentially sensitive and requires explicit confirmation.
-        if ".." in token:
-            return True
-        # Shell pathname and brace expansion happen after validation. Literal
-        # tokens such as /e??/shadow or /{etc/shadow,tmp/file} can therefore
-        # become /etc/shadow at execution time. Require confirmation whenever
-        # a path-like argument contains expansion metacharacters; ordinary
-        # search patterns such as ``*.py`` remain eligible for auto-approval
-        # because they contain no path separator.
-        if "/" in token and any(char in token for char in "*?[{"):
-            return True
-        # Sensitive directory prefixes (absolute paths). Collapse repeated
-        # leading slashes before normalizing no-op dot segments: POSIX permits
-        # normpath() to preserve exactly two leading slashes even though the
-        # shell resolves //etc and /./etc to /etc on our supported platforms.
-        abs_token = (
-            os.path.normpath(re.sub(r"^/+", "/", token))
-            if token.startswith("/")
-            else token
-        )
-        if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
-            return True
-        # Sensitive home-relative credential directories.
-        # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
-        # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
-        # Use a boundary check (exact match or followed by "/") to avoid
-        # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
-        normalized = token
-        home = os.path.expanduser("~")
-        if token == home or token.startswith(home + "/"):
-            normalized = "~" + token[len(home) :]
-        else:
-            for sub in ("${HOME}/", "$HOME/"):
-                if token.startswith(sub):
-                    normalized = "~/" + token[len(sub) :]
-                    break
-        # ~username/... spellings (e.g. ~root/.ssh/id_rsa) name another user's
-        # home dir; strip the username component and treat the rest as ~/...
-        # so the sensitive-dir boundary check below fires for those too.
-        if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
-            normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
-        # Relative path arguments are interpreted from the persistent shell's
-        # effective cwd. Resolve lexical components here so a confirmed
-        # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
-        if cwd is not None and not normalized.startswith(("/", "~")):
-            normalized = str(cwd.resolve() / normalized)
-            if normalized == home or normalized.startswith(home + "/"):
-                normalized = "~" + normalized[len(home) :]
+    # Every directory the shell can be in when a given segment runs. A ``cd``
+    # adds its destination rather than replacing the start directory: a
+    # subshell, pipeline or failed ``cd`` leaves the old directory in effect,
+    # so checking all of them never under-approximates.
+    cwds: list[Path | None] = [cwd]
+    for index, segment in enumerate(segments):
+        name, args = segment[0], segment[1:]
+        candidates: list[str] = []
+        for token in args:
+            candidates.append(token)
+            if (value := _attached_option_value(token)) is not None:
+                candidates.append(value)
+        for token in candidates:
+            if any(_token_is_sensitive(token, base) for base in cwds):
+                return True
 
-        # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
-        # still matches the ~/ prefix boundary after double-slash removal.
-        while "//" in normalized:
-            normalized = normalized.replace("//", "/")
-        # Remove no-op ./ segments (e.g. ~/./.ssh/id_rsa → ~/.ssh/id_rsa) that
-        # bash resolves at runtime but which bypass literal prefix matching.
-        while "/./" in normalized:
-            normalized = normalized.replace("/./", "/")
-        # Resolve parent-directory (..) segments within the home-relative path
-        # (e.g. ~/tmp/../.ssh/id_rsa → ~/.ssh/id_rsa).  Tokens with ".." are
-        # already caught by the path-traversal check above; this normpath pass
-        # ensures the prefix check below is also correct as belt-and-suspenders.
-        if ".." in normalized:
-            normalized = os.path.normpath(normalized)
-        if any(
-            normalized == prefix or normalized.startswith(prefix + "/")
-            for prefix in _SENSITIVE_HOME_DIRS
-        ):
-            return True
+        if name == "cd":
+            destinations = _cd_destinations(args, cwds)
+            if destinations is None:
+                # Unknown destination: anything after it may read from it.
+                if index + 1 < len(segments):
+                    return True
+            else:
+                cwds.extend(d for d in destinations if d not in cwds)
+        elif _is_recursive_reader(name, args):
+            roots = [arg for arg in args if not arg.startswith("-")] or ["."]
+            if "." not in roots:
+                roots.append(".")
+            for root in roots:
+                if any(_contains_sensitive_location(root, base) for base in cwds):
+                    return True
 
     return False
 
