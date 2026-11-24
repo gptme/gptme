@@ -29,7 +29,7 @@ import gptme
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..util.multiprompt import group_prompt_args as _group_prompt_args
-from .completion import complete_model
+from .completion import complete_model, complete_tools
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -712,6 +712,7 @@ def _same_env_executable(name: str) -> str | None:
     "tool_allowlist",
     default=None,
     multiple=True,
+    shell_complete=complete_tools,
     type=CommaSeparatedChoice(
         # Accept all *known* tools, not just currently-available ones, so a tool
         # that exists but is temporarily unavailable (e.g. 'tts' when its server

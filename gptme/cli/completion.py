@@ -46,3 +46,20 @@ def complete_model(
     return [
         CompletionItem(name) for name in sorted(names) if name.startswith(incomplete)
     ]
+
+
+def complete_tools(
+    ctx: click.Context, param: click.Parameter, incomplete: str
+) -> list[CompletionItem]:
+    """Discover built-in tool choices without loading or initializing user config."""
+    from ..config.core import Config, _config_var
+    from ..config.user import default_config
+
+    # Tool discovery consults get_config(), even with MCP disabled. Scope an
+    # in-memory config to this callback so Tab cannot write files or load user
+    # plugins. Restore it for callers using Click completion in-process.
+    token = _config_var.set(Config(user=default_config))
+    try:
+        return param.type.shell_complete(ctx, param, incomplete)
+    finally:
+        _config_var.reset(token)

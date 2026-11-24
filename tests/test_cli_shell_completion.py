@@ -4,6 +4,7 @@ import importlib.metadata
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -358,3 +359,28 @@ def test_dspy_without_extra_still_reports_normal_invocation(monkeypatch, caplog)
     with pytest.raises(SystemExit, match="1"):
         main()
     assert "pip install gptme[dspy]" in caplog.text
+
+
+def test_tools_completion_does_not_initialize_user_config(tmp_path):
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "_GPTME_COMPLETE": "fish_complete",
+        "COMP_WORDS": "gptme --tools sh",
+        "COMP_CWORD": "sh",
+    }
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from gptme.cli.main import main; main(prog_name='gptme')",
+        ],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "shell" in result.stdout
+    assert not (tmp_path / ".config/gptme/config.toml").exists()
