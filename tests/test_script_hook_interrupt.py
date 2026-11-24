@@ -56,3 +56,30 @@ def test_keyboard_interrupt_kills_script_hook_process(tmp_path, monkeypatch):
 
                 os.killpg(p.pid, signal.SIGKILL)
                 p.wait()
+
+
+def test_keyboard_interrupt_logs_when_reap_times_out(tmp_path, monkeypatch, caplog):
+    """If the process won't exit after the interrupt, log and still re-raise."""
+    from gptme.hooks import script
+
+    class StubbornProcess:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            if timeout == 30:
+                raise KeyboardInterrupt
+            raise subprocess.TimeoutExpired("sleep 30", timeout)
+
+    terminated: list[StubbornProcess] = []
+    monkeypatch.setattr(script.subprocess, "Popen", lambda *a, **kw: StubbornProcess())
+    monkeypatch.setattr(script, "_terminate_process_tree", terminated.append)
+
+    hook = ScriptHookConfig(event="session.start", command="sleep 30", timeout=30)
+    with (
+        caplog.at_level("ERROR", logger=script.logger.name),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        _run_script_hook(hook, tmp_path, logdir=tmp_path, model="m")
+
+    assert len(terminated) == 1
+    assert "did not exit after interrupt" in caplog.text
