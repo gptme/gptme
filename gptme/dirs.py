@@ -100,7 +100,12 @@ def get_project_git_dir() -> Path | None:
 
 def _get_project_git_dir_walk() -> Path | None:
     # if no gptme.toml file was found, look for a git repo
-    path = Path.cwd()
+    # Start from the session workspace when one is set (server conversations,
+    # prompt assembly); otherwise from the process cwd.
+    from .util.workspace import get_workspace_cwd
+
+    workspace = get_workspace_cwd()
+    path = Path(workspace) if workspace else Path.cwd()
     while True:
         if (path / ".git").exists():
             return path

@@ -227,3 +227,30 @@ def test_get_prompt_skills_summary_uses_workspace(tmp_path: Path, monkeypatch):
     content = "\n".join(m.content for m in msgs)
     assert str(workspace / "skills" / "secret-word" / "SKILL.md") in content
     assert str(cwd / "skills") not in content
+
+
+def test_get_prompt_project_uses_workspace(tmp_path: Path, monkeypatch):
+    """The project section names the workspace repo, not the cwd repo (#5113)."""
+    import subprocess
+
+    from gptme.config import reload_config
+    from gptme.prompts import get_prompt
+    from gptme.tools import get_toolchain
+
+    workspace, cwd = _isolate_from_cwd_workspace(tmp_path, monkeypatch)
+    for repo, word in ((workspace, "WORKSPACE-RULES"), (cwd, "CWD-RULES")):
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "gptme.toml").write_text(f'prompt = "{word}"\n')
+    reload_config()
+
+    msgs = get_prompt(
+        list(get_toolchain(["shell"])),
+        prompt="full",
+        workspace=workspace,
+        include_user_context=False,
+    )
+
+    content = "\n".join(m.content for m in msgs)
+    assert f"## Current Project: {workspace.name}" in content
+    assert "WORKSPACE-RULES" in content
+    assert "CWD-RULES" not in content

@@ -17,6 +17,7 @@ from ..message import Message
 from ..tools import ToolFormat, ToolSpec, get_available_tools
 from ..util import document_prompt_function
 from ..util.tokens import len_tokens
+from ..util.workspace import workspace_scope
 
 if TYPE_CHECKING:
     from ..profiles import Profile
@@ -121,7 +122,6 @@ def _build_core_prompt_sections(
     include_examples: bool,
     is_selective: bool,
     profile: "Profile | None" = None,
-    workspace: Path | None = None,
 ) -> list[tuple[str, list[Message]]]:
     """Build named core prompt sections in display order."""
     sections: list[tuple[str, list[Message]]] = []
@@ -178,9 +178,7 @@ def _build_core_prompt_sections(
         if include_tools:
             add(
                 "prompt_skills_summary",
-                list(
-                    prompt_skills_summary(tool_format=tool_format, workspace=workspace)
-                ),
+                list(prompt_skills_summary(tool_format=tool_format)),
             )
         if profile and profile.system_prompt:
             add(
@@ -303,19 +301,21 @@ def _build_prompt_sections(
         is_selective and "cmd" in include_set
     )
 
-    core_sections = _build_core_prompt_sections(
-        prompt=prompt,
-        interactive=interactive,
-        model=model,
-        agent_name=agent_name,
-        tool_format=tool_format,
-        tools=tools,
-        include_tools=include_tools,
-        include_examples=include_examples,
-        is_selective=is_selective,
-        profile=profile,
-        workspace=workspace,
-    )
+    # The session sets its workspace only after the prompt is built, so anchor
+    # cwd-relative lookups (project dir, skills) at the conversation workspace.
+    with workspace_scope(workspace):
+        core_sections = _build_core_prompt_sections(
+            prompt=prompt,
+            interactive=interactive,
+            model=model,
+            agent_name=agent_name,
+            tool_format=tool_format,
+            tools=tools,
+            include_tools=include_tools,
+            include_examples=include_examples,
+            is_selective=is_selective,
+            profile=profile,
+        )
 
     if include_user_context and prompt != "none":
         core_sections.extend(_prompt_fragment_sections())
