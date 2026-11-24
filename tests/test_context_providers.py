@@ -660,29 +660,46 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
 
-def test_concurrent_first_lookup_finds_default_provider(cleanup_registry):
-    """Threads racing the first lookup must all see the initialized registry."""
+def test_concurrent_first_lookup_finds_default_provider(cleanup_registry, monkeypatch):
+    """A lookup that starts while another thread is mid-initialization must wait
+    for the registry to be filled, not see it marked done but empty."""
     import threading
 
     from gptme.tools.autocompact import context_provider as ctx_module
 
-    errors: list[BaseException] = []
-    for _ in range(5):
-        ctx_module._provider_registry.clear()
-        ctx_module._registry_initialized = False
-        barrier = threading.Barrier(8)
+    ctx_module._provider_registry.clear()
+    ctx_module._registry_initialized = False
 
-        def worker(barrier: threading.Barrier) -> None:
-            barrier.wait()
-            try:
-                ctx_module.get_context_provider("default")
-            except Exception as e:
-                errors.append(e)
+    loading = threading.Event()
+    release = threading.Event()
 
-        threads = [threading.Thread(target=worker, args=(barrier,)) for _ in range(8)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+    def slow_loader() -> None:
+        loading.set()
+        assert release.wait(timeout=10), "test never released the loader"
 
-    assert errors == []
+    monkeypatch.setattr(ctx_module, "_load_entry_point_providers", slow_loader)
+
+    results: dict[str, object] = {}
+
+    def lookup(key: str) -> None:
+        try:
+            results[key] = ctx_module.get_context_provider("default")
+        except BaseException as e:
+            results[key] = e
+
+    first = threading.Thread(target=lookup, args=("first",), daemon=True)
+    first.start()
+    assert loading.wait(timeout=10), "first lookup never started loading providers"
+
+    # The first lookup is now paused inside initialization.
+    second = threading.Thread(target=lookup, args=("second",), daemon=True)
+    second.start()
+    second.join(timeout=0.2)
+    assert second.is_alive(), f"second lookup did not wait for init: {results}"
+
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not first.is_alive() and not second.is_alive(), "lookup deadlocked"
+    assert isinstance(results["first"], DefaultContextProvider), results
+    assert isinstance(results["second"], DefaultContextProvider), results
