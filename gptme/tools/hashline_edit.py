@@ -668,9 +668,15 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     parts: list[str] = []
     last = len(file_lines) - 1
     for idx, (line, ending) in enumerate(zip(file_lines, endings, strict=True)):
-        # The file keeps its original final-terminator state. Elsewhere, new
-        # lines (and an unterminated last line that is no longer last) get "\n".
-        parts.append(line + (final_ending if idx == last else ending or "\n"))
+        if idx == last:
+            # An originally unterminated file stays unterminated. Otherwise a
+            # surviving or moved line keeps its own separator ("a\fb\n" minus
+            # "b" is "a\f"); new content takes the file's final terminator.
+            parts.append(line + (ending or final_ending if final_ending else ""))
+        else:
+            # New lines, and an unterminated last line that is no longer last,
+            # get "\n".
+            parts.append(line + (ending or "\n"))
     return "".join(parts)
 
 

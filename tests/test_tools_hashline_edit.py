@@ -1673,6 +1673,16 @@ class TestLineFidelity:
         _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 2.=2\n")
         assert _apply_operations("a\nb", ops) == "a"
 
+    def test_new_last_line_keeps_its_own_separator(self):
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 2.=2\n")
+        assert _apply_operations("a\x0cb\n", ops) == "a\x0c"
+        # A line moved to the end keeps its separator too.
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 1.=1 @r\nPUT >3 @r\n")
+        assert _apply_operations("a\x0cb\nc\n", ops) == "b\nc\na\x0c"
+        # New content at the end still takes the file's final terminator.
+        _, _, ops = _parse_operations("[f#AAAAAAAA]\nPUT >2:\n+z\n")
+        assert _apply_operations("a\r\nb\r\n", ops) == "a\r\nb\r\nz\r\n"
+
     def test_register_move_keeps_line_terminators(self):
         _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 1.=1 @r\nPUT >3 @r\n")
         assert _apply_operations("a\x0cb\nc\nd\n", ops) == "b\nc\na\x0cd\n"
