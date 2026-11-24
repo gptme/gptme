@@ -176,6 +176,44 @@ def test_im_first_frame_copy_fallback(tmp_path: Path, raise_in_context: bool) ->
     assert p.read_bytes() == content, "cleanup must preserve the original bytes"
 
 
+def test_im_first_frame_stages_percent_paths(tmp_path):
+    """With a ``[0]`` selector, ImageMagick expands ``%d`` as a scene pattern:
+    ``scan%d.pdf[0]`` reads ``scan0.pdf``. Stage the source under a plain name."""
+    p = tmp_path / "scan%d.pdf"
+    p.write_bytes(b"%PDF-1.4")
+    with _im_first_frame(p) as source:
+        assert source.endswith("[0]")
+        staged = Path(source.removesuffix("[0]"))
+        assert "%" not in str(staged)
+        assert staged.suffix == ".pdf"
+        assert staged.read_bytes() == b"%PDF-1.4"
+    assert not staged.exists(), "the staged alias is temporary"
+    assert p.exists(), "cleanup must not touch the original"
+
+
+def test_real_imagemagick_percent_source_reads_named_file(
+    tmp_path, monkeypatch, avail_none
+):
+    """A percent-bearing source converts that file, not a ``%d``-expanded neighbour."""
+    image_module = pytest.importorskip("PIL.Image")
+    if not shutil.which("convert"):
+        pytest.skip("convert not installed")
+    avail_none.imagemagick = True
+    monkeypatch.setattr("gptme.tools.convert.get_availability", lambda: avail_none)
+    src = tmp_path / "img%d.png"
+    image_module.new("RGB", (20, 10), "red").save(src)
+    # Decoy that ImageMagick reads if it expands the scene pattern.
+    image_module.new("RGB", (50, 50), "blue").save(tmp_path / "img0.png")
+    dest = tmp_path / "out.jpg"
+
+    result = convert_file(src, dest)
+
+    assert result.success, result.error
+    assert result.converter_used == "imagemagick"
+    with image_module.open(dest) as output:
+        assert output.size == (20, 10)
+
+
 def test_im_first_frame_plain_path_unchanged(tmp_path):
     """A path with no brackets is passed through (modulo dash prefix guard)."""
     p = tmp_path / "plain.pdf"

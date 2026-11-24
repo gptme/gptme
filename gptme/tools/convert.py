@@ -95,14 +95,16 @@ def _im_first_frame(path: Path) -> Iterator[str]:
     ImageMagick interprets ``[`` and ``]`` in an input path as frame selectors,
     so a file named ``foo[0].pdf`` would silently match a different file.
     Backslash-escaping the brackets works on ImageMagick 6 but not 7, which then
-    looks for a file literally named ``foo\\[0\\].pdf``. Instead, expose a
-    bracketed source under a plain name in a temporary directory.
+    looks for a file literally named ``foo\\[0\\].pdf``. With a frame selector,
+    ImageMagick also expands ``%d``-style scene patterns, so ``scan%d.pdf[0]``
+    reads ``scan0.pdf``. Instead, expose such a source under a plain name in a
+    temporary directory.
     """
-    if "[" not in str(path) and "]" not in str(path):
+    if not any(char in str(path) for char in "[]%"):
         yield f"{_arg(path)}[0]"
         return
     with tempfile.TemporaryDirectory(prefix="gptme-convert-src-") as directory:
-        suffix = path.suffix.replace("[", "").replace("]", "")
+        suffix = "".join(char for char in path.suffix if char not in "[]%")
         staged = Path(directory) / f"source{suffix}"
         try:
             staged.symlink_to(path.absolute())
