@@ -581,6 +581,34 @@ def test_estimate_compaction_savings():
     assert reasoning_savings >= 0
 
 
+def test_estimate_compaction_savings_skips_tool_call_messages():
+    """Phase 3 never rewrites a tool-call message, so the estimate must not count it."""
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact import estimate_compaction_savings
+    from gptme.util.reduce import message_contains_tool_use
+
+    init_tools(["save", "shell"], include_mcp=False)
+    body = "\n".join(
+        f"def func_{i}(x):\n    return x * {i} + {i * 7} - 'value_{i}'"
+        for i in range(600)
+    )
+    big = Message("assistant", f"Writing it.\n\n```save src/big.py\n{body}\n```")
+    assert message_contains_tool_use(big)
+    log = [
+        Message("user", "write a big module"),
+        big,
+        Message("system", "Saved to src/big.py"),
+        Message("user", "thanks"),
+        Message("assistant", "done"),
+        Message("user", "next"),
+    ]
+    total, _, _ = estimate_compaction_savings(log, limit=1_000_000)
+
+    _, savings, _ = estimate_compaction_savings(log, limit=total - 10)
+
+    assert savings == 0
+
+
 def test_estimate_compaction_savings_tool_results_only_when_over_limit():
     """Test that tool result savings are only counted when over/close to limit.
 
