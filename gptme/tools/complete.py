@@ -28,6 +28,7 @@ from ..util.completion_verification import (
     episode_has_authoring_mutation,
     fingerprints_match,
     restore_approved_snapshots,
+    unsnapshotted_sources_match,
     uses_approved_snapshot,
 )
 from .base import ToolSpec, ToolUse
@@ -310,6 +311,10 @@ def _run_verify_cmd(
     if argv is not None:
         try:
             if discovered is not None and uses_approved_snapshot(discovered):
+                # Files the runner reads live (make includes) are not in the
+                # snapshot, so they must still match what was approved.
+                if not unsnapshotted_sources_match(discovered):
+                    raise StaleManifestError(discovered.display)
                 snapshot_dir = tempfile.mkdtemp(
                     prefix=".gptme-verify-manifest-",
                     dir=str(workspace) if workspace is not None else None,

