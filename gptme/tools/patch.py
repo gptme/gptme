@@ -159,8 +159,7 @@ class Patch:
         for i in range(len(content_lines) - len(original_lines) + 1):
             window = content_lines[i : i + len(original_lines)]
             if self._lines_match_relaxed(window, original_lines):
-                start = sum(len(line) for line in content_lines[:i])
-                matches.append((start, start + sum(len(line) for line in window)))
+                matches.append(i)
 
         if len(matches) == 0:
             return None
@@ -171,7 +170,13 @@ class Patch:
                 "Provide more surrounding context to make the match unique."
             )
 
-        return matches[0]
+        # Only calculate character offsets for the unique matching window.
+        i = matches[0]
+        start = sum(len(line) for line in content_lines[:i])
+        end = start + sum(
+            len(line) for line in content_lines[i : i + len(original_lines)]
+        )
+        return start, end
 
     def _lines_match_relaxed(
         self, window_lines: list[str], original_lines: list[str]

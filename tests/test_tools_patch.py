@@ -322,6 +322,27 @@ def test_relaxed_match_edits_the_matched_lines_not_an_earlier_substring():
     )
 
 
+def test_relaxed_ambiguous_match_does_not_rescan_character_offsets(monkeypatch):
+    """Count offset work rather than relying on a machine-dependent time limit."""
+    import gptme.tools.patch as patch_module
+
+    measured_characters = 0
+
+    def counted_len(value):
+        nonlocal measured_characters
+        if isinstance(value, str):
+            measured_characters += len(value)
+        return len(value)
+
+    monkeypatch.setattr(patch_module, "len", counted_len, raising=False)
+    content = "    \n" * 1000
+    with pytest.raises(ValueError, match="999 matches with relaxed whitespace"):
+        Patch("\n\n", "replacement\n").apply(content)
+
+    # Computing offsets at most once is linear; per-match prefix sums are not.
+    assert measured_characters <= len(content)
+
+
 def test_patch_path_traversal_relative(tmp_path):
     """Test that path traversal via relative paths is blocked for patch."""
     import os
