@@ -161,8 +161,15 @@ def _install_click_completions(shell: str) -> None:
     )
     if shell == "zsh":
         console.print(
-            "   Add this to ~/.zshrc before compinit, if not already present:\n"
-            f"   fpath=({shlex.quote(str(directory))} $fpath)"
+            "   Add this to ~/.zshrc before compinit, if not already present:"
+        )
+        # Plain text: Rich would wrap a long path or strip [bracketed] parts
+        # as markup, and the pasted command would point fpath elsewhere.
+        console.print(
+            f"   fpath=({shlex.quote(str(directory))} $fpath)",
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
         )
     elif shell == "bash":
         console.print(

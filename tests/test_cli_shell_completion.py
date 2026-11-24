@@ -442,3 +442,19 @@ def test_zsh_instruction_quotes_space_in_path(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
     _install_click_completions("zsh")
     assert shlex.quote(str(data / "zsh/completions")) in capsys.readouterr().out
+
+
+def test_zsh_instruction_is_plain_unwrapped_text(tmp_path, monkeypatch, capsys):
+    """A long path with [brackets] is printed as one pasteable line."""
+    import shlex
+
+    from gptme.cli.setup import _install_click_completions
+
+    data = tmp_path / ("long-" * 30 + "[dim]data")
+    monkeypatch.setattr("gptme.cli.setup.console.width", 40)
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
+    _install_click_completions("zsh")
+    expected = f"fpath=({shlex.quote(str(data / 'zsh/completions'))} $fpath)"
+    lines = capsys.readouterr().out.splitlines()
+    assert any(expected in line for line in lines), lines
