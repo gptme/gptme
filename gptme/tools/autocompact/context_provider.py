@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import logging
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -167,19 +168,33 @@ class DefaultContextProvider(ContextProvider):
 
 _provider_registry: dict[str, type[ContextProvider]] = {}
 _registry_initialized = False
+_registry_initializing = False
+# Reentrant: a plugin imported during the entry-point scan may itself look up
+# a provider; that same-thread call returns early instead of deadlocking.
+_registry_lock = threading.RLock()
 
 
 def _init_registry() -> None:
-    global _registry_initialized
-    if not _registry_initialized:
-        _registry_initialized = True
-        # Load entry-point plugins first so a plugin named "default" takes
-        # precedence over the built-in.  setdefault below only fills the gap
-        # when no plugin (and no pre-registered provider) claimed "default".
-        _load_entry_point_providers()
-        # setdefault (not assignment): respect both pre-registered providers
-        # (registered before the first lookup) and entry-point "default" plugins.
-        _provider_registry.setdefault("default", DefaultContextProvider)
+    global _registry_initialized, _registry_initializing
+    if _registry_initialized:
+        return
+    with _registry_lock:
+        if _registry_initialized or _registry_initializing:
+            return
+        _registry_initializing = True
+        try:
+            # Load entry-point plugins first so a plugin named "default" takes
+            # precedence over the built-in.  setdefault below only fills the gap
+            # when no plugin (and no pre-registered provider) claimed "default".
+            _load_entry_point_providers()
+            # setdefault (not assignment): respect both pre-registered providers
+            # (registered before the first lookup) and entry-point "default" plugins.
+            _provider_registry.setdefault("default", DefaultContextProvider)
+            # Mark initialized only once the registry is filled, so threads
+            # racing the first lookup never see it marked done but empty.
+            _registry_initialized = True
+        finally:
+            _registry_initializing = False
 
 
 def register_provider(name: str, provider_class: type) -> None:

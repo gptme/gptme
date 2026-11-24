@@ -658,3 +658,31 @@ def test_limitations_is_list(sample_messages, compression_config):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_concurrent_first_lookup_finds_default_provider(cleanup_registry):
+    """Threads racing the first lookup must all see the initialized registry."""
+    import threading
+
+    from gptme.tools.autocompact import context_provider as ctx_module
+
+    errors: list[BaseException] = []
+    for _ in range(5):
+        ctx_module._provider_registry.clear()
+        ctx_module._registry_initialized = False
+        barrier = threading.Barrier(8)
+
+        def worker(barrier: threading.Barrier) -> None:
+            barrier.wait()
+            try:
+                ctx_module.get_context_provider("default")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(barrier,)) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    assert errors == []
