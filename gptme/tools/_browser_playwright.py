@@ -81,6 +81,9 @@ class _ManagedPage:
 # best-effort network-idle wait below, inside that budget (gptme/gptme#5126).
 NAVIGATION_TIMEOUT_MS = 12_000
 NETWORK_IDLE_TIMEOUT_MS = 3_000
+# Interactive navigation is followed only by the ARIA snapshot, so it may use
+# more of the budget. It is set at the shared goto() so replacement tabs get it.
+INTERACTIVE_NAVIGATION_TIMEOUT_MS = 16_000
 
 
 def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
@@ -229,8 +232,10 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         # idle, and the loaded document is still worth reading.
         try:
             page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
-        except Exception:
+        except PlaywrightTimeoutError:
             pass
+        except Exception as e:
+            page_errors.append(f"Navigation error: {e}")
 
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
@@ -697,7 +702,7 @@ def _goto_and_snapshot(url: str) -> str:
     if _current_page is None:
         raise RuntimeError("No page is currently open")
     try:
-        _current_page.goto(url)
+        _current_page.goto(url, timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
         # A redirect may land outside the allowlist; reject the final URL.
         _validate_page_url(_current_page.url)
     except Exception as e:

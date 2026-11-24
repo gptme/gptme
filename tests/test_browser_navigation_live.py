@@ -254,3 +254,56 @@ def test_read_url_returns_page_that_never_reaches_network_idle(
     assert time.monotonic() - start < bt.TIMEOUT
     # The worker is free again: a second read must not time out either.
     assert "polling page loaded" in pw.read_url(polling_server)
+
+
+@pytest.fixture
+def stalled_load_server() -> Iterator[str]:
+    """A page whose load event is held open by an image that never finishes."""
+    from threading import Event
+
+    release = Event()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path == "/":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(
+                    b"<title>Stall</title><p>stalled page body</p><img src='/slow.png'>"
+                )
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", "100000")
+            self.end_headers()
+            release.wait(40)  # far past the browser thread's TIMEOUT
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/"
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_read_url_stops_waiting_for_a_stalled_load_before_worker_timeout(
+    stalled_load_server: str,
+    live_browser: bt.BrowserThread,
+) -> None:
+    """With Playwright's 30s default, goto() outlived the worker's TIMEOUT on a
+    page whose load event never fires; the navigation timeout must end it first."""
+    import time
+
+    set_session_allow_hosts(["127.0.0.1"])
+    start = time.monotonic()
+    pw.read_url(stalled_load_server)
+    assert time.monotonic() - start < bt.TIMEOUT
