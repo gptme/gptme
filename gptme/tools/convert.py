@@ -127,6 +127,18 @@ def _im_environment(directory: str | None) -> dict[str, str] | None:
     return env
 
 
+def _is_multi_frame(path: Path) -> bool:
+    """Whether Pillow sees more than one frame; uninspectable sources are single."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            return getattr(image, "n_frames", 1) > 1
+    except Exception:
+        # Keep the previous backend choice when Pillow cannot read the source.
+        return False
+
+
 def _para_to_md(para: object) -> str:
     """Convert a python-docx paragraph to a Markdown line.
 
@@ -614,7 +626,7 @@ class ImageConverter(Converter):
         dest_ext = dest.suffix.lstrip(".").lower()
         q = self._QUALITY.get(quality, 80)
         lossy = dest_ext in ("jpg", "jpeg", "webp")
-        single_frame = dest_ext in ("png", "jpg", "jpeg")
+        single_frame = dest_ext in ("png", "jpg", "jpeg", "bmp")
         multipage_tiff = False
         if dest_ext == "tiff":
             from PIL import Image
@@ -622,7 +634,7 @@ class ImageConverter(Converter):
 
             try:
                 # Identify TIFF content before Pillow's pixel-size guard runs.
-                # Non-TIFF inputs need no page inspection, regardless of suffix.
+                # Non-TIFF inputs only need a best-effort frame count.
                 with src.open("rb") as stream:
                     is_tiff = stream.read(4).startswith(tuple(PREFIXES))
                 if is_tiff:
@@ -633,6 +645,10 @@ class ImageConverter(Converter):
                             pass  # A proven single-page TIFF can use FFmpeg.
                         else:
                             multipage_tiff = True
+                else:
+                    # FFmpeg writes only the last frame of an animated source
+                    # (e.g. GIF) to TIFF; ImageMagick keeps every frame as a page.
+                    multipage_tiff = _is_multi_frame(src)
             except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
                 # An unknown page count is not evidence that FFmpeg is safe.
                 # Pillow cannot inspect every TIFF variant ImageMagick supports.

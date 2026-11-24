@@ -270,3 +270,35 @@ def test_multipage_tiff_literal_bracket_source(
             for frame in ImageSequence.Iterator(image)
         ] == COLORS[:2]
     assert {path: path.read_bytes() for path in before} == before
+
+
+@pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
+def test_animated_gif_to_tiff_keeps_frames(tmp_path: Path, backend: str) -> None:
+    """An animated non-TIFF source must not collapse to FFmpeg's last frame (#5247)."""
+    if backend != "imagemagick" and not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg not installed")
+    if backend != "ffmpeg" and not shutil.which("convert"):
+        pytest.skip("ImageMagick not installed")
+    source = tmp_path / "animated.gif"
+    destination = tmp_path / "output.tiff"
+    frames = [Image.new("RGB", (16, 16), color) for color in COLORS[:2]]
+    frames[0].save(
+        source, save_all=True, append_images=frames[1:], duration=100, loop=0
+    )
+    availability = ToolAvailability(
+        ffmpeg=backend != "imagemagick", imagemagick=backend != "ffmpeg"
+    )
+    with patch("gptme.tools.convert.get_availability", return_value=availability):
+        result = convert_file(source, destination)
+    if backend == "ffmpeg":
+        assert not result.success
+        assert result.error and "multipage TIFF" in result.error
+        assert not destination.exists()
+        return
+    assert result.success, result.error
+    assert result.converter_used == "imagemagick"
+    with Image.open(destination) as image:
+        assert [
+            frame.convert("RGB").getpixel((0, 0))
+            for frame in ImageSequence.Iterator(image)
+        ] == COLORS[:2]
