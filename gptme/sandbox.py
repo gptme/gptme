@@ -181,6 +181,40 @@ def wrap_shell_cmd(config: SandboxConfig, cmd: list[str]) -> list[str]:
     return cmd
 
 
+def sandbox_shell_cmd(
+    cmd: list[str], workspace: Path | None = None
+) -> tuple[list[str], dict[str, str] | None]:
+    """Apply GPTME_SANDBOX to a shell launch: return (argv, env) for Popen.
+
+    Every shell entry point (the persistent shell and background jobs) must
+    go through this so none of them escapes the configured sandbox.
+    Raises RuntimeError when the requested backend is unavailable.
+    ``env`` is None when the sandbox is off (inherit os.environ).
+    """
+    sandbox = SandboxConfig.from_env(workspace=workspace)
+    if sandbox.enabled:
+        available, msg = sandbox.check_available()
+        if not available:
+            raise RuntimeError(
+                f"GPTME_SANDBOX={sandbox.backend!r} was requested but the"
+                f" backend is not available: {msg}. Either install the"
+                f" sandbox tool or unset GPTME_SANDBOX."
+            )
+        if sandbox.backend in ("docker", "wasmtime"):
+            # These backends isolate the Python tool only; shell commands
+            # still run on the host, with just the environment scrubbed.
+            logger.warning(
+                "GPTME_SANDBOX=%s does not isolate shell commands: they run on"
+                " the host with a scrubbed environment. Use bwrap or firejail"
+                " to sandbox the shell.",
+                sandbox.backend,
+            )
+        else:
+            cmd = wrap_shell_cmd(sandbox, cmd)
+            logger.info("Sandboxed shell: %s", " ".join(cmd))
+    return cmd, build_env(sandbox)
+
+
 def _parse_size(value: str) -> int:
     """Parse a human-readable size string into bytes.
 

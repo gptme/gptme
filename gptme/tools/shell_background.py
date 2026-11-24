@@ -30,7 +30,7 @@ from typing import Any, Literal, cast
 from ..hooks._policy_block import policy_block_message
 from ..hooks.types import StopPropagation
 from ..message import Message
-from ..sandbox import apply_memory_limit
+from ..sandbox import apply_memory_limit, sandbox_shell_cmd
 from ..util.context import md_codeblock
 from ..util.output_storage import (
     TOOL_OUTPUTS_DIRNAME,
@@ -1917,12 +1917,16 @@ def start_background_job(
     # A server conversation's job starts in its live session cwd (following the
     # foreground shell's ``cd``), not the host process cwd. CLI sessions have no
     # session workspace and keep inheriting the process cwd.
+    cwd = get_workspace_cwd()
+    # Same sandbox and scrubbed env as the foreground shell.
+    shell_cmd, env = sandbox_shell_cmd(shell_cmd, Path(cwd) if cwd else None)
     process = subprocess.Popen(
         shell_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
-        cwd=get_workspace_cwd(),
+        cwd=cwd,
+        env=env,
         **popen_kwargs,
     )
     # A subprocess subagent's parent records the group so it can force the

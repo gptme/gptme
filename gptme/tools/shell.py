@@ -89,9 +89,8 @@ from ..sandbox import (
     SandboxConfig,
     _parse_size,
     apply_memory_limit,
-    build_env,
+    sandbox_shell_cmd,
     verify_memory_limit,
-    wrap_shell_cmd,
 )
 from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
@@ -732,23 +731,10 @@ class ShellSession:
             if self._memory_limit is not None:
                 shell_cmd = apply_memory_limit(shell_cmd, self._memory_limit)
 
-        # Apply sandbox wrapper if GPTME_SANDBOX is set
-        sandbox = SandboxConfig.from_env(
-            workspace=Path(self._cwd) if self._cwd else None
+        # Apply sandbox wrapper if GPTME_SANDBOX is set (env None → inherit)
+        shell_cmd, sandbox_env = sandbox_shell_cmd(
+            shell_cmd, Path(self._cwd) if self._cwd else None
         )
-        if sandbox.enabled:
-            available, msg = sandbox.check_available()
-            if not available:
-                raise RuntimeError(
-                    f"GPTME_SANDBOX={sandbox.backend!r} was requested but the"
-                    f" backend is not available: {msg}. Either install the"
-                    f" sandbox tool or unset GPTME_SANDBOX."
-                )
-            shell_cmd = wrap_shell_cmd(sandbox, shell_cmd)
-            logger.info("Sandboxed shell: %s", " ".join(shell_cmd))
-        sandbox_env = build_env(
-            sandbox
-        )  # None if sandbox disabled → inherit os.environ
 
         with self._lifecycle_lock:
             if self._closed:

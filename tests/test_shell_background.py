@@ -9,6 +9,7 @@ Covers:
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -1330,3 +1331,81 @@ def test_session_end_cleans_up_conversation_jobs():
         assert get_background_job(job.id) is None
     finally:
         current_conversation_id.reset(token)
+
+
+# ---------------------------------------------------------------------------
+# GPTME_SANDBOX
+# ---------------------------------------------------------------------------
+
+
+def _finished_output(job, timeout: float = 10) -> str:
+    job.process.wait(timeout=timeout)
+    deadline = time.time() + timeout
+    while job.is_running() and time.time() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.3)
+    return job.get_output()[0]
+
+
+class TestBackgroundJobSandbox:
+    """Background jobs get the same GPTME_SANDBOX treatment as the shell."""
+
+    def test_wrapped_like_foreground_shell(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SANDBOX", "bwrap")
+        monkeypatch.setenv("GPTME_TEST_SECRET", "s3cret")
+        with (
+            patch(
+                "gptme.sandbox.SandboxConfig.check_available",
+                return_value=(True, "ok"),
+            ),
+            patch(
+                "gptme.sandbox.wrap_shell_cmd",
+                side_effect=lambda cfg, cmd: ["env", "GPTME_WRAPPED=1", *cmd],
+            ),
+        ):
+            job = start_background_job('echo "w=$GPTME_WRAPPED s=$GPTME_TEST_SECRET"')
+        assert _finished_output(job).strip() == "w=1 s="
+
+    def test_env_scrubbed_for_non_shell_backend(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SANDBOX", "docker")
+        monkeypatch.setenv("GPTME_TEST_SECRET", "s3cret")
+        with patch(
+            "gptme.sandbox.SandboxConfig.check_available",
+            return_value=(True, "ok"),
+        ):
+            job = start_background_job('echo "s=$GPTME_TEST_SECRET"')
+        assert _finished_output(job).strip() == "s="
+
+    def test_unavailable_backend_refuses_to_start(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SANDBOX", "firejail")
+        with (
+            patch(
+                "gptme.sandbox.SandboxConfig.check_available",
+                return_value=(False, "missing"),
+            ),
+            patch("gptme.tools.shell_background.subprocess.Popen") as popen,
+            pytest.raises(RuntimeError, match="not available"),
+        ):
+            start_background_job("true")
+        popen.assert_not_called()
+
+    @pytest.mark.skipif(
+        sys.platform != "linux" or not shutil.which("bwrap"),
+        reason="needs bubblewrap",
+    )
+    def test_real_bwrap_hides_host_files(self, monkeypatch, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("host-only")
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        monkeypatch.setenv("GPTME_SANDBOX", "bwrap")
+        monkeypatch.chdir(workspace)
+        probe = start_background_job("true")
+        probe.process.wait(timeout=10)
+        if probe.process.returncode != 0:
+            pytest.skip("bwrap cannot create namespaces here")
+        job = start_background_job(
+            f"cat {shlex.quote(str(outside / 'secret.txt'))} || echo blocked"
+        )
+        assert "host-only" not in _finished_output(job)
