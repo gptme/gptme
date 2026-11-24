@@ -166,3 +166,31 @@ def test_health_endpoint_unauthenticated(auth_token):
         # Sanity: a non-health API endpoint still requires auth.
         protected = client.get("/api/v2/conversations")
         assert protected.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "request_kwargs",
+    [
+        {"headers": {"Authorization": "Bearer é"}},
+        {"query_string": {"token": "é"}},
+    ],
+    ids=["bearer", "query"],
+)
+def test_non_ascii_token_is_rejected_with_401(auth_token, request_kwargs):
+    """A non-ASCII token must be a plain 401, not a TypeError from compare_digest (500)."""
+    from gptme.server.app import create_app
+
+    app = create_app()
+    with app.test_client() as client:
+        response = client.get("/api/v2/conversations", **request_kwargs)
+        assert response.status_code == 401
+
+
+def test_non_ascii_cookie_token_is_rejected_with_401(auth_token):
+    from gptme.server.app import create_app
+
+    app = create_app()
+    with app.test_client() as client:
+        client.set_cookie("gptme_auth", "é", path="/api/")
+        response = client.get("/api/v2/conversations")
+        assert response.status_code == 401

@@ -285,7 +285,8 @@ def require_auth(f):
             logger.warning("Missing authentication credentials")
             return jsonify({"error": "Missing authentication credentials"}), 401
 
-        if not secrets.compare_digest(token, server_token):
+        # Compare bytes: compare_digest raises TypeError on non-ASCII str.
+        if not secrets.compare_digest(token.encode(), server_token.encode()):
             logger.warning("Invalid or expired token")
             return jsonify({"error": "Invalid or expired token"}), 401
 
