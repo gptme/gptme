@@ -1464,22 +1464,28 @@ def api_conversations():
         # Load full list (use cache when possible for the common non-search, non-detail case)
         full_list: list[ConversationMeta]
         if not search and not detail:
-            _cached = _conversations_cache
+            # Snapshot list and flag together: a concurrent capped legacy fill
+            # must never pair its list with an earlier fill's complete flag.
+            with _conversations_cache_lock:
+                _cached = _conversations_cache
+                _cached_complete = _conversations_cache_complete
+                _cached_logs_dir = _conversations_cache_logs_dir
+                _cached_time = _conversations_cache_time
             if (
                 _cached is not None
-                and _conversations_cache_complete
-                and _conversations_cache_logs_dir == logs_dir
-                and (time.monotonic() - _conversations_cache_time)
-                < _CONVERSATIONS_CACHE_TTL
+                and _cached_complete
+                and _cached_logs_dir == logs_dir
+                and (time.monotonic() - _cached_time) < _CONVERSATIONS_CACHE_TTL
             ):
                 full_list = _cached
                 record_cache_result(hit=True)
             else:
                 full_list = list(get_user_conversations(detail=False))
-                _conversations_cache = full_list
-                _conversations_cache_logs_dir = logs_dir
-                _conversations_cache_time = time.monotonic()
-                _conversations_cache_complete = True
+                with _conversations_cache_lock:
+                    _conversations_cache = full_list
+                    _conversations_cache_logs_dir = logs_dir
+                    _conversations_cache_time = time.monotonic()
+                    _conversations_cache_complete = True
                 record_cache_result(hit=False)
                 n_msgs = sum(c.messages for c in full_list)
                 update_conversation_metrics(len(full_list), n_msgs)
@@ -1592,10 +1598,11 @@ def api_conversations():
         response_items.append(item)
 
     if not search and not detail:
-        _conversations_cache = all_conversations
-        _conversations_cache_logs_dir = logs_dir
-        _conversations_cache_time = time.monotonic()
-        _conversations_cache_complete = len(all_conversations) < 1000
+        with _conversations_cache_lock:
+            _conversations_cache = all_conversations
+            _conversations_cache_logs_dir = logs_dir
+            _conversations_cache_time = time.monotonic()
+            _conversations_cache_complete = len(all_conversations) < 1000
         record_cache_result(hit=False)
         n_msgs = sum(c.messages for c in all_conversations)
         update_conversation_metrics(len(all_conversations), n_msgs)
@@ -4328,6 +4335,9 @@ _conversations_cache_time: float = 0.0
 # False when the cached list was capped (legacy bare-list fill stops at 1000),
 # so cursor pagination must not treat it as the full list.
 _conversations_cache_complete: bool = False
+# Guards the cache fields above so readers never see a torn (list, flag) pair
+# and in-place updates never write back over a newer fill.
+_conversations_cache_lock = threading.Lock()
 
 
 def _invalidate_conversations_cache() -> None:
@@ -4337,10 +4347,11 @@ def _invalidate_conversations_cache() -> None:
         _conversations_cache_logs_dir, \
         _conversations_cache_time, \
         _conversations_cache_complete
-    _conversations_cache = None
-    _conversations_cache_complete = False
-    _conversations_cache_logs_dir = None
-    _conversations_cache_time = 0.0
+    with _conversations_cache_lock:
+        _conversations_cache = None
+        _conversations_cache_complete = False
+        _conversations_cache_logs_dir = None
+        _conversations_cache_time = 0.0
 
 
 def _update_conversation_in_cache(conv_id: str) -> None:
@@ -4376,4 +4387,8 @@ def _update_conversation_in_cache(conv_id: str) -> None:
         # Fall back to full invalidation so the list gets rebuilt correctly.
         _invalidate_conversations_cache()
         return
-    _conversations_cache = [updated if c.id == conv_id else c for c in cache]
+    with _conversations_cache_lock:
+        # Only apply the update to the list it was computed from: a fill that
+        # landed meanwhile (possibly with a different complete flag) wins.
+        if _conversations_cache is cache:
+            _conversations_cache = [updated if c.id == conv_id else c for c in cache]
