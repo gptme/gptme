@@ -9,8 +9,10 @@ introduced incrementally.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
+import threading
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -81,6 +83,11 @@ class AcpSessionRuntime:
 
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
+        self._loop_ready = threading.Event()
+        self._loop_lock = threading.Lock()
+        self._closing = False
 
     @property
     def session_id(self) -> str | None:
@@ -88,6 +95,18 @@ class AcpSessionRuntime:
 
     async def start(self) -> None:
         """Start ACP subprocess and create ACP session if not already started."""
+        await self._submit(self._start_on_loop())
+
+    async def _submit(self, coroutine: Any) -> Any:
+        with self._loop_lock:
+            if self._closing:
+                raise RuntimeError("ACP runtime is closing")
+            loop = self._ensure_loop_unlocked()
+            future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        return await asyncio.wrap_future(future)
+
+    async def _start_on_loop(self) -> None:
+        """Start or reuse the ACP client on the runtime's dedicated loop."""
         if self._client is not None and self._session_id is not None:
             return
 
@@ -133,6 +152,60 @@ class AcpSessionRuntime:
             self.model,
         )
 
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        with self._loop_lock:
+            return self._ensure_loop_unlocked()
+
+    def _ensure_loop_unlocked(self) -> asyncio.AbstractEventLoop:
+        if (
+            self._loop is not None
+            and self._loop_thread is not None
+            and self._loop_thread.is_alive()
+            and self._loop.is_running()
+        ):
+            return self._loop
+
+        self._loop_ready.clear()
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+
+        def run_loop() -> None:
+            asyncio.set_event_loop(loop)
+            self._loop_ready.set()
+            loop.run_forever()
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+            loop.close()
+
+        thread = threading.Thread(
+            target=run_loop,
+            name=f"gptme-acp-{id(self)}",
+            daemon=True,
+        )
+        self._loop_thread = thread
+        thread.start()
+        self._loop_ready.wait(timeout=5)
+        if self._loop is None:
+            raise RuntimeError("Failed to initialize ACP event loop")
+        return self._loop
+
+    def _stop_loop(self) -> None:
+        loop = self._loop
+        thread = self._loop_thread
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        if thread is not None:
+            thread.join(timeout=5)
+        with self._loop_lock:
+            self._loop = None
+            self._loop_thread = None
+            self._loop_ready.clear()
+
     def set_on_update(self, on_update: Any | None) -> None:
         """Set/update callback for ACP session_update notifications."""
         self._on_update = on_update
@@ -143,8 +216,15 @@ class AcpSessionRuntime:
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
+        return await self._submit(
+            self._prompt_on_loop(message, max_tokens=max_tokens)
+        )
+
+    async def _prompt_on_loop(
+        self, message: str, max_tokens: int | None = None
+    ) -> tuple[str, Any]:
         if self._client is None or self._session_id is None:
-            await self.start()
+            await self._start_on_loop()
 
         if self._client is None or self._session_id is None:
             raise RuntimeError(
@@ -194,7 +274,10 @@ class AcpSessionRuntime:
         may already be partially torn down.  Falls back to SIGKILL if SIGTERM
         does not succeed within *timeout* seconds.
         """
+        with self._loop_lock:
+            self._closing = True
         if self._client is None:
+            self._stop_loop()
             return
         proc = getattr(self._client, "_process", None)
         if proc is None:
@@ -215,13 +298,31 @@ class AcpSessionRuntime:
             # Mirrors what close() does asynchronously; prevents accidental reuse.
             self._client = None
             self._session_id = None
+            self._stop_loop()
 
     async def close(self) -> None:
         """Close ACP subprocess/session. Safe to call multiple times."""
-        if self._client is None:
-            return
+        with self._loop_lock:
+            if self._closing:
+                loop = self._loop
+                if loop is None or not loop.is_running():
+                    return
+            self._closing = True
+            loop = self._loop
+        try:
+            if loop is not None and loop.is_running():
+                await asyncio.wrap_future(
+                    asyncio.run_coroutine_threadsafe(self._close_on_loop(), loop)
+                )
+            else:
+                self._client = None
+                self._session_id = None
+        finally:
+            self._stop_loop()
 
-        await self._client.__aexit__(None, None, None)
+    async def _close_on_loop(self) -> None:
+        if self._client is not None:
+            await self._client.__aexit__(None, None, None)
         self._client = None
         self._session_id = None
 

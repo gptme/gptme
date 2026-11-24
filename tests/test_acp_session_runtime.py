@@ -26,6 +26,30 @@ def _run(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
+def _close_runtime(runtime: Any) -> None:
+    _run(runtime.close())
+
+
+def _close_session_runtime(
+    session_id: str, threads_before: set[threading.Thread]
+) -> None:
+    from gptme.server.api_v2_sessions import SessionManager
+
+    deadline = time.monotonic() + 5
+    session = SessionManager.get_session(session_id)
+    while session is not None and session.generating and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if session is not None and session.acp_runtime is not None:
+        _close_runtime(session.acp_runtime)
+    if session is not None and session.generating:
+        raise AssertionError(f"ACP session {session_id} did not finish its step")
+    workers = set(threading.enumerate()) - threads_before
+    for worker in workers:
+        worker.join(timeout=5)
+    if any(worker.is_alive() for worker in workers):
+        raise AssertionError(f"Step worker for session {session_id} did not exit")
+
+
 class _DummyBlock:
     def __init__(self, text: str):
         self.text = text
@@ -136,6 +160,52 @@ def test_runtime_lazy_start_on_prompt(monkeypatch, tmp_path):
     assert text == "hello world"
     assert runtime.session_id == "sess-test"
     assert len(created) == 1
+    _close_runtime(runtime)
+
+
+def test_runtime_reuses_client_across_asyncio_run_cycles(monkeypatch, tmp_path):
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_LoopBoundDummyClient] = []
+
+    class _LoopBoundDummyClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.loop: asyncio.AbstractEventLoop | None = None
+
+        async def __aenter__(self):
+            self.loop = asyncio.get_running_loop()
+            await super().__aenter__()
+            return self
+
+        async def prompt(
+            self,
+            session_id: str,
+            message: str,
+            max_tokens: int | None = None,
+        ):
+            if asyncio.get_running_loop() is not self.loop:
+                raise RuntimeError("ACP client used on a different event loop")
+            return await super().prompt(session_id, message, max_tokens=max_tokens)
+
+    def _factory(*args, **kwargs):
+        client = _LoopBoundDummyClient(*args, **kwargs)
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    _run(runtime.prompt("turn one"))
+    _run(runtime.prompt("turn two"))
+
+    assert len(created) == 1
+    assert created[0].prompt_calls == [
+        ("sess-test", "turn one"),
+        ("sess-test", "turn two"),
+    ]
+    _run(runtime.close())
 
 
 def test_runtime_sets_session_model_on_start(monkeypatch, tmp_path):
@@ -156,6 +226,7 @@ def test_runtime_sets_session_model_on_start(monkeypatch, tmp_path):
     assert runtime.session_id == "sess-test"
     assert len(created) == 1
     assert created[0].set_model_calls == [("sess-test", "openai/gpt-4o-mini")]
+    _close_runtime(runtime)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +301,7 @@ def test_acp_step_emits_events(monkeypatch, client: FlaskClient, tmp_path):
         assert len(assistant_msgs) == 1
         assert assistant_msgs[0].content == "hello world"
     finally:
+        _close_runtime(session.acp_runtime)
         with SessionManager._lock:
             SessionManager._sessions.pop("sid-evt", None)
             SessionManager._conversation_sessions[conversation_id].discard("sid-evt")
@@ -311,6 +383,7 @@ def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path
     assert resp.status_code == 200
 
     # Trigger a step with use_acp=True
+    threads_before = set(threading.enumerate())
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id, "use_acp": True},
@@ -320,13 +393,16 @@ def test_use_acp_flag_in_step_request(monkeypatch, client: FlaskClient, tmp_path
     assert data is not None
     assert data.get("status") == "ok"
 
-    # Verify the session now has use_acp=True and an ACP runtime attached
-    from gptme.server.api_v2_sessions import SessionManager
+    try:
+        # Verify the session now has use_acp=True and an ACP runtime attached
+        from gptme.server.api_v2_sessions import SessionManager
 
-    sess = SessionManager.get_session(session_id)
-    assert sess is not None
-    assert sess.use_acp is True
-    assert sess.acp_runtime is not None
+        sess = SessionManager.get_session(session_id)
+        assert sess is not None
+        assert sess.use_acp is True
+        assert sess.acp_runtime is not None
+    finally:
+        _close_session_runtime(session_id, threads_before)
 
 
 def test_use_acp_step_forwards_model_to_runtime(
@@ -355,6 +431,7 @@ def test_use_acp_step_forwards_model_to_runtime(
     assert resp.status_code == 200
 
     # First call enables ACP and sets model from request
+    threads_before = set(threading.enumerate())
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={
@@ -365,12 +442,15 @@ def test_use_acp_step_forwards_model_to_runtime(
     )
     assert resp.status_code == 200
 
-    from gptme.server.api_v2_sessions import SessionManager
+    try:
+        from gptme.server.api_v2_sessions import SessionManager
 
-    sess = SessionManager.get_session(session_id)
-    assert sess is not None
-    assert sess.acp_runtime is not None
-    assert sess.acp_runtime.model == "openai/gpt-4o-mini"
+        sess = SessionManager.get_session(session_id)
+        assert sess is not None
+        assert sess.acp_runtime is not None
+        assert sess.acp_runtime.model == "openai/gpt-4o-mini"
+    finally:
+        _close_session_runtime(session_id, threads_before)
 
 
 def test_use_acp_step_forwards_max_tokens_to_runtime(
@@ -398,6 +478,7 @@ def test_use_acp_step_forwards_max_tokens_to_runtime(
     )
     assert resp.status_code == 200
 
+    threads_before = set(threading.enumerate())
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={
@@ -408,15 +489,18 @@ def test_use_acp_step_forwards_max_tokens_to_runtime(
     )
     assert resp.status_code == 200
 
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        if created and created[0].prompt_calls:
-            break
-        time.sleep(0.01)
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if created and created[0].prompt_calls:
+                break
+            time.sleep(0.01)
 
-    assert created, "ACP client was never created"
-    assert created[0].prompt_calls, "ACP prompt was never called"
-    assert created[0].prompt_max_tokens == [64]
+        assert created, "ACP client was never created"
+        assert created[0].prompt_calls, "ACP prompt was never called"
+        assert created[0].prompt_max_tokens == [64]
+    finally:
+        _close_session_runtime(session_id, threads_before)
 
 
 def test_acp_step_rejects_duplicate_without_new_user_message(
@@ -474,6 +558,7 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
         assert err["type"] == "error"
         assert "No new user message" in str(err)
     finally:
+        _close_runtime(session.acp_runtime)
         with SessionManager._lock:
             SessionManager._sessions.pop("sid-dupe", None)
             SessionManager._conversation_sessions[conversation_id].discard("sid-dupe")
@@ -538,6 +623,7 @@ def test_acp_step_processes_all_pending_user_messages(
         assert session.events[-2]["type"] == "error"
         assert "No new user message" in str(session.events[-2])
     finally:
+        _close_runtime(session.acp_runtime)
         with SessionManager._lock:
             SessionManager._sessions.pop("sid-pending", None)
             SessionManager._conversation_sessions[conversation_id].discard(
@@ -624,6 +710,7 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
         assert current_conversation_id.get() is None
         assert current_session_id.get() is None
     finally:
+        _close_runtime(session.acp_runtime)
         with SessionManager._lock:
             SessionManager._sessions.pop("sid-hooks", None)
             SessionManager._conversation_sessions[conversation_id].discard("sid-hooks")
@@ -660,11 +747,17 @@ def test_start_acp_step_thread_propagates_contextvars(monkeypatch, tmp_path):
     session = ConversationSession(id="sid-thread", conversation_id="conv-thread")
 
     token = caller_var.set("copied")
+    threads_before = set(threading.enumerate())
     try:
         sessions_mod._start_acp_step_thread("conv-thread", session, tmp_path)
         assert done.wait(timeout=2), "ACP thread did not complete"
     finally:
         caller_var.reset(token)
+
+    worker_threads = set(threading.enumerate()) - threads_before
+    for worker_thread in worker_threads:
+        worker_thread.join(timeout=2)
+    assert all(not worker_thread.is_alive() for worker_thread in worker_threads)
 
     assert seen == {
         "caller_var": "copied",
@@ -759,6 +852,7 @@ def test_acp_step_bridges_generation_progress_events(
             final_text = str(final_content)
         assert final_text == "hello world"
     finally:
+        _close_runtime(session.acp_runtime)
         with SessionManager._lock:
             SessionManager._sessions.pop("sid-stream", None)
             SessionManager._conversation_sessions[conversation_id].discard("sid-stream")
@@ -788,27 +882,31 @@ def test_acp_step_last_error_set_on_failure(monkeypatch, client: FlaskClient, tm
     )
     assert resp.status_code == 200
 
+    threads_before = set(threading.enumerate())
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id, "use_acp": True},
     )
-    assert resp.status_code == 500
-    data = resp.get_json()
-    assert data is not None
-    assert data["status"] == "error"
-    assert "ACP runtime exploded" in data["error"]
+    try:
+        assert resp.status_code == 500
+        data = resp.get_json()
+        assert data is not None
+        assert data["status"] == "error"
+        assert "ACP runtime exploded" in data["error"]
 
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            sess = SessionManager.get_session(session_id)
+            if sess is not None and not sess.generating:
+                break
+            time.sleep(0.05)
+
         sess = SessionManager.get_session(session_id)
-        if sess is not None and not sess.generating:
-            break
-        time.sleep(0.05)
-
-    sess = SessionManager.get_session(session_id)
-    assert sess is not None
-    assert sess.last_error == "ACP runtime exploded"
-    assert not sess.generating
+        assert sess is not None
+        assert sess.last_error == "ACP runtime exploded"
+        assert not sess.generating
+    finally:
+        _close_session_runtime(session_id, threads_before)
 
 
 # ---------------------------------------------------------------------------
@@ -844,18 +942,22 @@ def test_use_acp_default_env_var_enables_acp(
     assert resp.status_code == 200
 
     # Step WITHOUT explicit use_acp — should default to True from env var
+    threads_before = set(threading.enumerate())
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id},
     )
     assert resp.status_code == 200
 
-    from gptme.server.api_v2_sessions import SessionManager
+    try:
+        from gptme.server.api_v2_sessions import SessionManager
 
-    sess = SessionManager.get_session(session_id)
-    assert sess is not None
-    assert sess.use_acp is True
-    assert sess.acp_runtime is not None
+        sess = SessionManager.get_session(session_id)
+        assert sess is not None
+        assert sess.use_acp is True
+        assert sess.acp_runtime is not None
+    finally:
+        _close_session_runtime(session_id, threads_before)
 
 
 def test_explicit_use_acp_false_overrides_default(
@@ -863,6 +965,15 @@ def test_explicit_use_acp_false_overrides_default(
 ):
     """Explicit use_acp=False in request should override GPTME_USE_ACP_DEFAULT=true."""
     monkeypatch.setenv("GPTME_USE_ACP_DEFAULT", "true")
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    def _skip_step_worker(*args, **kwargs):
+        session = kwargs["session"]
+        session.generating = False
+        session.generating_since = None
+        return True
+
+    monkeypatch.setattr(sessions_mod, "_start_step_thread", _skip_step_worker)
 
     conv = _make_v2_conversation(client)
     conversation_id = conv["conversation_id"]
@@ -880,9 +991,7 @@ def test_explicit_use_acp_false_overrides_default(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id, "use_acp": False, "model": "openai/gpt-4o"},
     )
-    # May return 500 if no API key (LLM errors are now surfaced).
-    # This test verifies use_acp config, not the step response code.
-    assert resp.status_code in (200, 500)
+    assert resp.status_code == 200
 
     from gptme.server.api_v2_sessions import SessionManager
 
@@ -897,6 +1006,15 @@ def test_without_env_var_default_remains_false(
     """Without GPTME_USE_ACP_DEFAULT, use_acp should default to False (non-ACP)."""
     monkeypatch.delenv("GPTME_USE_ACP_DEFAULT", raising=False)
     monkeypatch.delenv("USE_ACP_DEFAULT", raising=False)
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    def _skip_step_worker(*args, **kwargs):
+        session = kwargs["session"]
+        session.generating = False
+        session.generating_since = None
+        return True
+
+    monkeypatch.setattr(sessions_mod, "_start_step_thread", _skip_step_worker)
     conv = _make_v2_conversation(client)
     conversation_id = conv["conversation_id"]
     session_id = conv["session_id"]
@@ -909,14 +1027,11 @@ def test_without_env_var_default_remains_false(
     assert resp.status_code == 200
 
     # Step without use_acp and no env var — should use non-ACP path
-    # Note: may return 500 if no API key is available (LLM error is now surfaced
-    # in the HTTP response instead of being swallowed), but that's fine — this test
-    # only checks that use_acp defaults to False.
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id, "model": "openai/gpt-4o"},
     )
-    assert resp.status_code in (200, 500)
+    assert resp.status_code == 200
 
     from gptme.server.api_v2_sessions import SessionManager
 
