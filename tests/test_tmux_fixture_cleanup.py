@@ -31,7 +31,10 @@ def test_fixture_always_stops_server(
     module = importlib.import_module(module_name)
     # Surrogate-escaped bytes and trailing whitespace must survive path decoding.
     socket_path = tmp_path / os.fsdecode(b"socket-\xff ")
-    socket_path.touch()
+    unlinked: list[Path] = []
+    monkeypatch.setattr(
+        Path, "unlink", lambda path, *, missing_ok=False: unlinked.append(path)
+    )
     killed = False
 
     def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
@@ -64,5 +67,5 @@ def test_fixture_always_stops_server(
     else:
         with pytest.raises(StopIteration):
             next(generator)
-        assert not socket_path.exists()
+        assert unlinked == [socket_path]
     assert killed
