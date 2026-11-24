@@ -969,12 +969,13 @@ def test_scope_escape_markdown_codeblock(tool, tmp_path, monkeypatch):
     from ...tools import ToolUse, init_tools
 
     _no_log(monkeypatch)
-    init_tools([tool])
+    monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+    init_tools([tool], include_mcp=False)
     outside = tmp_path / "outside" / "escape.txt"
     workspace = tmp_path / "ws"
     workspace.mkdir()
     content = f"```{tool} {outside}\nhello\n```\n"
-    (tool_use,) = ToolUse.iter_from_content(content)
+    (tool_use,) = ToolUse.iter_from_content(content, tool_format_override="markdown")
     assert tool_use.args == [f"{tool} {outside}"]
 
     result = _check_scope_escape(tool_use, workspace)
@@ -982,5 +983,5 @@ def test_scope_escape_markdown_codeblock(tool, tmp_path, monkeypatch):
     assert "scope_escape" in result[1]
 
     inside = f"```{tool} {workspace / 'ok.txt'}\nhello\n```\n"
-    (tool_use,) = ToolUse.iter_from_content(inside)
+    (tool_use,) = ToolUse.iter_from_content(inside, tool_format_override="markdown")
     assert _check_scope_escape(tool_use, workspace) is None
