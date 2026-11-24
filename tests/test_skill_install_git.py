@@ -75,7 +75,7 @@ def use_registry(
         },
         links=links,
     )
-    monkeypatch.setattr(installer, "DEFAULT_REGISTRY_REPO", f"file://{repo}")
+    monkeypatch.setattr(installer, "DEFAULT_REGISTRY_REPO", repo.as_uri())
 
 
 def install_local(tmp_path: Path, name: str, extra: str) -> Path:
@@ -99,14 +99,14 @@ def test_whole_repo_install_keeps_subdirectories_and_drops_git_dir(
             "references/guide.md": "guide\n",
         },
     )
-    ok, msg = installer.install_skill(f"file://{repo}{suffix}")
+    ok, msg = installer.install_skill(f"{repo.as_uri()}{suffix}")
     assert ok, msg
     installed = installer.get_skills_dir() / "whole"
     assert (installed / "SKILL.md").exists()
     assert (installed / "scripts" / "helper.py").exists()
     assert (installed / "references" / "guide.md").exists()
     assert not (installed / ".git").exists()
-    assert installer.get_manifest().skills["whole"].source == f"file://{repo}{suffix}"
+    assert installer.get_manifest().skills["whole"].source == f"{repo.as_uri()}{suffix}"
 
 
 @pytest.mark.usefixtures("requires_symlinks")
@@ -132,6 +132,33 @@ def test_skill_md_linked_to_shared_file_in_checkout_is_copied(
     assert (installed / "SKILL.md").read_text() == skill_md("foo")
     # Other links are kept as links.
     assert os.readlink(installed / "common.md") == "../../shared/common.md"
+
+
+@pytest.mark.usefixtures("requires_symlinks")
+def test_shared_skill_md_that_checks_out_as_outside_link_is_not_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text(skill_md("stolen"))
+    use_registry(
+        tmp_path,
+        monkeypatch,
+        files={"skills/foo/helper.py": "print('hi')\n"},
+        # The shared file only appears (as a link out of the clone) once its
+        # directory is checked out, after the link target was first checked.
+        links={
+            "skills/foo/SKILL.md": "../../shared/SKILL.md",
+            "shared/SKILL.md": str(secret),
+        },
+    )
+    ok, _ = installer.install_skill("foo")
+    assert not ok
+    skills_dir = installer.get_skills_dir()
+    assert not any(
+        p.is_file() and p.read_text(errors="ignore") == skill_md("stolen")
+        for p in skills_dir.rglob("*")
+    )
+    assert not (skills_dir / "stolen").exists()
 
 
 def test_failed_sparse_checkout_and_fallback_fails_install(
@@ -224,7 +251,7 @@ def test_force_install_does_not_delete_unrelated_skill_at_url_basename(
     repo = make_repo(
         tmp_path / "thirdparty", {"skills/review/SKILL.md": skill_md("code-review")}
     )
-    ok, msg = installer.install_skill(f"file://{repo}#skills/review", force=True)
+    ok, msg = installer.install_skill(f"{repo.as_uri()}#skills/review", force=True)
     assert ok, msg
     assert (installer.get_skills_dir() / "code-review" / "SKILL.md").exists()
     assert (review / "my-notes.md").read_text() == "user data"
@@ -236,13 +263,13 @@ def test_install_without_force_refuses_existing_final_name(tmp_path: Path) -> No
     repo = make_repo(
         tmp_path / "thirdparty", {"skills/review/SKILL.md": skill_md("code-review")}
     )
-    ok, msg = installer.install_skill(f"file://{repo}#skills/review")
+    ok, msg = installer.install_skill(f"{repo.as_uri()}#skills/review")
     assert not ok
     assert "already installed" in msg
 
 
 def test_failed_clone_reports_error(tmp_path: Path) -> None:
-    ok, msg = installer.install_skill(f"file://{tmp_path / 'missing'}")
+    ok, msg = installer.install_skill((tmp_path / "missing").as_uri())
     assert not ok
     assert "Failed to install skill from" in msg
 

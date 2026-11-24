@@ -288,7 +288,19 @@ def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
                 text=True,
                 timeout=30,
             )
-        content = target.read_bytes()
+        # The checkout may have replaced the target with a link; re-resolve it
+        # and only read a regular file that is still inside the clone.
+        real = target.resolve()
+        if (
+            not real.is_relative_to(root)
+            or real.is_relative_to(root / ".git")
+            or not real.is_file()
+        ):
+            logger.error(
+                f"Shared {skill_md.name} resolves outside the clone or is not a file"
+            )
+            return False
+        content = real.read_bytes()
         skill_md.unlink()
         skill_md.write_bytes(content)
     except (OSError, subprocess.SubprocessError) as e:
