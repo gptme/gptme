@@ -470,6 +470,77 @@ Description.
             assert lesson.metadata.tools == ["shell", "python"]
 
 
+class TestNullFrontmatterFields:
+    """Null/scalar match fields or non-mapping frontmatter must not drop the lesson."""
+
+    @pytest.mark.parametrize(
+        "frontmatter",
+        [
+            "match:\n  keywords:\n",  # null keywords
+            "match:\n  keywords: [ok]\n  patterns:\n",  # null patterns
+            "match:\n",  # null match block
+            "match: patch\n",  # scalar match block
+            "match:\n  keywords: 5\n  patterns: 7\n",  # scalar keywords/patterns
+            "name: my-skill\ndescription: d\nmatch:\n",  # skill with empty match
+            "- just\n- a list\n",  # non-mapping frontmatter
+        ],
+    )
+    def test_null_fields_do_not_crash_parser(self, tmp_path: Path, frontmatter: str):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text(f"---\n{frontmatter}---\n# Title\n\nBody.\n")
+        lesson = parse_lesson(lesson_file)
+        assert lesson.title == "Title"
+        assert lesson.metadata.patterns == []
+
+    def test_null_patterns_keep_keywords(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text(
+            "---\nmatch:\n  keywords: [patch]\n  patterns:\n---\n# Title\n\nBody.\n"
+        )
+        lesson = parse_lesson(lesson_file)
+        assert lesson.metadata.keywords == ["patch"]
+        assert lesson.metadata.patterns == []
+
+
+class TestFrontmatterFences:
+    """Frontmatter fences are whole "---" lines; a leading UTF-8 BOM is ignored."""
+
+    def test_triple_dash_inside_frontmatter_value(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text(
+            '---\ndescription: "separate sections with --- lines"\n'
+            "match:\n  keywords: [markdown]\n---\n# Title\n\nBody\n"
+        )
+        lesson = parse_lesson(lesson_file)
+        assert lesson.metadata.keywords == ["markdown"]
+        assert lesson.metadata.description == "separate sections with --- lines"
+        assert lesson.body == "# Title\n\nBody"
+
+    def test_bom_prefixed_frontmatter(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_bytes(
+            "\ufeff---\nmatch:\n  keywords: [patch]\n---\n# Title\n\nBody\n".encode()
+        )
+        lesson = parse_lesson(lesson_file)
+        assert lesson.metadata.keywords == ["patch"]
+        assert "keywords" not in lesson.body
+        assert lesson.title == "Title"
+
+    def test_crlf_frontmatter(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_bytes(
+            b"---\r\nmatch:\r\n  keywords: [patch]\r\n---\r\n# Title\r\n\r\nBody\r\n"
+        )
+        lesson = parse_lesson(lesson_file)
+        assert lesson.metadata.keywords == ["patch"]
+
+    def test_unclosed_frontmatter_yields_no_metadata(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text("---\nmatch:\n  keywords: [patch]\n# Title\n")
+        lesson = parse_lesson(lesson_file)
+        assert lesson.metadata.keywords == []
+
+
 class TestLessonDataclasses:
     """Tests for Lesson and LessonMetadata dataclasses."""
 

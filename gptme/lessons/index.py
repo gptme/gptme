@@ -595,9 +595,11 @@ class LessonIndex:
             if "template" in lesson_file.name.lower():
                 continue
 
-            # Skip files in excluded directories (worktrees, .git, etc.)
-            lesson_path_str = lesson_file.as_posix()
-            if any(pattern in lesson_path_str for pattern in excluded_patterns):
+            # Skip files in excluded directories (worktrees, .git, etc.) below
+            # the scan root. Test the path relative to the root: a root that
+            # itself lives under e.g. ~/src/gptme-worktree/ must still index.
+            rel_path_str = "/" + (_rel_posix(lesson_file, directory) or "")
+            if any(pattern in rel_path_str for pattern in excluded_patterns):
                 logger.debug(f"Skipping lesson in excluded directory: {lesson_file}")
                 continue
 
@@ -609,11 +611,15 @@ class LessonIndex:
                 logger.debug(f"Skipping lesson in hidden subdirectory: {lesson_file}")
                 continue
 
+            # Check the slot without reserving it: the slot is reserved only
+            # once this copy loads cleanly, so a malformed copy cannot block a
+            # valid copy at the same relative path in a later directory.
             if not self._claim_lesson_slot(
                 lesson_file,
                 directory,
                 seen_paths,
                 seen_rel_paths,
+                reserve=False,
             ):
                 skipped_duplicates += 1
                 continue
@@ -645,9 +651,11 @@ class LessonIndex:
                     # change or disappear between parse and this check, and an
                     # unhandled error here would abort the whole index build.
                     try:
-                        has_frontmatter = lesson_file.read_text(
-                            encoding="utf-8"
-                        ).startswith("---")
+                        has_frontmatter = (
+                            lesson_file.read_text(encoding="utf-8")
+                            .removeprefix("\ufeff")
+                            .startswith("---")
+                        )
                     except (OSError, UnicodeDecodeError):
                         logger.warning(f"Skipping unreadable skill file: {lesson_file}")
                         continue
@@ -662,6 +670,9 @@ class LessonIndex:
                         continue
                     # No frontmatter at all: fall back to the directory name.
                     skill_name = lesson_file.parent.name.lower()
+
+            # Loaded cleanly: now reserve the path slot (first valid copy wins).
+            self._claim_lesson_slot(lesson_file, directory, seen_paths, seen_rel_paths)
             if skill_name is not None and skill_name in seen_skill_names:
                 logger.debug(
                     f"Skipping duplicate skill: {skill_name} "
@@ -837,8 +848,14 @@ class LessonIndex:
         directory: Path,
         seen_paths: set[str],
         seen_rel_paths: set[str],
+        *,
+        reserve: bool = True,
     ) -> bool:
-        """Reserve a lesson path slot for deduplication, first directory wins."""
+        """Reserve a lesson path slot for deduplication, first directory wins.
+
+        With ``reserve=False`` only check that the slot is free, without
+        claiming it.
+        """
         relative_name = _rel_posix(lesson_file, directory)
         if relative_name is None:
             logger.warning(
@@ -861,8 +878,9 @@ class LessonIndex:
             )
             return False
 
-        seen_paths.add(resolved_path)
-        seen_rel_paths.add(relative_name)
+        if reserve:
+            seen_paths.add(resolved_path)
+            seen_rel_paths.add(relative_name)
         return True
 
     def materialize_lesson(self, lesson: Lesson, *, persist: bool = True) -> Lesson:

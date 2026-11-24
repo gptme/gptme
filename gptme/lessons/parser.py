@@ -252,6 +252,14 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     )
 
 
+# Frontmatter: an opening "---" line, then everything up to the first line that
+# is exactly "---" (trailing whitespace allowed). Group 1 is the YAML, group 2
+# the body. Line-anchored so "---" inside a YAML value does not end the block.
+_FRONTMATTER_RE = re.compile(
+    r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)(.*)", re.DOTALL | re.MULTILINE
+)
+
+
 def _fix_unquoted_globs(frontmatter_str: str) -> str:
     """Fix unquoted glob patterns that would be interpreted as YAML aliases.
 
@@ -323,7 +331,8 @@ def parse_lesson(path: Path) -> Lesson:
     if not path.exists():
         raise FileNotFoundError(f"Lesson file not found: {path}")
 
-    content = path.read_text(encoding="utf-8")
+    # Drop a UTF-8 BOM: it would otherwise hide the opening fence.
+    content = path.read_text(encoding="utf-8").removeprefix("\ufeff")
     is_mdc = path.suffix == ".mdc"
 
     # Parse frontmatter if present
@@ -337,17 +346,18 @@ def parse_lesson(path: Path) -> Lesson:
                 "Install with: pip install pyyaml"
             )
 
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            frontmatter_str = parts[1]
-            body = parts[2].strip()
+        # Fences must be whole lines: a "---" inside a YAML value is not a fence.
+        fence = _FRONTMATTER_RE.match(content)
+        if fence:
+            frontmatter_str = fence.group(1)
+            body = fence.group(2).strip()
 
             try:
                 # Pre-process frontmatter to handle unquoted glob patterns
                 # that look like YAML aliases (e.g., "globs: *,**/*")
                 frontmatter_str = _fix_unquoted_globs(frontmatter_str)
                 frontmatter = yaml.load(frontmatter_str, Loader=_YamlSafeLoader)
-                if frontmatter:
+                if frontmatter and isinstance(frontmatter, dict):
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter
 
@@ -362,13 +372,18 @@ def parse_lesson(path: Path) -> Lesson:
                         lesson_id = frontmatter.get("id")
 
                         # Extract lesson format fields
-                        match_data = frontmatter.get("match", {})
+                        # YAML null (``match:`` with no value) or a scalar → no match block
+                        match_data = frontmatter.get("match") or {}
+                        if not isinstance(match_data, dict):
+                            match_data = {}
                         status = frontmatter.get("status", "active")
 
                         # Validate and filter patterns (must be non-empty strings)
                         raw_patterns = match_data.get("patterns", [])
                         if isinstance(raw_patterns, str):
                             raw_patterns = [raw_patterns]
+                        elif not isinstance(raw_patterns, list):
+                            raw_patterns = []
                         patterns = [
                             p for p in raw_patterns if isinstance(p, str) and p.strip()
                         ]
@@ -377,6 +392,8 @@ def parse_lesson(path: Path) -> Lesson:
                         raw_keywords = match_data.get("keywords", [])
                         if isinstance(raw_keywords, str):
                             raw_keywords = [raw_keywords]
+                        elif not isinstance(raw_keywords, list):
+                            raw_keywords = []
                         keywords = [
                             k for k in raw_keywords if isinstance(k, str) and k.strip()
                         ]

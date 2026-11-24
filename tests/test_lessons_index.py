@@ -329,6 +329,34 @@ Lesson, not a skill.
         assert "good" in index.lessons[0].path.as_posix()
         assert "Content for valid." in index.lessons[0].body
 
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "---\nname: [unclosed\n---\n# x\n",  # YAML error -> parse failure
+            "---\nname: [unclosed\n",  # no closing fence -> unparseable frontmatter
+        ],
+    )
+    def test_malformed_skill_same_relpath_does_not_block_valid_copy(
+        self, tmp_path: Path, bad: str
+    ):
+        """A malformed copy must not reserve the relative-path slot either.
+
+        Unlike the test above, both copies sit at the same relative path
+        (``deploy-helper/SKILL.md``), so path-slot dedup is what is exercised.
+        """
+        clear_cache()
+        bad_dir = tmp_path / "user" / "skills"
+        (bad_dir / "deploy-helper").mkdir(parents=True)
+        (bad_dir / "deploy-helper" / "SKILL.md").write_text(bad)
+
+        good_dir = tmp_path / "workspace" / "skills"
+        self._write_skill(good_dir, "", "deploy-helper", "valid")
+
+        index = LessonIndex([bad_dir, good_dir])
+
+        assert [lesson.metadata.name for lesson in index.lessons] == ["deploy-helper"]
+        assert "workspace" in index.lessons[0].path.as_posix()
+
     def test_unreadable_skill_file_does_not_abort_index(
         self, tmp_path: Path, monkeypatch
     ):
@@ -693,6 +721,37 @@ class TestLessonDeduplication:
             # The active copy from dir2 must NOT be loaded (dir1 wins)
             assert len(index.lessons) == 0
 
+    def test_malformed_lesson_does_not_block_valid_copy(self, tmp_path: Path):
+        """A copy that fails to parse must not claim its relative-path slot."""
+        clear_cache()
+        dir1 = tmp_path / "a" / "lessons"
+        dir2 = tmp_path / "b" / "lessons"
+        (dir1 / "tools").mkdir(parents=True)
+        (dir2 / "tools").mkdir(parents=True)
+        (dir1 / "tools" / "shell.md").write_text(
+            "---\nmatch: {keywords: [shell\n---\n# Bad\n"
+        )
+        (dir2 / "tools" / "shell.md").write_text(
+            "---\nmatch:\n  keywords: [shell]\n---\n# Shell\n\nx\n"
+        )
+
+        index = LessonIndex([dir1, dir2])
+
+        assert [lesson.title for lesson in index.lessons] == ["Shell"]
+
+    def test_lesson_with_null_match_field_still_indexed(self, tmp_path: Path):
+        """A null ``patterns:`` must not drop the lesson from the index."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        (lesson_dir / "a.md").write_text(
+            "---\nmatch:\n  keywords: [patch]\n  patterns:\n---\n# Patch Lesson\n\nBody.\n"
+        )
+
+        index = LessonIndex(lesson_dirs=[lesson_dir])
+
+        assert [lesson.title for lesson in index.lessons] == ["Patch Lesson"]
+
 
 class TestLessonCache:
     """Tests for lesson caching functionality."""
@@ -922,3 +981,21 @@ class TestWorktreeExclusion:
         assert "Normal Lesson" in lesson_names
         assert "Git Lesson" not in lesson_names
         assert len(index.lessons) == 1
+
+    @pytest.mark.parametrize("parent", ["gptme-worktree", "worktree", ".git"])
+    def test_scan_root_under_excluded_name_is_indexed(self, tmp_path, parent):
+        """Exclusions apply below the scan root, not to the root's own path."""
+        clear_cache()
+        lesson_dir = tmp_path / parent / "lessons"
+        lesson_dir.mkdir(parents=True)
+        (lesson_dir / "a.md").write_text(
+            "---\nmatch:\n  keywords: [patch]\n---\n# Patch Lesson\n\nBody.\n"
+        )
+        (lesson_dir / "worktree" / "copy").mkdir(parents=True)
+        (lesson_dir / "worktree" / "copy" / "b.md").write_text(
+            "---\nmatch:\n  keywords: [patch]\n---\n# Worktree Copy\n\nBody.\n"
+        )
+
+        index = LessonIndex(lesson_dirs=[lesson_dir])
+
+        assert [lesson.title for lesson in index.lessons] == ["Patch Lesson"]
