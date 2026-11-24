@@ -845,30 +845,45 @@ def test_subagent_wait_uses_monitor_outcome_after_process_exit(
 ) -> None:
     import subprocess
     import threading
+    from concurrent.futures import ThreadPoolExecutor
 
     from gptme.tools.subagent import Subagent, execution, subagent_wait
 
     finalizing = threading.Event()
     allow_completion = threading.Event()
+    waiter_started = threading.Event()
+    result_published = threading.Event()
+    allow_notification = threading.Event()
 
     def hold_cleanup(_subagent: Subagent) -> None:
         finalizing.set()
         allow_completion.wait(timeout=10)
 
     monkeypatch.setattr(execution, "_cleanup_isolation", hold_cleanup)
-    monkeypatch.setattr(execution, "notify_completion", MagicMock())
+
+    def hold_notification(*args: object, **kwargs: object) -> None:
+        result_published.set()
+        allow_notification.wait(timeout=15)
+
+    monkeypatch.setattr(execution, "notify_completion", hold_notification)
     with (
         (tmp_path / "stderr.log").open("wb") as stderr,
         subprocess.Popen(
             [
                 sys.executable,
                 "-c",
-                "import sys, time; print('child diagnostic', file=sys.stderr); time.sleep(30)",
+                (
+                    "import sys, time; print('child diagnostic', file=sys.stderr); "
+                    "print('ready', flush=True); time.sleep(30)"
+                ),
             ],
+            stdout=subprocess.PIPE,
             stderr=stderr,
             start_new_session=True,
         ) as process,
     ):
+        assert process.stdout is not None
+        assert process.stdout.readline() == b"ready\n"
         monitor = threading.Thread(target=lambda: execution._monitor_subprocess(sa))
         sa = Subagent(
             agent_id="wait-for-monitor",
@@ -880,20 +895,37 @@ def test_subagent_wait_uses_monitor_outcome_after_process_exit(
             execution_mode="subprocess",
             timeout=1,
         )
+        join_monitor = monitor.join
+
+        def observe_join(timeout: float | None = None) -> None:
+            if timeout:
+                waiter_started.set()
+            join_monitor(timeout)
+
+        monkeypatch.setattr(monitor, "join", observe_join)
         _subagents.append(sa)
         monitor.start()
         try:
             assert finalizing.wait(timeout=10)
             assert process.poll() is not None
             assert subagent_wait(sa.agent_id, timeout=0)["status"] == "running"
-            allow_completion.set()
-
-            result = subagent_wait(sa.agent_id, timeout=5)
-            assert result["status"] == "timeout"
-            assert "child diagnostic" in result["result"]
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                wait = pool.submit(subagent_wait, sa.agent_id, 10)
+                try:
+                    assert waiter_started.wait(timeout=5)
+                    allow_completion.set()
+                    assert result_published.wait(timeout=5)
+                    result = wait.result(timeout=3)
+                    assert result["status"] == "timeout"
+                    assert "child diagnostic" in result["result"]
+                    assert monitor.is_alive()
+                finally:
+                    allow_completion.set()
+                    allow_notification.set()
         finally:
             allow_completion.set()
-            monitor.join(timeout=10)
+            allow_notification.set()
+            join_monitor(timeout=10)
             assert not monitor.is_alive()
 
 
