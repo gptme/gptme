@@ -658,7 +658,7 @@ class TestCheckProxy:
 
         assert len(results) == 1
         assert results[0].status == CheckStatus.WARNING
-        assert "unreachable" in results[0].message.lower()
+        assert "direct connection to proxy failed" in results[0].message.lower()
         assert results[0].details == "[Errno 111] Connection refused"
         assert results[0].fix_hint is not None
 
@@ -669,14 +669,16 @@ class TestCheckProxy:
             patch(
                 "gptme.cli.doctor._probe_proxy_connect",
                 return_value="[Errno 111] Connection refused",
-            ),
+            ) as probe,
         ):
             mock_cfg.return_value.get_env.return_value = "http://127.0.0.1:9/v1"
             results = _check_proxy(verbose=True)
 
+        # The probe target must be the configured host/port, not a default.
+        probe.assert_called_once_with("127.0.0.1", 9, "http")
         messages = [r.message for r in results]
         assert "URL has a non-root path — may conflict with SDK routing" in messages
-        assert any("unreachable" in m.lower() for m in messages)
+        assert any("direct connection to proxy failed" in m.lower() for m in messages)
         assert all(r.status == CheckStatus.WARNING for r in results)
 
     def test_probe_connect_success_and_default_port(self):

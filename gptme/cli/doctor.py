@@ -1021,10 +1021,11 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
             CheckResult(
                 name="Proxy: LLM_PROXY_URL",
                 status=CheckStatus.WARNING,
-                message=f"Configured but unreachable ({display_host})",
+                message=f"Direct connection to proxy failed ({display_host})",
                 details=failure if verbose else None,
-                fix_hint="Check the proxy host/port and network access; "
-                "LLM calls fail while it is unreachable",
+                # The SDK may reach the proxy through HTTPS_PROXY, so a failed
+                # direct connection does not by itself mean LLM calls fail.
+                fix_hint="Check the proxy host/port and direct network access",
             )
         )
     elif not (parsed.path and parsed.path != "/"):
