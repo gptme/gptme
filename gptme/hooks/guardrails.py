@@ -145,7 +145,9 @@ def _path_has_prefix(path: str, prefix: str) -> bool:
 
     ``~/.ssh-backup`` must not match ``~/.ssh``; ``~/.ssh/id_rsa`` must.
     """
-    prefix = prefix.rstrip("/")
+    # Case-folded: case-insensitive filesystems (macOS, Windows) map
+    # ``~/.SSH/config`` to ``~/.ssh/config``.
+    path, prefix = path.casefold(), prefix.rstrip("/").casefold()
     return path == prefix or path.startswith(prefix + "/")
 
 
@@ -197,6 +199,21 @@ def _is_secret_spelling(expanded: str) -> bool:
 
     # .env files but not .envrc or .env.example
     return basename == ".env" or basename.startswith(".env.local")
+
+
+def _is_secret_target(literal: str) -> bool:
+    """True if an absolute tool target, or the file it resolves to, is secret.
+
+    Unlike shell text, a file tool's target is one concrete path, so its
+    symlinks are resolved: an in-workspace link to ``~/.ssh/id_rsa`` is the key.
+    """
+    if _is_secret_spelling(literal):
+        return True
+    try:
+        resolved = os.path.realpath(literal)
+    except (OSError, ValueError):
+        return False
+    return resolved != literal and _is_secret_spelling(resolved)
 
 
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
@@ -300,7 +317,7 @@ def _read_secret_path_reason(
             # A bad relative operand must not hide a later absolute secret
             # in a batch (e.g. when the process cwd has been deleted).
             pass
-        if _is_secret_path(path_arg) or _is_secret_spelling(literal):
+        if _is_secret_path(path_arg) or _is_secret_target(literal):
             return (
                 f"Secret path access blocked: read tool references {path_arg!r}. "
                 "Use a dedicated secrets manager or explicit user approval."
@@ -332,6 +349,44 @@ def _patch_many_secret_path_reason(
                     f"Secret path access blocked: patch_many writes {str(path)!r}. "
                     "Use a dedicated secrets manager or explicit user approval."
                 )
+    return None
+
+
+# Tools whose target is a single path argument (see ``tools.base.get_path``).
+_FILE_PATH_TOOLS: tuple[str, ...] = ("save", "append", "patch", "morph")
+
+
+def _file_tool_paths(tool_use: "ToolUse") -> list[str]:
+    """Every spelling of the target a save/append/patch/morph call may write."""
+    candidates: list[str] = []
+    kwargs = getattr(tool_use, "kwargs", None) or {}
+    if kwargs.get("path"):
+        candidates.append(str(kwargs["path"]))
+    args = getattr(tool_use, "args", None)
+    if args:
+        fn = " ".join(args)
+        if fn.startswith(("save ", "append ", "patch ")):
+            fn = fn.split(" ", 1)[1]
+        candidates.append(fn)
+    return [c for c in candidates if c.strip()]
+
+
+def _file_tool_secret_path_reason(tool_use: "ToolUse") -> str | None:
+    """Return the block reason if a file tool targets a secret path.
+
+    Checked before the tool runs: ``patch`` reads the file and ``morph``
+    uploads it before any confirmation, so a later check would be too late.
+    """
+    for path_arg in _file_tool_paths(tool_use):
+        try:
+            literal = os.path.abspath(os.path.expanduser(path_arg))
+        except (OSError, ValueError):
+            literal = path_arg
+        if _is_secret_path(path_arg) or _is_secret_target(literal):
+            return (
+                f"Secret path access blocked: {tool_use.tool} targets {path_arg!r}. "
+                "Use a dedicated secrets manager or explicit user approval."
+            )
     return None
 
 
@@ -470,6 +525,9 @@ def guardrail_hook(
     elif tool_use.tool == "tmux":
         block_reason = _tmux_block_reason(tool_use)
 
+    elif tool_use.tool in _FILE_PATH_TOOLS:
+        block_reason = _file_tool_secret_path_reason(tool_use)
+
     if block_reason is None:
         return None  # Allow — fall through to next hook
 
@@ -489,7 +547,7 @@ def guardrail_hook(
 def guardrail_pre_hook(
     data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
-    """TOOL_EXECUTE_PRE hook: deny secret-path ``read``/``patch_many`` and disallowed ``tmux`` shell text.
+    """TOOL_EXECUTE_PRE hook: deny secret-path file tool calls and disallowed ``tmux`` shell text.
 
     ``read`` is read-only and never calls ``execute_with_confirmation()``, so
     the confirmation chain cannot see it. Blocking here keeps that no-prompt
@@ -500,7 +558,9 @@ def guardrail_pre_hook(
     ``patch_many`` and ``tmux`` are checked here too, through their public
     structured-input accessors: one secret-path target denies the whole
     (atomic) ``patch_many`` call, and ``tmux`` ``new-session``/``send-keys``
-    text gets the same rules as the ``shell`` tool.
+    text gets the same rules as the ``shell`` tool. ``save``, ``append``,
+    ``patch`` and ``morph`` targets are checked here, before the tool can read
+    or upload the file.
 
     These are literal-input policies, not a sandbox for arbitrary programs.
     """
@@ -509,11 +569,18 @@ def guardrail_pre_hook(
         return
 
     tool_use = data.tool_use
-    if tool_use is None or tool_use.tool not in ("read", "patch_many", "tmux"):
+    if tool_use is None or tool_use.tool not in (
+        "read",
+        "patch_many",
+        "tmux",
+        *_FILE_PATH_TOOLS,
+    ):
         return
 
     if tool_use.tool == "read":
         block_reason = _read_secret_path_reason(tool_use)
+    elif tool_use.tool in _FILE_PATH_TOOLS:
+        block_reason = _file_tool_secret_path_reason(tool_use)
     elif tool_use.tool == "patch_many":
         block_reason = _patch_many_secret_path_reason(tool_use)
     else:
