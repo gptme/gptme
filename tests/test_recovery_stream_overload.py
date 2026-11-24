@@ -255,3 +255,108 @@ def test_anthropic_sse_error_event_classification(
     assert error.status_code == 200
     mark_llm_reply_origin(error)
     assert recovery.is_transient_provider_error(error) is transient
+
+
+def _anthropic_sse(*events: dict) -> bytes:
+    import json
+
+    return "".join(
+        f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+    ).encode()
+
+
+@pytest.mark.parametrize(
+    ("error_type", "transient"),
+    [("overloaded_error", True), ("invalid_request_error", False)],
+)
+def test_anthropic_sse_error_event_recovered_by_reply(
+    monkeypatch: pytest.MonkeyPatch, error_type: str, transient: bool
+) -> None:
+    """A real Anthropic SSE ``error`` event, decoded by the SDK, through reply()."""
+    import anthropic
+    import httpx2
+
+    from gptme import llm
+    from gptme.llm import llm_anthropic
+    from gptme.message import Message
+
+    monkeypatch.setattr(llm, "init_llm", lambda _: None)
+    monkeypatch.setattr(llm, "is_output_quiet", lambda: True)
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
+    monkeypatch.setattr(recovery, "get_max_retries", lambda: 3)
+    monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+    monkeypatch.setattr(recovery, "backoff_wait", lambda *a: False)
+
+    message: dict[str, object] = {
+        "id": "msg_offline",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-haiku-4-5",
+        "content": [],
+        "stop_reason": None,
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 0},
+    }
+    start = {"type": "message_start", "message": message}
+    error = {"type": "error", "error": {"type": error_type, "message": "x"}}
+    complete = (
+        start,
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "complete"},
+        },
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+            "usage": {"output_tokens": 1},
+        },
+        {"type": "message_stop"},
+    )
+    sent: list[httpx2.Request] = []
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        assert recovery.recovery_active()
+        sent.append(request)
+        events = (start, error) if len(sent) == 1 else complete
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_anthropic_sse(*events),
+        )
+
+    with (
+        httpx2.Client(
+            transport=httpx2.MockTransport(handle), follow_redirects=False
+        ) as transport,
+        anthropic.Anthropic(
+            api_key="offline",
+            max_retries=0,
+            http_client=transport,
+            base_url="https://offline.invalid",
+        ) as client,
+    ):
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        messages = [Message("system", ""), Message("user", "hi")]
+        notices: list[recovery.RetryNotice] = []
+        with recovery.recovery_scope() as budget:
+            with recovery.recovery_notifications(notices.append):
+                if transient:
+                    result = llm.reply(
+                        messages, "anthropic/claude-haiku-4-5", stream=True
+                    )
+                    assert result.content == "complete"
+                else:
+                    with pytest.raises(anthropic.APIStatusError) as caught:
+                        llm.reply(messages, "anthropic/claude-haiku-4-5", stream=True)
+                    assert caught.value.status_code == 200
+            assert budget.requests == budget.attempts == (2 if transient else 1)
+        assert len(sent) == (2 if transient else 1)
+        assert len(notices) == (1 if transient else 0)
+        assert all(request.url.host == "offline.invalid" for request in sent)
