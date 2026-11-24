@@ -378,12 +378,24 @@ def _is_thinking_lang(lang: str) -> bool:
 # only produces false positives (swallowing prose + output blocks into
 # the command). See gptme/gptme#3697.
 _EXEC_LANGS = frozenset(
-    {"shell", "sh", "bash", "zsh", "fish", "ksh", "nu", "ps1", "powershell", "ipython"}
+    {
+        "shell",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "ksh",
+        "nu",
+        "ps1",
+        "powershell",
+        "ipython",
+        "py",  # python tool block type, executed like ipython
+    }
 )
 # Shell languages that support heredoc syntax (``<<``). IPython/Python's
 # ``<<`` is always the bitwise left-shift operator — there is no heredoc
 # syntax in Python — so ipython is excluded from heredoc state tracking.
-_SHELL_LANGS = _EXEC_LANGS - {"ipython"}
+_SHELL_LANGS = _EXEC_LANGS - {"ipython", "py"}
 
 
 def _line_fence_states(
@@ -1184,8 +1196,14 @@ def _extract_codeblocks(
                             )
                         )
                         _confirm_window = lines[i + 1 : i + 1 + 200]
-                        if candidate is not None and any(
-                            later.strip() == candidate for later in _confirm_window
+                        # While streaming, a window that reaches the end of the
+                        # text may simply not contain the terminator *yet*: keep
+                        # the heredoc open so an inner fence can't close the block
+                        # early. The final non-streaming parse settles it.
+                        _window_hits_end = i + 1 + 200 >= len(lines)
+                        if candidate is not None and (
+                            any(later.strip() == candidate for later in _confirm_window)
+                            or (streaming and _window_hits_end)
                         ):
                             heredoc_terminator = candidate
                     elif line.strip() == heredoc_terminator:

@@ -3547,3 +3547,49 @@ def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
     assert list(_extract_codeblocks(markdown)) == [
         Codeblock("save a.md", expected, fence=fence)
     ]
+
+
+def test_py_block_does_not_swallow_following_prose_and_output_block():
+    """`py` runs on the python tool like `ipython`, so it gets exec-lang fences.
+
+    Without that, the nested-fence heuristic folded the prose and the following
+    untagged output block into the code that gets executed.
+    """
+    md = "```py\nx = 1\n```\nThat sets x. Output format:\n```\nx=1\n```\n"
+    assert [b.content for b in Codeblock.iter_from_markdown(md)] == ["x = 1", "x=1"]
+
+
+def test_exec_langs_cover_python_and_shell_tool_block_types():
+    from gptme.codeblock import _EXEC_LANGS
+    from gptme.tools.python import tool as python_tool
+    from gptme.tools.shell import tool as shell_tool
+
+    for block_type in [*python_tool.block_types, *shell_tool.block_types]:
+        assert block_type in _EXEC_LANGS
+
+
+def test_streaming_holds_heredoc_until_its_terminator_arrives():
+    """A streamed heredoc writing markdown is not cut at its first inner fence.
+
+    Mid-stream the terminator has not arrived yet, so the old look-ahead never
+    confirmed the heredoc and the inner bare fence closed the shell block:
+    gptme ran `cat > README.md` with only the first line.
+    """
+    full = (
+        "Creating the README:\n"
+        "```shell\n"
+        "cat > README.md << 'EOF'\n"
+        "# Title\n"
+        "```\n"
+        "pip install x\n"
+        "```\n"
+        "EOF\n"
+        "```\n"
+    )
+    expected = "cat > README.md << 'EOF'\n# Title\n```\npip install x\n```\nEOF"
+    assert [b.content for b in Codeblock.iter_from_markdown(full)] == [expected]
+    for cut in range(1, len(full) + 1):
+        if full[cut - 1] != "\n":
+            continue
+        for block in Codeblock.iter_from_markdown(full[:cut], streaming=True):
+            assert block.content == expected, f"prefix {full[:cut]!r}"
