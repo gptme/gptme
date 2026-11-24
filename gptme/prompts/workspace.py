@@ -282,10 +282,11 @@ def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
     return result
 
 
-def _file_owner_uid(path: Path) -> int | None:
-    """Owner uid of ``path``'s target, or None where ownership is unavailable."""
+def _file_owner_uid(path: Path, *, follow_symlinks: bool = True) -> int | None:
+    """Owner uid of ``path`` (its target unless ``follow_symlinks`` is False),
+    or None where ownership is unavailable."""
     try:
-        return path.stat().st_uid
+        return path.stat(follow_symlinks=follow_symlinks).st_uid
     except (OSError, AttributeError):
         return None
 
@@ -298,10 +299,17 @@ def _is_loadable_agent_file(agent_file: Path) -> bool:
       symlinked from elsewhere keep working, but a cloned repo committing
       ``AGENTS.md -> ~/.ssh/id_ed25519`` cannot pull a key or ``.env`` into the
       prompt.
+    - Only regular files load, so a FIFO or device under an agent-file name
+      cannot block startup on ``read_text()``.
     - On POSIX, files owned by another (non-root) user are skipped. Outside home
       the walk reaches shared directories such as ``/tmp``, where any local
-      user can plant an ``AGENTS.md``.
+      user can plant an ``AGENTS.md``. Both the symlink itself and its target
+      must be ours or root's: another user's link to one of our files is their
+      choice of instructions, and in a sticky directory they cannot replace an
+      entry they do not own.
     """
+    if not agent_file.is_file():
+        return False
     if agent_file.is_symlink():
         target = agent_file.resolve()
         if not target.is_file():
@@ -315,14 +323,15 @@ def _is_loadable_agent_file(agent_file: Path) -> bool:
             return False
     getuid = getattr(os, "getuid", None)
     if getuid is not None:
-        owner = _file_owner_uid(agent_file)
-        if owner is not None and owner not in (getuid(), 0):
-            logger.warning(
-                "Skipping agent file %s: owned by another user (uid %s)",
-                agent_file,
-                owner,
-            )
-            return False
+        for follow in (False, True):
+            owner = _file_owner_uid(agent_file, follow_symlinks=follow)
+            if owner is not None and owner not in (getuid(), 0):
+                logger.warning(
+                    "Skipping agent file %s: owned by another user (uid %s)",
+                    agent_file,
+                    owner,
+                )
+                return False
     return True
 
 

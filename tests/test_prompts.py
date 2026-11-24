@@ -931,7 +931,7 @@ def test_profile_system_prompt_included_in_stats():
 
 
 def test_agent_file_symlink_to_non_instruction_file_is_not_loaded(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, requires_symlinks
 ):
     """A cloned repo's `AGENTS.md -> ~/.ssh/id_ed25519` must not reach the prompt."""
     from gptme.prompts.workspace import find_agent_files_in_tree
@@ -947,7 +947,9 @@ def test_agent_file_symlink_to_non_instruction_file_is_not_loaded(
     assert find_agent_files_in_tree(repo) == []
 
 
-def test_agent_file_symlink_to_shared_markdown_still_loads(tmp_path: Path, monkeypatch):
+def test_agent_file_symlink_to_shared_markdown_still_loads(
+    tmp_path: Path, monkeypatch, requires_symlinks
+):
     """Shared agent identity files symlinked from outside the tree keep working."""
     from gptme.prompts.workspace import find_agent_files_in_tree
 
@@ -982,8 +984,49 @@ def test_agent_file_owned_by_another_user_is_not_loaded(tmp_path: Path, monkeypa
     monkeypatch.setattr(
         workspace,
         "_file_owner_uid",
-        lambda p: real_uid + 1 if p.resolve() == planted.resolve() else real_uid,
+        lambda p, **_: real_uid + 1 if p.resolve() == planted.resolve() else real_uid,
     )
     found = workspace.find_agent_files_in_tree(project)
     assert planted not in found
     assert own in found
+
+
+def test_agent_file_symlink_owned_by_another_user_is_not_loaded(
+    tmp_path: Path, monkeypatch, requires_symlinks
+):
+    """Another user's link to one of our Markdown files is still their choice."""
+    from gptme.prompts import workspace
+
+    if not hasattr(os, "getuid"):
+        pytest.skip("POSIX ownership only")
+    ours = tmp_path / "notes.md"
+    ours.write_text("our notes, not instructions")
+    project = tmp_path / "proj"
+    project.mkdir()
+    link = tmp_path / "AGENTS.md"
+    link.symlink_to(ours)
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "elsewhere-home")
+
+    real_uid = os.getuid()
+
+    def owner(p: Path, *, follow_symlinks: bool = True) -> int:
+        if p == link and not follow_symlinks:
+            return real_uid + 1
+        return real_uid
+
+    monkeypatch.setattr(workspace, "_file_owner_uid", owner)
+    assert link not in workspace.find_agent_files_in_tree(project)
+
+
+def test_agent_file_fifo_is_not_loaded(tmp_path: Path, monkeypatch):
+    """A named pipe under an agent-file name would hang startup's read_text()."""
+    from gptme.prompts.workspace import find_agent_files_in_tree
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("POSIX FIFOs only")
+    project = tmp_path / "proj"
+    project.mkdir()
+    os.mkfifo(project / "AGENTS.md")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    assert find_agent_files_in_tree(project) == []
