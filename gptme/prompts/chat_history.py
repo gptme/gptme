@@ -84,13 +84,13 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                 )
 
                 # Always show first exchange to establish context
+                first_assistant = None
                 first_user = user_messages[0]
                 first_user_content = extract_content_summary(first_user.content)
                 if first_user_content:
                     summary_parts.append(f"User: {first_user_content}")
 
                     # Find first assistant response after first user message
-                    first_assistant = None
                     first_user_idx = messages.index(first_user)
                     for msg in messages[first_user_idx + 1 :]:
                         if msg.role == "assistant":
