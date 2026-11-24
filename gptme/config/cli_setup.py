@@ -160,11 +160,20 @@ def setup_config_from_cli(
 
     # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
-    if tool_allowlist is not None:
+    # TOOL_ALLOWLIST (env or [env]) is documented to accept the same syntax as
+    # --tools ("+x", "-x", "none"), so parse it through the same branch. It
+    # still ranks below the CLI flag and below a resumed conversation's tools.
+    allowlist_spec = tool_allowlist
+    if allowlist_spec is None and not (
+        existing_chat_config and existing_chat_config.tools
+    ):
+        if tools_env := config.get_env("TOOL_ALLOWLIST"):
+            allowlist_spec = "" if tools_env.strip().lower() == "none" else tools_env
+    if allowlist_spec is not None:
         # Check for additive syntax (starts with '+')
-        if tool_allowlist.startswith("+"):
+        if allowlist_spec.startswith("+"):
             # Strip the '+' prefix and parse the additional tools
-            tool_list_str = tool_allowlist[1:]
+            tool_list_str = allowlist_spec[1:]
             additional_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
@@ -174,9 +183,9 @@ def setup_config_from_cli(
             for tool in additional_tools:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
-        elif tool_allowlist.startswith("-"):
+        elif allowlist_spec.startswith("-"):
             # Exclusion syntax: start with defaults, remove specified tools
-            tool_list_str = tool_allowlist[1:]
+            tool_list_str = allowlist_spec[1:]
             excluded_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
@@ -203,24 +212,19 @@ def setup_config_from_cli(
             resolved_tool_allowlist = [
                 tool for tool in default_tools if tool not in excluded_tools
             ]
-        elif tool_allowlist == "":
+        elif allowlist_spec == "":
             # Explicitly empty: disable all tools (--tools none)
             resolved_tool_allowlist = []
         else:
             # Normal mode - CLI override replaces defaults
             resolved_tool_allowlist = [
-                tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
+                tool.strip() for tool in allowlist_spec.split(",") if tool.strip()
             ]
     elif existing_chat_config and existing_chat_config.tools is not None:
         # When resuming, use saved conversation tools unless CLI override provided.
         # Copy: the non-interactive 'complete' append below must not mutate
         # a throwaway object and then be lost.
         resolved_tool_allowlist = list(existing_chat_config.tools)
-    elif tools_env := config.get_env("TOOL_ALLOWLIST"):
-        # Fall back to env/config for new conversations or when no saved tools
-        resolved_tool_allowlist = [
-            tool.strip() for tool in tools_env.split(",") if tool.strip()
-        ]
 
     # A preset is "selected" if the allowlist is a literal preset name.
     # Preset names are now persisted verbatim (not expanded) so that resumed
