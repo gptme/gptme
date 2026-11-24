@@ -2186,13 +2186,17 @@ def _start_step_thread(
                 top_p=top_p,
             )
         except Exception as e:
+            released = False
             with session.step_lock:
                 if session.step_seq == step_seq:
                     session.finish_skill_turn("failed", error_type=type(e).__name__)
                     # step() raised before its own finally could release the
                     # reservation; otherwise the conversation stays wedged
                     # (409 on every write) until interrupt or the stale sweep.
+                    # Mirror that finally: a failed checkpoint chain must not
+                    # resume after an unrelated turn, and deferred wakes retry.
                     if session.generating:
+                        session.checkpoint_needs_continuation = False
                         session.generating = False
                         session.generating_since = None
                         session.last_error = str(e)
@@ -2202,6 +2206,9 @@ def _start_step_thread(
                         SessionManager.add_event(
                             conversation_id, {"type": "step_complete"}
                         )
+                        released = True
+            if released:
+                SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise
 
     # Propagate ContextVars (model, config) from the caller into the step thread.

@@ -193,6 +193,64 @@ def test_a2a_failed_task_persists_after_session_gc(client, monkeypatch, tmp_path
     assert "step thread crashed" in error_artifacts[0]["parts"][0]["text"]
 
 
+def test_a2a_reports_failure_released_between_read_and_idle_check(
+    client, monkeypatch, tmp_path
+):
+    """A step failure published right after an empty event read is still reported."""
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        session.generating = True
+        real_read_events = session.read_events
+
+        def read_then_crash(abs_index):
+            events, next_index = real_read_events(abs_index)
+            if session.generating:
+                # The step thread releases its reservation and publishes the
+                # failure just after this (empty) read returns.
+                with session.step_lock:
+                    session.generating = False
+                    session_step_module.SessionManager.add_event(
+                        conversation_id,
+                        cast(EventType, {"type": "error", "error": "early crash"}),
+                    )
+                    session_step_module.SessionManager.add_event(
+                        conversation_id, cast(EventType, {"type": "step_complete"})
+                    )
+            return events, next_index
+
+        session.read_events = read_then_crash
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("trigger failure"))
+
+    assert response.status_code == 200
+    error = response.get_json()["error"]
+    assert error["data"][0]["reason"] == "TASK_FAILED"
+    task_id = error["data"][0]["metadata"]["taskId"]
+    assert (tmp_path / task_id / "a2a_failed.json").exists()
+
+
 def test_a2a_resume_clears_failure_sentinel(client, monkeypatch, tmp_path):
     """Resuming a failed task (SendMessage with its id) clears the sentinel."""
     import gptme.server.a2a_api as a2a_api_module

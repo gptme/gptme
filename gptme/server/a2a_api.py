@@ -437,31 +437,44 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
     deadline = time.monotonic() + timeout
     event_index = initial_event_count
 
+    def handle(events: list) -> bool:
+        """Return True on step_complete; raise on an error event."""
+        for event in events:
+            event_type = event.get("type") if isinstance(event, dict) else None
+            if event_type == "step_complete":
+                # step_complete fires AFTER session.generating = False, so
+                # _task_from_conversation sees the correct TASK_STATE_COMPLETED.
+                return True
+            if event_type == "generation_complete":
+                # Legacy signal: fires BEFORE session.generating = False, so
+                # finalizer work (TURN_POST hooks, auto-naming) may still be
+                # running. Don't return here — keep scanning this batch (and
+                # polling below) for the authoritative step_complete, or for
+                # session.generating to clear directly on servers that don't
+                # emit step_complete at all.
+                continue
+            if event_type == "error":
+                raise A2AError(
+                    JSONRPC_INTERNAL_ERROR,
+                    str(event.get("error") or "Internal error"),
+                    reason="TASK_FAILED",
+                    metadata={"taskId": task_id},
+                )
+        return False
+
     try:
         while time.monotonic() < deadline:
             events, event_index = session.read_events(event_index)
-            for event in events:
-                event_type = event.get("type") if isinstance(event, dict) else None
-                if event_type == "step_complete":
-                    # step_complete fires AFTER session.generating = False, so
-                    # _task_from_conversation sees the correct TASK_STATE_COMPLETED.
-                    return
-                if event_type == "generation_complete":
-                    # Legacy signal: fires BEFORE session.generating = False, so
-                    # finalizer work (TURN_POST hooks, auto-naming) may still be
-                    # running. Don't return here — keep scanning this batch (and
-                    # polling below) for the authoritative step_complete, or for
-                    # session.generating to clear directly on servers that don't
-                    # emit step_complete at all.
-                    continue
-                if event_type == "error":
-                    raise A2AError(
-                        JSONRPC_INTERNAL_ERROR,
-                        str(event.get("error") or "Internal error"),
-                        reason="TASK_FAILED",
-                        metadata={"taskId": task_id},
-                    )
+            if handle(events):
+                return
             if not session.generating:
+                # A release clears generating and publishes its error and
+                # step_complete events inside one step_lock section. Taking the
+                # lock makes this final read see them, so a failure that lands
+                # between the read above and this check is not missed.
+                with session.step_lock:
+                    events, event_index = session.read_events(event_index)
+                handle(events)
                 return
             session.event_flag.clear()
             session.event_flag.wait(timeout=0.1)
