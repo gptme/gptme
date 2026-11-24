@@ -1003,7 +1003,9 @@ class _FakeKC:
         pass
 
 
-def _run_ensure_started_and_capture_cmd(monkeypatch) -> list[str]:
+def _run_ensure_started_and_capture_cmd(
+    monkeypatch, interrupt_modes: list[str] | None = None
+) -> list[str]:
     """Run ``_ensure_started`` with a real KernelManager and return the launch cmd.
 
     Uses a real ``jupyter_client.KernelManager`` subclass so the assertion checks
@@ -1020,6 +1022,8 @@ def _run_ensure_started_and_capture_cmd(monkeypatch) -> list[str]:
             # Record exactly what the real launch path builds, then skip the
             # actual subprocess launch.
             captured.append(self.format_kernel_cmd(extra_arguments=[]))
+            if interrupt_modes is not None:
+                interrupt_modes.append(self.kernel_spec.interrupt_mode)
 
         def client(self):
             return _FakeKC()
@@ -1077,6 +1081,42 @@ def test_ensure_started_uv_when_uv_project_without_venv(monkeypatch, tmp_path):
 
     assert cmd[:2] == ["/usr/bin/uv", "run"]
     assert "--with" in cmd and "ipykernel" in cmd
+
+
+def test_uv_kernel_interrupts_via_control_channel(monkeypatch, tmp_path):
+    """A uv-launched kernel must not be interrupted by a process-group SIGINT.
+
+    The kernel is a child of `uv`, which forwards the SIGINT it receives from
+    the group signal; the kernel then gets a second KeyboardInterrupt that
+    lands in the next cell. Message mode makes ipykernel signal only itself.
+    """
+    (tmp_path / "uv.lock").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+
+    modes: list[str] = []
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch, modes)
+
+    assert cmd[:2] == ["/usr/bin/uv", "run"]
+    assert modes == ["message"]
+
+
+def test_direct_kernel_keeps_signal_interrupts(monkeypatch, tmp_path):
+    """A kernel launched directly from a Python keeps signal-mode interrupts."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_is_uv_project", staticmethod(lambda: False))
+
+    modes: list[str] = []
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch, modes)
+
+    assert "uv" not in cmd[0]
+    assert modes == ["signal"]
 
 
 def test_ensure_started_falls_back_to_default_when_uv_launch_fails(

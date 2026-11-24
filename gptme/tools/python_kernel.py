@@ -505,9 +505,6 @@ class KernelBackend:
     def __init__(self) -> None:
         self._km: Any = None  # KernelManager
         self._kc: Any = None  # KernelClient
-        # msg_id of the most recent execute() request; an interrupt drain waits
-        # for this request's own idle, not any idle still queued on iopub.
-        self._last_execute_msg_id: str | None = None
         self._started = False
         self._bridge = BridgeServer()
         self._bridge.start()
@@ -703,6 +700,13 @@ class KernelBackend:
                     "Project Python lacks ipykernel; using 'uv run --with ipykernel'"
                 )
                 self._set_kernel_cmd(uv_cmd)
+                # The kernel runs as a child of `uv`. A signal-mode interrupt
+                # is sent to the whole process group, so the kernel gets SIGINT
+                # once directly and again when uv forwards its own copy; the
+                # second lands in the next cell. Interrupt via the control
+                # channel instead: ipykernel then signals only itself.
+                assert self._km.kernel_spec is not None
+                self._km.kernel_spec.interrupt_mode = "message"
                 using_uv = True
             else:
                 if project_python:
@@ -1003,7 +1007,6 @@ class KernelBackend:
             code, silent=False, store_history=True, allow_stdin=False
         )
         self._bridge.active_cell = msg_id
-        self._last_execute_msg_id = msg_id
         deadline = _monotonic() + timeout if timeout is not None else None
 
         timed_out = False
@@ -1186,13 +1189,7 @@ class KernelBackend:
         )
 
     def _drain_until_idle(self, grace: float = 5.0) -> None:
-        """Consume iopub messages until the last execute() reports idle or grace elapses.
-
-        Only the interrupted cell's own ``idle`` counts. iopub can still hold an
-        ``idle`` from an earlier request (``_exec_silent`` reads only the shell
-        channel), and stopping on that one returns before the SIGINT is handled,
-        so the interrupt lands in the next cell instead.
-        """
+        """Consume iopub messages until the kernel reports idle or grace elapses."""
         deadline = _monotonic() + grace
         while _monotonic() < deadline:
             try:
@@ -1202,8 +1199,6 @@ class KernelBackend:
             if (
                 msg.get("msg_type") == "status"
                 and msg.get("content", {}).get("execution_state") == "idle"
-                and msg.get("parent_header", {}).get("msg_id")
-                == self._last_execute_msg_id
             ):
                 break
 
