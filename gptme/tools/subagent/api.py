@@ -41,6 +41,7 @@ def _without_inprocess_cwd_pin(fn: _F) -> _F:
 
 
 from ...util.workspace import current_workspace, resolve_in_workspace
+from .. import get_session_allowlist
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .control import append_control_op, discard_control_ops
@@ -1307,6 +1308,11 @@ def subagent(
             elif hasattr(output_schema, "__annotations__"):
                 output_schema_dict = {"type": "object"}
 
+        # Capture the operator allowlist in the parent's context: the child
+        # starts with an empty one and would otherwise load the full default
+        # toolset (#3974, #5192).
+        parent_tool_allowlist = get_session_allowlist()
+
         def _launch_subprocess():
             _sem = get_slot_sem()
             _sem.acquire()
@@ -1318,6 +1324,7 @@ def subagent(
                     _exec._cleanup_isolation(sa)
                     return
                 process = _exec._run_subagent_subprocess(
+                    parent_tool_allowlist=parent_tool_allowlist,
                     prompt=prompt,
                     logdir=logdir,
                     model=model_name,
@@ -1436,6 +1443,11 @@ def subagent(
         # concurrent run (gptme/gptme#4990).
         _own_run: list[Subagent] = []
 
+        # Capture the operator allowlist in the parent's context: the child
+        # starts with an empty one and would otherwise load the full default
+        # toolset (#3974, #5192).
+        parent_tool_allowlist = get_session_allowlist()
+
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -1452,6 +1464,7 @@ def subagent(
                     return
                 try:
                     _exec._create_subagent_thread(
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=prompt,
                         logdir=logdir,
                         model=model_name,
@@ -2153,6 +2166,8 @@ def subagent_continue(
     # after start_gate fires so the reference is always present by then.
     _continued_ref: list[Subagent] = []
 
+    parent_tool_allowlist = get_session_allowlist()
+
     def run_continuation() -> None:
         bind_thread_generation()
         # The registry entry is published before cached terminal state is cleared.
@@ -2166,6 +2181,7 @@ def subagent_continue(
             try:
                 if sa.execution_mode == "thread":
                     _exec._create_subagent_thread(
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=message,
                         logdir=sa.logdir,
                         model=sa.model,
@@ -2186,6 +2202,7 @@ def subagent_continue(
                     )
                 elif sa.execution_mode == "subprocess":
                     process = _exec._run_subagent_subprocess(
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=message,
                         logdir=sa.logdir,
                         model=sa.model,

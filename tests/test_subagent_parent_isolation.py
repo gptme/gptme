@@ -50,7 +50,8 @@ def parent_session(tmp_path, monkeypatch):
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.chdir(workspace)
-    init_tools(["shell", "subagent"])
+    # Children inherit this allowlist (#5247), and one test's child saves a file.
+    init_tools(["shell", "save", "subagent"])
     set_tool_format("tool")
     set_output_format("quiet")
     with _subagents_lock:

@@ -41,6 +41,7 @@ from .. import (
     with_direct_function_calls,
 )
 from .._allowlist import (
+    allowlist_contains_glob,
     is_hint_pattern,
     matching_allowlist_tools,
     tool_matches_allowlist,
@@ -150,6 +151,50 @@ def _ensure_subagent_signal_tools_loaded() -> None:
         if tool_name not in loaded_names:
             load_tool(tool_name)
             loaded_names.add(tool_name)
+
+
+def _is_tool_file_entry(item: str) -> bool:
+    return item.endswith(".py") or "/" in item or "\\" in item
+
+
+def _subprocess_tools_arg(
+    profile_tools: list[str] | None,
+    parent_tool_allowlist: list[str] | None,
+) -> str:
+    """Build the child's ``--tools`` value for subprocess mode.
+
+    The parent's operator allowlist stays authoritative: a profile can restrict
+    the child further but never grant a tool the parent session excluded
+    (#3974, #5192). With no parent restriction the profile (or the default
+    toolset) applies as before.
+    """
+    if parent_tool_allowlist is None:
+        if profile_tools is None:
+            return ",".join(f"+{name}" for name in _SUBAGENT_SIGNAL_TOOLS)
+        tools = list(profile_tools)
+    elif profile_tools is None and not allowlist_contains_glob(parent_tool_allowlist):
+        tools = list(parent_tool_allowlist)
+    else:
+        # Expand patterns to concrete names: the CLI's --tools only accepts
+        # names and tool-file paths, not globs or hint: patterns.
+        tools = (
+            []
+            if profile_tools is not None
+            else [item for item in parent_tool_allowlist if _is_tool_file_entry(item)]
+        )
+        for tool in get_available_tools(include_mcp=False):
+            if not tool_matches_allowlist(tool.name, parent_tool_allowlist, tool.hints):
+                continue
+            if profile_tools is not None and not tool_matches_allowlist(
+                tool.name, profile_tools, tool.hints
+            ):
+                continue
+            if tool.name not in tools:
+                tools.append(tool.name)
+    for tool_name in _SUBAGENT_SIGNAL_TOOLS:
+        if tool_name not in tools:
+            tools.append(tool_name)
+    return ",".join(tools)
 
 
 def _resolve_profile_tools(
@@ -407,6 +452,7 @@ def _create_subagent_thread(
     started_at: float | None = None,
     *,
     resume: bool = False,
+    parent_tool_allowlist: list[str] | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -437,6 +483,11 @@ def _create_subagent_thread(
             _subagents_lock to find sa — closing the lock+lookup window.
         resume: Continue the conversation already stored in ``logdir``. When true,
             skip rebuilding startup context because the existing log owns it.
+        parent_tool_allowlist: The parent session's operator tool allowlist,
+            captured in the parent's context (``get_session_allowlist()``)
+            before the thread starts. The child thread starts with an empty
+            context, so without this it would load the full default toolset
+            and a profile could re-grant tools the operator excluded.
     """
     # Store agent_id in thread-local so the progress tool can identify this subagent
     if agent_id is not None:
@@ -498,7 +549,12 @@ def _create_subagent_thread(
     if profile and profile.tools is not None:
         tool_allowlist = profile.tools
 
-    prepare_execution_environment(workspace=workspace, tools=None)
+    prepare_execution_environment(
+        workspace=workspace,
+        tools=list(parent_tool_allowlist)
+        if parent_tool_allowlist is not None
+        else None,
+    )
     _ensure_subagent_signal_tools_loaded()
     # Child threads have their own ContextVar context, so this does not leak
     # into the parent; it guards calls the toolset filter below cannot see.
@@ -899,6 +955,7 @@ def _run_subagent_subprocess(
     *,
     resume: bool = False,
     writer_lease: BinaryIO | None = None,
+    parent_tool_allowlist: list[str] | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
 
@@ -961,21 +1018,15 @@ def _run_subagent_subprocess(
         if declared_format := _declared_child_tool_format(model):
             cmd.extend(["--tool-format", declared_format])
 
+    profile_tools: list[str] | None = None
     if profile:
         cmd.extend(["--agent-profile", profile])
         from ...profiles import get_profile
 
         profile_obj = get_profile(profile)
         if profile_obj and profile_obj.tools is not None:
-            tool_allowlist = list(profile_obj.tools)
-            for tool_name in _SUBAGENT_SIGNAL_TOOLS:
-                if tool_name not in tool_allowlist:
-                    tool_allowlist.append(tool_name)
-            cmd.extend(["--tools", ",".join(tool_allowlist)])
-        else:
-            cmd.extend(["--tools", "+complete,+clarify,+progress,+yield"])
-    else:
-        cmd.extend(["--tools", "+complete,+clarify,+progress,+yield"])
+            profile_tools = list(profile_obj.tools)
+    cmd.extend(["--tools", _subprocess_tools_arg(profile_tools, parent_tool_allowlist)])
 
     # Map context_window/context_mode/context_include to CLI flags.
     if context_window == 0:
@@ -1747,6 +1798,9 @@ def _run_planner(
         workdir: Pre-resolved working directory for all executor subagents. When
             None, each executor falls back to current_workspace() at spawn time.
     """
+    # Executors run in threads that start with an empty tool context; capture
+    # the operator allowlist here so they cannot widen it (#3974, #5192).
+    parent_tool_allowlist = get_session_allowlist()
     from gptme.cli.main import get_logdir
 
     from .types import (
@@ -1897,6 +1951,7 @@ def _run_planner(
                             return
                     try:
                         process = _run_subagent_subprocess(
+                            parent_tool_allowlist=parent_tool_allowlist,
                             prompt=_sa.prompt,
                             logdir=_sa.logdir,
                             model=_sa.model,
@@ -1987,6 +2042,7 @@ def _run_planner(
                             )
                             return
                     _create_subagent_thread(
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=prompt,
                         logdir=log_dir,
                         model=model,
