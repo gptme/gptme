@@ -156,3 +156,23 @@ def test_play_reports_sounddevice_success(tmp_path):
     ):
         assert _play(tmp_path / "x.wav")
     play.assert_called_once()
+
+
+def test_sounddevice_timeout_is_reported(monkeypatch):
+    """A playback that stalls past the timeout raises instead of returning normally."""
+    import pytest
+
+    from gptme.util import _sound_sounddevice as sdmod
+
+    sd = MagicMock()
+    sd.get_stream.return_value.active = True  # never finishes
+    monkeypatch.setattr(sdmod, "_load_audio_libs", lambda: {"sd": sd})
+    monkeypatch.setattr(sdmod, "convert_audio_to_float32", lambda d: d)
+    monkeypatch.setattr(sdmod, "get_output_device", lambda: (None, 44100))
+    clock = iter([0.0, 31.0])
+    monkeypatch.setattr(sdmod.time, "time", lambda: next(clock))
+    monkeypatch.setattr(sdmod.time, "sleep", lambda s: None)
+
+    with pytest.raises(TimeoutError):
+        sdmod.play_with_sounddevice(1.0, 44100, 1.0)
+    sd.stop.assert_called()
