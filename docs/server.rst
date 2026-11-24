@@ -310,8 +310,9 @@ regardless of bind address. Loopback is a transport boundary, not an identity
 boundary: another local process must not gain shell and config access merely by
 reaching ``127.0.0.1``. A small set of public routes remain unauthenticated: the
 API root (``/api/v2``), version info (``/api/v2/version``), config metadata
-(``/api/v2/config``), Prometheus metrics (``/api/v0/metrics``), and the API
-documentation at ``/api/docs/``. Set ``GPTME_SERVER_TOKEN`` to a fixed value;
+(``/api/v2/config``), Prometheus metrics (``/api/v0/metrics``), the liveness
+probe (``/api/v2/server/health``, which reports only session counts and short
+slot ids), and the API documentation at ``/api/docs/``. Set ``GPTME_SERVER_TOKEN`` to a fixed value;
 if unset the server generates one and prints it at startup.
 
 - ``GPTME_DISABLE_AUTH`` disables bearer checks entirely
