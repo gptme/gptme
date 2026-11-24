@@ -30,15 +30,15 @@ if TYPE_CHECKING:
 def _prose(content: str) -> str:
     """Normalize only prose; never apply reasoning regexes to native JSON."""
     if re.search(r"<think(?:ing)?>", content):
-        from ..context import strip_reasoning
+        from ..context.compress import remove_reasoning
 
         # The shared utility strips edges too. Retain separators around native
         # calls so removing reasoning cannot glue prose to an @call header.
         leading = content[: len(content) - len(content.lstrip())]
         trailing = content[len(content.rstrip()) :]
-        content, _ = strip_reasoning(content)
-        # An interrupted reasoning block is not replayable visible text either.
-        content = re.sub(r"<think(?:ing)?>.*$", "", content, flags=re.DOTALL)
+        # An interrupted reasoning block is not replayable visible text either;
+        # fenced code keeps its tag-like text in both cases.
+        content = remove_reasoning(content, drop_unclosed=True)
         content = leading + content + trailing
     return _strip_think_sig(content)
 

@@ -311,6 +311,78 @@ def test_strip_reasoning_handles_multiple_blocks():
     assert tokens_saved > 0
 
 
+def test_strip_reasoning_leaves_fenced_code_intact():
+    """Reasoning-tag text and blank lines inside a code block are code, not reasoning."""
+    from gptme.context import strip_reasoning
+
+    code = (
+        "```python\n"
+        "PATTERN = r'<think>.*?</think>'\n"
+        "\n"
+        "\n"
+        "\n"
+        "def f():\n"
+        "    return PATTERN\n"
+        "```"
+    )
+    content = "<think>let me plan</think>\nHere is the code:\n" + code
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert "let me plan" not in stripped
+    assert code in stripped
+    assert tokens_saved > 0
+
+
+def test_strip_reasoning_unclosed_fence_inside_think_does_not_hide_close():
+    """A fence left open inside reasoning ends with the reasoning block."""
+    from gptme.context import strip_reasoning
+
+    code = "```py\na = 1\n\n\n\nb = 2\n```"
+    content = "<think>plan:\n```python\nx = 1\n</think>\nAnswer:\n" + code
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "Answer:\n" + code
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "```py\r\n<think>kept</think>\r\n```\r\n",  # CRLF closer
+        "```\n<think>kept</think>\n`````\n",  # longer closer
+        "````\n```\n<think>kept</think>\n````\n",  # shorter run is not a closer
+        "~~~\n<think>kept</think>\n~~~\n",
+    ],
+)
+def test_strip_reasoning_fence_closers(fence: str):
+    """Fence closers follow the opener's character and length, with any line ending."""
+    from gptme.context import strip_reasoning
+
+    stripped, _ = strip_reasoning(fence + "after<think>gone</think> done", "gpt-4")
+
+    assert stripped == fence + "after done"
+
+
+def test_strip_reasoning_marker_shaped_text_is_literal():
+    """Text that looks like an internal placeholder is never rewritten."""
+    from gptme.context import strip_reasoning
+
+    code = "```\n<think>code</think>\n```"
+    content = "literal \x00FENCE0\x00\n<think>r</think>\n" + code
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "literal \x00FENCE0\x00\n\n" + code
+
+
+def test_strip_reasoning_removes_think_block_containing_code():
+    """A code block inside a reasoning block goes with it."""
+    from gptme.context import strip_reasoning
+
+    content = "<think>try:\n```sh\nls\n```\n</think>Answer"
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "Answer"
+
+
 def test_strip_reasoning_preserves_content_without_tags():
     """Test that strip_reasoning preserves content without reasoning tags."""
     from gptme.context import strip_reasoning

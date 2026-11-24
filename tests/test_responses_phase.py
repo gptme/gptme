@@ -251,6 +251,17 @@ def test_edits_and_reasoning_strip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "responses_output" not in json.dumps(chat_dicts)
 
 
+def test_prose_keeps_fenced_reasoning_example() -> None:
+    """A complete fenced reasoning example is code; prose after it survives."""
+    from gptme.llm.responses_phase import _prose
+
+    code = "```xml\n<think>example</think>\n```"
+    content = "<think>private</think>Example:\n" + code + "\nAfter."
+    assert _prose(content) == "Example:\n" + code + "\nAfter."
+    # An interrupted reasoning block outside fences is still dropped.
+    assert _prose(code + "\nDone <think>cut off") == code + "\nDone"
+
+
 def test_adjacent_phased_messages_survive_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
