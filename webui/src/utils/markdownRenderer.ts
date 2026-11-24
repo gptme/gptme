@@ -217,9 +217,12 @@ export function customRenderer(
             // Replace <details><summary>...<pre><code>... with inline element
             const inline = document.createElement('div');
             inline.className = 'inline-codeblock';
-            inline.innerHTML =
-              `<span class="inline-codeblock-label">${data.summary.innerHTML}</span>` +
-              `<code class="${data.code.className}">${data.code.innerHTML}</code>`;
+            // Move the rendered nodes instead of re-parsing them as HTML: the
+            // code's className carries the untrusted fence langtag.
+            const label = document.createElement('span');
+            label.className = 'inline-codeblock-label';
+            label.append(...Array.from(data.summary.childNodes));
+            inline.append(label, data.code);
             details.replaceWith(inline);
           }
         }

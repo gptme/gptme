@@ -318,3 +318,19 @@ describe('standardMarkdown mode', () => {
     expect(div.querySelector('pre')).not.toBeNull();
   });
 });
+
+describe('inline code block langtag', () => {
+  it.each([
+    ['img onerror', '```x"><img/src/onerror=alert(1)>\n1\n```\n'],
+    ['attribute breakout', '```x"/onmouseover="alert(1)\nhello\n```\n'],
+  ])('does not turn a hostile langtag into markup (%s)', (_name, markdown) => {
+    const div = parse(markdown);
+    const inline = div.querySelector('.inline-codeblock');
+    expect(inline).not.toBeNull();
+    expect(div.querySelector('img')).toBeNull();
+    const code = inline!.querySelector('code');
+    expect(code).not.toBeNull();
+    expect(code!.getAttribute('onmouseover')).toBeNull();
+    expect(code!.textContent).toMatch(/^(1|hello)$/);
+  });
+});
