@@ -6303,6 +6303,65 @@ def test_v2_config_patch_rebuild_uses_model_default_tool_format(
     assert prompt.call_args.kwargs["tool_format"] == "tool"
 
 
+def test_v2_conversation_config_redacts_inherited_mcp_secrets(
+    client: FlaskClient, mcp_config_file
+):
+    """Conversation config endpoints mask the MCP secrets the user endpoint masks.
+
+    A new conversation snapshots the user ``[mcp]`` servers into its own config.
+    GET and PATCH must not return those secrets in plaintext, and echoing the
+    redacted config back (as the webui does on save) must keep the real value.
+    """
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    stored = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
+    assert stored.mcp is not None
+    assert stored.mcp.servers[0].env["SEARCH_API_KEY"] == "sk-real"
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}/config")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "sk-real" not in response.get_data(as_text=True)
+    [server] = data["mcp"]["servers"]
+    assert server["env"] == {"SEARCH_API_KEY": "***", "REGION": "eu"}
+
+    # Round-trip the redacted config with an unrelated change.
+    data["chat"]["name"] = "renamed"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    assert "sk-real" not in response.get_data(as_text=True)
+    assert response.get_json()["config"]["mcp"]["servers"][0]["env"] == {
+        "SEARCH_API_KEY": "***",
+        "REGION": "eu",
+    }
+    stored = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
+    assert stored.mcp is not None
+    assert stored.mcp.servers[0].env["SEARCH_API_KEY"] == "sk-real"
+
+
+def test_v2_conversation_config_patch_rejects_redacted_secret_without_saved_value(
+    client: FlaskClient,
+):
+    """A ``***`` secret for a server with no saved value is rejected, not stored."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={
+            "mcp": {
+                "enabled": True,
+                "servers": [
+                    {"name": "new", "command": "echo", "env": {"NEW_TOKEN": "***"}}
+                ],
+            }
+        },
+    )
+    assert response.status_code == 400
+    assert "NEW_TOKEN is redacted" in response.get_json()["error"]
+
+
 def test_v2_chat_config_preserves_mcp_argv_and_null_tool_format(client: FlaskClient):
     """A config PATCH round-trips exact MCP argv and the absent tool format.
 

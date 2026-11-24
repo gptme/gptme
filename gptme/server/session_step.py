@@ -39,7 +39,12 @@ from ..util.context_measurement import anchor_context_usage, input_log_digest
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.reduce import ContextLimitError
 from ..util.workspace import set_workspace_cwd
-from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
+from .api_v2_common import (
+    ConfigChangedEvent,
+    ErrorEvent,
+    _redact_conversation_config,
+    msg2dict,
+)
 from .session_models import (
     ConversationSession,
     SessionManager,
@@ -556,7 +561,7 @@ def _try_auto_name_and_notify(
     if name:
         config_event: ConfigChangedEvent = {
             "type": "config_changed",
-            "config": config.to_dict(),
+            "config": _redact_conversation_config(config.to_dict()),
             "changed_fields": ["name"],
         }
         SessionManager.add_event(conversation_id, config_event)

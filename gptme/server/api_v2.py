@@ -88,8 +88,12 @@ from ..util.content import is_message_command
 from ..util.uri import URI, FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
+    _MCP_SECRET_KEY_RE,
+    _REDACT_SENTINEL,
     _abs_to_rel_workspace,
     _default_conversation_tools,
+    _redact_conversation_config,
+    _redact_mcp_secret_values,
     _resolve_requested_tools,
     _tools_unset,
     _validate_branch,
@@ -522,9 +526,6 @@ def _validate_api_key_input(api_key: str) -> str:
     return trimmed
 
 
-# Sentinel substituted for secret values in GET /config-file responses.
-_REDACT_SENTINEL = "***"
-
 # Matches TOML section headers: [section] or [section.subsection]
 _SECTION_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]")
 
@@ -641,21 +642,13 @@ def _read_user_config_file_text() -> str:
     return config_file.read_text()
 
 
-# env/header keys whose values are secrets in the structured MCP endpoint.
-_MCP_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|secret|password|token|auth)")
-
 # Serialises atomic read-modify-write of the user config file.
 _config_write_lock = threading.Lock()
 
 
 def _mcp_config_response(mcp: MCPConfig) -> dict:
     """Serialize ``[mcp]`` for the API, redacting secret env/header values."""
-
-    def _redact(values: dict) -> dict:
-        return {
-            k: _REDACT_SENTINEL if _MCP_SECRET_KEY_RE.search(str(k)) else v
-            for k, v in values.items()
-        }
+    _redact = _redact_mcp_secret_values
 
     return {
         "enabled": mcp.enabled,
@@ -666,6 +659,37 @@ def _mcp_config_response(mcp: MCPConfig) -> dict:
         ],
         "path": get_user_config_runtime_info()["config_path"],
     }
+
+
+def _restore_conversation_mcp_secrets(body: dict, stored: MCPConfig | None) -> None:
+    """Swap redacted ``***`` MCP secrets in a config PATCH body for stored values.
+
+    Clients echo the redacted config back on save; writing the sentinel would
+    replace the real secret. Matches servers by name. Raises ValueError when a
+    redacted secret has no stored value to keep.
+    """
+    mcp = body.get("mcp")
+    if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
+        return
+    on_disk = {srv.name: srv for srv in stored.servers} if stored else {}
+    for srv in mcp["servers"]:
+        if not isinstance(srv, dict):
+            continue
+        name = str(srv.get("name", ""))
+        for field_name in ("env", "headers"):
+            values = srv.get(field_name)
+            if not isinstance(values, dict):
+                continue
+            original = getattr(on_disk.get(name), field_name, None) or {}
+            for key, value in values.items():
+                if value != _REDACT_SENTINEL or not _MCP_SECRET_KEY_RE.search(str(key)):
+                    continue
+                if key not in original:
+                    raise ValueError(
+                        f"{name}: {field_name}.{key} is redacted but has no "
+                        "saved value to keep; send the real value"
+                    )
+                values[key] = original[key]
 
 
 def _parse_mcp_request(body: dict, current: MCPConfig) -> MCPConfig:
@@ -2999,7 +3023,11 @@ def api_commands():
 @require_auth
 @api_doc(
     summary="Get conversation config",
-    description="Return the stored chat config for a conversation.",
+    description=(
+        "Return the stored chat config for a conversation. Secret-looking MCP "
+        "env/header values are redacted as `***`; sending `***` back in a PATCH "
+        "keeps the stored value."
+    ),
     responses={200: ConversationConfigResponse, 404: ErrorResponse},
     tags=["conversations"],
 )
@@ -3013,7 +3041,7 @@ def api_conversation_config(conversation_id: str):
     chat_config_path = logdir / "config.toml"
     if chat_config_path.exists():
         chat_config = ChatConfig.from_logdir(logdir)
-        return flask.jsonify(chat_config.to_dict())
+        return flask.jsonify(_redact_conversation_config(chat_config.to_dict()))
     return (
         flask.jsonify({"error": f"Chat config not found: {conversation_id}"}),
         404,
@@ -3138,6 +3166,13 @@ def api_conversation_config_patch(conversation_id: str):
         # `elif _logdir and (_logdir / "workspace").exists()` branch).
         workspace_in_patch = isinstance(chat_patch, dict) and "workspace" in chat_patch
 
+        try:
+            _restore_conversation_mcp_secrets(
+                req_json, ChatConfig.from_logdir(logdir).mcp
+            )
+        except ValueError as exc:
+            return flask.jsonify({"error": str(exc)}), 400
+
         # Create and set config
         req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
         try:
@@ -3222,7 +3257,7 @@ def api_conversation_config_patch(conversation_id: str):
             {
                 "status": "ok",
                 "message": "Chat config updated",
-                "config": chat_config.to_dict(),
+                "config": _redact_conversation_config(chat_config.to_dict()),
                 "tools": [t.name for t in tools],
             }
         )
