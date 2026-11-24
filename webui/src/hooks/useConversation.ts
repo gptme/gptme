@@ -364,6 +364,10 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
 
+        // The first handshake follows the load above; later ones are reconnects
+        // (the callbacks survive api.ts retries) and must re-sync the log.
+        let handshakes = 0;
+
         // Keep stream ownership by identity: a late attachment POST can append
         // a user message after the assistant currently receiving tokens.
         let streamingTimestamp: string | undefined;
@@ -881,6 +885,14 @@ export function useConversation(conversationId: string, serverId?: string) {
                   // The agent is blocked on this answer, not generating.
                   setGenerating(conversationId, false);
                 }
+              }
+              // The server starts a reconnected stream at its current event
+              // count, so anything persisted during the outage is never
+              // replayed. Re-fetch the log to recover it (#5145).
+              if (handshakes++ > 0) {
+                api.resyncLogAfterReconnect(conversationId).catch((error) => {
+                  console.warn('[useConversation] Failed to re-sync log after reconnect:', error);
+                });
               }
             },
             onConversationEdited: (data) => {

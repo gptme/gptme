@@ -478,6 +478,26 @@ export function replaceLog(id: string, log: Message[]) {
   });
 }
 
+/** Replace the displayed log while keeping explicit window metadata.
+ *  Used by the reconnect resync, which may splice a fresh server window onto
+ *  older pages the user already loaded. */
+export function replaceLogWindow(
+  id: string,
+  log: Message[],
+  logOffset: number,
+  hasMoreBefore: boolean
+) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  batch(() => {
+    conv.data.log.set(log);
+    conv.logRevision.set((revision) => revision + 1);
+    conv.logOffset.set(logOffset);
+    conv.hasMoreBefore.set(hasMoreBefore);
+    conv.isWindowHydrated.set(true);
+  });
+}
+
 /** Prepend an older page of messages (for "load older" UX in Slice 2).
  *  Updates logOffset and hasMoreBefore to reflect the newly extended window. */
 export function prependLogPage(

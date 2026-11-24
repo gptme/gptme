@@ -28,6 +28,7 @@ import {
   setTopP,
   clearInitialStepState,
   replaceLog,
+  replaceLogWindow,
   removeMessage,
   addMessage,
   conversations$,
@@ -137,6 +138,73 @@ function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]
     }),
     ...local.filter((entry) => !snapshot.some((saved) => sameLogMessage(entry, saved))),
   ];
+}
+
+/** Window size for the reconnect resync; matches the initial conversation load. */
+const RECONNECT_RESYNC_LIMIT = 50;
+
+/**
+ * Merge a fresh server window into the local log after an event-stream
+ * reconnect. Messages persisted while the stream was down are never replayed
+ * (the server starts the new stream at its current event count), so the
+ * snapshot is the only way to recover them.
+ *
+ * - When the local log contains the snapshot's first message, older pages the
+ *   user loaded are kept and the snapshot replaces everything from there on.
+ * - Otherwise the gap is larger than the window and the snapshot becomes the
+ *   new window (`window` is returned so the caller resets pagination).
+ * - Local rows absent from the snapshot survive: unsaved prompts and rows that
+ *   arrived over the new stream while the snapshot was in flight. An
+ *   incomplete assistant survives only while generation is still running;
+ *   otherwise the server has finished (or dropped) it and the snapshot wins.
+ */
+export function mergeReconnectSnapshot(
+  local: Message[],
+  snapshot: Message[],
+  options: { generating: boolean; snapshotOffset: number; snapshotHasMore: boolean }
+): { log: Message[]; window?: { logOffset: number; hasMoreBefore: boolean } } {
+  const isIncomplete = (entry: Message) => 'isComplete' in entry && entry.isComplete === false;
+  const matches = (entry: Message, saved: Message) =>
+    sameLogMessage(entry, saved) ||
+    (!entry.timestamp && entry.role === saved.role && entry.content === saved.content);
+  const inSnapshot = (entry: Message) => snapshot.some((saved) => matches(entry, saved));
+  const merged = snapshot.map((entry) => {
+    const previous = local.find((candidate) => matches(candidate, entry));
+    if (!previous) return entry;
+    // Keep the local identity spelling and client-only status fields.
+    return {
+      ...previous,
+      ...entry,
+      timestamp: previous.timestamp ?? entry.timestamp,
+      ...(previous._status ? { _status: previous._status } : {}),
+      ...(options.generating && isIncomplete(previous)
+        ? { content: previous.content, isComplete: false }
+        : {}),
+    } as Message;
+  });
+  const anchor = snapshot.length > 0 ? local.findIndex((entry) => matches(entry, snapshot[0])) : -1;
+  if (anchor >= 0) {
+    const tail = local
+      .slice(anchor)
+      .filter((entry) => !inSnapshot(entry) && (options.generating || !isIncomplete(entry)));
+    return { log: [...local.slice(0, anchor), ...merged, ...tail] };
+  }
+  // No overlap: local saved rows cannot be placed relative to the snapshot.
+  // Keep only rows the server has not acknowledged yet.
+  const unsaved = local.filter(
+    (entry) =>
+      !inSnapshot(entry) &&
+      (entry._status === 'pending' ||
+        entry._status === 'failed' ||
+        (options.generating && isIncomplete(entry)))
+  );
+  return {
+    log: [...merged, ...unsaved],
+    window: {
+      logOffset: options.snapshotHasMore ? options.snapshotOffset : 0,
+      hasMoreBefore: options.snapshotHasMore,
+    },
+  };
 }
 
 function stopPlaceholderGeneration(conversationId: string, placeholderTimestamp: string): void {
@@ -1860,6 +1928,44 @@ export class ApiClient {
     }
     const retryRevision = currentLogRevision(conversationId);
     await applyIfUnchanged(retryRevision);
+  }
+
+  /**
+   * Re-fetch the latest log window after the event stream reconnects and merge
+   * it into the local log, recovering messages persisted during the outage.
+   * A local edit/delete while the request is in flight already returned an
+   * authoritative log, so the snapshot is discarded in that case.
+   */
+  async resyncLogAfterReconnect(conversationId: string): Promise<void> {
+    const state = conversations$.get(conversationId);
+    // A branch view shows branches[branch], not the main log this window holds.
+    if (!state?.peek() || state.currentBranch.peek() !== 'main') return;
+    const revision = currentLogRevision(conversationId);
+    const data = await this.getConversation(conversationId, { limit: RECONNECT_RESYNC_LIMIT });
+    if (
+      !state.peek() ||
+      currentLogRevision(conversationId) !== revision ||
+      state.currentBranch.peek() !== 'main' ||
+      !Array.isArray(data?.log)
+    ) {
+      return;
+    }
+    const local = state.data.log.peek() as Message[];
+    const { log, window } = mergeReconnectSnapshot(local, data.log as Message[], {
+      generating: state.isGenerating.peek(),
+      snapshotOffset: data.before ?? 0,
+      snapshotHasMore: data.has_more ?? false,
+    });
+    const logOffset = window ? window.logOffset : state.logOffset.peek();
+    const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();
+    if (
+      !window &&
+      log.length === local.length &&
+      log.every((entry, index) => JSON.stringify(entry) === JSON.stringify(local[index]))
+    ) {
+      return;
+    }
+    replaceLogWindow(conversationId, log, logOffset, hasMoreBefore);
   }
 
   /**

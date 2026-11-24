@@ -396,3 +396,46 @@ describe('remote images', () => {
     expect(div.querySelector('img')).toHaveAttribute('src', src);
   });
 });
+
+describe('link and image URL schemes (#5145)', () => {
+  it.each([
+    'javascript:alert(document.domain',
+    'JavaScript:alert(1',
+    ' java\tscript:alert(1',
+    'vbscript:msgbox(1',
+    'data:text/html,<script>alert(1</script>',
+  ])('drops unsafe link href %p but keeps the link text', (url) => {
+    for (const streaming of [false, true]) {
+      const div = parse(`[click](${url})`, streaming);
+      const link = div.querySelector('a');
+      expect(link).not.toBeNull();
+      expect(link).toHaveTextContent('click');
+      expect(link?.hasAttribute('href')).toBe(false);
+    }
+  });
+
+  it('drops javascript: image src', () => {
+    const img = parse('![x](javascript:alert(1)').querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img?.hasAttribute('src')).toBe(false);
+  });
+
+  it.each([
+    'https://example.com/a',
+    'http://example.com',
+    '/relative/path',
+    '#anchor',
+    'mailto:a@b.c',
+  ])('keeps safe link href %p', (url) => {
+    const link = parse(`[ok](${url})`).querySelector('a');
+    expect(link?.getAttribute('href')).toBe(url);
+    expect(link?.getAttribute('target')).toBe('_blank');
+  });
+
+  it('keeps relative and data: image src', () => {
+    expect(parse('![x](/x.png)').querySelector('img')?.getAttribute('src')).toBe('/x.png');
+    expect(
+      parse('![x](data:image/png;base64,AAAA)').querySelector('img')?.getAttribute('src')
+    ).toBe('data:image/png;base64,AAAA');
+  });
+});
