@@ -1312,11 +1312,22 @@ def chat(
             reserve_request(send_client, str(provider), response_kwargs)
             reserve_recovery_request()
             response = send_client.responses.create(**response_kwargs)
+        # Match the streaming path: an incomplete response (e.g. it hit the
+        # output token limit) still counts usage but is not a success.
+        incomplete = _obj_get(response, "status", None) == "incomplete"
+        if incomplete:
+            details = _obj_get(response, "incomplete_details", None)
+            logger.warning(
+                "Responses API response ended incomplete (reason=%s); "
+                "output may be truncated",
+                _obj_get(details, "reason", None) or "unknown",
+            )
         metadata = _record_usage(
             response.usage,
             model,
             reasoning_effort=reasoning_effort,
             served_model=served_model_from(response),
+            success=not incomplete,
         )
 
         result: list[str] = []

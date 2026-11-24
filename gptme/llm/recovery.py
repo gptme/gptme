@@ -203,7 +203,8 @@ def _transient_openai_stream_error(error: BaseException) -> bool:
         return all(
             (code in _TRANSIENT_STREAM_CODES)
             or (
-                code.isdecimal() and (int(code) in (408, 429) or 500 <= int(code) < 600)
+                code.isdecimal()
+                and (int(code) in (408, 409, 429) or 500 <= int(code) < 600)
             )
             for code in codes
         )
@@ -282,7 +283,10 @@ def is_transient_provider_error(error: BaseException) -> bool:
     if status is None:
         status = getattr(getattr(error, "response", None), "status_code", None)
     if status is not None:
-        return isinstance(status, int) and (status in (408, 429) or 500 <= status < 600)
+        # 409 matches the legacy provider retry decorators (llm_openai/llm_anthropic).
+        return isinstance(status, int) and (
+            status in (408, 409, 429) or 500 <= status < 600
+        )
     if "openai" in modules:
         from openai import APIError
 

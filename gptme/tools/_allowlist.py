@@ -10,6 +10,21 @@ TOOL_PRESETS: dict[str, tuple[str, ...]] = {
 TOOL_PRESET_NAMES = tuple(TOOL_PRESETS)
 
 
+def is_tool_file_path(value: str) -> bool:
+    """Whether an allowlist entry names a custom tool file rather than a tool.
+
+    A bare ``/`` is not enough: MCP tool names embed the server name, which may
+    itself contain ``/`` (e.g. ``docs/team.echo_text``).
+    """
+    return (
+        value.endswith(".py")
+        or value.startswith(("/", "./", "../", "~", ".\\", "..\\"))
+        or (
+            len(value) > 2 and value[1] == ":" and value[2] in "/\\"  # Windows C:\...
+        )
+    )
+
+
 def expand_tool_allowlist_presets(allowlist: list[str] | None) -> list[str] | None:
     """Expand named tool presets into concrete tool names.
 

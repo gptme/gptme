@@ -57,6 +57,7 @@ from .openai_responses import (
     _messages_to_responses_input,
     _stream_responses_events,
     _tool_spec_to_responses_tool,
+    clamp_responses_instructions,
 )
 from .responses_phase import ResponsesPhaseCapture
 from .retry_abort import backoff_wait, current_generation
@@ -533,36 +534,13 @@ CODEX_INSTRUCTIONS_TRUNCATION_MARKER = (
 def _clamp_codex_instructions(instructions: str | None) -> str:
     """Keep Codex `instructions` within the Responses API character cap.
 
-    System messages are joined with blank lines before reaching this boundary.
-    When possible, remove only the overflow from the end of the largest message;
-    this preserves every smaller instruction and avoids sacrificing roughly half
-    the prompt for a small overflow. If no single message can absorb the excess,
-    fall back to retaining both ends of the joined text.
+    The shared Responses converters already clamp with the same strategy, so
+    this is normally a no-op; it remains for instructions passed in directly.
     """
     text = instructions or "You are a helpful assistant."
-    limit = CODEX_INSTRUCTIONS_MAX_CHARS
-    if len(text) <= limit:
-        return text
-
-    overflow = len(text) - limit
-    parts = text.split("\n\n")
-    largest_index = max(range(len(parts)), key=lambda index: len(parts[index]))
-    if len(parts[largest_index]) > overflow:
-        parts[largest_index] = parts[largest_index][:-overflow]
-        clamped = "\n\n".join(parts)
-    else:
-        marker = CODEX_INSTRUCTIONS_TRUNCATION_MARKER
-        head_len = (limit - len(marker)) // 2
-        tail_len = limit - len(marker) - head_len
-        clamped = text[:head_len] + marker + text[-tail_len:]
-
-    logger.warning(
-        "Codex instructions exceeded %d chars (%d); removed %d chars to fit the Responses API cap",
-        limit,
-        len(text),
-        overflow,
+    return clamp_responses_instructions(
+        text, CODEX_INSTRUCTIONS_MAX_CHARS, CODEX_INSTRUCTIONS_TRUNCATION_MARKER
     )
-    return clamped
 
 
 def _transform_to_codex_request(

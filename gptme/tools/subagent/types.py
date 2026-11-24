@@ -697,10 +697,19 @@ class Subagent:
             cache_creation_total = 0
             saw_usage = False
             saw_cache = False
+            # A fork-mode log starts with fork_message_count messages copied
+            # from the parent (one JSONL record each). Their usage was the
+            # parent's, so skip them as _read_log does.
+            skip = self.fork_message_count
             with open(conv_fn, "rb") as f:
                 for line in f:
                     line = line.strip()
-                    if not line or b'"metadata"' not in line:
+                    if not line:
+                        continue
+                    if skip > 0:
+                        skip -= 1
+                        continue
+                    if b'"metadata"' not in line:
                         continue
                     try:
                         msg = json.loads(line)

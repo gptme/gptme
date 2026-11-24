@@ -68,7 +68,7 @@ _EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 # ("Manual extended thinking is no longer supported on Claude Opus 4.7 or
 # later models and returns a 400 error.")
 _ALWAYS_THINKING_MODELS: frozenset[str] = frozenset(
-    {"claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"}
+    {"claude-opus-5-5", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2"}
 )
 _ADAPTIVE_THINKING_MODELS: frozenset[str] = _ALWAYS_THINKING_MODELS | frozenset(
     {"claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5-5"}

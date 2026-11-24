@@ -1640,7 +1640,9 @@ def _timeout_subagent(
         return  # Already finished normally before the timer fired
 
     timeout_result = ReturnType(
-        "timeout", f"Auto-cancelled after {max_time}s (max_time exceeded)"
+        "timeout",
+        f"Auto-cancelled after {max_time}s (max_time exceeded)",
+        duration_s=time.time() - sa.started_at,
     )
     if not set_subagent_result_if_absent(
         agent_id, timeout_result, attempt=expected_run
