@@ -471,9 +471,16 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
                 # A release clears generating and publishes its error and
                 # step_complete events inside one step_lock section. Taking the
                 # lock makes this final read see them, so a failure that lands
-                # between the read above and this check is not missed.
-                with session.step_lock:
+                # between the read above and this check is not missed. Another
+                # holder (e.g. a deferred watch wake) may stall, so wait only
+                # for the time left before the deadline.
+                remaining = max(deadline - time.monotonic(), 0.0)
+                if not session.step_lock.acquire(timeout=remaining):
+                    break
+                try:
                     events, event_index = session.read_events(event_index)
+                finally:
+                    session.step_lock.release()
                 handle(events)
                 return
             session.event_flag.clear()

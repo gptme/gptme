@@ -251,6 +251,65 @@ def test_a2a_reports_failure_released_between_read_and_idle_check(
     assert (tmp_path / task_id / "a2a_failed.json").exists()
 
 
+def test_a2a_final_drain_respects_blocking_timeout(client, monkeypatch, tmp_path):
+    """A stalled step_lock holder cannot keep SendMessage past its timeout."""
+    import threading
+    import time
+
+    import gptme.server.a2a_api as a2a_api_module
+    from gptme.message import Message
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.5")
+    holder_has_lock = threading.Event()
+    release_holder = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        # The step is idle, but another holder (a deferred watch wake whose
+        # disk write stalls) owns step_lock.
+        session.generating = False
+
+        def stalled_holder():
+            with session.step_lock:
+                holder_has_lock.set()
+                release_holder.wait(5)
+
+        holder = threading.Thread(target=stalled_holder)
+        holders.append(holder)
+        holder.start()
+        assert holder_has_lock.wait(5)
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    try:
+        started = time.monotonic()
+        response = client.post("/api/a2a", json=_send_message_request("stall"))
+        elapsed = time.monotonic() - started
+    finally:
+        release_holder.set()
+        for holder in holders:
+            holder.join(5)
+
+    assert response.status_code == 200
+    assert "error" not in response.get_json()
+    assert elapsed < 3
+
+
 def test_a2a_resume_clears_failure_sentinel(client, monkeypatch, tmp_path):
     """Resuming a failed task (SendMessage with its id) clears the sentinel."""
     import gptme.server.a2a_api as a2a_api_module
