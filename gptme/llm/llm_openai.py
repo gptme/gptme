@@ -137,6 +137,9 @@ def _lazy_client_factory(cls_name: str):
     return factory
 
 
+# Explicit endpoint for openai/ so the SDK never falls back to OPENAI_BASE_URL.
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, OpenAI] = {}
 logger = logging.getLogger(__name__)
@@ -649,8 +652,15 @@ def init(provider: Provider, config: Config):
 
     if provider == "openai":
         api_key = proxy_key or _get_provider_api_key(config, provider, "OPENAI_API_KEY")
+        # Pass the base URL explicitly: with base_url=None the OpenAI SDK reads
+        # OPENAI_BASE_URL from the process env, which would send the OpenAI key
+        # to the local/ server that variable names (#5179). LLM_PROXY_URL is
+        # the supported way to reroute openai/ traffic.
         _init_openai_client(
-            provider, api_key=api_key, base_url=proxy_url or None, timeout=timeout
+            provider,
+            api_key=api_key,
+            base_url=proxy_url or OPENAI_DEFAULT_BASE_URL,
+            timeout=timeout,
         )
     elif provider == "azure":
         api_key = config.get_env_required("AZURE_OPENAI_API_KEY")

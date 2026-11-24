@@ -427,7 +427,8 @@ def display_costs(
 
     if not session and not conversation:
         console.log(
-            "[yellow]No cost data available. Use /tokens for approximation.[/yellow]"
+            "[yellow]No cost data available yet (no provider-reported usage). "
+            "Use /context for a token estimate.[/yellow]"
         )
         return
 

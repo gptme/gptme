@@ -2,6 +2,7 @@
 Core command registry, decorator, and base types.
 """
 
+import functools
 import io
 import logging
 import re
@@ -70,6 +71,8 @@ def command(
     """
 
     def decorator(func: OriginalCommandHandler) -> OriginalCommandHandler:
+        # wraps() keeps the docstring reachable for /help and command listings.
+        @functools.wraps(func)
         def wrapper(ctx: CommandContext) -> Generator:
             # Auto-undo the command message so it doesn't appear in the conversation
             if auto_undo:

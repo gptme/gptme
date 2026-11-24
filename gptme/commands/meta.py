@@ -275,9 +275,22 @@ def cmd_plugin(ctx: CommandContext) -> None:
 
 def _gen_help(incl_langtags: bool = True) -> Generator[str, None, None]:
     """Generate help text."""
+    from .base import get_commands_with_descriptions  # fmt: skip
+
+    # Commands registered outside the curated list above (e.g. /snapshot,
+    # /account, and tool-owned ones like /skills or /lesson when their tool is
+    # loaded) must show up too, or /help understates what the session can run.
+    curated = set(action_descriptions)
+    extra = [
+        (name, desc)
+        for name, desc in get_commands_with_descriptions()
+        if name not in curated
+    ]
+    entries = list(action_descriptions.items()) + extra
+
     yield "Available commands:"
-    max_cmdlen = max(len(cmd) for cmd in COMMANDS)
-    for cmd, desc in action_descriptions.items():
+    max_cmdlen = max(len(cmd) for cmd, _ in entries)
+    for cmd, desc in entries:
         yield f"  /{cmd.ljust(max_cmdlen)}  {desc}"
 
     yield "\b"

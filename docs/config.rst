@@ -379,7 +379,7 @@ Example ``gptme.toml``:
 This file currently supports a few options:
 
 - ``files``, a list of paths that gptme will always include in the context. If no ``gptme.toml`` is present or if the ``files`` option is unset, gptme will automatically look for common project files, such as: ``README.md``, ``pyproject.toml``, ``package.json``, ``Cargo.toml``, ``Makefile``, ``.cursor/rules/**.mdc``, ``CLAUDE.md``, ``GEMINI.md``.
-- ``prompt``, a string that will be included in the system prompt with a ``# Current Project`` header.
+- ``prompt``, a string that will be included in the system prompt under a ``## Current Project: <name>`` header, where ``<name>`` is the project directory name (the git repository root, or the workspace itself if it is not inside a git repository).
 - ``exclude``, a list of glob patterns for files to drop from the context file list. Each pattern is matched against both the file name and its path relative to the workspace, and applies to context files from ``files``, auto-detected project files, and user-configured files. :ref:`Agent instruction files <agent-instruction-files>` such as ``AGENTS.md`` are loaded separately and are not filtered.
 - ``system``, the system prompt variant: ``"full"`` (default) or ``"short"`` (a compact prompt with roughly 60% fewer tokens). An explicitly passed ``--system`` CLI flag takes precedence.
 

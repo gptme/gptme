@@ -122,7 +122,10 @@ Useful for:
    /replay              # Interactive: choose last, all, or tool name
    /replay last         # Replay only the last assistant message with tool uses
    /replay all          # Replay all assistant messages
-   /replay todo    # Replay all operations for a specific tool
+   /replay todo         # Replay all operations for a specific tool
+
+Only the assistant's own tool calls are replayed; the tool examples in the
+system prompt are not.
 
 /export
 ^^^^^^^
@@ -172,6 +175,10 @@ Displays:
 - Session costs (current session usage)
 - Conversation costs (all messages)
 - Breakdown by input/output tokens
+
+These figures come from the usage the provider reports for each request. If
+none has been recorded yet (for example with a local model that reports no
+usage), use ``/context`` for an estimated token breakdown instead.
 
 .. code-block:: text
 

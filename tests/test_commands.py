@@ -915,3 +915,16 @@ class TestEditRecovery:
         manager.write()
         assert manager.logfile.read_bytes() == before
         assert "Edit discarded; conversation unchanged." in capsys.readouterr().out
+
+
+def test_help_lists_commands_outside_curated_list():
+    """/help must list every registered command, e.g. /snapshot and /account (#5179)."""
+    from gptme.commands import _gen_help
+
+    lines = list(_gen_help(incl_langtags=False))
+    listed = {line.split()[0] for line in lines if line.startswith("  /")}
+    for cmd in ("/snapshot", "/account", "/tokens", "/help"):
+        assert cmd in listed
+    snapshot = next(line for line in lines if line.startswith("  /snapshot"))
+    # The handler docstring is used, not a placeholder.
+    assert "/snapshot command" not in snapshot
