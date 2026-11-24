@@ -1373,32 +1373,35 @@ def _extract_thinking_content(
     if not text_content:
         return [], ""
 
-    # Extract content from <think>...</think> and <thinking>...</thinking> blocks
-    think_matches = re.findall(r"<think>(.*?)</think>", text_content, flags=re.DOTALL)
-    thinking_matches = re.findall(
-        r"<thinking>(.*?)</thinking>", text_content, flags=re.DOTALL
-    )
-    all_thinking = think_matches + thinking_matches
-
-    # Extract the embedded signature comment and strip it from each block.
-    # Each block gets its own signature to support multiple thinking blocks.
+    # Only blocks gptme itself produced are thinking: a block carrying the
+    # embedded signature comment (interleaved or not), or a leading block with
+    # nothing but whitespace or other thinking before it. A literal
+    # ``<think>`` later in prose or inside tool-call arguments is message
+    # content and must survive; stripping it altered tool arguments and, when
+    # the span crossed a tool call, dropped a tool_use whose tool_result was
+    # still sent (gptme/gptme#5218 item 11).
     sig_pattern = re.compile(r"\n<!-- think-sig: (.*?) -->", re.DOTALL)
+    block_pattern = re.compile(r"<(think|thinking)>(.*?)</\1>\s*", re.DOTALL)
     thinking_blocks: list[tuple[str, str]] = []
-    for block in all_thinking:
+    kept: list[str] = []
+    pos = 0
+    leading = True
+    for match in block_pattern.finditer(text_content):
+        before = text_content[pos : match.start()]
+        if before.strip():
+            leading = False
+        block = match.group(2)
         sig_match = sig_pattern.search(block)
+        if not (leading or sig_match):
+            continue
+        kept.append(before)
+        pos = match.end()
         signature = sig_match.group(1).strip() if sig_match else ""
         cleaned_block = sig_pattern.sub("", block).strip()
         if cleaned_block or signature:
             thinking_blocks.append((cleaned_block, signature))
-
-    # Remove <think> and <thinking> tags from content
-    cleaned_content = re.sub(
-        r"<think>.*?</think>\s*", "", text_content, flags=re.DOTALL
-    )
-    cleaned_content = re.sub(
-        r"<thinking>.*?</thinking>\s*", "", cleaned_content, flags=re.DOTALL
-    )
-    cleaned_content = cleaned_content.strip()
+    kept.append(text_content[pos:])
+    cleaned_content = "".join(kept).strip()
 
     return thinking_blocks, cleaned_content
 

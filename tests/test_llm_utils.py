@@ -1226,6 +1226,73 @@ def test_extract_thinking_content_multi_block():
     assert "<think>" not in cleaned
 
 
+def test_extract_thinking_content_keeps_literal_tags_after_text():
+    """gptme#5218 item 11: literal tags in prose or tool arguments are content."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        "<think>\nplan\n</think>\n"
+        "Run this:\n"
+        '@shell(call-1): {"command": "printf \'<think>keep</think>\'"}'
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert blocks == [("plan", "")]
+    assert "printf '<think>keep</think>'" in cleaned
+    assert cleaned.startswith("Run this:")
+
+
+def test_extract_thinking_content_span_across_tool_call_is_kept():
+    """A literal span that crosses a tool call must not delete the call."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    tool_call = '@save(call-1): {"path": "a.txt", "content": "x"}'
+    content = f"Note <thinking> starts here\n{tool_call}\nand ends </thinking> here."
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert blocks == []
+    assert cleaned == content
+
+
+def test_extract_thinking_content_interleaved_signed_block():
+    """A signed block after text is still real thinking (interleaved)."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    sig = "laterSig=="
+    content = (
+        "First answer.\n"
+        f"<think>\nmore reasoning\n<!-- think-sig: {sig} -->\n</think>\n"
+        "Second answer with literal <think>x</think>."
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert blocks == [("more reasoning", sig)]
+    assert "think-sig" not in cleaned
+    assert "First answer." in cleaned
+    assert "literal <think>x</think>." in cleaned
+
+
+def test_handle_tools_keeps_tool_use_with_literal_think_argument():
+    """The tool_use survives when its argument contains a literal think tag."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    tool_call = '@shell(call-1): {"command": "printf \'<think>keep</think>\'"}'
+    result = list(
+        _handle_tools([{"role": "assistant", "content": f"Ok.\n{tool_call}"}])
+    )
+
+    content = result[0]["content"]
+    tool_uses = [b for b in content if b.get("type") == "tool_use"]
+    assert len(tool_uses) == 1
+    assert "<think>keep</think>" in str(tool_uses[0]["input"])
+
+
 def test_handle_tools_thinking_with_signature():
     """_handle_tools must include thinking block with signature when available."""
     from gptme.llm.llm_anthropic import _handle_tools
