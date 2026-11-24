@@ -1622,9 +1622,10 @@ def test_pipe_characters_are_not_rewritten(shell, command, expected):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX bash semantics")
-def test_background_stdin_reader_does_not_consume_later_commands(shell):
-    """Background jobs inherit the eval's /dev/null stdin, not bash's pipe."""
-    ret, out, err = shell.run("cat & wait", output=False, timeout=5.0)
+@pytest.mark.parametrize("job_control", ["set +m", "set -m"])
+def test_background_stdin_reader_does_not_consume_later_commands(shell, job_control):
+    """The eval redirect supplies EOF even when job control is enabled."""
+    ret, out, err = shell.run(f"{job_control}; cat & wait", output=False, timeout=5.0)
     assert ret == 0, (ret, out, err)
     assert "ReturnCode:" not in out
     assert shell.run("echo SURVIVED", output=False, timeout=5.0)[:2] == (
