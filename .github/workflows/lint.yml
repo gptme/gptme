@@ -6,6 +6,8 @@ on:
   pull_request:
     # Stacked PRs target feature branches before their base lands on master.
     branches: [ master, 'feat/*' ]
+  # Merge queue: required checks must also run on the queue's merge commit.
+  merge_group:
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
 # Master pushes share one group without cancel-in-progress: a running master
