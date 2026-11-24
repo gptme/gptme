@@ -607,6 +607,9 @@ export class ApiClient {
   // public closeEventStream(), i.e. when the app deliberately stops listening.
   // In-flight reconnect resyncs, keyed by conversation (see resyncLogAfterReconnect).
   private logResyncs = new Map<string, { rerun: boolean; running: Promise<void> }>();
+  // Bumped by closeEventStream: a resync started under an older generation no
+  // longer owns the conversation (it may now be open on another server).
+  private streamGenerations = new Map<string, number>();
   private eventCallbacks = new Map<string, Parameters<ApiClient['subscribeToEvents']>[1]>();
   // Slow background retries for streams whose fast reconnect budget ran out.
   private deadStreamRetries = new Map<string, { attempt: number; timer?: number }>();
@@ -1662,6 +1665,12 @@ export class ApiClient {
   /** The app no longer wants events for this conversation. */
   closeEventStream(conversationId: string): void {
     this.eventCallbacks.delete(conversationId);
+    this.streamGenerations.set(
+      conversationId,
+      (this.streamGenerations.get(conversationId) ?? 0) + 1
+    );
+    const resync = this.logResyncs.get(conversationId);
+    if (resync) resync.rerun = false; // a queued resync belongs to the closed stream
     const dead = this.deadStreamRetries.get(conversationId);
     if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
     this.deadStreamRetries.delete(conversationId);
@@ -1987,9 +1996,12 @@ export class ApiClient {
     // A branch view shows branches[branch], not the main log this window holds.
     if (!state?.peek() || state.currentBranch.peek() !== 'main') return;
     const revision = currentLogRevision(conversationId);
+    const generation = this.streamGenerations.get(conversationId) ?? 0;
     const lengthAtStart = state.data.log.peek().length;
+    const offsetAtStart = state.logOffset.peek();
     const data = await this.getConversation(conversationId, { limit: RECONNECT_RESYNC_LIMIT });
     if (
+      (this.streamGenerations.get(conversationId) ?? 0) !== generation ||
       !state.peek() ||
       currentLogRevision(conversationId) !== revision ||
       state.currentBranch.peek() !== 'main' ||
@@ -1998,12 +2010,15 @@ export class ApiClient {
       return;
     }
     const local = state.data.log.peek() as Message[];
+    // "Load older messages" prepends without bumping logRevision; those rows
+    // (one per offset step) are history, not rows the new stream delivered.
+    const prepended = Math.max(0, offsetAtStart - state.logOffset.peek());
     const { log, window } = mergeReconnectSnapshot(local, data.log as Message[], {
       generating: state.isGenerating.peek(),
       localOffset: state.logOffset.peek(),
       snapshotOffset: data.before ?? 0,
       snapshotHasMore: data.has_more ?? false,
-      arrivedCount: local.length - lengthAtStart,
+      arrivedCount: Math.max(0, local.length - lengthAtStart - prepended),
     });
     const logOffset = window ? window.logOffset : state.logOffset.peek();
     const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();

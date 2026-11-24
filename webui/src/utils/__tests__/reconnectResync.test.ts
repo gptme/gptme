@@ -7,6 +7,7 @@ import { ApiClient, mergeReconnectSnapshot } from '../api';
 import {
   conversations$,
   initConversation,
+  prependLogPage,
   replaceLog,
   setGenerating,
   updateConversationData,
@@ -140,6 +141,55 @@ describe('resyncLogAfterReconnect (#5145)', () => {
     await client.resyncLogAfterReconnect(ID);
 
     expect(state().data.log.get()).toEqual([reply, toolOutput, peerPrompt]);
+  });
+
+  it('does not count an older page loaded during the request as stream arrivals', async () => {
+    const older: Message = { role: 'user', content: 'old', timestamp: '2026-11-24T09:00:00Z' };
+    replaceLog(ID, [user]);
+    state().logOffset.set(7);
+    state().hasMoreBefore.set(true);
+    jest.spyOn(client, 'getConversation').mockImplementation(async () => {
+      prependLogPage(ID, [older], 6, true); // "Load older messages" finished first
+      return response([reply, toolOutput], { has_more: true, before: 60 });
+    });
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([reply, toolOutput]);
+    expect(state().logOffset.get()).toBe(60);
+  });
+
+  it('discards an in-flight snapshot once the stream is closed', async () => {
+    replaceLog(ID, [user]);
+    jest.spyOn(client, 'getConversation').mockImplementation(async () => {
+      // The chat moved to another server: this client no longer owns it.
+      client.closeEventStream(ID);
+      return response([user, reply]);
+    });
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([user]);
+  });
+
+  it('drops a queued resync when the stream is closed', async () => {
+    replaceLog(ID, [user]);
+    let releaseFirst!: () => void;
+    const get = jest.spyOn(client, 'getConversation').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseFirst = () => resolve(response([user, reply]));
+        })
+    );
+
+    const first = client.resyncLogAfterReconnect(ID);
+    const second = client.resyncLogAfterReconnect(ID);
+    client.closeEventStream(ID);
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(state().data.log.get()).toEqual([user]);
   });
 
   it('serializes overlapping resyncs so the newer reconnect is not discarded', async () => {
