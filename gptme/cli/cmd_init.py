@@ -184,7 +184,12 @@ def _toml_string(value: str) -> str:
 def _create_file(path: Path, content: str, *, target: Path) -> None:
     """Create a file with given content."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
+    if path.is_symlink():
+        # Replace the link itself: writing through it would overwrite the
+        # link's target, which may be another project file or outside the project.
+        logger.warning("Replacing existing symlink: %s", path)
+        path.unlink()
+    elif path.exists():
         logger.warning("Overwriting existing file: %s", path)
     path.write_text(content)
     click.echo(f"  Created {path.relative_to(target)}")
@@ -271,7 +276,8 @@ def _scaffold_project(
     # Symlink CLAUDE.md -> AGENTS.md
     agents_path = target / "AGENTS.md"
     claude_path = target / "CLAUDE.md"
-    if not claude_path.exists():
+    # is_symlink() also catches a dangling link, which exists() reports as absent.
+    if not (claude_path.exists() or claude_path.is_symlink()):
         try:
             claude_path.symlink_to("AGENTS.md")
             click.echo(f"  Created {claude_path.name} -> AGENTS.md")
