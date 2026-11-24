@@ -434,6 +434,23 @@ def test_split_commands_syntax_errors_raise():
         split_commands("echo `unclosed")
 
 
+@pytest.mark.parametrize("command", ["echo hello; }", "time { echo hello }"])
+def test_bad_single_command_leaves_shell_running(
+    shell: ShellSession, command: str
+) -> None:
+    status, _, _ = shell.run("export GPTME_SYNTAX_TEST=retained", output=False)
+    assert status == 0
+    original_process = shell.process
+
+    with pytest.raises(ValueError, match="Shell syntax error:"):
+        shell.run(command, output=False, timeout=0.5)
+
+    assert shell.process is original_process
+    status, stdout, _ = shell.run('echo "$GPTME_SYNTAX_TEST"', output=False)
+    assert status == 0
+    assert stdout == "retained"
+
+
 def test_split_commands_mixed_reserved_and_normal():
     """A ``time`` keyword no longer collapses the whole script into one command.
 
