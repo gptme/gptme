@@ -941,6 +941,20 @@ class TestFrontmatterFenceLines:
         lesson_file.write_text("---\n---\n# Title\n")
         assert not parse_lesson(lesson_file).malformed_frontmatter
 
+    @pytest.mark.parametrize("header", ["null\n", "~\n", "Null\n", "# c\nnull\n"])
+    def test_explicit_null_header_is_flagged(self, tmp_path: Path, header: str):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text(f"---\n{header}---\n# Title\n")
+        assert parse_lesson(lesson_file).malformed_frontmatter
+
+    @pytest.mark.parametrize("header", ["\n", "   \n", "# just a comment\n"])
+    def test_blank_or_comment_only_header_is_not_flagged(
+        self, tmp_path: Path, header: str
+    ):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text(f"---\n{header}---\n# Title\n")
+        assert not parse_lesson(lesson_file).malformed_frontmatter
+
     @pytest.mark.parametrize(
         ("content", "expected"),
         [

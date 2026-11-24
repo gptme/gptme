@@ -740,7 +740,9 @@ class TestLessonDeduplication:
         assert [lesson.title for lesson in index.lessons] == ["Shell"]
 
     @pytest.mark.parametrize(
-        "header", ["- just\n- a list\n", "just a scalar\n"], ids=["list", "scalar"]
+        "header",
+        ["- just\n- a list\n", "just a scalar\n", "null\n", "~\n"],
+        ids=["list", "scalar", "null", "tilde"],
     )
     def test_non_mapping_header_does_not_block_valid_copy(
         self, tmp_path: Path, header: str

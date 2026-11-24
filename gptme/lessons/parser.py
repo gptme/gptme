@@ -369,9 +369,14 @@ def parse_lesson(path: Path) -> Lesson:
                 # that look like YAML aliases (e.g., "globs: *,**/*")
                 frontmatter_str = _fix_unquoted_globs(frontmatter_str)
                 frontmatter = yaml.load(frontmatter_str, Loader=_YamlSafeLoader)
-                malformed_frontmatter = frontmatter is not None and not isinstance(
-                    frontmatter, dict
-                )
+                if frontmatter is None:
+                    # An empty document has no YAML node; an explicit null does.
+                    malformed_frontmatter = (
+                        yaml.compose(frontmatter_str, Loader=_YamlSafeLoader)
+                        is not None
+                    )
+                else:
+                    malformed_frontmatter = not isinstance(frontmatter, dict)
                 if frontmatter and isinstance(frontmatter, dict):
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter
