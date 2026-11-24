@@ -52,16 +52,28 @@ def _ring_terminal_bell() -> None:
 def _play(path: Path, volume: float = DEFAULT_VOLUME) -> bool:
     """Play a sound file to completion (the process exits right after)."""
     from ..util._sound_cmd import play_with_system_command_blocking
-    from ..util._sound_sounddevice import is_sounddevice_available
-    from ..util.sound import play_sound_file, set_volume
+    from ..util._sound_sounddevice import (
+        is_sounddevice_available,
+        load_wav_file,
+        play_with_sounddevice,
+    )
 
     if play_with_system_command_blocking(path, volume):
         return True
-    if is_sounddevice_available():
-        set_volume(volume)
-        play_sound_file(path, block=True)
-        return True
-    return False
+    if not is_sounddevice_available():
+        return False
+    # Play in this thread rather than through gptme's background playback
+    # queue: the queue logs and swallows failures, which made a failed
+    # sounddevice fallback exit 0 (#5152).
+    wav = load_wav_file(path)
+    if wav is None:
+        return False
+    sample_rate, data = wav
+    try:
+        play_with_sounddevice(data, sample_rate, volume)
+    except Exception:
+        return False  # play_with_sounddevice already logged the error
+    return True
 
 
 @click.group()
@@ -86,7 +98,11 @@ def play(name: str, bell: bool, volume: float) -> None:
     if bell:
         _ring_terminal_bell()
     if not _play(path, volume):
-        click.echo("No audio player available (tried afplay/paplay/ffplay)", err=True)
+        click.echo(
+            "No audio player available or playback failed "
+            "(tried afplay/paplay/ffplay, then sounddevice)",
+            err=True,
+        )
         sys.exit(1)
 
 
@@ -106,7 +122,11 @@ def ding(volume: float) -> None:
         )
         sys.exit(1)
     if not _play(path, volume):
-        click.echo("No audio player available (tried afplay/paplay/ffplay)", err=True)
+        click.echo(
+            "No audio player available or playback failed "
+            "(tried afplay/paplay/ffplay, then sounddevice)",
+            err=True,
+        )
         sys.exit(1)
 
 

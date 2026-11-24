@@ -250,9 +250,9 @@ def test_closing_the_receiver_releases_a_pending_wait():
 def test_idle_connection_does_not_block_the_callback():
     """A browser may open the socket before sending the request."""
     receiver = LoopbackReceiver()
-    idle = socket.create_connection(
-        (urlsplit(receiver.redirect_uri).hostname, urlsplit(receiver.redirect_uri).port)
-    )
+    redirect = urlsplit(receiver.redirect_uri)
+    assert redirect.port is not None
+    idle = socket.create_connection((redirect.hostname, redirect.port))
     try:
         thread = threading.Thread(
             target=_get,
@@ -328,10 +328,15 @@ def test_connect_enables_oauth_when_no_authorization_header_is_set(
     assert client._oauth_provider is None
 
 
+@pytest.mark.parametrize("register_ok", [True, False])
 def test_oauth_flow_runs_discovery_and_reports_headless_clearly(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, register_ok: bool
 ):
-    """Drive a real 401 through the provider: discovery, registration, no hang."""
+    """Drive a real 401 through the provider: discovery, registration, no hang.
+
+    With ``register_ok=False`` dynamic client registration itself returns 401:
+    the message must name that stage, not blame a cached token (#5152).
+    """
     import http.server
 
     import gptme.mcp.oauth as oauth_module
@@ -395,7 +400,9 @@ def test_oauth_flow_runs_discovery_and_reports_headless_clearly(
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
-            if self.path == "/register":
+            if self.path == "/register" and not register_ok:
+                self._json(401, {"error": "invalid_client"})
+            elif self.path == "/register":
                 payload = json.loads(body or b"{}")
                 self._json(
                     201,
@@ -432,7 +439,11 @@ def test_oauth_flow_runs_discovery_and_reports_headless_clearly(
         message = str(excinfo.value)
         # The whole point: the 401 turns into an actionable sentence, not a
         # cancellation or a bare status code.
-        assert "cannot open a browser" in message
+        if register_ok:
+            assert "cannot open a browser" in message
+        else:
+            assert "dynamic client registration failed" in message
+            assert "cached token" not in message
         assert "cancelled while connecting" not in message
         # The listener is bound to a port; a failed handshake must release it
         # instead of holding it for the lifetime of the process.

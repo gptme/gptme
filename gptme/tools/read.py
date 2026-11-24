@@ -305,9 +305,10 @@ def _read_one(
             path = (read_root / expanded_path).resolve()
         else:
             path = resolve_in_workspace(expanded_path)
-    except (RuntimeError, OSError) as exc:
-        # e.g. a symlink loop: report it for this path only, so later paths in
-        # a batch are still read.
+    except (RuntimeError, OSError, ValueError) as exc:
+        # e.g. a symlink loop, or a NUL byte in the path (ValueError: embedded
+        # null byte): report it for this path only, so later paths in a batch
+        # are still read.
         yield Message("system", f"Cannot resolve path {path_display}: {exc}")
         return
     containment_root = read_root or (
