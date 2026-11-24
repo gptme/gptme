@@ -392,9 +392,11 @@ def prompt_workspace(
                     loaded_agent_files.add(resolved)
                     try:
                         loaded_agent_files.add(
-                            f"{_HASH_PREFIX}{_content_hash(user_file.read_text(encoding='utf-8', errors='replace'))}"
+                            f"{_HASH_PREFIX}{_content_hash(user_file.read_text())}"
                         )
-                    except OSError:
+                    except (OSError, UnicodeDecodeError):
+                        # Undecodable text gets no content hash, so it is
+                        # deduplicated by path only.
                         pass
                     logger.debug(f"Loaded user-level agent file: {user_file}")
 
@@ -412,9 +414,9 @@ def prompt_workspace(
             loaded_agent_files.add(resolved)
             try:
                 loaded_agent_files.add(
-                    f"{_HASH_PREFIX}{_content_hash(agent_file.read_text(encoding='utf-8', errors='replace'))}"
+                    f"{_HASH_PREFIX}{_content_hash(agent_file.read_text())}"
                 )
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 pass
             logger.debug(f"Loaded agent file from tree: {agent_file}")
 

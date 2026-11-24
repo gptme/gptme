@@ -995,7 +995,7 @@ def test_profile_system_prompt_included_in_stats():
 
 
 def test_prompt_workspace_survives_non_utf8_agent_file(tmp_path, monkeypatch):
-    """A Latin-1 byte in CLAUDE.md must not crash prompt assembly.
+    """A non-UTF-8 byte in CLAUDE.md must not crash prompt assembly.
 
     The content hash read the file strictly and only caught OSError, so a
     UnicodeDecodeError escaped prompt_workspace() and get_prompt().
@@ -1005,9 +1005,42 @@ def test_prompt_workspace_survives_non_utf8_agent_file(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     workspace = fake_home / "proj"
     workspace.mkdir(parents=True)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
     monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-    (workspace / "CLAUDE.md").write_bytes(b"caf\xe9 rules\n")
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path", str(config_dir / "config.toml")
+    )
+    agent_file = workspace / "CLAUDE.md"
+    agent_file.write_bytes(b"caf\xe9 rules\n")
 
     msgs = list(prompt_workspace(workspace, include_runtime_context=False))
     attached = [str(f) for msg in msgs for f in msg.files]
-    assert any(f.endswith("CLAUDE.md") for f in attached), attached
+    assert str(agent_file) in attached or str(agent_file.resolve()) in attached, (
+        attached
+    )
+
+
+def test_prompt_workspace_survives_non_utf8_user_config_agent_file(
+    tmp_path, monkeypatch
+):
+    """A non-UTF-8 agent file in the user config dir must not crash either."""
+    from gptme.prompts import prompt_workspace
+
+    fake_home = tmp_path / "home"
+    workspace = fake_home / "proj"
+    workspace.mkdir(parents=True)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path", str(config_dir / "config.toml")
+    )
+    agent_file = config_dir / "AGENTS.md"
+    agent_file.write_bytes(b"caf\xe9 rules\n")
+
+    msgs = list(prompt_workspace(workspace, include_runtime_context=False))
+    attached = [str(f) for msg in msgs for f in msg.files]
+    assert str(agent_file) in attached or str(agent_file.resolve()) in attached, (
+        attached
+    )

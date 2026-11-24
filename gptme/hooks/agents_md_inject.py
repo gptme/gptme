@@ -415,7 +415,7 @@ def inject_agent_instruction_files(
 
         try:
             content = agent_file.read_text()
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.warning(f"Could not read agent file {agent_file}: {e}")
             continue
 
