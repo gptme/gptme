@@ -29,6 +29,7 @@ def prepare_execution_environment(
     workspace: Path,
     tools: list[str] | None = None,
     chat_config: ChatConfig | None = None,
+    server: bool = False,
 ) -> tuple[Config, list[ToolSpec]]:
     """
     Prepare the execution environment with config, tools, and hooks.
@@ -45,6 +46,11 @@ def prepare_execution_environment(
         workspace: The workspace directory
         tools: Optional list of tools to initialize (defaults to all)
         chat_config: Optional ChatConfig to set on the config
+        server: Running inside the server. The hook registry is per-context,
+            so server worker threads start empty; this registers the server
+            elicitation hook so choice/form reach the web UI instead of falling
+            back to a terminal prompt (#5110). Confirmation is not re-registered:
+            the server confirms tool calls before this context executes them.
 
     Returns:
         Tuple of (Config, list of initialized ToolSpec)
@@ -65,5 +71,9 @@ def prepare_execution_environment(
     initialized_tools = init_tools(tools)
     _register_core_compaction_hook()
     init_hooks()
+    if server:
+        from .hooks.server_elicit import register as register_server_elicit
+
+        register_server_elicit()
 
     return config, initialized_tools

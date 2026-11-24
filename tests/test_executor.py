@@ -288,3 +288,45 @@ class TestPrepareExecutionEnvironment:
         prepare_execution_environment(tmp_workspace)
 
         mock_init_tools.assert_called_once_with(None)
+
+
+# ===========================================================================
+# Server mode: elicitation reaches the web UI (#5110)
+# ===========================================================================
+
+
+@pytest.mark.parametrize("server", [True, False])
+@patch("gptme.executor.init_hooks")
+@patch("gptme.executor.init_tools", return_value=[])
+@patch("gptme.executor.load_dotenv")
+@patch("gptme.executor.set_config")
+@patch("gptme.executor.Config")
+def test_server_registers_elicit_hook_in_fresh_context(
+    mock_config_cls,
+    mock_set_config,
+    mock_load_dotenv,
+    mock_init_tools,
+    mock_init_hooks,
+    tmp_workspace,
+    server,
+):
+    """Server worker threads start with an empty hook registry. Without the
+    server elicitation hook, choice/form fall back to a terminal prompt on the
+    server process. Confirmation must not be re-registered: the server confirms
+    a tool call before its worker executes it."""
+    import contextvars
+
+    from gptme.executor import prepare_execution_environment
+    from gptme.hooks import HookType, get_hooks
+
+    def run() -> tuple[list[str], list[str]]:
+        prepare_execution_environment(tmp_workspace, server=server)
+        return (
+            [h.name for h in get_hooks(HookType.ELICIT)],
+            [h.name for h in get_hooks(HookType.TOOL_CONFIRM)],
+        )
+
+    elicit_hooks, confirm_hooks = contextvars.Context().run(run)
+
+    assert ("server_elicit" in elicit_hooks) is server
+    assert "server_confirm" not in confirm_hooks
