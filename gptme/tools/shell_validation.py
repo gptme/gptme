@@ -236,6 +236,60 @@ def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     return quoted_regions
 
 
+def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
+    """Return bash's delimiter for the heredoc word at ``start`` and its end.
+
+    Bash applies quote removal to the delimiter word, and any part of it may be
+    quoted: ``<<E\\OF``, ``<<'E'OF``, ``<<E"O"F`` and ``<<E''OF`` all end at an
+    ``EOF`` line. The delimiter must match bash's exactly. A different one
+    would let the region run past bash's terminator and hide real commands.
+
+    Returns None for a word this does not model exactly (``$'...'``,
+    ``$"..."``, backquotes, newlines, unterminated quotes). The caller then
+    finds no region, so a misparse can only make validation stricter.
+    """
+    out: list[str] = []
+    i = start
+    n = len(cmd)
+    while i < n:
+        c = cmd[i]
+        if c.isspace() or c in ";&|<>()":
+            break
+        if c == "`" or (c == "$" and cmd[i + 1 : i + 2] in ("'", '"')):
+            return None
+        if c == "\\":
+            if i + 1 >= n or cmd[i + 1] == "\n":
+                return None
+            out.append(cmd[i + 1])
+            i += 2
+        elif c == "'":
+            end = cmd.find("'", i + 1)
+            if end == -1 or "\n" in cmd[i + 1 : end]:
+                return None
+            out.append(cmd[i + 1 : end])
+            i = end + 1
+        elif c == '"':
+            i += 1
+            while i < n and cmd[i] != '"':
+                if cmd[i] in "\n`":
+                    return None
+                # Inside double quotes a backslash only escapes $ ` " \ and
+                # newline; before any other character it stays literal.
+                if cmd[i] == "\\" and cmd[i + 1 : i + 2] in ("$", "`", '"', "\\"):
+                    i += 1
+                out.append(cmd[i])
+                i += 1
+            if i >= n:
+                return None
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    if i == start:
+        return None
+    return "".join(out), i
+
+
 def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     """Find all heredoc regions in a command string.
 
@@ -244,16 +298,23 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 
     Returns a list of (start, end) tuples for each heredoc content region.
     """
-    heredoc_regions = []
+    heredoc_regions: list[tuple[int, int]] = []
 
     # A delimiter is a shell word, not necessarily an identifier. Support
     # punctuation commonly used to make delimiters distinctive (for example
     # ``END-TAG``), while stopping unquoted words at shell metacharacters.
-    heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
+    #
+    # ``<<<`` is a here-string, not a heredoc: it has no body, so the lookarounds
+    # keep its operand (and the lines after it) visible to validation.
+    heredoc_pattern = re.compile(r"(?<!<)<<(?!<)-?[ \t]*")
 
     quoted_regions = _find_quotes(cmd)
 
     for match in heredoc_pattern.finditer(cmd):
+        # ``<<`` text inside an earlier heredoc body is data. Treating it as an
+        # opener would start a region that runs past that body's terminator.
+        if _is_in_quoted_region(match.start(), heredoc_regions):
+            continue
         # Quoted or escaped ``<<`` text is inert to the shell and must not hide
         # later lines from command validation.
         if _is_in_quoted_region(match.start(), quoted_regions):
@@ -281,10 +342,12 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         ):
             continue
 
-        delimiter = next(group for group in match.groups() if group is not None)
+        word = _heredoc_delimiter(cmd, match.end())
+        if word is None:
+            continue
+        delimiter, search_start = word
 
         # Find where the content starts (after the first newline after the marker)
-        search_start = match.end()
         newline_idx = cmd.find("\n", search_start)
         if newline_idx == -1:
             continue  # No content

@@ -657,6 +657,46 @@ def _failure_stream_preview(
     return _truncate_log_tail(text, max_chars, hint)
 
 
+# gh subcommands that make the CLI run a local program. The gh tool never asks
+# for confirmation, so letting these through would hand the model unconfirmed
+# local code execution outside the shell tool's confirmation and guardrails.
+_LOCAL_PROGRAM_CONFIG_KEYS = frozenset({"browser", "editor", "pager"})
+_SAFE_EXTENSION_ACTIONS = frozenset({"list", "ls", "search"})
+_GITFLAG_COMMANDS = frozenset({("repo", "clone"), ("repo", "fork"), ("gist", "clone")})
+
+
+def _local_exec_reason(gh_args: list[str]) -> str | None:
+    """Return why ``gh <gh_args>`` would run a local program, or None."""
+    positionals = [a for a in gh_args if not a.startswith("-")]
+    if not positionals:
+        return None
+    sub, action = positionals[0], positionals[1] if len(positionals) > 1 else None
+    if sub == "alias" and action == "import":
+        return "`gh alias import` can define shell aliases"
+    if sub == "alias" and action == "set":
+        shell_flag = any(
+            a == "--shell"
+            or a.startswith("--shell=")
+            or (re.fullmatch(r"-[a-zA-Z]+", a) is not None and "s" in a)
+            for a in gh_args
+        )
+        # `!expansion` is a shell alias; `-` reads the expansion from stdin.
+        expansion = gh_args[gh_args.index("set") + 1 :]
+        if shell_flag or any(a.startswith("!") or a == "-" for a in expansion):
+            return "a shell alias runs its expansion through a local shell"
+    if sub in ("extension", "extensions", "ext") and action is not None:
+        if action not in _SAFE_EXTENSION_ACTIONS:
+            return f"`gh {sub} {action}` installs or runs extension programs"
+    if sub == "config" and action == "set":
+        if _LOCAL_PROGRAM_CONFIG_KEYS & set(positionals[2:]):
+            return "the browser, editor and pager settings are commands gh executes"
+    if (sub, action) in _GITFLAG_COMMANDS and "--" in gh_args[:-1]:
+        # ``-- <gitflags>`` reaches ``git clone``, where ``-c core.sshCommand=``
+        # (and similar settings) names a program git runs locally.
+        return f"`gh {sub} {action} -- <gitflags>` passes options to git"
+    return None
+
+
 def _passthrough_gh(
     args: list[str] | None, code: str | None
 ) -> Generator[Message, None, None]:
@@ -672,6 +712,14 @@ def _passthrough_gh(
             return
     else:
         yield Message("system", "Error: No command provided")
+        return
+
+    if reason := _local_exec_reason(cmd[1:]):
+        yield Message(
+            "system",
+            f"Error: refused `{shlex.join(cmd)}`: {reason}. The gh tool does not "
+            "run local programs; use the shell tool, which asks for confirmation.",
+        )
         return
 
     logger.info("gh pass-through: %s", shlex.join(cmd))
