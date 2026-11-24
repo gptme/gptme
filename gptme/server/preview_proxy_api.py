@@ -285,7 +285,14 @@ def _isolation_headers(content_type: str | None) -> list[tuple[str, str]]:
     """
     headers: list[tuple[str, str]] = [("X-Content-Type-Options", "nosniff")]
     mime = (content_type or "").split(";", 1)[0].strip().lower()
-    if mime in _HTML_LIKE_MIME:
+    # An untyped body is served by Flask as text/html, and browsers render any
+    # +xml document (RSS, Atom, MathML, ...) or XSL as XML, running XHTML scripts.
+    if (
+        not mime
+        or mime in _HTML_LIKE_MIME
+        or mime.endswith("+xml")
+        or mime == "text/xsl"
+    ):
         headers.append(("Content-Security-Policy", PREVIEW_CSP_SANDBOX))
     return headers
 

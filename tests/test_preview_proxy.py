@@ -378,6 +378,50 @@ class TestPreviewProxyHTTP:
         assert resp.headers.get("X-Content-Type-Options") == "nosniff"
         assert "Content-Security-Policy" not in resp.headers
 
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            None,  # Flask would serve the body as text/html
+            "",
+            "application/rss+xml",
+            "application/atom+xml; charset=utf-8",
+            "application/mathml+xml",
+            "text/xsl",
+        ],
+    )
+    def test_script_capable_or_untyped_response_is_sandboxed(
+        self, client: FlaskClient, content_type: str | None
+    ):
+        """XML documents browsers render, and untyped bodies, must be sandboxed too."""
+        body = (
+            b'<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            b"<script>fetch('/api/v2/conversations')</script></html>"
+        )
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                if content_type is not None:
+                    self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), _Handler)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+
+        resp = client.get(f"/preview/{port}/feed")
+        t.join(timeout=3)
+        srv.server_close()
+
+        assert resp.status_code == 200
+        assert resp.headers.get("Content-Security-Policy") == PREVIEW_CSP_SANDBOX
+
     def test_strips_upstream_set_cookie(self, client: FlaskClient):
         """Untrusted upstreams must not overwrite the preview auth cookie."""
 
