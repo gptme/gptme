@@ -586,8 +586,7 @@ class Subagent:
     shadowed_outcome: ReturnType | None = field(
         default=None, init=False, compare=False, repr=False
     )
-    # In-memory stop signal for thread-mode timeouts and for explicit
-    # cancellation when writing the control file fails.
+    # In-memory cancellation signal used when writing the control file fails.
     cancel_event: threading.Event = field(
         default_factory=threading.Event, init=False, repr=False
     )

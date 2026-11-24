@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, None]:
     """Apply cancel and steer operations at each STEP_PRE boundary.
 
-    Stop: reads ``logdir/control.jsonl`` for a cancellation record or checks the
-    thread's in-memory stop signal. Appends a note and raises
+    Stop: checks the thread's published timeout or cancellation signal, or reads
+    ``logdir/control.jsonl`` for a cancellation record. Appends a note and raises
     ``SessionCompleteException`` so ``chat()`` exits cleanly, preserving any
     terminal result already published.
 
@@ -69,9 +69,25 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
         )
     agent_id = sa.agent_id if sa is not None else manager.logdir.name
 
+    # Publication in memory precedes disk persistence. A blocked write must
+    # not let an already timed-out worker begin another step.
+    if sa is not None and sa.execution_mode == "thread":
+        outcome = sa._cached_result()
+        if outcome is not None and outcome.status == "timeout":
+            from ..complete import SessionCompleteException
+
+            try:
+                manager.append(
+                    Message(
+                        "system", "Subagent timed out; ending at this step boundary."
+                    )
+                )
+            except Exception:
+                logger.exception("Could not record subagent timeout in the transcript")
+            raise SessionCompleteException("Subagent timed out")
+
     # ── Cancel check ─────────────────────────────────────────────────────────
-    # The watchdog uses this per-attempt signal. Explicit cancellation uses it
-    # if the control-file write fails.
+    # Explicit cancellation uses the in-memory signal when the file write fails.
     in_memory_cancel = sa is not None and sa.cancel_event.is_set()
 
     has_cancel = in_memory_cancel
@@ -99,13 +115,6 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
 
     if has_cancel:
         from ..complete import SessionCompleteException
-
-        outcome = sa._cached_result() if in_memory_cancel and sa is not None else None
-        if outcome is not None and outcome.status == "timeout":
-            manager.append(
-                Message("system", "Subagent timed out; ending at this step boundary.")
-            )
-            raise SessionCompleteException("Subagent timed out")
 
         manager.append(
             Message(
