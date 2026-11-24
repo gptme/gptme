@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from base64 import b64encode
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 from dataclasses import asdict, replace
@@ -661,17 +662,22 @@ def _mcp_config_response(mcp: MCPConfig) -> dict:
     }
 
 
-def _restore_conversation_mcp_secrets(body: dict, stored: MCPConfig | None) -> None:
+def _restore_conversation_mcp_secrets(
+    body: dict, load_stored: Callable[[], MCPConfig | None]
+) -> None:
     """Swap redacted ``***`` MCP secrets in a config PATCH body for stored values.
 
     Clients echo the redacted config back on save; writing the sentinel would
-    replace the real secret. Matches servers by name. Raises ValueError when a
-    redacted secret has no stored value to keep.
+    replace the real secret. Matches servers by name, and only when the
+    destination (``command``/``args``/``url``) is unchanged, so a kept secret
+    never follows a server to a new endpoint. ``load_stored`` is called at most
+    once, and only when a redacted value needs restoring. Raises ValueError when
+    a redacted secret has no unambiguous stored value to keep.
     """
     mcp = body.get("mcp")
     if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
         return
-    on_disk = {srv.name: srv for srv in stored.servers} if stored else {}
+    stored_servers: list | None = None
     for srv in mcp["servers"]:
         if not isinstance(srv, dict):
             continue
@@ -680,14 +686,33 @@ def _restore_conversation_mcp_secrets(body: dict, stored: MCPConfig | None) -> N
             values = srv.get(field_name)
             if not isinstance(values, dict):
                 continue
-            original = getattr(on_disk.get(name), field_name, None) or {}
             for key, value in values.items():
                 if value != _REDACT_SENTINEL or not _MCP_SECRET_KEY_RE.search(str(key)):
                     continue
-                if key not in original:
+                if stored_servers is None:
+                    stored = load_stored()
+                    stored_servers = list(stored.servers) if stored else []
+                matches = [s for s in stored_servers if s.name == name]
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"{name}: {field_name}.{key} is redacted but several saved "
+                        "MCP servers share this name; send the real value"
+                    )
+                original = getattr(matches[0], field_name, None) if matches else None
+                if not original or key not in original:
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but has no "
                         "saved value to keep; send the real value"
+                    )
+                saved = matches[0]
+                if (
+                    srv.get("command", "") != saved.command
+                    or list(srv.get("args") or []) != list(saved.args)
+                    or srv.get("url", "") != saved.url
+                ):
+                    raise ValueError(
+                        f"{name}: {field_name}.{key} is redacted but the server's "
+                        "command, args or url changed; send the real value"
                     )
                 values[key] = original[key]
 
@@ -3168,7 +3193,8 @@ def api_conversation_config_patch(conversation_id: str):
 
         try:
             _restore_conversation_mcp_secrets(
-                req_json, ChatConfig.from_logdir(logdir).mcp
+                req_json,
+                lambda: ChatConfig.from_logdir(logdir, create_workspace=False).mcp,
             )
         except ValueError as exc:
             return flask.jsonify({"error": str(exc)}), 400
