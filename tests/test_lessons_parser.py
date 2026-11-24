@@ -13,6 +13,7 @@ from gptme.lessons.parser import (
     _extract_title,
     _glob_to_keywords,
     _translate_cursor_metadata,
+    has_frontmatter_fence,
     parse_lesson,
 )
 
@@ -913,3 +914,43 @@ This is a standard gptme lesson.
             assert lesson.metadata.keywords == ["patch", "editing"]
             assert lesson.metadata.status == "active"
             assert lesson.metadata.globs == []  # Should not have globs
+
+
+class TestFrontmatterFenceLines:
+    """A fence line may carry a YAML comment; a non-mapping header is flagged."""
+
+    def test_fences_with_yaml_comments(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text(
+            "--- # start\nmatch:\n  keywords: [patch]\n---   # end\n# Title\n\nBody.\n"
+        )
+        lesson = parse_lesson(lesson_file)
+        assert lesson.metadata.keywords == ["patch"]
+        assert lesson.title == "Title"
+        assert not lesson.malformed_frontmatter
+
+    def test_non_mapping_header_keeps_body_and_is_flagged(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text("---\n- a\n- list\n---\n# Title\n\nBody.\n")
+        lesson = parse_lesson(lesson_file)
+        assert lesson.title == "Title"
+        assert lesson.malformed_frontmatter
+
+    def test_empty_header_is_not_flagged(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        lesson_file.write_text("---\n---\n# Title\n")
+        assert not parse_lesson(lesson_file).malformed_frontmatter
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            ("---\nx: 1\n", True),
+            ("\ufeff--- # c\r\n", True),
+            ("----\n# Title\n", False),
+            ("\ufeff----\n", False),
+            ("---x\n", False),
+            ("# Title\n", False),
+        ],
+    )
+    def test_has_frontmatter_fence(self, content: str, expected: bool):
+        assert has_frontmatter_fence(content) is expected

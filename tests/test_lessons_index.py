@@ -739,6 +739,31 @@ class TestLessonDeduplication:
 
         assert [lesson.title for lesson in index.lessons] == ["Shell"]
 
+    @pytest.mark.parametrize(
+        "header", ["- just\n- a list\n", "just a scalar\n"], ids=["list", "scalar"]
+    )
+    def test_non_mapping_header_does_not_block_valid_copy(
+        self, tmp_path: Path, header: str
+    ):
+        """A header that parses but is not a mapping yields default metadata.
+
+        That copy must not reserve the path, or the later copy's keywords are lost.
+        """
+        clear_cache()
+        dir1 = tmp_path / "a" / "lessons"
+        dir2 = tmp_path / "b" / "lessons"
+        (dir1 / "tools").mkdir(parents=True)
+        (dir2 / "tools").mkdir(parents=True)
+        (dir1 / "tools" / "shell.md").write_text(f"---\n{header}---\n# Bad\n")
+        (dir2 / "tools" / "shell.md").write_text(
+            "---\nmatch:\n  keywords: [shell]\n---\n# Shell\n\nx\n"
+        )
+
+        index = LessonIndex([dir1, dir2])
+
+        assert [lesson.title for lesson in index.lessons] == ["Shell"]
+        assert index.lessons[0].metadata.keywords == ["shell"]
+
     def test_lesson_with_null_match_field_still_indexed(self, tmp_path: Path):
         """A null ``patterns:`` must not drop the lesson from the index."""
         clear_cache()
@@ -999,3 +1024,17 @@ class TestWorktreeExclusion:
         index = LessonIndex(lesson_dirs=[lesson_dir])
 
         assert [lesson.title for lesson in index.lessons] == ["Patch Lesson"]
+
+
+def test_bom_skill_starting_with_markdown_divider_is_indexed(tmp_path: Path):
+    """``----`` is a Markdown divider, not a frontmatter fence, even after a BOM."""
+    clear_cache()
+    skills = tmp_path / "skills"
+    (skills / "divider-skill").mkdir(parents=True)
+    (skills / "divider-skill" / "SKILL.md").write_bytes(
+        "\ufeff----\n# Divider Skill\n\nBody.\n".encode()
+    )
+
+    index = LessonIndex([skills])
+
+    assert [lesson.title for lesson in index.lessons] == ["Divider Skill"]

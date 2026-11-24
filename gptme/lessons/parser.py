@@ -80,6 +80,9 @@ class Lesson:
     category: str
     body: str
     is_stub: bool = False
+    # A frontmatter block is present but is not a mapping (e.g. a YAML list):
+    # the body is kept, but the metadata is defaults, not what the file meant.
+    malformed_frontmatter: bool = False
 
 
 def _extract_title(content: str) -> str:
@@ -253,11 +256,19 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
 
 
 # Frontmatter: an opening "---" line, then everything up to the first line that
-# is exactly "---" (trailing whitespace allowed). Group 1 is the YAML, group 2
-# the body. Line-anchored so "---" inside a YAML value does not end the block.
+# is exactly "---" (trailing whitespace or a YAML "# comment" allowed). Group 1
+# is the YAML, group 2 the body. Line-anchored so "---" inside a YAML value does
+# not end the block, and "----" (a Markdown divider) is not a fence.
+_FENCE = r"---(?:[ \t]+#[^\r\n]*)?[ \t]*"
 _FRONTMATTER_RE = re.compile(
-    r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)(.*)", re.DOTALL | re.MULTILINE
+    rf"\A{_FENCE}\r?\n(.*?)^{_FENCE}(?:\r?\n|\Z)(.*)", re.DOTALL | re.MULTILINE
 )
+_OPENING_FENCE_RE = re.compile(rf"\A{_FENCE}(?:\r?\n|\Z)")
+
+
+def has_frontmatter_fence(content: str) -> bool:
+    """Whether ``content`` opens with a frontmatter fence line (BOM ignored)."""
+    return _OPENING_FENCE_RE.match(content.removeprefix("\ufeff")) is not None
 
 
 def _fix_unquoted_globs(frontmatter_str: str) -> str:
@@ -338,6 +349,7 @@ def parse_lesson(path: Path) -> Lesson:
     # Parse frontmatter if present
     metadata = LessonMetadata()
     body = content
+    malformed_frontmatter = False
 
     if content.startswith("---"):
         if not HAS_YAML:
@@ -357,6 +369,9 @@ def parse_lesson(path: Path) -> Lesson:
                 # that look like YAML aliases (e.g., "globs: *,**/*")
                 frontmatter_str = _fix_unquoted_globs(frontmatter_str)
                 frontmatter = yaml.load(frontmatter_str, Loader=_YamlSafeLoader)
+                malformed_frontmatter = frontmatter is not None and not isinstance(
+                    frontmatter, dict
+                )
                 if frontmatter and isinstance(frontmatter, dict):
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter
@@ -444,4 +459,5 @@ def parse_lesson(path: Path) -> Lesson:
         description=description,
         category=category,
         body=body,
+        malformed_frontmatter=malformed_frontmatter,
     )

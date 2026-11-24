@@ -9,7 +9,7 @@ import stat
 from pathlib import Path
 
 from . import _trusted_cache_base
-from .parser import Lesson, LessonMetadata, parse_lesson
+from .parser import Lesson, LessonMetadata, has_frontmatter_fence, parse_lesson
 
 logger = logging.getLogger(__name__)
 
@@ -636,6 +636,14 @@ class LessonIndex:
                 logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
                 continue
 
+            if lesson.malformed_frontmatter:
+                # Its metadata is defaults, not what the file declared. Skip it
+                # without reserving the path, so a later valid copy is indexed.
+                logger.warning(
+                    f"Skipping lesson whose frontmatter is not a mapping: {lesson_file}"
+                )
+                continue
+
             # Skills are identified by their declared name, not by file path:
             # the file is always SKILL.md, so relative-path dedup can never
             # collapse two copies of the same skill (backup/snapshot dirs,
@@ -651,10 +659,8 @@ class LessonIndex:
                     # change or disappear between parse and this check, and an
                     # unhandled error here would abort the whole index build.
                     try:
-                        has_frontmatter = (
+                        has_frontmatter = has_frontmatter_fence(
                             lesson_file.read_text(encoding="utf-8")
-                            .removeprefix("\ufeff")
-                            .startswith("---")
                         )
                     except (OSError, UnicodeDecodeError):
                         logger.warning(f"Skipping unreadable skill file: {lesson_file}")
