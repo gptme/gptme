@@ -868,13 +868,25 @@ def _try_3way_merge(
     try:
         with (
             tempfile.NamedTemporaryFile(
-                mode="w", suffix=".ours", delete=False, encoding="utf-8"
+                mode="w",
+                suffix=".ours",
+                delete=False,
+                encoding="utf-8",
+                newline="",
             ) as f_ours,
             tempfile.NamedTemporaryFile(
-                mode="w", suffix=".base", delete=False, encoding="utf-8"
+                mode="w",
+                suffix=".base",
+                delete=False,
+                encoding="utf-8",
+                newline="",
             ) as f_base,
             tempfile.NamedTemporaryFile(
-                mode="w", suffix=".theirs", delete=False, encoding="utf-8"
+                mode="w",
+                suffix=".theirs",
+                delete=False,
+                encoding="utf-8",
+                newline="",
             ) as f_theirs,
         ):
             # Capture paths before writes so the finally block can clean up even
@@ -903,16 +915,18 @@ def _try_3way_merge(
                 base_path,
                 theirs_path,
             ],
+            # Bytes, not text=True: universal-newline decoding would turn lone
+            # carriage returns in untouched lines into line feeds.
             capture_output=True,
-            text=True,
-            encoding="utf-8",
             check=False,
         )
+        merged = result.stdout.decode("utf-8")
+        stderr = result.stderr.decode("utf-8", errors="replace")
         had_conflicts = 0 < result.returncode <= 127
         if (
             result.returncode < 0
             or result.returncode > 127
-            or (result.returncode != 0 and not result.stdout.strip())
+            or (result.returncode != 0 and not merged.strip())
         ):
             # returncode < 0   → process killed by signal (OOM, SIGKILL, etc.)
             # returncode > 127 → git operational error.
@@ -922,9 +936,9 @@ def _try_3way_merge(
             # stderr presence alone is NOT a reliable indicator of operational failure.
             raise ValueError(
                 f"git merge-file failed (exit {result.returncode}): "
-                + (result.stderr.strip() or "no diagnostic available")
+                + (stderr.strip() or "no diagnostic available")
             )
-        return result.stdout, had_conflicts
+        return merged, had_conflicts
     except FileNotFoundError as e:
         raise ValueError(
             "git not found — cannot attempt 3-way merge recovery; "

@@ -1475,8 +1475,8 @@ class TestMergeRecovery:
         fake_result = CompletedProcess(
             args=["git", "merge-file", "-p"],
             returncode=128,
-            stdout="",
-            stderr="error: could not read repository",
+            stdout=b"",
+            stderr=b"error: could not read repository",
         )
         with patch("subprocess.run", return_value=fake_result):
             msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
@@ -1507,8 +1507,8 @@ class TestMergeRecovery:
         fake_result = CompletedProcess(
             args=["git", "merge-file", "-p"],
             returncode=1,
-            stdout=conflict_output,
-            stderr="warning: too many conflicts",
+            stdout=conflict_output.encode(),
+            stderr=b"warning: too many conflicts",
         )
         with patch("subprocess.run", return_value=fake_result):
             msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
@@ -1557,8 +1557,8 @@ class TestMergeRecovery:
         fake_result = CompletedProcess(
             args=["git", "merge-file", "-p"],
             returncode=-9,
-            stdout="partial\noutput\n",
-            stderr="",
+            stdout=b"partial\noutput\n",
+            stderr=b"",
         )
         with patch("subprocess.run", return_value=fake_result):
             msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
@@ -1704,3 +1704,19 @@ class TestLineFidelity:
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
         assert "write failed" in msgs[0], msgs
         assert alias.read_text() == f.read_text() == "a\nb\n"
+
+
+def test_3way_merge_keeps_lone_carriage_returns_in_untouched_text():
+    """A clean merge must not turn a lone \\r in an untouched line into \\n."""
+    import shutil
+
+    from gptme.tools.hashline_edit import _try_3way_merge
+
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    snapshot = "a\rb\nc\nd\n"
+    live = snapshot + "e\n"
+    ops = [HashlineOp(kind="insert_before", start=1, end=1, text="zero")]
+    merged, had_conflicts = _try_3way_merge(snapshot, ops, live)
+    assert not had_conflicts
+    assert merged == "zero\na\rb\nc\nd\ne\n"
