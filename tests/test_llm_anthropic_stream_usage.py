@@ -198,5 +198,5 @@ def test_clamped_thinking_budget_respects_api_minimum(max_tokens):
         max_tokens, 16000, True, model
     )
     param = llm_anthropic._build_thinking_param(model, use_thinking, budget)
-    if param is not None and param.get("type") == "enabled":
+    if param is not None and param["type"] == "enabled":
         assert 1024 <= param["budget_tokens"] < max_tokens, param
