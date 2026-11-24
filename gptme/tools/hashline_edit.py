@@ -131,8 +131,10 @@ def _parse_operations(code: str) -> tuple[str, str, list[HashlineOp]]:
     if not code:
         raise ParseError("Empty edit block")
     # Split on "\n" only: content lines may legitimately contain characters such
-    # as "\f" or "\x85" that str.splitlines() would treat as line breaks.
-    lines = code.split("\n")
+    # as "\f" or "\x85" that str.splitlines() would treat as line breaks. CRLF
+    # block endings are normalized first so "+" lines don't keep a stray "\r";
+    # lone carriage returns inside content are kept.
+    lines = code.replace("\r\n", "\n").split("\n")
 
     # First line must be [PATH#TAG]
     m = _RE_HEADER.match(lines[0].strip())

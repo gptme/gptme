@@ -161,6 +161,11 @@ class TestParser:
         _, _, ops = _parse_operations(block)
         assert ops[0].text == "line a\nline b\nline c"
 
+    def test_crlf_block_lines_keep_no_carriage_return(self):
+        block = "[f.py#A1B2C3D4]\r\nPUT 1.=2:\r\n+line a\r\n+x\ry\r\n"
+        _, _, ops = _parse_operations(block)
+        assert ops[0].text == "line a\nx\ry"
+
     def test_empty_block_raises(self):
         with pytest.raises(ParseError):
             _parse_operations("")
