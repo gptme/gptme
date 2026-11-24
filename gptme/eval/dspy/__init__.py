@@ -7,6 +7,7 @@ using DSPy's prompt optimization techniques like MIPROv2 and BootstrapFewShot.
 
 import importlib.util
 import logging
+import os
 from functools import lru_cache
 
 __all__ = ["main"]
@@ -30,6 +31,10 @@ def main() -> None:
     runs (gptme/gptme#290 is the same failure for ``gptme-server``).
     """
     if not _has_dspy():
+        # The installed completion script may outlive removal of this extra.
+        # Tab should return no candidates, not print the interactive error.
+        if os.environ.get("_GPTME_DSPY_COMPLETE"):
+            return
         logger.error(
             "gptme installed without needed extras for dspy. "
             "Install them with `pip install gptme[dspy]`"

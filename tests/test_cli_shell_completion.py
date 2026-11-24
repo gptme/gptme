@@ -146,21 +146,17 @@ def test_completion_protocol_for_cli_surfaces(
     assert expected in result.output
 
 
-def test_custom_model_completion_is_offline(monkeypatch):
-    from types import SimpleNamespace
-
+def test_custom_model_completion_is_offline(tmp_path, monkeypatch):
     import click
 
     from gptme.cli.completion import complete_model
 
-    monkeypatch.setattr(
-        "gptme.config.get_config",
-        lambda: SimpleNamespace(
-            user=SimpleNamespace(
-                providers=[SimpleNamespace(name="relay", default_model="custom-model")]
-            )
-        ),
+    config = tmp_path / "config.toml"
+    config.write_text(
+        '[[providers]]\nname = "relay"\nbase_url = "https://relay.invalid/v1"\n'
+        'default_model = "custom-model"\n'
     )
+    monkeypatch.setattr("gptme.config.user.config_path", str(config))
 
     def no_network(*args, **kwargs):
         pytest.fail("Shell completion must not fetch model lists")
@@ -243,3 +239,122 @@ def test_provider_suggestions_are_valid_model_values():
     assert candidates
     for candidate in candidates:
         assert _validate_model_param(ctx, param, candidate.value) == candidate.value
+
+
+@pytest.mark.parametrize("content", [None, 'unknown_setting = "keep me"\n', "[broken"])
+def test_model_completion_never_writes_config(tmp_path, monkeypatch, content):
+    import click
+
+    from gptme.cli.completion import complete_model
+    from gptme.config.core import _config_var
+
+    config = tmp_path / "config.toml"
+    if content is not None:
+        config.write_text(content)
+    monkeypatch.setattr("gptme.config.user.config_path", str(config))
+    _config_var.set(None)
+    values = [
+        item.value
+        for item in complete_model(
+            click.Context(tui), click.Option(["--model"]), "openrouter/"
+        )
+    ]
+    assert any(value.startswith("openrouter/anthropic/") for value in values)
+    assert config.exists() == (content is not None)
+    if content is not None:
+        assert config.read_text() == content
+
+
+@pytest.mark.parametrize("shell", ["fish", "bash"])
+def test_installer_respects_xdg_directories(tmp_path, monkeypatch, shell):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("SHELL", f"/bin/{shell}")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
+    _setup_completions()
+    directory = (
+        tmp_path / "config/fish/completions"
+        if shell == "fish"
+        else tmp_path / "data/bash-completion/completions"
+    )
+    assert (directory / ("gptme.fish" if shell == "fish" else "gptme")).exists()
+    assert not (tmp_path / ".config").exists()
+    assert not (tmp_path / ".local").exists()
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
+@pytest.mark.parametrize(
+    ("option", "partial", "expected"),
+    [
+        ("--tools", "sh", "shell"),
+        ("--system", "", "full"),
+        ("--system", "", "short"),
+        ("--system", "full-n", "full-noexamples"),
+    ],
+)
+def test_legacy_value_completion_protocol(shell, option, partial, expected):
+    from gptme.cli.main import main
+
+    env = {
+        "_GPTME_COMPLETE": f"{shell}_complete",
+        "COMP_WORDS": f"gptme {option} {partial}",
+        "COMP_CWORD": partial if shell == "fish" else "2",
+    }
+    result = CliRunner().invoke(main, [], prog_name="gptme", env=env)
+    assert result.exit_code == 0, result.output
+    assert expected in result.output
+
+
+def test_dspy_completion_without_extra_is_quiet(monkeypatch, caplog):
+    from gptme.eval.dspy import main
+
+    monkeypatch.setattr("gptme.eval.dspy._has_dspy", lambda: False)
+    monkeypatch.setenv("_GPTME_DSPY_COMPLETE", "fish_complete")
+    main()
+    assert not caplog.records
+
+
+def test_custom_model_completion_layer_precedence(tmp_path, monkeypatch):
+    import click
+
+    from gptme.cli.completion import complete_model
+
+    config = tmp_path / "config.toml"
+    runtime = tmp_path / "config.runtime.toml"
+    local = tmp_path / "config.local.toml"
+    runtime.write_text(
+        '[[providers]]\nname = "relay"\nbase_url = "https://relay.invalid/v1"\n'
+        'default_model = "runtime-model"\n'
+        '[[providers]]\nname = "runtime-only"\nbase_url = "https://runtime.invalid/v1"\n'
+        'default_model = "other-model"\n'
+    )
+    config.write_text('[[providers]]\nname = "relay"\ndefault_model = "main-model"\n')
+    local.write_text('[[providers]]\nname = "relay"\ndefault_model = "local-model"\n')
+    paths = [runtime, config, local]
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in paths}
+    monkeypatch.setattr("gptme.config.user.config_path", str(config))
+    values = {
+        item.value
+        for item in complete_model(click.Context(tui), click.Option(["--model"]), "r")
+        if item.value.startswith(("relay", "runtime-only"))
+    }
+    assert values == {
+        "relay",
+        "relay/local-model",
+        "runtime-only",
+        "runtime-only/other-model",
+    }
+    assert before == {
+        path: (path.read_bytes(), path.stat().st_mtime_ns) for path in paths
+    }
+
+
+def test_dspy_without_extra_still_reports_normal_invocation(monkeypatch, caplog):
+    from gptme.eval.dspy import main
+
+    monkeypatch.setattr("gptme.eval.dspy._has_dspy", lambda: False)
+    monkeypatch.delenv("_GPTME_DSPY_COMPLETE", raising=False)
+    with pytest.raises(SystemExit, match="1"):
+        main()
+    assert "pip install gptme[dspy]" in caplog.text

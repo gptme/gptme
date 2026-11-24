@@ -699,6 +699,11 @@ def _same_env_executable(name: str) -> str | None:
     "--system",
     "prompt_system",
     default=None,
+    shell_complete=lambda ctx, param, incomplete: [
+        name
+        for name in ("full", "full-noexamples", "short")
+        if name.startswith(incomplete)
+    ],
     help="System prompt [full|full-noexamples|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set. 'full-noexamples' omits tool examples (~40% token reduction).",
 )
 @click.option(

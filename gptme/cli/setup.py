@@ -108,10 +108,12 @@ def _install_click_completions(shell: str) -> None:
     only needs their names; importing them here would make setup require every
     extra (or, for ACP, risk starting a stdio protocol transport).
     """
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     directories = {
-        "fish": Path.home() / ".config/fish/completions",
-        "bash": Path.home() / ".local/share/bash-completion/completions",
-        "zsh": Path.home() / ".local/share/zsh/completions",
+        "fish": config_home / "fish/completions",
+        "bash": data_home / "bash-completion/completions",
+        "zsh": data_home / "zsh/completions",
     }
     directory = directories[shell]
     # ACP is a stdio transport with no CLI options. The others use argparse,

@@ -99,10 +99,13 @@ in ``gptme``, ``gptme-tui``, and ``gptme-server serve`` uses bundled model metad
 and custom-provider defaults without network requests or authentication. You can
 still enter model IDs that are not in the bundled list.
 
-Fish loads the files from ``~/.config/fish/completions`` automatically. Bash needs
-``bash-completion`` installed and enabled; otherwise source the generated files
-in ``~/.local/share/bash-completion/completions`` from ``~/.bashrc``. For Zsh, add
-this before ``compinit`` in ``~/.zshrc``:
+Fish loads files from ``$XDG_CONFIG_HOME/fish/completions`` (default:
+``~/.config/fish/completions``). Bash needs ``bash-completion`` installed and
+enabled; files are installed under ``$XDG_DATA_HOME/bash-completion/completions``
+(default: ``~/.local/share/bash-completion/completions``). Without bash-completion,
+source those generated files from ``~/.bashrc``. For Zsh, add the installation
+directory printed by the installer before ``compinit`` in ``~/.zshrc``. With the
+default ``XDG_DATA_HOME``, this is:
 
 .. code-block:: zsh
 
