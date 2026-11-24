@@ -840,6 +840,63 @@ def test_subprocess_control_hook_delivers_queued_steer(
     assert drain_steer_prompts(logdir) == []
 
 
+def test_subagent_wait_uses_monitor_outcome_after_process_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import subprocess
+    import threading
+
+    from gptme.tools.subagent import Subagent, execution, subagent_wait
+
+    finalizing = threading.Event()
+    allow_completion = threading.Event()
+
+    def hold_cleanup(_subagent: Subagent) -> None:
+        finalizing.set()
+        allow_completion.wait(timeout=10)
+
+    monkeypatch.setattr(execution, "_cleanup_isolation", hold_cleanup)
+    monkeypatch.setattr(execution, "notify_completion", MagicMock())
+    with (
+        (tmp_path / "stderr.log").open("wb") as stderr,
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import sys, time; print('child diagnostic', file=sys.stderr); time.sleep(30)",
+            ],
+            stderr=stderr,
+            start_new_session=True,
+        ) as process,
+    ):
+        monitor = threading.Thread(target=lambda: execution._monitor_subprocess(sa))
+        sa = Subagent(
+            agent_id="wait-for-monitor",
+            prompt="Test",
+            thread=monitor,
+            logdir=tmp_path,
+            model=None,
+            process=process,
+            execution_mode="subprocess",
+            timeout=1,
+        )
+        _subagents.append(sa)
+        monitor.start()
+        try:
+            assert finalizing.wait(timeout=10)
+            assert process.poll() is not None
+            assert subagent_wait(sa.agent_id, timeout=0)["status"] == "running"
+            allow_completion.set()
+
+            result = subagent_wait(sa.agent_id, timeout=5)
+            assert result["status"] == "timeout"
+            assert "child diagnostic" in result["result"]
+        finally:
+            allow_completion.set()
+            monitor.join(timeout=10)
+            assert not monitor.is_alive()
+
+
 @pytest.mark.slow
 def test_subprocess_crash_surfaces_real_stderr_tail(monkeypatch, tmp_path):
     """A crashing real child reports its stderr traceback through the monitor."""
