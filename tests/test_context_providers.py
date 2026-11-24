@@ -688,18 +688,22 @@ def test_concurrent_first_lookup_finds_default_provider(cleanup_registry, monkey
             results[key] = e
 
     first = threading.Thread(target=lookup, args=("first",), daemon=True)
-    first.start()
-    assert loading.wait(timeout=10), "first lookup never started loading providers"
-
-    # The first lookup is now paused inside initialization.
     second = threading.Thread(target=lookup, args=("second",), daemon=True)
-    second.start()
-    second.join(timeout=0.2)
-    assert second.is_alive(), f"second lookup did not wait for init: {results}"
+    try:
+        first.start()
+        assert loading.wait(timeout=10), "first lookup never started loading providers"
 
-    release.set()
-    first.join(timeout=10)
-    second.join(timeout=10)
+        # The first lookup is now paused inside initialization.
+        second.start()
+        second.join(timeout=0.2)
+        assert second.is_alive(), f"second lookup did not wait for init: {results}"
+    finally:
+        # Always unblock the loader and reap both threads, so a failed assertion
+        # can't leave a thread inside the registry while fixtures reset it.
+        release.set()
+        for t in (first, second):
+            if t.is_alive():
+                t.join(timeout=10)
     assert not first.is_alive() and not second.is_alive(), "lookup deadlocked"
     assert isinstance(results["first"], DefaultContextProvider), results
     assert isinstance(results["second"], DefaultContextProvider), results
