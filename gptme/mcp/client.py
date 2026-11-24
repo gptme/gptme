@@ -749,12 +749,23 @@ class MCPClient:
         stream = self._read_stream
         if stream is None:
             return await coro
+        if stream.statistics().open_send_streams == 0:
+            # Died before this request was sent: retrying after a restart is safe.
+            coro.close()
+            raise ConnectionError(
+                "MCP server connection closed: the server process exited"
+            )
         request = asyncio.ensure_future(coro)
         try:
             while not request.done():
                 if stream.statistics().open_send_streams == 0:
-                    raise ConnectionError(
-                        "MCP server connection closed: the server process exited"
+                    # Died while the request was in flight: the tool may already
+                    # have run. Not a connection error, so the auto-restart does
+                    # not repeat a call that may have changed data; the next call
+                    # sees the closed stream and restarts.
+                    raise RuntimeError(
+                        "MCP server exited during the call; its result is unknown "
+                        "and it was not retried"
                     )
                 await asyncio.wait({request}, timeout=0.1)
             return request.result()

@@ -13,7 +13,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import anyio
-import psutil
 import pytest
 
 from gptme.config import Config, MCPConfig, MCPServerConfig, UserConfig
@@ -62,6 +61,7 @@ def test_closed_transport_stream_triggers_restart():
 
 @pytest.mark.timeout(60)
 def test_call_after_server_death_fails_fast(tmp_path):
+    psutil = pytest.importorskip("psutil")
     server = tmp_path / "tiny_server.py"
     server.write_text(SERVER_SRC)
     srv = MCPServerConfig(name="tiny", command=sys.executable, args=[str(server)])
@@ -100,3 +100,45 @@ def test_call_after_server_death_fails_fast(tmp_path):
         assert _is_connection_error(outcome["error"]), outcome["error"]
     finally:
         client.close()
+
+
+class _FakeStream:
+    def __init__(self, open_streams: int):
+        self.open_streams = open_streams
+
+    def statistics(self):
+        return MagicMock(open_send_streams=self.open_streams)
+
+
+def _bare_client(stream: _FakeStream) -> MCPClient:
+    client = MCPClient.__new__(MCPClient)
+    client._read_stream = stream
+    return client
+
+
+def test_server_dead_before_send_is_retryable():
+    sent = []
+
+    async def request():
+        sent.append(True)
+
+    client = _bare_client(_FakeStream(0))
+    with pytest.raises(ConnectionError) as info:
+        anyio.run(client._unless_transport_closed, request())
+    assert _is_connection_error(info.value)
+    assert sent == []
+
+
+def test_server_dying_mid_call_is_not_retried():
+    """The tool may already have run: the retry path must not repeat it."""
+    stream = _FakeStream(1)
+
+    async def request():
+        stream.open_streams = 0  # server exits after receiving the request
+        await anyio.sleep(10)
+
+    client = _bare_client(stream)
+    with pytest.raises(RuntimeError) as info:
+        anyio.run(client._unless_transport_closed, request())
+    assert not _is_connection_error(info.value)
+    assert "result is unknown" in str(info.value)
