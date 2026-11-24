@@ -240,6 +240,12 @@ def analyze_incremental_compression(
     return trajectory
 
 
+_FENCE_RE = re.compile(
+    r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)",
+    flags=re.DOTALL | re.MULTILINE,
+)
+
+
 def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
     """
     Strip reasoning tags from message content.
@@ -256,8 +262,19 @@ def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
     """
     original_tokens = len_tokens(content, model)
 
+    # Mask fenced code blocks so tag-like text and blank lines inside code
+    # are left alone. A fence closes only on a line with the same fence run;
+    # an unclosed fence runs to the end of the content.
+    fences: list[str] = []
+
+    def _mask(match: re.Match[str]) -> str:
+        fences.append(match.group(0))
+        return f"\x00FENCE{len(fences) - 1}\x00"
+
+    stripped = _FENCE_RE.sub(_mask, content)
+
     # Remove <think>...</think> blocks (including newlines inside)
-    stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+    stripped = re.sub(r"<think>.*?</think>", "", stripped, flags=re.DOTALL)
 
     # Remove <thinking>...</thinking> blocks (including newlines inside)
     stripped = re.sub(r"<thinking>.*?</thinking>", "", stripped, flags=re.DOTALL)
@@ -265,6 +282,10 @@ def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
     # Clean up extra whitespace left by removals
     stripped = re.sub(r"\n\n\n+", "\n\n", stripped)  # Multiple blank lines -> two
     stripped = stripped.strip()
+
+    stripped = re.sub(
+        r"\x00FENCE(\d+)\x00", lambda m: fences[int(m.group(1))], stripped
+    )
 
     tokens_saved = original_tokens - len_tokens(stripped, model)
     return stripped, tokens_saved

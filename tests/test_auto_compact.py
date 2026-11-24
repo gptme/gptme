@@ -311,6 +311,38 @@ def test_strip_reasoning_handles_multiple_blocks():
     assert tokens_saved > 0
 
 
+def test_strip_reasoning_leaves_fenced_code_intact():
+    """Reasoning-tag text and blank lines inside a code block are code, not reasoning."""
+    from gptme.context import strip_reasoning
+
+    code = (
+        "```python\n"
+        "PATTERN = r'<think>.*?</think>'\n"
+        "\n"
+        "\n"
+        "\n"
+        "def f():\n"
+        "    return PATTERN\n"
+        "```"
+    )
+    content = "<think>let me plan</think>\nHere is the code:\n" + code
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert "let me plan" not in stripped
+    assert code in stripped
+    assert tokens_saved > 0
+
+
+def test_strip_reasoning_removes_think_block_containing_code():
+    """A code block inside a reasoning block goes with it."""
+    from gptme.context import strip_reasoning
+
+    content = "<think>try:\n```sh\nls\n```\n</think>Answer"
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "Answer"
+
+
 def test_strip_reasoning_preserves_content_without_tags():
     """Test that strip_reasoning preserves content without reasoning tags."""
     from gptme.context import strip_reasoning
