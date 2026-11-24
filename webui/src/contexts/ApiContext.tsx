@@ -474,7 +474,9 @@ export function ApiProvider({
   );
 
   const retryConnection = useCallback(async () => {
-    if (!isAutoConnecting$.get()) {
+    // Once the automatic budget is spent, the pending timer would only stop
+    // the loop; check the server directly instead.
+    if (!isAutoConnecting$.get() || autoConnectAttempts >= MAX_AUTO_CONNECT_ATTEMPTS) {
       await connect();
       return;
     }
