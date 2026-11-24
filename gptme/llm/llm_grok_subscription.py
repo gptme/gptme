@@ -97,6 +97,26 @@ def _parse_expires_at(expires_at_str: str) -> float:
         return 0.0  # treat unparseable expiry as already-expired to force refresh
 
 
+def _find_grok_cli_key(data: dict) -> str | None:
+    """Return the grok CLI auth.json key holding our OAuth client's entry.
+
+    Prefers the exact ``GROK_AUTH_KEY``, then falls back to any key that embeds
+    our exact client ID. We check the client ID (not the issuer URL) so we only
+    accept tokens issued for this application, never tokens from unrelated
+    OAuth clients that happen to share the same issuer domain.
+
+    Loading and write-back must use the same lookup: otherwise a refresh spends
+    the refresh token from a variant key but never writes the new one back.
+    """
+    if GROK_AUTH_KEY in data:
+        return GROK_AUTH_KEY
+    for key in data:
+        if OAUTH_CLIENT_ID in key:
+            logger.debug("Using alternate grok auth key %r", key)
+            return key
+    return None
+
+
 def _load_grok_cli_tokens() -> SubscriptionAuth | None:
     """Load tokens from grok CLI auth file (~/.grok/auth.json).
 
@@ -114,19 +134,8 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
     try:
         data = json.loads(grok_path.read_text())
 
-        # First try to find the entry for our exact OAuth client ID.
-        entry = data.get(GROK_AUTH_KEY)
-
-        # Fall back to any key that embeds our exact client ID.
-        # We check the client ID (not the issuer URL) so we only accept tokens
-        # issued for this application, preventing use of tokens from unrelated
-        # OAuth clients that happen to share the same issuer domain.
-        if entry is None:
-            for key, value in data.items():
-                if OAUTH_CLIENT_ID in key:
-                    entry = value
-                    logger.debug("Using alternate grok auth key %r", key)
-                    break
+        key = _find_grok_cli_key(data)
+        entry = data[key] if key is not None else None
 
         if entry is None:
             logger.warning(
@@ -201,13 +210,14 @@ def _update_grok_cli_tokens(auth: SubscriptionAuth) -> None:
             if not grok_path.exists():
                 return
             data = json.loads(grok_path.read_text())
-            if GROK_AUTH_KEY not in data:
+            key = _find_grok_cli_key(data)
+            if key is None:
                 return
 
             from datetime import datetime, timezone
 
             dt = datetime.fromtimestamp(auth.expires_at, tz=timezone.utc)
-            entry = data[GROK_AUTH_KEY]
+            entry = data[key]
             entry["key"] = auth.access_token
             entry["expires_at"] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
             if auth.refresh_token:
