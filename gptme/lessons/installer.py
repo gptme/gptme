@@ -180,6 +180,8 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
     """
     # Only a #path install restricts the checkout; a whole-repo skill needs
     # every subdirectory (cone-mode --sparse checks out top-level files only).
+    if skill_path and os.path.normpath(skill_path) == ".":
+        skill_path = None  # '#.' (or 'a/..') selects the repository root
     sparse = ["--sparse"] if skill_path else []
     try:
         subprocess.run(
@@ -227,9 +229,16 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
                 logger.warning(f"{failure}: {e.stderr}")
             except subprocess.TimeoutExpired:
                 logger.warning(f"{failure}: timed out")
+        else:
+            # Neither a sparse nor a full checkout is known to be complete.
+            logger.error("Could not check out the skill path")
+            return None
         source_dir = tmp / skill_path
+        if not _copy_shared_skill_md(tmp, source_dir):
+            return None
     else:
         source_dir = tmp
+    if source_dir.resolve() == tmp.resolve():
         # Repository metadata is not part of the skill.
         try:
             shutil.rmtree(tmp / ".git")
@@ -244,6 +253,48 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
         logger.error(f"Skill path not found in repository: {skill_path}")
         return None
     return source_dir
+
+
+def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
+    """Replace a SKILL.md link to a file elsewhere in the clone with a copy.
+
+    The skill is published without the rest of the checkout, so such a link
+    would dangle. Other links (and links leaving the clone) are left as-is.
+    """
+    skill_md = _find_skill_md(source_dir)
+    if skill_md is None or not skill_md.is_symlink():
+        return True
+    root = tmp.resolve()
+    target = skill_md.resolve()
+    if (
+        not target.is_relative_to(root)
+        or target.is_relative_to(root / ".git")
+        or target.is_relative_to(source_dir.resolve())
+    ):
+        return True
+    try:
+        if not target.exists() and target.parent != root:
+            # Outside the sparse cone: check out the directory holding it.
+            subprocess.run(
+                [
+                    GIT_CMD,
+                    "sparse-checkout",
+                    "add",
+                    target.parent.relative_to(root).as_posix(),
+                ],
+                cwd=tmp,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        content = target.read_bytes()
+        skill_md.unlink()
+        skill_md.write_bytes(content)
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.error(f"Could not copy shared {skill_md.name}: {e}")
+        return False
+    return True
 
 
 def _staged_metadata_path(path: Path, dest: Path, staged: Path) -> Path:

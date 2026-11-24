@@ -15,6 +15,10 @@ from gptme.lessons import installer
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(installer, "get_config_dir", lambda: tmp_path / "config")
+    # Repo setup and the installer's clone must not see user/system git config
+    # (e.g. commit.gpgSign without a usable key).
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     # Test seam: let a local file:// repo stand in for an https:// remote.
     orig = installer._is_git_url
     monkeypatch.setattr(
@@ -83,8 +87,9 @@ def install_local(tmp_path: Path, name: str, extra: str) -> Path:
     return installer.get_skills_dir() / name
 
 
+@pytest.mark.parametrize("suffix", ["", "#.", "#scripts/.."])
 def test_whole_repo_install_keeps_subdirectories_and_drops_git_dir(
-    tmp_path: Path,
+    tmp_path: Path, suffix: str
 ) -> None:
     repo = make_repo(
         tmp_path / "repo",
@@ -94,16 +99,67 @@ def test_whole_repo_install_keeps_subdirectories_and_drops_git_dir(
             "references/guide.md": "guide\n",
         },
     )
-    ok, msg = installer.install_skill(f"file://{repo}")
+    ok, msg = installer.install_skill(f"file://{repo}{suffix}")
     assert ok, msg
     installed = installer.get_skills_dir() / "whole"
     assert (installed / "SKILL.md").exists()
     assert (installed / "scripts" / "helper.py").exists()
     assert (installed / "references" / "guide.md").exists()
     assert not (installed / ".git").exists()
-    assert installer.get_manifest().skills["whole"].source == f"file://{repo}"
+    assert installer.get_manifest().skills["whole"].source == f"file://{repo}{suffix}"
 
 
+@pytest.mark.usefixtures("requires_symlinks")
+def test_skill_md_linked_to_shared_file_in_checkout_is_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_registry(
+        tmp_path,
+        monkeypatch,
+        files={
+            "shared/SKILL.md": skill_md("foo"),
+            "skills/foo/helper.py": "print('hi')\n",
+        },
+        links={
+            "skills/foo/SKILL.md": "../../shared/SKILL.md",
+            "skills/foo/common.md": "../../shared/common.md",
+        },
+    )
+    ok, msg = installer.install_skill("foo")
+    assert ok, msg
+    installed = installer.get_skills_dir() / "foo"
+    assert not (installed / "SKILL.md").is_symlink()
+    assert (installed / "SKILL.md").read_text() == skill_md("foo")
+    # Other links are kept as links.
+    assert os.readlink(installed / "common.md") == "../../shared/common.md"
+
+
+def test_failed_sparse_checkout_and_fallback_fails_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_registry(tmp_path, monkeypatch)
+    real_run = subprocess.run
+
+    def run(cmd, *args, **kwargs):
+        if "sparse-checkout" not in cmd:
+            return real_run(cmd, *args, **kwargs)
+        if "set" in cmd:
+            # Git wrote SKILL.md, then the command timed out: state unknown.
+            real_run(cmd, *args, **kwargs)
+            raise subprocess.TimeoutExpired(cmd, 30)
+        raise subprocess.CalledProcessError(1, cmd, stderr="boom")
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    ok, msg = installer.install_skill("foo")
+    assert not ok
+    assert "Failed to install skill from" in msg
+    assert not installer.get_skills_dir().exists() or not list(
+        installer.get_skills_dir().iterdir()
+    )
+    assert installer.get_manifest().skills == {}
+
+
+@pytest.mark.usefixtures("requires_symlinks")
 def test_symlink_outside_sparse_cone_is_kept_as_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -117,6 +173,7 @@ def test_symlink_outside_sparse_cone_is_kept_as_link(
     assert os.readlink(link) == "../../shared/common.md"
 
 
+@pytest.mark.usefixtures("requires_symlinks")
 def test_absolute_symlink_is_not_dereferenced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -190,6 +247,7 @@ def test_failed_clone_reports_error(tmp_path: Path) -> None:
     assert "Failed to install skill from" in msg
 
 
+@pytest.mark.usefixtures("requires_symlinks")
 @pytest.mark.parametrize("in_manifest", [False, True])
 def test_uninstall_symlinked_skill_unlinks_without_touching_source(
     tmp_path: Path, in_manifest: bool
