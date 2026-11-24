@@ -29,6 +29,7 @@ import gptme
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..util.multiprompt import group_prompt_args as _group_prompt_args
+from .completion import complete_model, complete_tools
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -327,6 +328,8 @@ class CommaSeparatedChoice(click.ParamType):
         # Click keeps the leading "=" for short options passed as `-x=value`.
         # Normalize that form so documented examples like `-t=-browser` work.
         value = value.removeprefix("=")
+        if ctx is not None and ctx.resilient_parsing:
+            return value
         parts = [v.strip() for v in value.split(",") if v.strip()]
         if not parts:
             self.fail("value cannot be empty.", param, ctx)
@@ -357,6 +360,19 @@ class CommaSeparatedChoice(click.ParamType):
                 )
         return value
 
+    def shell_complete(self, ctx, param, incomplete):
+        from click.shell_completion import CompletionItem
+
+        head, separator, tail = incomplete.rpartition(",")
+        prefix = next((p for p in self.allow_prefixes if tail.startswith(p)), "")
+        partial = tail[len(prefix) :]
+        choices = self._choice_set | self._extra_choices(prefix)
+        return [
+            CompletionItem((head + separator if separator else "") + prefix + choice)
+            for choice in sorted(choices)
+            if choice.startswith(partial)
+        ]
+
     def get_metavar(
         self, param: click.Parameter, ctx: click.Context | None = None
     ) -> str | None:
@@ -369,6 +385,11 @@ class WorkspacePath(click.ParamType):
     """Click type for workspace paths: a directory path or '@log'."""
 
     name = "DIRECTORY"
+
+    def shell_complete(self, ctx, param, incomplete):
+        from click.shell_completion import CompletionItem
+
+        return [CompletionItem(incomplete, type="dir")]
 
     def convert(self, value, param, ctx):
         if value == "@log":
@@ -385,6 +406,19 @@ class ConversationName(click.ParamType):
     """Click type for conversation names stored under the logs directory."""
 
     name = "TEXT"
+
+    def shell_complete(self, ctx, param, incomplete):
+        from click.shell_completion import CompletionItem
+
+        logs = get_logs_dir(create=False)
+        if not logs.is_dir():
+            return []
+        return [
+            CompletionItem(path.name)
+            for path in sorted(logs.iterdir())
+            if path.name.startswith(incomplete)
+            and (path / "conversation.jsonl").is_file()
+        ]
 
     def convert(self, value, param, ctx):
         if value == "random":
@@ -619,6 +653,7 @@ def _same_env_executable(name: str) -> str | None:
     "--model",
     default=None,
     callback=_validate_model_param,
+    shell_complete=complete_model,
     help="Model to use, e.g. {model_examples}. If only provider given then a default is used.",
 )
 @click.option(
@@ -666,6 +701,11 @@ def _same_env_executable(name: str) -> str | None:
     "--system",
     "prompt_system",
     default=None,
+    shell_complete=lambda ctx, param, incomplete: [
+        name
+        for name in ("full", "full-noexamples", "short")
+        if name.startswith(incomplete)
+    ],
     help="System prompt [full|full-noexamples|short|<custom>]. Defaults to 'full', or the value of `system` in gptme.toml [prompt] if set. 'full-noexamples' omits tool examples (~40% token reduction).",
 )
 @click.option(
@@ -674,6 +714,7 @@ def _same_env_executable(name: str) -> str | None:
     "tool_allowlist",
     default=None,
     multiple=True,
+    shell_complete=complete_tools,
     type=CommaSeparatedChoice(
         # Accept all *known* tools, not just currently-available ones, so a tool
         # that exists but is temporarily unavailable (e.g. 'tts' when its server

@@ -78,7 +78,17 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
 
 # Inline groups defined via @main.group() in this file
 _INLINE_COMMANDS = frozenset(
-    {"providers", "tokens", "context", "llm", "tools", "prompts", "models", "profile"}
+    {
+        "providers",
+        "tokens",
+        "context",
+        "llm",
+        "tools",
+        "prompts",
+        "models",
+        "profile",
+        "completions",
+    }
 )
 
 # All top-level subcommand names for gptme-util — exported for the gptme main CLI
@@ -149,6 +159,20 @@ def main(verbose: bool = False):
 
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+
+@main.command("completions")
+@click.option("--shell", type=click.Choice(["bash", "zsh", "fish"]))
+def completions(shell: str | None) -> None:
+    """Install or update shell completions for gptme's Click CLIs."""
+    from .setup import _detect_shell, _install_click_completions
+
+    shell = shell or _detect_shell()
+    if shell is None:
+        raise click.ClickException(
+            "Could not detect shell; pass --shell bash, zsh, or fish."
+        )
+    _install_click_completions(shell)
 
 
 @main.group()

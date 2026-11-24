@@ -51,6 +51,7 @@ from click_default_group import DefaultGroup
 
 from gptme.config import set_config_from_workspace
 
+from ..cli.completion import complete_model
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
 from .constants import _pick_fallback_model
@@ -211,6 +212,7 @@ def main():
     "--model",
     default=None,
     help="Model to use by default, can be overridden in each request.",
+    shell_complete=complete_model,
 )
 @click.option(
     "--host",
