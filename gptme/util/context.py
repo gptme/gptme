@@ -897,19 +897,35 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
     ]
 
 
-def _strip_trailing_prose_punctuation(word: str) -> str:
-    """Drop sentence punctuation after a path (``@main.py:``, ``(see @a.py)``, ``?!``).
+def _strip_trailing_punctuation(word: str) -> str:
+    """Drop trailing ``?.,!`` (the long-standing trim for quoted text and URLs)."""
+    return word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
 
-    A closing parenthesis is only dropped when unbalanced, so ``notes(1).md`` stays.
+
+def _strip_trailing_prose_punctuation(word: str) -> str:
+    """Drop sentence punctuation after an unquoted path (``@main.py:``, ``(see @a.py)``).
+
+    A closing parenthesis is only dropped when unbalanced, so ``notes(1)`` stays.
+    URLs keep the narrower trim: ``;``, ``:`` and ``)`` can be part of a query.
     """
-    while word:
-        if word[-1] in "?.,!:;":
-            word = word[:-1]
-        elif word[-1] == ")" and word.count(")") > word.count("("):
-            word = word[:-1]
+    if word.removeprefix("@").lower().startswith(("http://", "https://")):
+        return _strip_trailing_punctuation(word)
+    end = len(word)
+    unbalanced_closes: int | None = None
+    while end:
+        char = word[end - 1]
+        if char in "?.,!:;":
+            end -= 1
+        elif char == ")":
+            if unbalanced_closes is None:
+                unbalanced_closes = word.count(")") - word.count("(")
+            if unbalanced_closes <= 0:
+                break
+            unbalanced_closes -= 1
+            end -= 1
         else:
             break
-    return word
+    return word[:end]
 
 
 def _iter_discovered_paths(
@@ -1021,7 +1037,9 @@ def _iter_discovered_paths(
     # First find backtick-wrapped content
     for match in re.finditer(r"`([^`]+)`", content_no_xml):
         word = match.group(1).strip()
-        word = _strip_trailing_prose_punctuation(word)
+        # Backticks already mark where the reference ends; only trim the
+        # sentence punctuation that was always trimmed here.
+        word = _strip_trailing_punctuation(word)
         if is_path_like(word):
             _add_path(word)
         elif not auto_include:
