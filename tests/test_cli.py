@@ -384,8 +384,8 @@ def test_read_stdin_does_not_truncate_chunks_separated_by_subtimeout(monkeypatch
 
     Regression test for the Greptile-flagged concern: the previous 50ms inner
     sub-timeout could silently drop chunks from pipelines that write in bursts
-    with inter-chunk gaps slightly above 50ms. The new sub-timeout (100ms via
-    `_STDIN_PIPE_INTER_CHUNK_TIMEOUT`) bridges typical small producer gaps.
+    with inter-chunk gaps slightly above 50ms. `_read_stdin` now reads until
+    EOF, so producer gaps of any length are bridged.
     """
     read_fd, write_fd = os.pipe()
     read_file = os.fdopen(read_fd)
@@ -403,6 +403,61 @@ def test_read_stdin_does_not_truncate_chunks_separated_by_subtimeout(monkeypatch
     writer.start()
     try:
         assert cli._read_stdin() == "first second third"
+    finally:
+        writer.join()
+        read_file.close()
+
+
+def test_read_stdin_preserves_multibyte_across_chunk_boundary(monkeypatch):
+    """Multibyte UTF-8 characters straddling 4096-byte read boundaries must not corrupt."""
+    # Place a 4-byte emoji at byte 4095 (split 1+3 across the first 4096-byte boundary)
+    # and a 3-byte CJK character at byte 8190 (split 2+1 across the second boundary).
+    first_segment = "a" * 4095 + "🚀"
+    assert len(first_segment.encode("utf-8")) == 4099
+    second_segment = "b" * (8190 - 4099) + "中" + "tail"
+    payload = first_segment + second_segment
+    payload_bytes = payload.encode("utf-8")
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    def _writer():
+        view = memoryview(payload_bytes)
+        offset = 0
+        while offset < len(view):
+            offset += os.write(write_fd, view[offset:])
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == payload
+        assert "\ufffd" not in result
+    finally:
+        writer.join()
+        read_file.close()
+
+
+def test_read_stdin_reads_until_eof_across_long_pause(monkeypatch):
+    """A producer pausing longer than 100ms (or grace period) must not lose later input."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.2)
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    os.write(write_fd, b"part1\n")
+
+    def _writer():
+        time.sleep(0.3)
+        os.write(write_fd, b"part2\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        assert cli._read_stdin() == "part1\npart2\n"
     finally:
         writer.join()
         read_file.close()

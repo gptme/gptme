@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import codecs
 import importlib
 import importlib.metadata as _ilm
 import json
@@ -13,7 +14,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-import time
 import traceback
 from datetime import datetime, timezone
 from difflib import get_close_matches
@@ -263,12 +263,6 @@ def _validate_model_param(
 
 script_path = Path(os.path.realpath(__file__))
 _STDIN_PIPE_GRACE_PERIOD = 1.0
-
-# Sub-timeout used by the inner read loop in `_read_stdin` to disambiguate
-# "data ready" from "pipe fd is readable but write end is open and idle".
-# Tuned to 100ms — generous enough to bridge small producer gaps without
-# being so long that an idle pipe stalls the prompt for a noticeable beat.
-_STDIN_PIPE_INTER_CHUNK_TIMEOUT = 0.1
 
 
 class CommaSeparatedChoice(click.ParamType):
@@ -1858,10 +1852,10 @@ def _read_stdin() -> str:
     if not readable:
         return ""
 
-    # stdin is readable (data available or pipe open but idle).
-    # Use os.read + select with sub-timeouts rather than sys.stdin.read() which
-    # blocks until EOF on a pipe — "readable" from select on a pipe fd can
-    # fire even when the write end is open but idle (e.g. under uv run).
+    # stdin is readable (data available or EOF). Read raw bytes until EOF and
+    # decode incrementally so multibyte UTF-8 characters split across 4096-byte
+    # read boundaries are preserved and producers pausing between chunks are
+    # not truncated.
     try:
         fd = sys.stdin.fileno()
     except (OSError, ValueError, AttributeError):
@@ -1869,21 +1863,17 @@ def _read_stdin() -> str:
         # Use blocking read — safe because non-pipe fds return immediately.
         return sys.stdin.read()
 
-    all_data = ""
-    deadline = time.monotonic() + _STDIN_PIPE_GRACE_PERIOD
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    parts: list[str] = []
 
     try:
-        while time.monotonic() < deadline:
-            r, _, _ = select.select([fd], [], [], _STDIN_PIPE_INTER_CHUNK_TIMEOUT)
-            if not r:
-                # No data arrived within the sub-timeout — pipe is open but idle.
-                # Don't block on read; return what we have.
-                break
+        while True:
             chunk = os.read(fd, 4096)
             if not chunk:
                 break  # EOF
-            all_data += chunk.decode("utf-8", errors="replace")
+            parts.append(decoder.decode(chunk))
     except (OSError, ValueError):
         pass
 
-    return all_data
+    parts.append(decoder.decode(b"", final=True))
+    return "".join(parts)
