@@ -57,6 +57,7 @@ from .models import (
     UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
+    _stringify_env,
 )
 
 logger = logging.getLogger(__name__)
@@ -419,7 +420,8 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
     bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
 
-    if prefixed in os.environ or bare in os.environ:
+    # Empty values are skipped by Config.get_env, so they are not the source.
+    if os.environ.get(prefixed) or os.environ.get(bare):
         return USER_CONFIG_SOURCE_ENV
 
     config_file, local_path = get_user_config_paths(path)
@@ -705,7 +707,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
             user_identity, about=about, response_preference=resp_pref
         )
 
-    env = config.pop("env", {})
+    env = _stringify_env(config.pop("env", {}))
 
     # Parse [mcp] and [[providers]]. Runtime overlays are admin-managed: if
     # config.runtime.toml itself defines mcp/providers, those entries fail

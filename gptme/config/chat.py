@@ -30,7 +30,7 @@ else:
 
 from ..context.config import parse_context_budget
 from ..util import path_with_tilde
-from .models import AgentConfig, MCPConfig
+from .models import AgentConfig, MCPConfig, _stringify_env
 from .project import get_project_config
 from .user import _back_up_before_reencoding, _read_config_text
 
@@ -217,6 +217,7 @@ class ChatConfig:
         env = config_data.pop("env", {})
         if not isinstance(env, dict):
             raise ValueError("env must be an object")
+        env = _stringify_env(env)
         mcp_data = config_data.pop("mcp", None)
         if mcp_data is not None and not isinstance(mcp_data, dict):
             raise ValueError("mcp must be an object")

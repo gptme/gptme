@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 import tomlkit
+from tomlkit.exceptions import TOMLKitError
 
 STORED_CREDENTIALS_SOURCE = "credentials.toml"
+
+logger = logging.getLogger(__name__)
 
 
 def get_credentials_dir() -> Path:
     """Directory holding the credential store. Pure lookup: creates nothing."""
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme"
+    # An empty, padded or relative XDG_CONFIG_HOME is invalid per the XDG spec;
+    # using it as-is would put the API key file under the current directory.
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    base = Path(xdg).expanduser() if xdg else None
+    if base is None or not base.is_absolute():
+        base = Path.home() / ".config"
+    return base / "gptme"
 
 
 def _get_credentials_path() -> Path:
@@ -22,12 +32,20 @@ def _get_credentials_path() -> Path:
     return config_dir / STORED_CREDENTIALS_SOURCE
 
 
-def _load_credentials_doc(path: Path | None = None):
+def _load_credentials_doc(path: Path | None = None, *, strict: bool = False):
     path = path or _get_credentials_path()
     if not path.exists():
         return tomlkit.document()
-    with open(path) as f:
-        return tomlkit.load(f)
+    with open(path, encoding="utf-8") as f:
+        try:
+            return tomlkit.load(f)
+        except TOMLKitError as e:
+            # Readers must not take down provider discovery (and doctor) over a
+            # hand-edited file; writers must not silently replace it.
+            if strict:
+                raise ValueError(f"Cannot parse {path}: {e}") from e
+            logger.warning(f"Ignoring unparseable credentials file {path}: {e}")
+            return tomlkit.document()
 
 
 def get_stored_api_key(provider: str) -> str | None:
@@ -56,7 +74,7 @@ def list_stored_credentials() -> list[tuple[str, str]]:
 def set_stored_api_key(provider: str, api_key: str) -> Path:
     """Persist an API key for ``provider`` and return the storage path."""
     path = _get_credentials_path()
-    doc = _load_credentials_doc(path)
+    doc = _load_credentials_doc(path, strict=True)
     providers = doc.get("providers")
     if providers is None or not hasattr(providers, "__setitem__"):
         providers = tomlkit.table()

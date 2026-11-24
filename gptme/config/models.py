@@ -37,6 +37,18 @@ def _pop_object_section(config_data: dict, key: str) -> dict:
     return value
 
 
+def _stringify_env(env: dict) -> dict[str, str]:
+    """Normalise ``[env]`` values to the strings a process env would hold.
+
+    TOML lets users write ``KEY = true``/``false``/``0``. Left as bool/int,
+    ``Config.get_env``'s ``or`` chain skips falsy values (so an explicit
+    ``false`` is ignored) and ``get_env_bool`` crashes calling ``.lower()``.
+    """
+    return {
+        k: str(v).lower() if isinstance(v, bool) else str(v) for k, v in env.items()
+    }
+
+
 def _require_str_list(key: str, value):
     """Require a config value to be a list of strings (None passes through)."""
     if value is not None and (
@@ -559,7 +571,7 @@ class ProjectConfig:
                 "plugins.enabled", plugins_data.get("enabled", [])
             ),
         )
-        env = _pop_object_section(config_data, "env")
+        env = _stringify_env(_pop_object_section(config_data, "env"))
         mcp: MCPConfig | None = None
         mcp_data = config_data.pop("mcp", None)
         if mcp_data is not None and not isinstance(mcp_data, dict):

@@ -415,14 +415,14 @@ def _configure_extra_features(features: dict[str, str]):
 
         if Confirm.ask(f"  Enable {description.lower()}?", default=current_enabled):
             if not current_enabled:
-                set_config_value(f"env.{env_var}", "1")
+                set_config_value(f"env.{env_var.removeprefix('GPTME_')}", "1")
                 console.print(f"  [green]✅ Enabled {description.lower()}[/green]")
                 changes_made = True
             else:
                 console.print("  [blue]ℹ️  Already enabled[/blue]")
         else:
             if current_enabled:
-                set_config_value(f"env.{env_var}", "0")
+                set_config_value(f"env.{env_var.removeprefix('GPTME_')}", "0")
                 console.print(f"  [red]❌ Disabled {description.lower()}[/red]")
                 changes_made = True
             else:
