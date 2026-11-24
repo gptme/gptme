@@ -1517,6 +1517,14 @@ def _process_file(message_dict: dict) -> dict:
     for f in message_dict.pop("files", []):
         result = process_image_file(f, content, max_size_mb=5, expand_user=True)
         if result is None:
+            # Tell the model a file was attached, as the OpenAI provider does,
+            # instead of dropping it without a trace.
+            content.append(
+                {
+                    "type": "text",
+                    "text": f"[WARNING: Model doesn't support viewing file: {f}]",
+                }
+            )
             continue
 
         data, media_type = result
