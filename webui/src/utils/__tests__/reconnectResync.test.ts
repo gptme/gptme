@@ -159,6 +159,28 @@ describe('resyncLogAfterReconnect (#5145)', () => {
     expect(state().logOffset.get()).toBe(60);
   });
 
+  it('keeps a stream arrival when an older page is shorter than the cursor move', async () => {
+    // Another tab shortened the chat: the page holds 1 row but the cursor moved 2.
+    const older: Message = { role: 'user', content: 'old', timestamp: '2026-11-24T09:00:00Z' };
+    const peerPrompt: Message = {
+      role: 'user',
+      content: 'peer',
+      timestamp: '2026-11-24T10:00:09Z',
+    };
+    replaceLog(ID, [user]);
+    state().logOffset.set(7);
+    state().hasMoreBefore.set(true);
+    jest.spyOn(client, 'getConversation').mockImplementation(async () => {
+      prependLogPage(ID, [older], 5, true);
+      conversations$.get(ID)!.data.log.push(peerPrompt); // SSE message_added
+      return response([reply, toolOutput], { has_more: true, before: 60 });
+    });
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([reply, toolOutput, peerPrompt]);
+  });
+
   it('discards an in-flight snapshot once the stream is closed', async () => {
     replaceLog(ID, [user]);
     jest.spyOn(client, 'getConversation').mockImplementation(async () => {
