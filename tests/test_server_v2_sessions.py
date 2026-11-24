@@ -2244,6 +2244,114 @@ class TestConcurrentToolConfirmation:
         start_step.assert_not_called()
         assert session.generating is False
 
+    @pytest.mark.parametrize("race", ["register", "answer"])
+    def test_interrupt_elicitation_races_revoke_tool_continuation(
+        self, conv, client: FlaskClient, race: str
+    ):
+        """Registration/answer races cannot preserve the stopped tool's epoch."""
+        from gptme.config import ChatConfig
+        from gptme.hooks.elicitation import ElicitationRequest, ElicitationResponse
+        from gptme.hooks.server_elicit import (
+            cancel_pending,
+            list_pending_events,
+            resolve_pending,
+            server_elicit_hook,
+        )
+        from gptme.server.session_step import start_tool_execution
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        started = threading.Event()
+        register = threading.Event()
+        emitted = threading.Event()
+        finish = threading.Event()
+        results = []
+        elicit_ids = []
+
+        def execute(*args, **kwargs):
+            started.set()
+            assert register.wait(timeout=5)
+            results.append(server_elicit_hook(ElicitationRequest("text", "Question?")))
+            assert finish.wait(timeout=5)
+            return []
+
+        def publish(_conversation_id, event):
+            if event["type"] == "elicit_pending":
+                elicit_ids.append(event["elicit_id"])
+                emitted.set()
+
+        def snapshot_then_register(conversation_id):
+            snapshot = list_pending_events(conversation_id)
+            assert snapshot == []
+            register.set()
+            assert emitted.wait(timeout=5)
+            return snapshot
+
+        def answer_then_cancel(conversation_id):
+            assert resolve_pending(elicit_ids[0], ElicitationResponse.text("accepted"))
+            return cancel_pending(conversation_id)
+
+        tooluse = MagicMock(tool="bash", args=[], content="ask", call_id=tool_id)
+        tooluse.execute = execute
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id, tooluse=tooluse, auto_confirm=True
+        )
+        session.generating = False  # An executing tool alone must count as active.
+        session.step_seq = 7
+        target = "gptme.server.api_v2_sessions."
+        with (
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step._compact_after_tool_results"),
+            patch.object(SessionManager, "add_event", side_effect=publish),
+            patch("gptme.server.session_step._start_step_thread") as start_step,
+            patch(
+                target + "list_pending_elicitations",
+                side_effect=snapshot_then_register
+                if race == "register"
+                else list_pending_events,
+            ),
+            patch(
+                target + "cancel_pending_elicitations",
+                side_effect=answer_then_cancel if race == "answer" else cancel_pending,
+            ),
+        ):
+            thread = start_tool_execution(
+                conv["conversation_id"],
+                session,
+                tool_id,
+                None,
+                "mock/model",
+                ChatConfig(model="mock/model"),
+                reserved=True,
+            )
+            try:
+                assert started.wait(timeout=2)
+                if race == "answer":
+                    register.set()
+                    assert emitted.wait(timeout=2)
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+                    json={"session_id": conv["session_id"]},
+                )
+                assert response.status_code == 200
+                assert response.get_json()["message"] == "Interrupted"
+                assert session.interrupted
+                assert session.step_seq == 8
+            finally:
+                register.set()
+                finish.set()
+                cancel_pending(conv["conversation_id"])
+                thread.join(timeout=5)
+            assert not thread.is_alive()
+            start_step.assert_not_called()
+
+        assert len(results) == 1 and results[0] is not None
+        assert results[0].cancelled is (race == "register")
+        if race == "answer":
+            assert results[0].value == "accepted"
+        assert list_pending_events(conv["conversation_id"]) == []
+
     def test_stale_worker_does_not_clear_new_step_reservation(
         self, conv, client: FlaskClient
     ):
