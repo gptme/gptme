@@ -15,12 +15,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from gptme.acp.agent import GptmeAgent, _import_acp
+from gptme.acp.agent import _CANCEL_GRACE_S, GptmeAgent, _AcpTurn, _import_acp
 from gptme.acp.types import (
     ToolCall,
     ToolCallStatus,
     ToolKind,
 )
+from gptme.hooks.confirm import ConfirmAction
+from gptme.tools import ToolUse
 
 
 def _acp_has_session_model_state() -> bool:
@@ -1787,6 +1789,157 @@ class TestPromptTurnLoop:
 
         assert result.stop_reason == "end_turn"
         assert seen["max_tokens"] == 64
+
+
+def _make_prompt_agent():
+    """An agent with one registered session "s1" ready for prompt()."""
+    agent = GptmeAgent()
+    agent._conn = MagicMock()
+    agent._conn.session_update = AsyncMock()
+    agent._session_commands_advertised.add("s1")
+    agent._session_models["s1"] = "openai/gpt-4o-mini"
+    log = _make_mock_log()
+    log.log = []
+    log.workspace = None
+    log.logdir = None
+    agent._registry.create("s1", log=log)
+    return agent, log
+
+
+class TestPromptCancel:
+    """session/cancel must stop an in-flight prompt turn (#5170)."""
+
+    def test_cancel_stops_tool_loop_and_answers_cancelled(self, monkeypatch):
+        """A tool loop that would re-fire forever stops on cancel."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import importlib
+
+        from gptme.message import Message
+
+        agent, log = _make_prompt_agent()
+        steps = 0
+
+        def fake_step(log, on_token=None, **kwargs):
+            nonlocal steps
+            steps += 1
+            for _ in range(5):
+                on_token("streamed text ")
+                time.sleep(0.01)
+            return iter(
+                [
+                    Message("assistant", "```shell\necho X\n```"),
+                    Message("system", "X"),
+                ]
+            )
+
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+        # Bounds the loop if cancel is ignored, so the test fails instead of hanging.
+        monkeypatch.setenv("GPTME_MAX_STEPS", "100")
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(prompt=[{"type": "text", "text": "loop"}], session_id="s1")
+            )
+            while steps < 3:
+                await asyncio.sleep(0.01)
+            started = time.monotonic()
+            await agent.cancel(session_id="s1")
+            result = await asyncio.wait_for(task, timeout=3.0)
+            elapsed = time.monotonic() - started
+            steps_at_return = steps
+            updates_at_return = agent._conn.session_update.call_count
+            await asyncio.sleep(0.3)
+            return result, elapsed, steps_at_return, updates_at_return
+
+        result, elapsed, steps_at_return, updates_at_return = _run(scenario())
+
+        assert result.stop_reason == "cancelled"
+        assert elapsed < _CANCEL_GRACE_S + 0.5
+        # No further generation or session/update after the turn answered.
+        assert steps == steps_at_return
+        assert agent._conn.session_update.call_count == updates_at_return
+        assert "s1" not in agent._active_turns
+        # Completed steps are persisted; the interrupted one is dropped.
+        persisted = [call.args[0].content for call in log.append.call_args_list]
+        assert persisted[0] == "loop"
+        assert len(persisted) % 2 == 1
+
+    def test_cancel_answers_promptly_while_worker_is_blocked(self, monkeypatch):
+        """A worker stuck in a tool must not hold session/prompt open."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        import importlib
+
+        from gptme.message import Message
+
+        monkeypatch.setattr("gptme.acp.agent._CANCEL_GRACE_S", 0.2)
+        agent, log = _make_prompt_agent()
+        started_tool = threading.Event()
+        release_tool = threading.Event()
+        steps = 0
+
+        def fake_step(log, **kwargs):
+            nonlocal steps
+            steps += 1
+            started_tool.set()
+            release_tool.wait(timeout=5.0)
+            return iter(
+                [
+                    Message("assistant", "```shell\necho X\n```"),
+                    Message("system", "X"),
+                ]
+            )
+
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+        monkeypatch.setenv("GPTME_MAX_STEPS", "5")
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(
+                    prompt=[{"type": "text", "text": "block"}], session_id="s1"
+                )
+            )
+            while not started_tool.is_set():
+                await asyncio.sleep(0.01)
+            started = time.monotonic()
+            await agent.cancel(session_id="s1")
+            result = await asyncio.wait_for(task, timeout=2.0)
+            elapsed = time.monotonic() - started
+            release_tool.set()
+            await asyncio.sleep(0.2)
+            return result, elapsed
+
+        try:
+            result, elapsed = _run(scenario())
+        finally:
+            release_tool.set()
+
+        assert result.stop_reason == "cancelled"
+        assert elapsed < 1.0
+        # The released worker stops at its next checkpoint, not another step.
+        assert steps == 1
+
+    def test_confirm_after_cancel_skips_the_call(self):
+        """A call reaching confirmation after cancel must not run."""
+        agent = GptmeAgent()
+        loop = MagicMock()
+        turn = _AcpTurn(agent=agent, session_id="s1", loop=loop)
+        turn.cancel()
+
+        result = agent._confirm_tool_use(turn, ToolUse("shell", [], "echo X"))
+
+        assert result.action == ConfirmAction.SKIP
+        # Nothing is sent to the client for a cancelled turn.
+        loop.call_soon_threadsafe.assert_not_called()
+
+    def test_cancel_without_active_turn_still_cleans_up(self):
+        agent = GptmeAgent()
+        agent._session_models["idle"] = "m"
+        _run(agent.cancel(session_id="idle"))
+        assert "idle" not in agent._session_models
 
 
 class TestPromptErrorHandling:

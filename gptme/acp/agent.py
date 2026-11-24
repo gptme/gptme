@@ -11,6 +11,7 @@ import contextvars
 import hashlib
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -67,6 +68,30 @@ class _AcpTurn:
     loop: asyncio.AbstractEventLoop
     # Calls reported for the current step: (parsed ToolUse, ACP tool call id).
     calls: list[tuple[ToolUse, str]] = field(default_factory=list)
+    # Set by session/cancel; the worker thread checks it at every token, tool
+    # call, confirmation and step boundary.
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    # Resolved on the event loop by session/cancel, so prompt() can answer
+    # without waiting for the worker to reach its next checkpoint.
+    cancel_waiter: asyncio.Future[None] | None = None
+
+    def cancel(self) -> None:
+        self.cancelled.set()
+        if self.cancel_waiter is not None and not self.cancel_waiter.done():
+            self.cancel_waiter.set_result(None)
+
+
+class _TurnCancelled(BaseException):
+    """Raised in the worker thread to abort a cancelled ACP prompt turn.
+
+    A BaseException so provider retry/recovery wrappers that catch Exception
+    cannot swallow it and keep generating.
+    """
+
+
+# How long prompt() waits, after session/cancel, for the worker to stop at a
+# checkpoint and hand back its partial output before answering "cancelled".
+_CANCEL_GRACE_S = 1.0
 
 
 # Set for the duration of an ACP prompt turn; the hook registry is
@@ -343,6 +368,8 @@ class GptmeAgent:
         # Without storing references, asyncio.create_task() returns tasks that
         # can be garbage-collected and silently cancelled before finishing.
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # The in-flight prompt turn per session, so session/cancel can stop it.
+        self._active_turns: dict[str, _AcpTurn] = {}
 
     def on_connect(self, conn: Any) -> None:
         """Called when a client connects.
@@ -524,6 +551,8 @@ class GptmeAgent:
         Reuses the tool call already reported for this step, so the client sees
         one call that is either allowed or ends FAILED.
         """
+        if turn.cancelled.is_set():
+            return ConfirmationResult.skip("Cancelled by the ACP client")
         session_id = turn.session_id
         tool_call_id = next(
             (call_id for parsed, call_id in turn.calls if parsed == tool_use), None
@@ -588,6 +617,10 @@ class GptmeAgent:
             allowed = False
             reason = "Permission request to the ACP client failed or timed out"
 
+        if turn.cancelled.is_set():
+            # The turn was cancelled while the client was asked: a late
+            # "allow" must not run the call.
+            return ConfirmationResult.skip("Cancelled by the ACP client")
         if allowed:
             return ConfirmationResult.confirm()
         try:
@@ -1436,7 +1469,7 @@ class GptmeAgent:
 
             def _flush_batch() -> None:
                 """Flush accumulated tokens as a session_update (called from executor thread)."""
-                if not batch_buffer or not self._conn:
+                if not batch_buffer or not self._conn or turn.cancelled.is_set():
                     return
                 batch_text = "".join(batch_buffer)
                 chunk = update_agent_message(text_block(batch_text))
@@ -1482,6 +1515,9 @@ class GptmeAgent:
 
             def on_token(token: str) -> None:
                 """Accumulate a token; flush if size/time threshold is reached."""
+                if turn.cancelled.is_set():
+                    # Abort the generation stream: session/cancel arrived.
+                    raise _TurnCancelled
                 batch_buffer.append(token)
                 now = time.monotonic()
                 # last_flush[0] is intentionally not updated on failure, so the
@@ -1495,6 +1531,10 @@ class GptmeAgent:
 
             def _send_from_worker(coro: Coroutine[Any, Any, None]) -> None:
                 """Send an ACP update from the executor thread, bounded so a stalled client cannot hang the turn."""
+                if turn.cancelled.is_set():
+                    # No updates for a cancelled turn.
+                    coro.close()
+                    return
                 future = asyncio.run_coroutine_threadsafe(coro, loop)
                 try:
                     future.result(timeout=5.0)
@@ -1505,10 +1545,18 @@ class GptmeAgent:
             # Tool calls of the current step, keyed by their position among the
             # calls of the assistant message (execute_msg's call_index).
             step_tool_calls: dict[int, str] = {}
-            turn = _AcpTurn(agent=self, session_id=session_id, loop=loop)
+            turn = _AcpTurn(
+                agent=self,
+                session_id=session_id,
+                loop=loop,
+                cancel_waiter=loop.create_future(),
+            )
 
             def on_tool_execution(index: int, tool_use: ToolUse) -> None:
                 """Report a call at execute_msg's per-call execution boundary."""
+                if turn.cancelled.is_set():
+                    # Do not start another tool after session/cancel.
+                    raise _TurnCancelled
                 if not self._conn:
                     return
                 # Text generated before the call must reach the client first.
@@ -1577,8 +1625,9 @@ class GptmeAgent:
                 """Run every generation/tool step in one ACP prompt turn.
 
                 Returns (response_msgs, stop_reason) where stop_reason is
-                "end_turn" for normal completion or "max_turn_requests" when the
-                GPTME_MAX_STEPS cap was reached mid-turn.
+                "end_turn" for normal completion, "max_turn_requests" when the
+                GPTME_MAX_STEPS cap was reached mid-turn, or "cancelled" when
+                session/cancel stopped the turn.
                 """
                 # The interactive chat loop keeps stepping after a runnable tool
                 # call so the model can inspect its result and finish the turn.
@@ -1608,8 +1657,24 @@ class GptmeAgent:
                             max_steps_str,
                         )
 
+                try:
+                    return _run_steps(response_msgs, step_log, max_steps)
+                except _TurnCancelled:
+                    # Output of the interrupted step is dropped; completed
+                    # steps are returned so the caller can persist them.
+                    logger.info("ACP prompt turn cancelled: session=%s", session_id)
+                    return response_msgs, "cancelled"
+
+            def _run_steps(
+                response_msgs: list[Message],
+                step_log: list[Message],
+                max_steps: int | None,
+            ) -> tuple[list[Message], str]:
+                """Step until the model stops calling tools, the cap, or a cancel."""
                 step_count = 0
                 while True:
+                    if turn.cancelled.is_set():
+                        raise _TurnCancelled
                     # Fire STEP_PRE hooks so hook-managed state (working
                     # directory, injected context) is current before each LLM
                     # generation.  Matches the behaviour of gptme's interactive
@@ -1683,9 +1748,21 @@ class GptmeAgent:
             if self._hook_registry is not None:
                 set_registry(self._hook_registry)
             ctx = contextvars.copy_context()
-            response_msgs, chat_stop_reason = await loop.run_in_executor(
-                None, ctx.run, run_chat_turn
-            )
+            self._active_turns[session_id] = turn
+            try:
+                response_msgs, chat_stop_reason = await self._await_turn(
+                    turn, loop.run_in_executor(None, ctx.run, run_chat_turn)
+                )
+            finally:
+                if self._active_turns.get(session_id) is turn:
+                    del self._active_turns[session_id]
+
+            if chat_stop_reason == "cancelled":
+                # session/cancel: persist what completed, send nothing more.
+                for response_msg in response_msgs:
+                    log.append(response_msg)
+                _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
+                return _PromptResponse(stop_reason="cancelled")
 
             # Final flush: send any remaining buffered tokens
             if batch_buffer and self._conn:
@@ -1758,6 +1835,40 @@ class GptmeAgent:
                 )
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
             return _PromptResponse(stop_reason="cancelled")
+
+    async def _await_turn(
+        self,
+        turn: _AcpTurn,
+        worker: asyncio.Future[tuple[list[Message], str]],
+    ) -> tuple[list[Message], str]:
+        """Wait for a prompt turn's worker, answering promptly on session/cancel.
+
+        After a cancel the worker gets a short grace period to stop at a
+        checkpoint and return its completed steps. A worker still blocked
+        past it (e.g. inside a running tool) is left to stop at its next
+        checkpoint; the turn is reported cancelled without its output.
+        """
+        assert turn.cancel_waiter is not None
+        waiters: set[asyncio.Future[Any]] = {worker, turn.cancel_waiter}
+        await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        if worker.done() and not turn.cancelled.is_set():
+            return worker.result()
+        try:
+            response_msgs, _ = await asyncio.wait_for(
+                asyncio.shield(worker), timeout=_CANCEL_GRACE_S
+            )
+        except Exception:
+            # Timed out, or the worker failed while being cancelled: the turn
+            # is cancelled either way. Retrieve a late result so it is not
+            # reported as an unretrieved exception.
+            worker.add_done_callback(lambda f: None if f.cancelled() else f.exception())
+            logger.info(
+                "ACP worker did not stop within %.1fs of cancel: session=%s",
+                _CANCEL_GRACE_S,
+                turn.session_id,
+            )
+            response_msgs = []
+        return response_msgs, "cancelled"
 
     async def load_session(
         self,
@@ -1900,6 +2011,10 @@ class GptmeAgent:
             session_id: Session to cancel
         """
         logger.info("Cancelling session %s", session_id)
+        # Stop the in-flight prompt turn first: its worker stops at the next
+        # token, tool call or step, and session/prompt answers "cancelled".
+        if turn := self._active_turns.get(session_id):
+            turn.cancel()
         # Close owned clients before dropping session state. close() interrupts
         # in-flight call_tool() and is itself time-bounded; if this await is
         # interrupted, shutdown can still find the clients in the session registry.
