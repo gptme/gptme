@@ -2133,3 +2133,73 @@ def test_interactive_operations_reject_another_session(operation, args, tmp_path
     assert page.mock_calls == []
     assert context.mock_calls == []
     assert not (tmp_path / "state.json").exists()
+
+
+# ── read_logs isolation ───────────────────────────────────────────────
+
+
+class TestPlaywrightReadLogsIsolation:
+    """read_logs must not leak a blocked redirect's or another conversation's logs."""
+
+    @staticmethod
+    def _fake_browser(final_url: str, console_text: str) -> MagicMock:
+        page = MagicMock()
+        page.url = final_url
+        handlers: dict = {}
+        page.on.side_effect = lambda event, fn: handlers.__setitem__(event, fn)
+
+        def goto(url):
+            msg = MagicMock()
+            msg.type = "log"
+            msg.text = console_text
+            msg.location = None
+            handlers["console"](msg)
+            resp = MagicMock()
+            resp.headers = {"content-type": "text/html"}
+            return resp
+
+        page.goto.side_effect = goto
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        return browser
+
+    def test_blocked_redirect_logs_are_not_stored(self, monkeypatch):
+        import gptme.tools._browser_playwright as pw
+
+        monkeypatch.setattr(
+            pw, "_last_logs", {"logs": [], "errors": [], "url": None, "owner": None}
+        )
+
+        def validate(url: str) -> None:
+            if "internal" in url:
+                raise ValueError("blocked host")
+
+        monkeypatch.setattr(pw, "_validate_page_url", validate)
+        browser = self._fake_browser("http://internal.example/admin", "SECRET-TOKEN")
+        with pytest.raises(ValueError, match="blocked host"):
+            pw._load_page(browser, "https://allowed.example/")
+        assert "SECRET-TOKEN" not in pw.read_logs()
+
+    def test_logs_are_scoped_to_the_reading_conversation(self, monkeypatch):
+        import gptme.tools._browser_playwright as pw
+        from gptme.hooks import current_conversation_id
+
+        monkeypatch.setattr(
+            pw, "_last_logs", {"logs": [], "errors": [], "url": None, "owner": None}
+        )
+        monkeypatch.setattr(pw, "_validate_page_url", lambda url: None)
+        monkeypatch.setattr(pw, "_extract_main_content", lambda page: "")
+        browser = self._fake_browser("https://allowed.example/", "PRIVATE-LOG")
+        token = current_conversation_id.set("conv-a")
+        try:
+            pw._load_page(browser, "https://allowed.example/")
+            assert "PRIVATE-LOG" in pw.read_logs()
+        finally:
+            current_conversation_id.reset(token)
+        token = current_conversation_id.set("conv-b")
+        try:
+            assert "PRIVATE-LOG" not in pw.read_logs()
+        finally:
+            current_conversation_id.reset(token)

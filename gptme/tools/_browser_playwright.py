@@ -36,7 +36,7 @@ from ._computer_gate import sensitive_action_gate
 from ._url_safety import _validate_entry_url, _validate_page_url
 
 _browser: BrowserThread | None = None
-_last_logs: dict = {"logs": [], "errors": [], "url": None}
+_last_logs: dict = {"logs": [], "errors": [], "url": None, "owner": None}
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
@@ -244,9 +244,6 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
 
-    # Store logs globally
-    _last_logs = {"logs": logs, "errors": page_errors, "url": url}
-
     try:
         # A server redirect, meta-refresh, or JS navigation can land on a host
         # outside the allowlist; re-check the live document URL (page.url, not
@@ -257,6 +254,16 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         # Raises ValueError if blocked. Runs inside this try so the finally
         # below still closes the managed page.
         _validate_page_url(page.url)
+
+        # Store logs only once the landing page passed the host check: a
+        # blocked redirect's console output must not reach read_logs(). Stamp
+        # the owner so another conversation cannot read them.
+        _last_logs = {
+            "logs": logs,
+            "errors": page_errors,
+            "url": url,
+            "owner": _conversation_key(),
+        }
 
         # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:
@@ -393,7 +400,8 @@ def read_logs() -> str:
     """Read browser console logs from the last read URL."""
     global _last_logs
 
-    if not _last_logs["url"]:
+    if not _last_logs["url"] or _last_logs.get("owner") != _conversation_key():
+        # Logs from another conversation's page are not this caller's to read.
         return "No URL has been read yet."
 
     result = [f"=== Logs for {_last_logs['url']} ==="]
