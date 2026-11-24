@@ -3847,6 +3847,130 @@ def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
     )
 
 
+def test_resume_via_llm_small_budget_tail_targets_ratio(tmp_path, monkeypatch):
+    """Summarize must land the view at TRIM_TARGET_RATIO of the budget, not
+    just under it. Keeping the recent tail up to the budget itself left small
+    windows (GPTME_CONTEXT_BUDGET=6000, or a 16k-window local model) at
+    97-99% after every compaction, so the next turn re-summarized."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    filler = "lorem ipsum dolor sit amet " * 60
+    messages = [Message("system", "system prompt")]
+    for i in range(20):
+        messages.append(Message("user", f"turn {i} {filler}"))
+        messages.append(Message("assistant", f"answer {i} {filler}"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kwargs: Message("assistant", "## Objective\nkeep going"),
+    )
+    fake_model = SimpleNamespace(
+        model="gpt-4",
+        context=16_384,
+        max_output=8192,
+        full="openai/gpt-4",
+        context_budget=None,
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+    budget = 6000
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+    assert len_tokens(messages, model="gpt-4") > budget
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    new_msgs = manager.log.messages
+    total = len_tokens(new_msgs, model="gpt-4")
+    assert total <= TRIM_TARGET_RATIO * budget, (
+        f"Compacted view {total} exceeds target {TRIM_TARGET_RATIO * budget:.0f} "
+        f"of budget {budget}; the next turn would re-trigger compaction"
+    )
+    # Recent history is still kept verbatim, just bounded.
+    assert any(m.content.startswith("answer 19 ") for m in new_msgs)
+    # A following exchange of the same size fits under the trigger.
+    next_turn = messages[-2:]
+    assert total + len_tokens(next_turn, model="gpt-4") < budget
+
+
+def test_resume_via_llm_target_scales_with_provider_usage(tmp_path, monkeypatch):
+    """The trigger compares provider-reported usage (tool schemas, template
+    overhead, tokenizer drift), not the stored-log estimate. When the provider
+    reports more than the estimate, the summarized view must shrink by the same
+    factor, or that gap eats the hysteresis headroom and every turn recompacts."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.context_measurement import (
+        anchor_context_usage,
+        input_log_digest,
+        measure_context_tokens,
+    )
+    from gptme.util.tokens import len_tokens
+
+    filler = "lorem ipsum dolor sit amet " * 60
+    messages = [Message("system", "system prompt")]
+    for i in range(20):
+        messages.append(Message("user", f"turn {i} {filler}"))
+        messages.append(Message("assistant", f"answer {i} {filler}"))
+    # The last response carries provider usage 25% above the local estimate.
+    prefix = messages[:-1]
+    inflation = 1.25
+    messages[-1] = Message(
+        "assistant",
+        messages[-1].content,
+        metadata={
+            "usage": {
+                "input_tokens": int(len_tokens(prefix, model="gpt-4") * inflation)
+            }
+        },
+    )
+    anchor_context_usage(
+        messages[-1], len(prefix), input_log_digest(prefix), "openai/gpt-4"
+    )
+    estimated = len_tokens(messages, model="gpt-4")
+    measured = measure_context_tokens(messages, "openai/gpt-4")
+    assert measured > estimated
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kwargs: Message("assistant", "## Objective\nkeep going"),
+    )
+    fake_model = SimpleNamespace(
+        model="gpt-4",
+        context=16_384,
+        max_output=8192,
+        full="openai/gpt-4",
+        context_budget=None,
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+    budget = 6000
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    total = len_tokens(manager.log.messages, model="gpt-4")
+    assert total * measured / estimated <= TRIM_TARGET_RATIO * budget
+    assert any(m.content.startswith("answer 19 ") for m in manager.log.messages)
+
+
 def test_truncate_to_tokens_preserves_tail_sections():
     """Truncation must keep the checkpoint's tail (Open Items, Context Files),
     not only its beginning — otherwise the agent loses its remaining work."""

@@ -19,7 +19,9 @@ from ...message import Message, MessageMetadata, len_tokens
 from ...tools import ToolUse, has_tool
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
+from ...util.context_measurement import measure_context_tokens
 from ...util.master_context import is_tool_result_message
+from .decision import TRIM_TARGET_RATIO
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager
@@ -966,6 +968,25 @@ def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None)
     return head + _TRUNCATION_MARK + tail
 
 
+def _compaction_target_tokens(
+    msgs: list[Message], budget: int, model_full: str, model_str: str
+) -> int:
+    """Token target for a summarized view, in the view's estimate units.
+
+    Aim at ``TRIM_TARGET_RATIO`` of the budget, as the trim path does: a view
+    filled up to the budget itself re-triggers compaction on the next turn.
+    The trigger measures provider-reported usage, which also counts tool
+    schemas, chat-template overhead and tokenizer differences the stored-log
+    estimate lacks; scale the target by that gap so the headroom is real.
+    """
+    target = int(budget * TRIM_TARGET_RATIO)
+    estimated = len_tokens([m for m in msgs if not m.ui_only], model=model_str)
+    measured = measure_context_tokens(msgs, model_full)
+    if 0 < estimated < measured:
+        target = target * estimated // measured
+    return target
+
+
 def _apply_native_compaction(
     manager: "LogManager",
     prepared_msgs: list[Message],
@@ -1034,12 +1055,15 @@ def _apply_native_compaction(
         # The context budget already reserves normal model output. Reserve only
         # the compact request's summary allowance here; the final block is still
         # budget-checked. Size the tail before the request so omitted messages
-        # are summarized, never silently dropped after the response.
+        # are summarized, never silently dropped after the response. Target
+        # below the budget so the next turn does not re-trigger compaction.
         keep_recent_tokens = min(
             keep_recent_tokens,
             max(
                 0,
-                budget
+                _compaction_target_tokens(
+                    prepared_msgs, budget, model_meta.full, model_str
+                )
                 - len_tokens(preserved_head, model=model_str)
                 - COMPACT_MAX_TOKENS,
             ),
@@ -1555,7 +1579,12 @@ def _resume_via_llm(
             fixed_parts = assemble_fixed_parts()
             fixed_tokens = len_tokens(fixed_parts, model=model_str)
 
-        available = budget - fixed_tokens
+        # Size the recent tail toward a target below the budget, as the trim
+        # path does. Filling the tail up to the budget itself leaves the view
+        # a few percent below the trigger, so every following turn
+        # re-summarizes (an extra checkpoint call and a cache bust per turn).
+        target = _compaction_target_tokens(msgs, budget, model_meta.full, model_str)
+        available = target - fixed_tokens
         if recent_tail and available < len_tokens(recent_tail, model=model_str):
             recent_tail = _get_recent_tail(
                 tail_source, max(0, available), model=model_str
