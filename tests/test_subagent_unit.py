@@ -3057,6 +3057,24 @@ class TestRedactSecretsFromMessages:
 
         assert redact_secrets_from_messages([]) == []
 
+    def test_redacts_live_env_secret_under_unrelated_key(self, monkeypatch):
+        """Parent shell output can print a secret value under a non-secret name."""
+        from gptme.message import Message
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        value = "Zq8vR2mXk4Lp9Tn6Wd3Hy7Bc"
+        monkeypatch.setenv("SERVICE_API_KEY", value)
+        msgs = [Message("system", f"$ python dump.py\n{{'endpoint_cfg': '{value}'}}\n")]
+        assert value not in redact_secrets_from_messages(msgs)[0].content
+
+    def test_redacts_vendor_token_mid_line(self):
+        from gptme.message import Message
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+        msgs = [Message("system", f"remote: https://x:{token}@github.com/o/r\n")]
+        assert token not in redact_secrets_from_messages(msgs)[0].content
+
     def test_handles_messages_with_no_secrets(self):
         from gptme.message import Message
         from gptme.tools.subagent.context import redact_secrets_from_messages
