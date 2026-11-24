@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import quote_plus, urljoin, urlparse
 
@@ -15,22 +16,32 @@ logger = logging.getLogger(__name__)
 
 _MAX_REDIRECT_HOPS = 10
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# Servers that reject HEAD; their redirects are read from a GET probe instead.
+_HEAD_UNSUPPORTED_STATUSES = frozenset({405, 501})
+# One budget for the whole fetch: redirect probes plus the final request.
+_FETCH_TIMEOUT = 60.0
 
 
-def _redirect_target(head_dump: str, url: str) -> str | None:
-    """Return the absolute redirect target from ``lynx -head -dump`` output."""
+def _status_code(head_dump: str) -> int | None:
     lines = head_dump.splitlines()
     if not lines:
         return None
     status = lines[0].split()
-    if (
-        len(status) < 2
-        or not status[0].upper().startswith("HTTP/")
-        or not status[1].isdigit()
-        or int(status[1]) not in _REDIRECT_STATUSES
-    ):
+    if len(status) < 2 or not status[0].upper().startswith("HTTP/"):
         return None
-    for line in lines[1:]:
+    return int(status[1]) if status[1].isdigit() else None
+
+
+def _remaining(deadline: float) -> float:
+    """Seconds left before ``deadline``; a spent budget times out immediately."""
+    return max(deadline - time.monotonic(), 0.01)
+
+
+def _redirect_target(head_dump: str, url: str) -> str | None:
+    """Return the absolute redirect target from ``lynx -head -dump`` output."""
+    if _status_code(head_dump) not in _REDIRECT_STATUSES:
+        return None
+    for line in head_dump.splitlines()[1:]:
         if not line.strip():
             break
         name, _, value = line.partition(":")
@@ -39,24 +50,40 @@ def _redirect_target(head_dump: str, url: str) -> str | None:
     return None
 
 
-def _resolve_allowlisted_redirects(url: str, env: dict[str, str]) -> str:
+def _probe_headers(cmd: list[str], env: dict[str, str], deadline: float) -> str:
+    return subprocess.run(
+        cmd,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=_remaining(deadline),
+    ).stdout
+
+
+def _resolve_allowlisted_redirects(
+    url: str, env: dict[str, str], deadline: float | None = None
+) -> str:
     """Follow redirects with HEAD probes, allowlist-checking every hop first.
 
     lynx follows redirects to any host on its own, so with a host allowlist the
-    real fetch runs with ``-noredir`` against the URL resolved here.
+    real fetch runs with ``-noredir`` against the URL resolved here. A server
+    that rejects HEAD is probed with GET, whose header block lynx prints with
+    ``-mime_header``. All probes share ``deadline``.
     """
+    if deadline is None:
+        deadline = time.monotonic() + _FETCH_TIMEOUT
     for _ in range(_MAX_REDIRECT_HOPS):
-        p = subprocess.run(
-            ["lynx", "-head", "-dump", "-noredir", url],
-            env=env,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
+        dump = _probe_headers(
+            ["lynx", "-head", "-dump", "-noredir", url], env, deadline
         )
-        target = _redirect_target(p.stdout, url)
+        if _status_code(dump) in _HEAD_UNSUPPORTED_STATUSES:
+            dump = _probe_headers(
+                ["lynx", "-mime_header", "-source", "-noredir", url], env, deadline
+            )
+        target = _redirect_target(dump, url)
         if target is None:
             return url
         _validate_url_scheme(target)
@@ -69,10 +96,14 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     _validate_url_scheme(url)
 
     env = os.environ.copy()
+    deadline = time.monotonic() + _FETCH_TIMEOUT
+    # Caller-supplied cookies belong to the requested host, not to wherever an
+    # allowlisted redirect ends up.
+    cookie_host = urlparse(url).hostname
     if _get_allow_hosts() is not None:
         # Only the first URL was checked above; lynx would otherwise follow a
         # redirect to any host and return its content.
-        url = _resolve_allowlisted_redirects(url, env)
+        url = _resolve_allowlisted_redirects(url, env, deadline)
         cmd = ["lynx", "--dump", "-noredir", url, "--display_charset=utf-8"]
     else:
         cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
@@ -80,8 +111,7 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     cookie_file = None
     if cookies:
         # Create Netscape-format cookie file for lynx
-        parsed = urlparse(url)
-        domain = parsed.hostname
+        domain = cookie_host
         assert domain is not None  # Guaranteed by _validate_url_scheme().
         for name, value in cookies.items():
             if (
@@ -120,7 +150,7 @@ def read_url(url: str, cookies: dict | None = None) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=60,
+            timeout=_remaining(deadline),
         )
         return p.stdout
     finally:

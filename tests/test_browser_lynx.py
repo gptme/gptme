@@ -395,3 +395,126 @@ def test_resolve_allowlisted_redirects_too_many_hops():
         pytest.raises(RuntimeError, match="Too many redirects"),
     ):
         _resolve_allowlisted_redirects("https://example.com/start", {})
+
+
+def test_read_url_cookies_stay_scoped_to_requested_host():
+    """Cookies go to the requested host, not to an allowlisted redirect target."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    cookie_contents: list[str] = []
+
+    def mock_run(cmd, **kwargs):
+        if "-head" in cmd:
+            if "start.example.com" in cmd[-1]:
+                return CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="HTTP/1.1 302 Found\nLocation: https://other.example.org/x\n",
+                    stderr="",
+                )
+            return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
+        cookie_arg = next(a for a in cmd if a.startswith("-cookie_file="))
+        with open(cookie_arg.split("=", 1)[1]) as f:
+            cookie_contents.append(f.read())
+        return CompletedProcess(cmd, 0, stdout="page", stderr="")
+
+    try:
+        set_session_allow_hosts(["start.example.com", "other.example.org"])
+        with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
+            assert (
+                read_url("https://start.example.com/", cookies={"SID": "abc"}) == "page"
+            )
+    finally:
+        set_session_allow_hosts(None)
+
+    assert len(cookie_contents) == 1
+    assert ".start.example.com\t" in cookie_contents[0]
+    assert "other.example.org" not in cookie_contents[0]
+
+
+def test_read_url_redirect_chain_shares_one_deadline():
+    """Redirect probes and the final fetch draw on one timeout budget."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools import _browser_lynx
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    clock = [1000.0]
+    timeouts: list[float] = []
+
+    def fake_monotonic():
+        return clock[0]
+
+    def mock_run(cmd, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        clock[0] += 25  # each request is slow but individually valid
+        if "-head" in cmd and not cmd[-1].endswith("/final"):
+            return CompletedProcess(
+                cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /final\n", stderr=""
+            )
+        if "-head" in cmd:
+            return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
+        return CompletedProcess(cmd, 0, stdout="page", stderr="")
+
+    try:
+        set_session_allow_hosts(["example.com"])
+        with (
+            patch.object(_browser_lynx.time, "monotonic", fake_monotonic),
+            patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run),
+        ):
+            read_url("https://example.com/start")
+    finally:
+        set_session_allow_hosts(None)
+
+    assert timeouts == [60.0, 35.0, 10.0]
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_read_url_checks_get_redirect_when_head_is_rejected():
+    """A server that answers HEAD with 405 still has its redirects checked."""
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    ports: list[int] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_HEAD(self):
+            self.send_response(405)
+            self.end_headers()
+
+        def do_GET(self):
+            if self.path.startswith("/to-other"):
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{ports[0]}/secret")
+                self.end_headers()
+            elif self.path.startswith("/to-same"):
+                self.send_response(302)
+                self.send_header("Location", "/public")
+                self.end_headers()
+            else:
+                body = b"<p>SECRET</p>" if "secret" in self.path else b"<p>PUBLIC</p>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    ports.append(server.server_port)
+    try:
+        set_session_allow_hosts(["127.0.0.1"])
+        with pytest.raises(ValueError, match="localhost"):
+            read_url(f"http://127.0.0.1:{ports[0]}/to-other")
+        assert "PUBLIC" in read_url(f"http://127.0.0.1:{ports[0]}/to-same")
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
