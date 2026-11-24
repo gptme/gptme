@@ -142,11 +142,14 @@ def compute_trends(
                 for a, b in zip(runs_sorted, runs_sorted[1:])
                 if a["passed"] != b["passed"]
             )
+            # With exactly one flip the direction is fixed wherever it landed:
+            # [pass, pass, fail, fail] broke and stayed broken, so it is a
+            # regression even though the last two runs agree.
             if total >= 4 and 0.1 < pass_rate < 0.9 and flips >= 2:
                 flaky.append(entry)
-            elif previous["passed"] and not latest["passed"]:
+            elif not latest["passed"] and (previous["passed"] or flips == 1):
                 regressions.append(entry)
-            elif not previous["passed"] and latest["passed"]:
+            elif latest["passed"] and (not previous["passed"] or flips == 1):
                 improvements.append(entry)
             elif latest["passed"]:
                 stable_pass.append(entry)

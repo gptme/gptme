@@ -381,8 +381,10 @@ def test_at_format_in_model_name(tmp_path):
                 "rows": [("model-a@tool", "", "hello", "true")],
             },
             {
+                # The newer layout: format in its own column. Both layouts must
+                # feed the same history for the regression to be seen.
                 "dir": "20260102_000000Z",
-                "rows": [("model-a@tool", "", "hello", "false")],
+                "rows": [("model-a", "tool", "hello", "false")],
             },
         ],
     )
@@ -408,6 +410,36 @@ def test_single_recent_failure_is_regression_not_flaky(tmp_path):
     trends = compute_trends(load_all_results(tmp_path))
     assert [e["test"] for e in trends["regressions"]] == ["hello"]
     assert trends["flaky"] == []
+
+
+def _trends_for(tmp_path, rows):
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": f"2026010{i + 1}_000000Z",
+                "rows": [("model-a", "markdown", "hello", passed)],
+            }
+            for i, passed in enumerate(rows)
+        ],
+    )
+    trends = compute_trends(load_all_results(tmp_path))
+    return {k for k, v in trends.items() if any(e["test"] == "hello" for e in v)}
+
+
+def test_two_status_flips_are_flaky(tmp_path):
+    """A failure followed by recovery is flaky, not stable."""
+    assert _trends_for(tmp_path, ["true", "false", "true", "true"]) == {"flaky"}
+
+
+def test_earlier_single_flip_keeps_its_direction(tmp_path):
+    """One flip before the last two runs is still a regression or improvement."""
+    assert _trends_for(tmp_path / "r", ["true", "true", "false", "false"]) == {
+        "regressions"
+    }
+    assert _trends_for(tmp_path / "i", ["false", "false", "true", "true"]) == {
+        "improvements"
+    }
 
 
 def test_provider_pinned_model_keeps_at_suffix(tmp_path):
