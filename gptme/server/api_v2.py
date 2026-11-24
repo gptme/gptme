@@ -2049,7 +2049,7 @@ def api_conversation_post(conversation_id: str):
 
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(
-            sess.generating for sess in sessions
+            sess.generating or sess._executing_tools for sess in sessions
         ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
@@ -2264,13 +2264,15 @@ def api_conversation_edit_message(conversation_id: str, index: int):
 
     if content is not None and not isinstance(content, str):
         return flask.jsonify({"error": "content must be a string"}), 400
+    if content is not None and not content.strip():
+        return flask.jsonify({"error": "content must not be empty"}), 400
     if files is not None and (
         not isinstance(files, list) or not all(isinstance(f, str) for f in files)
     ):
         return flask.jsonify({"error": "files must be a list of strings"}), 400
 
     # Content or files required for edits, but optional for pure truncation
-    has_changes = (content and content.strip()) or files is not None
+    has_changes = content is not None or files is not None
     if not truncate and not has_changes:
         return flask.jsonify({"error": "content or files is required"}), 400
 
@@ -2289,7 +2291,7 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(
-            sess.generating for sess in sessions
+            sess.generating or sess._executing_tools for sess in sessions
         ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify({"error": "Cannot edit while generation is in progress"}),
@@ -2414,7 +2416,7 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(
-            sess.generating for sess in sessions
+            sess.generating or sess._executing_tools for sess in sessions
         ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
@@ -2538,7 +2540,7 @@ def api_conversation_fork(conversation_id: str):
     with SessionManager.conversation_lock(conversation_id):
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(
-            sess.generating for sess in sessions
+            sess.generating or sess._executing_tools for sess in sessions
         ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify({"error": "Cannot fork while generation is in progress"}),
@@ -2669,7 +2671,7 @@ def api_conversation_delete(conversation_id: str):
 
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(
-            sess.generating for sess in sessions
+            sess.generating or sess._executing_tools for sess in sessions
         ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(
@@ -3112,7 +3114,7 @@ def api_conversation_config_patch(conversation_id: str):
 
         sessions = SessionManager.get_sessions_for_conversation(conversation_id)
         if any(
-            sess.generating for sess in sessions
+            sess.generating or sess._executing_tools for sess in sessions
         ) or SessionManager.command_is_active(conversation_id):
             return (
                 flask.jsonify(

@@ -99,6 +99,13 @@ class TestIsAllowedSrc:
             "https://evil.example.com/xss",
             "//evil.example.com/xss",
             "/\\evil",
+            "/\t/evil.com/x",
+            "/\n/evil.com/x",
+            "/\r\\evil.com",
+            "/\r/evil.com/x",
+            "/\x00/evil.com/x",
+            "http://localhost\t@evil.com",
+            "http://localhost\n/panel",
             "",
             "   ",
             123,
@@ -203,7 +210,22 @@ class TestPanelsFromMessages:
                                 "title": "Evil",
                                 "src": "https://evil.example.com",
                                 "sandbox": [],
-                            }
+                            },
+                            {
+                                "id": "evil-tab",
+                                "kind": "iframe",
+                                "title": "Evil Tab",
+                                "src": "/\t/evil.com/x",
+                                "sandbox": [],
+                            },
+                            {
+                                "id": "evil-cr-backslash",
+                                "kind": "live_app",
+                                "title": "Evil CR",
+                                "url": "/\r\\evil.com",
+                                "status": "running",
+                                "sandbox": [],
+                            },
                         ]
                     }
                 }

@@ -42,6 +42,12 @@ def _is_allowed_src(src: object) -> bool:
     if not isinstance(src, str) or not src.strip():
         return False
     value = src.strip()
+    # Reject ASCII control characters (including \t, \n, \r): browsers strip
+    # ASCII tabs and newlines before URL parsing, so values like '/\t/evil.com'
+    # or '/\r\\evil.com' would otherwise slip past the leading '//' and '/\\'
+    # guards and resolve as protocol-relative URLs.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        return False
     # Server-relative path: single leading slash, not protocol-relative.
     if (
         value.startswith("/")

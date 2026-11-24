@@ -474,6 +474,14 @@ class SessionManager:
         )
 
     @classmethod
+    def conversation_executing_tools(cls, conversation_id: str) -> bool:
+        """Return whether any session for the conversation is executing a tool."""
+        return any(
+            session._executing_tools
+            for session in cls.get_sessions_for_conversation(conversation_id)
+        )
+
+    @classmethod
     def add_event(cls, conversation_id: str, event: EventType) -> None:
         """Add an event to all sessions for a conversation."""
         sessions = cls.get_sessions_for_conversation(conversation_id)

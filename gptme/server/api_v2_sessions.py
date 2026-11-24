@@ -498,9 +498,11 @@ def api_conversation_step(conversation_id: str):
     # config PATCH. A PATCH completed before this acquisition must affect the
     # worker; one arriving afterward sees generating=True and returns 409.
     with SessionManager.conversation_lock(conversation_id), session.step_lock:
-        if SessionManager.conversation_generating(
-            conversation_id
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+        ):
             return flask.jsonify({"error": "Generation already in progress"}), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
         effort_provided = req_json.get("reasoning_effort") is not None
@@ -1007,9 +1009,11 @@ def api_conversation_rerun(conversation_id: str):
     # (same class of bug as the /step guard). All work inside the lock is fast
     # and local (log read, parsing, thread spawn) — no LLM or tool execution.
     with SessionManager.conversation_lock(conversation_id), session.step_lock:
-        if SessionManager.conversation_generating(
-            conversation_id
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+        ):
             return flask.jsonify(
                 {"error": "Cannot rerun while generation is in progress"}
             ), 409

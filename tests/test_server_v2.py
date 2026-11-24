@@ -4154,6 +4154,224 @@ def test_v2_mutations_rejected_while_conversation_command_is_active(
     assert "generation is in progress" in response.get_json()["error"]
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "json"),
+    [
+        ("POST", "", {"role": "user", "content": "INTERJECTED"}),
+        ("PATCH", "/messages/0", {"content": "updated"}),
+        ("DELETE", "/messages/0", None),
+        ("POST", "/fork?after_message=0", None),
+        ("DELETE", "", None),
+        ("PATCH", "/config", {"model": "openai/gpt-4o"}),
+    ],
+)
+def test_v2_mutations_rejected_while_tool_is_executing(
+    client: FlaskClient, method: str, path: str, json: dict | None
+):
+    """Conversation mutations must return 409 while a confirmed tool is executing."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session._executing_tools.add("tool-running-1")
+    try:
+        response = client.open(
+            f"/api/v2/conversations/{conversation_id}{path}", method=method, json=json
+        )
+    finally:
+        session._executing_tools.discard("tool-running-1")
+
+    assert response.status_code == 409
+    assert "generation is in progress" in response.get_json()["error"]
+
+
+def test_v2_step_and_rerun_rejected_while_tool_is_executing(client: FlaskClient):
+    """/step and /rerun must return 409 while any session is executing a tool."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session._executing_tools.add("tool-running-sibling")
+    try:
+        step_resp = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id},
+        )
+        rerun_resp = client.post(
+            f"/api/v2/conversations/{conversation_id}/rerun",
+            json={"session_id": session_id},
+        )
+    finally:
+        other_session._executing_tools.discard("tool-running-sibling")
+        SessionManager.remove_session(other_session.id)
+
+    assert step_resp.status_code == 409
+    assert step_resp.get_json()["error"] == "Generation already in progress"
+    assert rerun_resp.status_code == 409
+    assert (
+        rerun_resp.get_json()["error"] == "Cannot rerun while generation is in progress"
+    )
+
+
+def test_v2_confirmed_tool_blocks_interjected_message_and_step(client: FlaskClient):
+    """Repro for #5138 defect #1: manually confirmed executing tool blocks POST and /step."""
+    import threading
+
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    convname = f"test-tool-guard-{random.randint(0, 1000000)}"
+    put_resp = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "prompt": "none",
+            "messages": [
+                {"role": "user", "content": "run command"},
+                {
+                    "role": "assistant",
+                    "content": "```shell\nsleep 3; echo TOOL_DONE\n```",
+                },
+            ],
+        },
+    )
+    assert put_resp.status_code == 200
+    session_id = put_resp.get_json()["session_id"]
+
+    rerun_resp = client.post(
+        f"/api/v2/conversations/{convname}/rerun",
+        json={"session_id": session_id},
+    )
+    assert rerun_resp.status_code == 200
+    tool_id = rerun_resp.get_json()["tool_ids"][0]
+
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def slow_execute(*_args, **_kwargs):
+        started.set()
+        release.wait(timeout=5)
+        yield Message("system", "Ran command: TOOL_DONE")
+
+    def mark_continuation(*_args, **_kwargs):
+        finished.set()
+        return True
+
+    with (
+        unittest.mock.patch(
+            "gptme.tools.base.ToolUse.execute", side_effect=slow_execute
+        ),
+        unittest.mock.patch(
+            "gptme.server.session_step._start_step_thread",
+            side_effect=mark_continuation,
+        ),
+        unittest.mock.patch("gptme.server.session_step._compact_after_tool_results"),
+    ):
+        confirm_resp = client.post(
+            f"/api/v2/conversations/{convname}/tool/confirm",
+            json={
+                "session_id": session_id,
+                "tool_id": tool_id,
+                "action": "confirm",
+            },
+        )
+        assert confirm_resp.status_code == 200
+        assert started.wait(timeout=3), "tool worker did not start"
+
+        post_resp = client.post(
+            f"/api/v2/conversations/{convname}",
+            json={"role": "user", "content": "INTERJECTED"},
+        )
+        step_resp = client.post(
+            f"/api/v2/conversations/{convname}/step",
+            json={"session_id": session_id, "model": "openai/gpt-4o"},
+        )
+
+        assert post_resp.status_code == 409
+        assert step_resp.status_code == 409
+
+        release.set()
+        assert finished.wait(timeout=3), "tool worker did not finish"
+
+    # Reset generating reservation taken by the mocked continuation
+    session = SessionManager.get_session(session_id)
+    if session is not None:
+        session.generating = False
+
+    conv_data = client.get(f"/api/v2/conversations/{convname}").get_json()
+    assert conv_data is not None
+    contents = [m["content"] for m in conv_data["log"]]
+    assert any("TOOL_DONE" in c for c in contents)
+    assert all("INTERJECTED" not in c for c in contents)
+
+
+def test_v2_pending_tool_does_not_block_message_post(client: FlaskClient):
+    """A pending (unconfirmed) tool must not trigger the executing-tool 409 guard."""
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+
+    session.pending_tools["pending-1"] = ToolExecution(
+        tool_id="pending-1",
+        tooluse=ToolUse("shell", [], "echo hi"),
+    )
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Follow-up while tool is pending"},
+        )
+    finally:
+        session.pending_tools.pop("pending-1", None)
+
+    assert response.status_code == 200
+
+
+def test_start_step_threads_rejected_while_tool_is_executing(v2_conv):
+    """Direct step starters must not reserve while a tool is executing."""
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import _start_acp_step_thread, _start_step_thread
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    session._executing_tools.add("tool-running-direct")
+    try:
+        assert (
+            _start_step_thread(
+                conversation_id,
+                session,
+                "openai/mock-model",
+                Path("/tmp"),
+                reserved=False,
+            )
+            is False
+        )
+        assert (
+            _start_acp_step_thread(
+                conversation_id=conversation_id,
+                session=session,
+                workspace=Path("/tmp"),
+                reserved=False,
+            )
+            is False
+        )
+        assert session.generating is False
+    finally:
+        session._executing_tools.discard("tool-running-direct")
+
+
 def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClient):
     """A DELETE serialized behind another deletion should return 404, not 500."""
     from gptme.dirs import get_logs_dir
@@ -4747,6 +4965,108 @@ def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "content must be a string"}
+
+
+@pytest.mark.parametrize("blank_content", ["", "   ", "\t\n "])
+@pytest.mark.parametrize("query", ["", "?truncate=1"])
+def test_v2_edit_message_rejects_blank_content(
+    client: FlaskClient, blank_content: str, query: str
+):
+    """PATCH /messages/<i> must reject blank content with or without ?truncate=1."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Original message"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "assistant", "content": "Assistant reply"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Original message"
+    )
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}{query}",
+        json={"content": blank_content},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "content must not be empty"}
+
+    # Original message and subsequent messages must remain intact
+    after = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert after is not None
+    assert len(after["log"]) == len(before["log"])
+    assert after["log"][user_index]["content"] == "Original message"
+
+
+def test_v2_edit_message_rejects_blank_content_even_with_files(client: FlaskClient):
+    """PATCH /messages/<i> must reject blank content even when files is also supplied."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Original message"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Original message"
+    )
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"content": "   ", "files": []},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "content must not be empty"}
+
+
+def test_v2_edit_message_pure_truncate_keeps_content(client: FlaskClient):
+    """PATCH /messages/<i>?truncate=1 with no content still truncates cleanly."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Keep me"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "assistant", "content": "Drop me"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Keep me"
+    )
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}?truncate=1",
+        json={},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert len(data["log"]) == user_index + 1
+    assert data["log"][user_index]["content"] == "Keep me"
 
 
 @pytest.mark.parametrize(

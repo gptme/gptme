@@ -912,9 +912,11 @@ def _start_acp_step_thread(
     """Start an ACP-backed step unless another operation has reserved it."""
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if SessionManager.conversation_generating(
-                conversation_id
-            ) or SessionManager.command_is_active(conversation_id):
+            if (
+                SessionManager.conversation_generating(conversation_id)
+                or SessionManager.command_is_active(conversation_id)
+                or SessionManager.conversation_executing_tools(conversation_id)
+            ):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
@@ -2013,6 +2015,9 @@ def start_tool_execution(
                     if reserved or (
                         not SessionManager.conversation_generating(conversation_id)
                         and not SessionManager.command_is_active(conversation_id)
+                        and not SessionManager.conversation_executing_tools(
+                            conversation_id
+                        )
                     ):
                         # Advance step_seq BEFORE setting generating=True (Race 5).
                         # The originating step() finally block snapshots
@@ -2153,9 +2158,11 @@ def _start_step_thread(
     # identifies that reservation explicitly to avoid rejecting itself.
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if SessionManager.conversation_generating(
-                conversation_id
-            ) or SessionManager.command_is_active(conversation_id):
+            if (
+                SessionManager.conversation_generating(conversation_id)
+                or SessionManager.command_is_active(conversation_id)
+                or SessionManager.conversation_executing_tools(conversation_id)
+            ):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
