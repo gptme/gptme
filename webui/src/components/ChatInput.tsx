@@ -349,7 +349,7 @@ const StreamingToggle: FC<{
 );
 
 const ModelBadge: FC<{
-  model: string;
+  model?: string;
   models: { id: string; provider: string; model: string }[];
   onModelChange: (model: string) => void;
   isDisabled: boolean;
@@ -357,7 +357,7 @@ const ModelBadge: FC<{
 }> = ({ model, models, onModelChange, isDisabled, isLoading }) => {
   const [open, setOpen] = useState(false);
   const modelInfo = models.find((m) => m.id === model);
-  const displayName = modelInfo?.model || model.split('/').pop() || model;
+  const displayName = modelInfo?.model || model?.split('/').pop() || model || 'Server default';
 
   // Show a skeleton pill while the conversation's chatConfig is still loading,
   // so we never display the wrong fallback model to the user.
@@ -395,7 +395,7 @@ const ModelBadge: FC<{
             setOpen(false);
           }}
         />
-        <SetDefaultModelFooter model={model} />
+        {model && <SetDefaultModelFooter model={model} />}
       </PopoverContent>
     </Popover>
   );
@@ -782,9 +782,8 @@ export const ChatInput: FC<Props> = ({
   //   (b) There IS an active conversation, no model source has resolved yet, and
   //       the /api/v2/models fetch is still in-flight — prevents briefly rendering
   //       the wrong hardcoded fallback string ('anthropic/claude-sonnet-4-6').
-  //       Gated on !!conversationId: the home page (no conversation) should show
-  //       whatever model is resolved or the fallback, never a skeleton pill.
-  //       Once isModelsLoading clears (success or failure) we show the real model.
+  //       The home picker stays visible with a "Server default" label until a
+  //       model is known.
   const isChatConfigLoading =
     (!!conversationId && !isReadOnly && chatConfig === undefined && !pendingModel) ||
     (!!conversationId &&
@@ -816,10 +815,11 @@ export const ChatInput: FC<Props> = ({
   // Fallback model when no other default is available
   const fallbackModel = 'anthropic/claude-sonnet-4-6';
 
-  // Compute the effective model to use (explicit selection or conversation default)
-  const effectiveModel = hasExplicitModelSelection
+  const configuredModel = conversationModel || defaultModel || apiDefaultModel;
+  const modelForBadge = hasExplicitModelSelection
     ? selectedModel
-    : conversationModel || defaultModel || apiDefaultModel || fallbackModel;
+    : configuredModel || (conversationId ? fallbackModel : undefined);
+  const effectiveModel = modelForBadge ?? fallbackModel;
 
   const [effortDraft, setEffortDraft] = useComposerDraft(
     storageKey ? `${storageKey}-effort` : null,
@@ -1744,7 +1744,7 @@ export const ChatInput: FC<Props> = ({
                   <div className="absolute bottom-1 left-1.5 right-1 flex items-center gap-2">
                     <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1 sm:gap-2">
                       <ModelBadge
-                        model={effectiveModel}
+                        model={modelForBadge}
                         models={modelInfos}
                         onModelChange={(model: string) => {
                           setSelectedModel(model);
