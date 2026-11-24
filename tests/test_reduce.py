@@ -309,6 +309,47 @@ def test_reduce_log_skips_tool_use_messages():
     assert "[...]" in reduced[3].content
 
 
+def test_reduce_log_skips_untruncatable_longest_message():
+    """An un-truncatable longest prose message must not prevent truncating shorter codeblocks."""
+    prose_msg = Message("user", " ".join(f"word{i}" for i in range(4000)))
+    code_lines = "\n".join(f"line_{i} = {i} * 2 # filler text here" for i in range(200))
+    code_msg = Message("system", f"Output:\n```python\n{code_lines}\n```")
+    msgs = [prose_msg, code_msg]
+
+    before = len_tokens(msgs, "gpt-4")
+    limit = before - 1000
+    reduced = list(reduce_log(msgs, limit=limit))
+    after = len_tokens(reduced, "gpt-4")
+
+    assert after <= limit
+    assert after < before
+    assert reduced[0].content == prose_msg.content
+    assert "[...]" in reduced[1].content
+
+
+def test_reduce_log_truncates_multiple_shorter_messages_behind_prose():
+    """Multiple truncatable messages behind an un-truncatable prose message should be reduced."""
+    prose_msg = Message("user", " ".join(f"prose{i}" for i in range(3000)))
+    code_a = "\n".join(f"a_{i} = {i}" for i in range(150))
+    code_b = "\n".join(f"b_{i} = {i}" for i in range(150))
+    msgs = [
+        prose_msg,
+        Message("system", f"```python\n{code_a}\n```"),
+        Message("system", f"```python\n{code_b}\n```"),
+    ]
+
+    before = len_tokens(msgs, "gpt-4")
+    # Require both codeblocks to be truncated to fit under the limit.
+    limit = len_tokens([prose_msg], "gpt-4") + 300
+    reduced = list(reduce_log(msgs, limit=limit))
+    after = len_tokens(reduced, "gpt-4")
+
+    assert after < before
+    assert after <= limit
+    assert "[...]" in reduced[1].content
+    assert "[...]" in reduced[2].content
+
+
 @pytest.mark.slow
 def test_reduce_log():
     msgs = [

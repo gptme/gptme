@@ -84,12 +84,12 @@ def reduce_log(
 
     # Filter out pinned messages and assistant tool-call messages. Tool-call
     # messages must remain parseable so paired tool results keep their anchor.
-    non_pinned = [
-        (i, m)
+    non_pinned_indices = [
+        i
         for i, m in enumerate(log)
         if not m.pinned and not message_contains_tool_use(m)
     ]
-    if not non_pinned:
+    if not non_pinned_indices:
         logger.warning(
             "Cannot reduce log: all messages are pinned or protected tool calls"
         )
@@ -103,37 +103,32 @@ def reduce_log(
         yield from log
         return
 
-    i, longest_msg = max(
-        non_pinned,
-        key=lambda t: len_tokens(t[1].content, model.model),
-    )
+    log = list(log)
+    untruncatable: set[int] = set()
 
-    # attempt to truncate the longest message
-    truncated = truncate_msg(longest_msg)
+    while tokens > limit:
+        candidates = sorted(
+            (i for i in non_pinned_indices if i not in untruncatable),
+            key=lambda i: len_tokens(log[i].content, model.model),
+            reverse=True,
+        )
+        made_progress = False
+        for i in candidates:
+            truncated = truncate_msg(log[i])
+            if truncated is None:
+                untruncatable.add(i)
+                continue
+            candidate_log = log[:i] + [truncated] + log[i + 1 :]
+            new_tokens = len_tokens(candidate_log, model.model)
+            if new_tokens < tokens:
+                log = candidate_log
+                tokens = new_tokens
+                _truncations += 1
+                made_progress = True
+                break
+            untruncatable.add(i)
 
-    # if unchanged after truncate, attempt summarize
-    if truncated:
-        summary_msg = truncated
-        _truncations += 1
-    else:
-        summary_msg = longest_msg
-
-    log = log[:i] + [summary_msg] + log[i + 1 :]
-
-    tokens = len_tokens(log, model.model)
-    if tokens <= limit:
-        if _initial_tokens is not None:
-            saved = _initial_tokens - tokens
-            blocks_str = f", truncated {_truncations} block(s)" if _truncations else ""
-            console.log(
-                f"[context] Reduced log by ~{saved // 1000}k tokens"
-                f" ({_initial_tokens // 1000}k → {tokens // 1000}k){blocks_str}"
-            )
-        yield from log
-    else:
-        # recurse until we are below the limit
-        # but if prev_len == tokens, we are not making progress, so just return the log as-is
-        if prev_len == tokens:
+        if not made_progress:
             logger.warning("Not making progress, returning log as-is")
             if _initial_tokens is not None:
                 blocks_str = (
@@ -144,14 +139,16 @@ def reduce_log(
                     f" still exceeds limit ~{int(limit) // 1000}k{blocks_str})"
                 )
             yield from log
-        else:
-            yield from reduce_log(
-                log,
-                limit,
-                prev_len=tokens,
-                _initial_tokens=_initial_tokens,
-                _truncations=_truncations,
-            )
+            return
+
+    if _initial_tokens is not None:
+        saved = _initial_tokens - tokens
+        blocks_str = f", truncated {_truncations} block(s)" if _truncations else ""
+        console.log(
+            f"[context] Reduced log by ~{saved // 1000}k tokens"
+            f" ({_initial_tokens // 1000}k → {tokens // 1000}k){blocks_str}"
+        )
+    yield from log
 
 
 def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
