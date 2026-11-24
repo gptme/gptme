@@ -44,9 +44,10 @@ def test_keyboard_interrupt_kills_script_hook_process(tmp_path, monkeypatch):
 
         assert len(spawned) == 1
         proc = spawned[0]
-        time.sleep(0.3)
-        assert proc.poll() is not None, (
-            "script hook process still running after KeyboardInterrupt"
+        # No poll()/sleep first: poll() would reap the shell itself and hide a
+        # runner that killed it without waiting.
+        assert proc.returncode is not None, (
+            "script hook process was not reaped before KeyboardInterrupt propagated"
         )
     finally:
         for p in spawned:
@@ -83,3 +84,37 @@ def test_keyboard_interrupt_logs_when_reap_times_out(tmp_path, monkeypatch, capl
 
     assert len(terminated) == 1
     assert "did not exit after interrupt" in caplog.text
+
+
+def test_keyboard_interrupt_kills_shell_when_tree_kill_fails(tmp_path, monkeypatch):
+    """A failing process-tree kill must not replace the interrupt or skip the kill."""
+    from gptme.hooks import script
+
+    class Process:
+        pid = 4243
+        killed = False
+        reaped = False
+
+        def wait(self, timeout=None):
+            if timeout == 30:
+                raise KeyboardInterrupt
+            self.reaped = True
+            return -9
+
+        def kill(self):
+            self.killed = True
+
+    proc = Process()
+
+    def tree_kill_fails(process):
+        raise RuntimeError("taskkill failed")
+
+    monkeypatch.setattr(script.subprocess, "Popen", lambda *a, **kw: proc)
+    monkeypatch.setattr(script, "_terminate_process_tree", tree_kill_fails)
+
+    hook = ScriptHookConfig(event="session.start", command="sleep 30", timeout=30)
+    with pytest.raises(KeyboardInterrupt):
+        _run_script_hook(hook, tmp_path, logdir=tmp_path, model="m")
+
+    assert proc.killed
+    assert proc.reaped
