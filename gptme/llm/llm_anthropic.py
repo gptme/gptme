@@ -7,6 +7,7 @@ from collections.abc import Callable, Generator, Iterable
 from dataclasses import replace
 from functools import wraps
 from pathlib import Path
+from types import SimpleNamespace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -181,6 +182,32 @@ class _UsageMetrics(Protocol):
 
     @property
     def cache_read_input_tokens(self) -> int | None: ...
+
+
+_USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+
+
+def _merge_stream_usage(
+    start: _UsageMetrics | None, delta: _UsageMetrics
+) -> _UsageMetrics:
+    """Combine ``message_start`` usage with the ``message_delta`` usage.
+
+    Anthropic's ``message_delta`` usage is cumulative but may omit fields
+    (typically it carries only ``output_tokens``); omitted fields keep the
+    ``message_start`` value, as the Anthropic SDK's own stream accumulator does.
+    """
+    if start is None:
+        return delta
+    merged = {}
+    for field in _USAGE_FIELDS:
+        value = getattr(delta, field, None)
+        merged[field] = value if value is not None else getattr(start, field, None)
+    return cast(_UsageMetrics, SimpleNamespace(**merged))
 
 
 def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
@@ -505,6 +532,10 @@ def _build_thinking_param(
     return {"type": "enabled", "budget_tokens": thinking_budget}
 
 
+# Anthropic rejects ``budget_tokens`` below this with HTTP 400.
+_MIN_THINKING_BUDGET = 1024
+
+
 def _adjust_thinking_budget(
     max_tokens: int, thinking_budget: int, use_thinking: bool, model: str = ""
 ) -> tuple[int, bool]:
@@ -525,8 +556,10 @@ def _adjust_thinking_budget(
     if max_tokens >= thinking_budget + _MIN_RESPONSE_TOKENS:
         return thinking_budget, use_thinking
     new_budget = max_tokens - _MIN_RESPONSE_TOKENS
-    if new_budget <= 0:
-        # Not enough room for thinking AND a useful response — disable thinking.
+    if new_budget < _MIN_THINKING_BUDGET:
+        # Not enough room for the API's minimum thinking budget AND a useful
+        # response — disable thinking rather than send a budget Anthropic
+        # rejects with HTTP 400.
         logger.warning(
             "max_tokens=%d is too small to accommodate thinking tokens "
             "and a useful response (min %d tokens); "
@@ -1147,6 +1180,8 @@ def _stream_with_client(
     captured_metadata: MessageMetadata | None = None
     # Model id Anthropic reports on message_start (message.model).
     served_model: str | None = None
+    # Usage reported on message_start; message_delta may omit these fields.
+    start_usage: _UsageMetrics | None = None
     # Track the signature for the current thinking block so it can be embedded
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
@@ -1197,6 +1232,9 @@ def _stream_with_client(
 
     saw_message_stop = False
     native_pending: list[str] | None = None
+    # Whether the current tool_use block streamed any argument JSON; a
+    # no-argument call (e.g. ``complete``) may stream none at all.
+    tool_json_emitted = False
 
     def _emit(text: str) -> Generator[str, None, None]:
         # Preserve order after the first native call, withholding executable
@@ -1227,6 +1265,7 @@ def _stream_with_client(
                         tool_use = block
                         if native_pending is None:
                             native_pending = []
+                        tool_json_emitted = False
                         yield from _emit(
                             f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
                         )
@@ -1251,7 +1290,8 @@ def _stream_with_client(
                         if delta.thinking is not None:
                             yield from _emit(delta.thinking)
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
-                        if delta.partial_json is not None:
+                        if delta.partial_json:
+                            tool_json_emitted = True
                             yield from _emit(delta.partial_json)
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # Capture signature for embedding in the closing </think> tag.
@@ -1272,7 +1312,12 @@ def _stream_with_client(
                     if isinstance(stop_block, anthropic.types.TextBlock):
                         pass
                     elif isinstance(stop_block, anthropic.types.ToolUseBlock):
-                        pass
+                        if not tool_json_emitted:
+                            # Without an argument object the call header is
+                            # not parsed as a tool call; match chat()'s
+                            # json.dumps(block.input).
+                            yield from _emit(json.dumps(stop_block.input or {}))
+                            tool_json_emitted = True
                     elif isinstance(stop_block, anthropic.types.ThinkingBlock):
                         # Embed the signature so it's preserved in message history
                         # and can be passed back to the API on subsequent turns.
@@ -1297,6 +1342,7 @@ def _stream_with_client(
                         chunk,
                     )
                     served_model = _served_model_of(chunk.message) or served_model
+                    start_usage = chunk.message.usage
                     # Capture input/cache token counts (and the request's
                     # reasoning effort) as a fallback for callers that break
                     # the stream before message_delta arrives (e.g.
@@ -1313,7 +1359,9 @@ def _stream_with_client(
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
                     # Record usage from message_delta which contains the final/cumulative usage
                     # and capture metadata for message attachment
-                    captured_metadata = _record_usage(chunk.usage, model)
+                    captured_metadata = _record_usage(
+                        _merge_stream_usage(start_usage, chunk.usage), model
+                    )
                 case "message_stop":
                     saw_message_stop = True
                 case _:

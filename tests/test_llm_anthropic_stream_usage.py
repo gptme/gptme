@@ -1,0 +1,202 @@
+"""Anthropic streaming over a mocked SSE transport (real SDK parsing).
+
+- Usage: the stream reports input_tokens / cache_*_input_tokens on
+  message_start and usually only ``output_tokens`` on message_delta; omitted
+  fields must keep their message_start values.
+- Thinking: a clamped budget must not drop below the 1024 API minimum.
+- A tool_use block with ``input: {}`` streams no argument JSON; the emitted
+  call must still parse as a tool call.
+"""
+
+import json
+from types import SimpleNamespace
+
+import anthropic
+import httpx2 as httpx
+import pytest
+
+from gptme.llm import llm_anthropic
+from gptme.message import Message
+from gptme.tools.base import ToolUse
+
+
+def _sse(events):
+    return "".join(
+        f"event: {ev['type']}\ndata: {json.dumps(ev)}\n\n" for ev in events
+    ).encode()
+
+
+EVENTS = [
+    {
+        "type": "message_start",
+        "message": {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-6",
+            "content": [],
+            "stop_reason": None,
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": 1200,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 5000,
+                "output_tokens": 1,
+            },
+        },
+    },
+    {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {"type": "text", "text": ""},
+    },
+    {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {"type": "text_delta", "text": "Hello"},
+    },
+    {"type": "content_block_stop", "index": 0},
+    {
+        "type": "message_delta",
+        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+        # Exactly the documented shape: only output_tokens.
+        "usage": {"output_tokens": 15},
+    },
+    {"type": "message_stop"},
+]
+
+
+def test_stream_metadata_keeps_message_start_input_tokens(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(EVENTS),
+        )
+
+    client = anthropic.Anthropic(
+        api_key="sk-test",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+    monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+
+    gen = llm_anthropic.stream(
+        [Message("system", "sys"), Message("user", "hi")],
+        "claude-sonnet-4-6",
+        None,
+    )
+    parts = []
+    while True:
+        try:
+            parts.append(next(gen))
+        except StopIteration as exc:
+            metadata = exc.value
+            break
+
+    assert "".join(parts) == "Hello"
+    assert metadata is not None
+    usage = metadata["usage"]
+    assert usage["output_tokens"] == 15
+    # Input/cache counts from message_start must not be lost.
+    assert usage.get("cache_read_tokens") == 5000, usage
+
+
+def test_merge_stream_usage_prefers_delta_values_when_present():
+    start = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=1,
+        cache_creation_input_tokens=2,
+        cache_read_input_tokens=3,
+    )
+    delta = SimpleNamespace(
+        input_tokens=12,
+        output_tokens=40,
+        cache_creation_input_tokens=None,
+        cache_read_input_tokens=None,
+    )
+    merged = llm_anthropic._merge_stream_usage(start, delta)
+    assert merged.input_tokens == 12
+    assert merged.output_tokens == 40
+    assert merged.cache_creation_input_tokens == 2
+    assert merged.cache_read_input_tokens == 3
+    assert llm_anthropic._merge_stream_usage(None, delta) is delta
+
+
+NOARG_EVENTS = [
+    {
+        "type": "message_start",
+        "message": {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-6",
+            "content": [],
+            "stop_reason": None,
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 1},
+        },
+    },
+    {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+            "type": "tool_use",
+            "id": "toolu_01",
+            "name": "complete",
+            "input": {},
+        },
+    },
+    {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {"type": "input_json_delta", "partial_json": ""},
+    },
+    {"type": "content_block_stop", "index": 0},
+    {
+        "type": "message_delta",
+        "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+        "usage": {"output_tokens": 12},
+    },
+    {"type": "message_stop"},
+]
+
+
+def test_streamed_no_arg_tool_call_is_parseable(monkeypatch):
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(NOARG_EVENTS),
+        )
+
+    client = anthropic.Anthropic(
+        api_key="sk-test",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+    monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+
+    text = "".join(
+        llm_anthropic.stream(
+            [Message("system", "sys"), Message("user", "you are done")],
+            "claude-sonnet-4-6",
+            None,
+        )
+    )
+    calls = list(ToolUse.iter_from_content(text, "tool"))
+    assert [(c.tool, c.call_id, c.kwargs) for c in calls] == [
+        ("complete", "toolu_01", {})
+    ], repr(text)
+
+
+@pytest.mark.parametrize("max_tokens", [300, 800, 1200])
+def test_clamped_thinking_budget_respects_api_minimum(max_tokens):
+    """A clamped budget below Anthropic's 1024 minimum disables thinking."""
+    model = "claude-sonnet-4-5"  # budget_tokens (non-adaptive) thinking
+    budget, use_thinking = llm_anthropic._adjust_thinking_budget(
+        max_tokens, 16000, True, model
+    )
+    param = llm_anthropic._build_thinking_param(model, use_thinking, budget)
+    if param is not None and param.get("type") == "enabled":
+        assert 1024 <= param["budget_tokens"] < max_tokens, param

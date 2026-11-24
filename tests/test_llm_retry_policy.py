@@ -357,6 +357,21 @@ def test_is_context_length_error_requires_provider_origin():
         mark_llm_reply_origin(unrelated)
         assert not is_context_length_error(unrelated)
 
+    # Anthropic's own overflow error carries no dedicated code.
+    anthropic_overflow = BadRequestError(
+        "Error code: 400",
+        response=response,
+        body={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "prompt is too long: 208310 tokens > 200000 maximum",
+            },
+        },
+    )
+    mark_llm_reply_origin(anthropic_overflow)
+    assert is_context_length_error(anthropic_overflow)
+
 
 def test_anthropic_clients_have_sdk_retries_disabled():
     """The Anthropic clients are constructed with SDK retries disabled."""
