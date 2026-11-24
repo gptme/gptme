@@ -243,6 +243,48 @@ def test_api_conversation_list_paginated_ignores_truncated_legacy_cache(
     assert len(scans) == scans_after_page1
 
 
+@pytest.mark.parametrize("query", ["", "?paginated=1&limit=10"])
+def test_conversation_list_fill_does_not_publish_scan_older_than_a_save(
+    client: FlaskClient, monkeypatch, query: str
+):
+    """A list scan that began before a message was saved must not become the cache."""
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    api_v2_module._invalidate_conversations_cache()
+    stale = ConversationMeta(
+        id="a",
+        name="a",
+        path="/tmp/a/conversation.jsonl",
+        created=0.0,
+        modified=0.0,
+        messages=1,
+        branches=1,
+        workspace="",
+        agent_name=None,
+        agent_path=None,
+        agent_avatar=None,
+        agent_urls=None,
+        model=None,
+        total_cost=0.0,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_cache_read_tokens=0,
+        last_message_role="user",
+        last_message_preview="old",
+    )
+
+    def scan_while_a_message_is_saved(detail=False):
+        yield stale  # read before the save
+        api_v2_module._update_conversation_in_cache("a")
+
+    monkeypatch.setattr(
+        api_v2_module, "get_user_conversations", scan_while_a_message_is_saved
+    )
+    assert client.get(f"/api/v2/conversations{query}").status_code == 200
+    assert api_v2_module._conversations_cache is None
+
+
 def test_update_conversation_in_cache_does_not_overwrite_newer_fill(tmp_path):
     """An in-place update computed from an old list must not replace a newer fill."""
     import time

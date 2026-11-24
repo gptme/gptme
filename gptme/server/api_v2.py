@@ -1457,6 +1457,7 @@ def api_conversations():
         _conversations_cache_logs_dir, \
         _conversations_cache_time, \
         _conversations_cache_complete
+    fill_generation = 0
     logs_dir = conversations_module.get_logs_dir()
 
     # Cursor pagination path — returns {conversations: [...], next_cursor: string|null}
@@ -1480,12 +1481,15 @@ def api_conversations():
                 full_list = _cached
                 record_cache_result(hit=True)
             else:
+                with _conversations_cache_lock:
+                    fill_generation = _conversations_cache_generation
                 full_list = list(get_user_conversations(detail=False))
                 with _conversations_cache_lock:
-                    _conversations_cache = full_list
-                    _conversations_cache_logs_dir = logs_dir
-                    _conversations_cache_time = time.monotonic()
-                    _conversations_cache_complete = True
+                    if _conversations_cache_generation == fill_generation:
+                        _conversations_cache = full_list
+                        _conversations_cache_logs_dir = logs_dir
+                        _conversations_cache_time = time.monotonic()
+                        _conversations_cache_complete = True
                 record_cache_result(hit=False)
                 n_msgs = sum(c.messages for c in full_list)
                 update_conversation_metrics(len(full_list), n_msgs)
@@ -1584,6 +1588,8 @@ def api_conversations():
     else:
         # The API limit is capped at 1000, so a cold-cache fill does not need
         # to scan beyond that bound.
+        with _conversations_cache_lock:
+            fill_generation = _conversations_cache_generation
         all_conversations = list(islice(get_user_conversations(detail=detail), 1000))
         conversations = all_conversations[:limit]
     response_items = []
@@ -1599,10 +1605,12 @@ def api_conversations():
 
     if not search and not detail:
         with _conversations_cache_lock:
-            _conversations_cache = all_conversations
-            _conversations_cache_logs_dir = logs_dir
-            _conversations_cache_time = time.monotonic()
-            _conversations_cache_complete = len(all_conversations) < 1000
+            # A save or invalidation after the scan began makes it stale.
+            if _conversations_cache_generation == fill_generation:
+                _conversations_cache = all_conversations
+                _conversations_cache_logs_dir = logs_dir
+                _conversations_cache_time = time.monotonic()
+                _conversations_cache_complete = len(all_conversations) < 1000
         record_cache_result(hit=False)
         n_msgs = sum(c.messages for c in all_conversations)
         update_conversation_metrics(len(all_conversations), n_msgs)
@@ -4338,6 +4346,9 @@ _conversations_cache_complete: bool = False
 # Guards the cache fields above so readers never see a torn (list, flag) pair
 # and in-place updates never write back over a newer fill.
 _conversations_cache_lock = threading.Lock()
+# Bumped by every invalidation and in-place update. A fill stores its scan only
+# if no save happened since the scan began, so it cannot publish stale entries.
+_conversations_cache_generation: int = 0
 
 
 def _invalidate_conversations_cache() -> None:
@@ -4346,8 +4357,10 @@ def _invalidate_conversations_cache() -> None:
         _conversations_cache, \
         _conversations_cache_logs_dir, \
         _conversations_cache_time, \
-        _conversations_cache_complete
+        _conversations_cache_complete, \
+        _conversations_cache_generation
     with _conversations_cache_lock:
+        _conversations_cache_generation += 1
         _conversations_cache = None
         _conversations_cache_complete = False
         _conversations_cache_logs_dir = None
@@ -4366,7 +4379,10 @@ def _update_conversation_in_cache(conv_id: str) -> None:
     - The cache is already stale (TTL expired) — next GET will rebuild anyway.
     - The conversation no longer exists on disk (e.g., concurrent deletion).
     """
-    global _conversations_cache
+    global _conversations_cache, _conversations_cache_generation
+    # A fill that scanned before this save must not publish its list.
+    with _conversations_cache_lock:
+        _conversations_cache_generation += 1
     # Snapshot once to avoid TOCTOU: a concurrent _invalidate_conversations_cache()
     # can set the global to None between our is-None guard and the any()/comprehension
     # reads, which would raise TypeError on iteration.
@@ -4388,7 +4404,8 @@ def _update_conversation_in_cache(conv_id: str) -> None:
         _invalidate_conversations_cache()
         return
     with _conversations_cache_lock:
-        # Only apply the update to the list it was computed from: a fill that
-        # landed meanwhile (possibly with a different complete flag) wins.
+        # Only apply the update to the list it was computed from. A fill that
+        # landed meanwhile began its scan after the generation bump above, so
+        # it already holds this save and its complete flag wins.
         if _conversations_cache is cache:
             _conversations_cache = [updated if c.id == conv_id else c for c in cache]
