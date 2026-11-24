@@ -2317,6 +2317,50 @@ def test_manual_trim_writes_compaction_event(tmp_path, monkeypatch):
     assert events[0]["messages"] == {"before": 3, "after": 2}
 
 
+def test_manual_trim_keeps_master_log_and_recovery_refs(tmp_path):
+    """Manual trim must not rewrite the master log its recovery refs point into."""
+    import json
+    import re
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from gptme.llm.models import set_default_model
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.handlers import _compact_trim
+
+    set_default_model("openai/gpt-4")
+    original = " ".join(
+        f"Sentence number {i} explains detail alpha{i} beta{i} gamma{i}."
+        for i in range(400)
+    )
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "explain it"),
+            Message("assistant", original),
+            Message("user", "now run it"),
+            Message("assistant", "ok"),
+            Message("user", "thanks"),
+            Message("assistant", "the last answer"),
+        ],
+        logdir=tmp_path / "conv",
+    )
+    manager.write()
+    ctx = MagicMock()
+    ctx.manager = manager
+    ctx.args = ["trim"]
+
+    out = list(_compact_trim(ctx, manager.log.messages))
+    assert "Trim compaction completed" in out[-1].content
+
+    compacted = manager.log.messages[2].content
+    assert compacted != original
+    m = re.search(r"Master context: (\S+) \(bytes (\d+)-(\d+)\)", compacted)
+    assert m, compacted[-400:]
+    data = Path(m.group(1)).read_bytes()[int(m.group(2)) : int(m.group(3))]
+    assert json.dumps(original) in data.decode(errors="replace")
+
+
 def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     from unittest.mock import MagicMock
 
