@@ -11,10 +11,10 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://gptme.org/docs/design/file-backed-output.html" />
 <meta property="og:site_name" content="gptme" />
-<meta property="og:description" content="Status: contract. Production capture is rolling out in slices: writer-safety#4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB per-stream / 128 MiB conversation quota, re..." />
+<meta property="og:description" content="Status: contract, implemented in slices (see Delivery status below for the step-to-PR map and what is deliberately left open): writer-safety#4782, launch-time spool #4826, and bounded writes #4856 ..." />
 <meta property="og:image" content="https://gptme.org/media/logo.png" />
 <meta property="og:image:alt" content="gptme logo" />
-<meta name="description" content="Status: contract. Production capture is rolling out in slices: writer-safety#4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB per-stream / 128 MiB conversation quota, re..." />
+<meta name="description" content="Status: contract, implemented in slices (see Delivery status below for the step-to-PR map and what is deliberately left open): writer-safety#4782, launch-time spool #4826, and bounded writes #4856 ..." />
 
     <title>File-backed tool and process output &#8212; gptme</title>
   
@@ -653,6 +653,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#namespace-permissions-and-access">Namespace, permissions and access</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#delivery-status">Delivery status</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#small-implementation-sequence-and-regression-gates">Small implementation sequence and regression gates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternatives-deliberately-rejected">Alternatives deliberately rejected</a></li>
 </ul>
@@ -668,10 +669,11 @@
                   
   <section id="file-backed-tool-and-process-output">
 <h1>File-backed tool and process output<a class="headerlink" href="#file-backed-tool-and-process-output" title="Link to this heading">#</a></h1>
-<p><strong>Status:</strong> contract. Production capture is rolling out in slices: writer-safety
-#4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB
-per-stream / 128 MiB conversation quota, receipt sidecar, independent byte
-cursors). Promotion convergence (step 3) has landed: a foreground command
+<p><strong>Status:</strong> contract, implemented in slices (see <em>Delivery status</em> below
+for the step-to-PR map and what is deliberately left open): writer-safety
+#4782, launch-time spool #4826, and bounded writes #4856 (bounded writer queue,
+32 MiB per-stream / 128 MiB conversation quota, receipt sidecar, independent
+byte cursors). Promotion convergence (step 3) has landed: a foreground command
 promoted to a job adopts its existing capture into that same spool at the
 promotion boundary — the job follows the shell’s append-only chunk lists, so
 output from before and after promotion is ingested once, in stream order, with
@@ -743,7 +745,9 @@ recovery are separate layers, not alternative output stores.</p>
 </section>
 <section id="current-state-inventory">
 <h2>Current-state inventory<a class="headerlink" href="#current-state-inventory" title="Link to this heading">#</a></h2>
-<p>References below are source paths and function names at the inventory revision.
+<p>References below are source paths and function names. The table was taken at
+the inventory revision and rows have since been updated in place as slices landed
+(each update names its PR); <em>Delivery status</em> below has the summary.
 A file may preserve a selected/decoded/redacted representation without preserving
 original process bytes. No generic guarantee applies across these rows.</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -754,21 +758,21 @@ original process bytes. No generic guarantee applies across these rows.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">util/output_storage.py:save_large_output</span></code></p></td>
-<td><p>Writes an already-materialized string; second-resolution timestamp + eight-character content hash</p></td>
-<td><p>Ordinary mkdir/write; no explicit private modes, exclusive creation, atomic publication, containment check or inherent redaction. Same content/type/second reuses a path.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">util/output_storage.py:save_large_output</span></code>, <code class="docutils literal notranslate"><span class="pre">open_private_output_file</span></code></p></td>
+<td><p>Writes an already-materialized string; second-resolution timestamp + eight-character content hash. Since #4782: <code class="docutils literal notranslate"><span class="pre">output_type</span></code> reduced to one safe component, private <code class="docutils literal notranslate"><span class="pre">0700</span></code> directories and <code class="docutils literal notranslate"><span class="pre">0600</span></code> files, descriptor-relative <code class="docutils literal notranslate"><span class="pre">O_NOFOLLOW</span></code> traversal where supported, private temp then hard-link publish (no clobber; exclusive-create fallback where hard links fail), numeric suffix on same-second collisions, per-character surrogateescape/replace encoding. <code class="docutils literal notranslate"><span class="pre">open_private_output_file</span></code> gives the live spools the same rules for exclusive append-owned files</p></td>
+<td><p>Whole-text publication, not streaming; the caller has already materialized the text in RAM. No inherent redaction: callers (shell, tmux, python, gh) redact before saving; read/MCP/browser/convert/autocompact save what they were given. Exclusive-create fallback is no-clobber but not atomic.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/shell.py:ShellSession.run</span></code>, <code class="docutils literal notranslate"><span class="pre">_format_shell_output</span></code>, <code class="docutils literal notranslate"><span class="pre">_shorten_stdout</span></code></p></td>
 <td><p>Foreground collects decoded strings, normally under a 32 MiB combined raw-read cap; ANSI removal and configured credential redaction precede formatted spills. Line/token shortening and query-aware pruning save their input first when logdir exists</p></td>
 <td><p>Full <em>supplied text</em>, not original bytes: UTF-8 replacement, shell framing/blank trimming and sanitation already occurred. Strings/tokenization still use RAM; spill is not streaming. Missing logdir means no durable spill.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/shell.py:execute_shell_impl</span></code> promotion</p></td>
-<td><p>Existing foreground worker continues; job callback exposes active output. <code class="docutils literal notranslate"><span class="pre">complete_background_job</span></code> writes final text before storing a bounded tail</p></td>
-<td><p>Existing cap/termination path remains relevant; complete relative to returned text, not an unlimited process lifetime. No launch-time spool.</p></td>
+<td><p>Existing foreground worker continues. Since #4880 the job adopts the foreground capture into the direct-job spool at the promotion boundary (<code class="docutils literal notranslate"><span class="pre">capture_origin:</span> <span class="pre">foreground_promotion</span></code>); output before and after promotion is ingested once, in order. Without a logdir, <code class="docutils literal notranslate"><span class="pre">complete_background_job</span></code> stores only a bounded RAM tail; no durable output file is written, so evicted prefixes cannot be recovered</p></td>
+<td><p>Existing cap/termination path remains relevant. Adopted chunks were decoded upstream, so raw pipe-byte counters stay <code class="docutils literal notranslate"><span class="pre">null</span></code> for them.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/shell_background.py:BackgroundJob._read_output</span></code>, <code class="docutils literal notranslate"><span class="pre">get_output</span></code>, <code class="docutils literal notranslate"><span class="pre">format_job_output</span></code></p></td>
-<td><p>Direct jobs incrementally decode into roughly 1 Mi-character tails per stream (constant counts characters, not bytes); display tails 8k stdout / 2k stderr. <code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">N</span> <span class="pre">--new</span></code> advances character cursors</p></td>
-<td><p>Prefixes can be evicted before first disk snapshot. Sanitized snapshots on display, not append-only spooling. Promoted final writes are protected against later snapshot replacement; direct snapshots are mutable.</p></td>
+<td><p>Direct jobs incrementally decode into roughly 1 Mi-character RAM tails per stream (constant counts characters, not bytes); display tails 8k stdout / 2k stderr. With a logdir, private <code class="docutils literal notranslate"><span class="pre">.stdout.live</span></code> / <code class="docutils literal notranslate"><span class="pre">.stderr.live</span></code> spools open at launch (#4826) and receive sanitized output through a bounded writer queue before RAM eviction, under 32 MiB per-stream / 128 MiB conversation quotas, with a receipt sidecar published last and independent byte cursors for <code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">N</span> <span class="pre">--new</span></code> (#4856); raw pipe-byte counters on the receipt (#5033). The preview says when its prefix was evicted from RAM (#4947)</p></td>
+<td><p>Spool is a sanitized representation, not original bytes. Queue saturation, quota, sanitation-window omissions and write failures mark capture partial while the reader keeps draining. Without a logdir, prefixes can still be lost to RAM eviction. Promoted final writes are protected against later snapshot replacement.</p></td>
 </tr>
 <tr class="row-even"><td><p>Background termination</p></td>
 <td><p>Reader drains for about one second after direct-child exit, flushes decoder, then notifies; process-group cleanup handles descendants</p></td>
@@ -787,8 +791,8 @@ original process bytes. No generic guarantee applies across these rows.</p>
 <td><p>Full joined text spills to <code class="docutils literal notranslate"><span class="pre">tool-outputs/</span></code> only when a conversation logdir exists; the bound applies either way. Transport limits are external. First text can enter debug logging. Advisory MCP roots are not sandboxing.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/browser.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_playwright.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_lynx.py</span></code></p></td>
-<td><p>HTML/Markdown/ARIA and subprocess results materialize; console logs accumulate; PDF download materializes, default first 10 pages is not a byte bound</p></td>
-<td><p>No direct text spill. Python-call path meets Python caps; native function conversion has no equivalent generic cap. Screenshots/auth-state files are separate resources.</p></td>
+<td><p>HTML/Markdown/ARIA and subprocess results materialize; console logs accumulate; PDF download materializes, default first 10 pages is not a byte bound. Since #5034, public string results are bounded at <code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_MAX_OUTPUT_CHARS</span></code> (default 100k) to head and tail on every call path, and spill to <code class="docutils literal notranslate"><span class="pre">tool-outputs/browser/</span></code> when a logdir exists</p></td>
+<td><p>Post-materialization spill, not streaming; page content still materializes first. External content, not redacted. Screenshots/auth-state files are separate resources.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/read.py:_read_one</span></code>, <code class="docutils literal notranslate"><span class="pre">_read_text_bounded</span></code>, <code class="docutils literal notranslate"><span class="pre">_read_line_range</span></code></p></td>
 <td><p>Whole-file text limited to 1 MiB; ranges have rendered-byte bounds/continuation. Conditional relevance pruning saves selected pre-prune text</p></td>
@@ -833,7 +837,8 @@ as a shell background job and does not generate a duplicate completion event.</p
 <p>Other process paths retain separate contracts: <code class="docutils literal notranslate"><span class="pre">_poll_until</span></code> drains bounded
 500-character probe previews without full retention; <code class="docutils literal notranslate"><span class="pre">_poll_stream</span></code> bounds its
 line window and event queue without a general spool. <code class="docutils literal notranslate"><span class="pre">tools/convert.py</span></code> still
-uses subprocess capture before reporting diagnostics. This adapter does not
+uses subprocess capture before reporting diagnostics (oversized failure
+diagnostics are saved since #5039). This adapter does not
 change those paths or the shell/tmux/browser preview-size policy. Do not duplicate
 the bounded watch-probe work in gptme/gptme#4639.</p>
 <p>Credential guardrails before execution are useful but are not universal output
@@ -921,7 +926,8 @@ Reread/selection took 0.5–3.6 ms and currently materializes the text in the
 evidence script. These are single-sample
 mechanism observations, not latency benchmarks, model-success scores or measured
 end-to-end time-to-useful-result. External/tool-call latency remains unmeasured.</p>
-<p>A real subprocess emitted 2,340,024 ASCII characters through the direct background
+<p>At the original inventory revision (<code class="docutils literal notranslate"><span class="pre">15f20e44c96acdd035da81213b9e9f5bb54ac98d</span></code>),
+a real subprocess emitted 2,340,024 ASCII characters through the direct background
 reader and exited 2. It retained about 1.05M characters, evicting about 1.29M
 (chunk-dependent); the saved snapshot lacked BEGIN-MARKER and explicitly reported
 loss. There was no path before the first snapshot. Reader capture took about
@@ -970,10 +976,16 @@ cannot decide within a bounded window (huge line/partial assignment), omit it
 with an explicit redaction/representation-loss marker. Never spill uncertain raw
 bytes merely to claim losslessness. Original raw bytes need an explicit policy
 and are not a default second copy of secrets.</p>
-<p>Proposed first limits: retain the foreground combined 32 MiB output ceiling;
-apply a configurable 32 MiB combined retained-stream ceiling to direct jobs,
-plus a 128 MiB conversation allowance for new spools. These are conservative
-starting proposals, not measured optimal defaults. On quota/storage failure,
+<p>The original proposal was a configurable combined 32 MiB retained-stream ceiling
+for direct jobs. The shipped implementation (#4856) instead uses a fixed
+32 MiB <strong>per-stream</strong> spool ceiling (<code class="docutils literal notranslate"><span class="pre">_SPOOL_STREAM_QUOTA</span></code>) and a shared
+128 MiB conversation allowance (<code class="docutils literal notranslate"><span class="pre">_SPOOL_CONVERSATION_QUOTA</span></code>) in
+<code class="docutils literal notranslate"><span class="pre">tools/shell_background.py</span></code>. A two-stream job can therefore retain up to 64 MiB,
+subject to the conversation allowance; omission markers consume part of each
+stream ceiling. The foreground combined raw-read ceiling is separate (32 MiB by
+default, configurable through <code class="docutils literal notranslate"><span class="pre">GPTME_SHELL_MAX_OUTPUT_BYTES</span></code> /
+<code class="docutils literal notranslate"><span class="pre">[shell]</span> <span class="pre">spool_quota_mb</span></code>).
+These limits are not measured optimal defaults. On quota/storage failure,
 stop persistence, retain bounded preview, and mark partial/failed with the known
 retained boundary; continue draining/discarding so the child cannot deadlock.
 Writer backpressure must also be bounded: a bounded writer queue may stop
@@ -1049,11 +1061,82 @@ Security-sensitive subprocess paths that deliberately suppress output remain
 non-spooling unless explicitly opted in under their policy.</p>
 </section>
 </section>
+<section id="delivery-status">
+<h2>Delivery status<a class="headerlink" href="#delivery-status" title="Link to this heading">#</a></h2>
+<p>Checked against <code class="docutils literal notranslate"><span class="pre">origin/master</span></code>
+<a class="reference external" href="https://github.com/gptme/gptme/commit/39729c5a322c549aa00d80581fe24af12e03215d"><code class="docutils literal notranslate"><span class="pre">39729c5a322c549aa00d80581fe24af12e03215d</span></code></a>
+(2026-11-23). GitHub reports every PR below as merged, and each reported
+merge commit is an ancestor of that revision. Each implementation step has
+landed; this is not a claim that every proposed regression gate or deferred
+policy/transport change has shipped:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Step</p></th>
+<th class="head"><p>Merged PRs</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>0. Inventory, evidence script, contract</p></td>
+<td><p>#4665</p></td>
+</tr>
+<tr class="row-odd"><td><p>1. Safe writer + honest receipt</p></td>
+<td><p>#4782 (writer); receipt metadata with #4856, #4947, #5033</p></td>
+</tr>
+<tr class="row-even"><td><p>2. Direct background spool</p></td>
+<td><p>#4826 (launch-time spool), #4855 + #4856 (queue, quota, receipt, byte cursors), #5033 (raw pipe-byte counters)</p></td>
+</tr>
+<tr class="row-odd"><td><p>3. Foreground/promotion convergence</p></td>
+<td><p>#4880 (promotion adopts capture), #5022 (foreground budget spool below the soft timeout)</p></td>
+</tr>
+<tr class="row-even"><td><p>4. Entry-point adapters</p></td>
+<td><p>Python/kernel overflow spill (#4967) and redaction (#5075); gh (#4966, #5013, #5086); browser (#5034); tmux (#5037, #5048); convert (#5039); watch-run (#5040); autocompact save-failure honesty (#5048); MCP bound and spill (#4925)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">scripts/measure_output_capture.py</span></code> at that revision, same 2,340,024-character
+child (exit 2): 1,294,336 characters still evicted from the direct reader’s RAM
+buffer, but <code class="docutils literal notranslate"><span class="pre">live_path_at_reader_start</span></code> is set, <code class="docutils literal notranslate"><span class="pre">direct_log_has_begin:</span> <span class="pre">true</span></code>,
+<code class="docutils literal notranslate"><span class="pre">direct_preview_reports_loss:</span> <span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">promoted_final_has_begin_and_end:</span> <span class="pre">true</span></code>,
+<code class="docutils literal notranslate"><span class="pre">final_survives_later_snapshot:</span> <span class="pre">true</span></code>. The measured hole that motivated this
+design (prefix lost, no path before the first read) is closed.</p>
+<p>To independently check the merge map in a fetched checkout (requires GitHub
+access), query the merge commit and check its ancestry against the pinned
+revision, not a moving <code class="docutils literal notranslate"><span class="pre">origin/master</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">revision</span><span class="o">=</span>39729c5a322c549aa00d80581fe24af12e03215d
+<span class="k">for</span><span class="w"> </span>pr<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="m">4665</span><span class="w"> </span><span class="m">4782</span><span class="w"> </span><span class="m">4826</span><span class="w"> </span><span class="m">4855</span><span class="w"> </span><span class="m">4856</span><span class="w"> </span><span class="m">4947</span><span class="w"> </span><span class="m">5033</span><span class="w"> </span><span class="m">4880</span><span class="w"> </span><span class="m">5022</span><span class="w"> </span><span class="m">4967</span><span class="w"> </span><span class="m">5075</span><span class="w"> </span><span class="m">4966</span><span class="w"> </span><span class="m">5013</span><span class="w"> </span><span class="m">5086</span><span class="w"> </span><span class="m">5034</span><span class="w"> </span><span class="m">5037</span><span class="w"> </span><span class="m">5048</span><span class="w"> </span><span class="m">5039</span><span class="w"> </span><span class="m">5040</span><span class="w"> </span><span class="m">4925</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="nv">sha</span><span class="o">=</span><span class="k">$(</span>gh<span class="w"> </span>pr<span class="w"> </span>view<span class="w"> </span><span class="s2">"</span><span class="nv">$pr</span><span class="s2">"</span><span class="w"> </span>--repo<span class="w"> </span>gptme/gptme<span class="w"> </span>--json<span class="w"> </span>mergeCommit<span class="w"> </span>--jq<span class="w"> </span><span class="s1">'.mergeCommit.oid'</span><span class="k">)</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+<span class="w">    </span><span class="nb">test</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$sha</span><span class="s2">"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="s2">"</span><span class="nv">$sha</span><span class="s2">"</span><span class="w"> </span>!<span class="o">=</span><span class="w"> </span>null<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>merge-base<span class="w"> </span>--is-ancestor<span class="w"> </span><span class="s2">"</span><span class="nv">$sha</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$revision</span><span class="s2">"</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+<span class="w">    </span><span class="nb">printf</span><span class="w"> </span><span class="s1">'#%s %s merged before %s\n'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$pr</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$sha</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$revision</span><span class="s2">"</span>
+<span class="k">done</span>
+</pre></div>
+</div>
+<p>The measurement is reproducible offline with the Python command in <em>Evidence</em>
+above; it emits JSON with <code class="docutils literal notranslate"><span class="pre">revision</span></code>, <code class="docutils literal notranslate"><span class="pre">workflows</span></code> and <code class="docutils literal notranslate"><span class="pre">jobs</span></code>. The four booleans
+quoted here and a non-null live path are assertions in the script, not manually
+inferred results. Eviction counts can vary with reader chunk boundaries; they
+are a sample, not a regression threshold. The old no-spool subprocess sample
+in <em>Evidence</em> is explicitly historical, not the behavior at this revision.</p>
+<p>Deliberately left open, tracked outside this contract:</p>
+<ul class="simple">
+<li><p><strong>watch-until probe retention:</strong> gptme/gptme#4641 (do not duplicate #4639).</p></li>
+<li><p><strong>Preview-size default flip:</strong> a separate policy change. The fixture table
+above shows byte savings, not improved agent task success.</p></li>
+<li><p><strong>ACP/sandbox artifact transfer:</strong> stays unavailable until a bounded transfer
+is tested; a host path is not a remote handle.</p></li>
+<li><p><strong>Agent-level selective-retrieval benchmark:</strong> ruled out as paid benchmarking
+in the request.</p></li>
+<li><p><strong>Redaction on read/MCP/browser/convert/autocompact spills:</strong> these save what
+they were given. <code class="docutils literal notranslate"><span class="pre">read</span></code> returns a file the model asked for; MCP and browser
+return external content; autocompact saves text that was already in the
+conversation. Redaction applies where gptme runs a local command (shell,
+tmux, python, gh).</p></li>
+</ul>
+</section>
 <section id="small-implementation-sequence-and-regression-gates">
 <h2>Small implementation sequence and regression gates<a class="headerlink" href="#small-implementation-sequence-and-regression-gates" title="Link to this heading">#</a></h2>
-<p>This PR delivers the inventory, reproducible evidence script and contract.
-Implementation defaults below await maintainer agreement; broad rollout is not
-implied by existing tests passing.</p>
+<p>The original sequence from #4665, kept as the record of each step’s regression
+gates. Delivery status is above.</p>
 <ol class="arabic simple">
 <li><p><strong>Safe existing writer + honest receipt.</strong> Harden output_storage creation,
 containment/private permissions and atomic whole-text publication without
@@ -1170,6 +1253,7 @@ observed conversation-local gap and creates new lifecycle/security obligations.<
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#namespace-permissions-and-access">Namespace, permissions and access</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#delivery-status">Delivery status</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#small-implementation-sequence-and-regression-gates">Small implementation sequence and regression gates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternatives-deliberately-rejected">Alternatives deliberately rejected</a></li>
 </ul>
