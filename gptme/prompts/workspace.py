@@ -392,7 +392,7 @@ def prompt_workspace(
                     loaded_agent_files.add(resolved)
                     try:
                         loaded_agent_files.add(
-                            f"{_HASH_PREFIX}{_content_hash(user_file.read_text())}"
+                            f"{_HASH_PREFIX}{_content_hash(user_file.read_text(encoding='utf-8', errors='replace'))}"
                         )
                     except OSError:
                         pass
@@ -412,7 +412,7 @@ def prompt_workspace(
             loaded_agent_files.add(resolved)
             try:
                 loaded_agent_files.add(
-                    f"{_HASH_PREFIX}{_content_hash(agent_file.read_text())}"
+                    f"{_HASH_PREFIX}{_content_hash(agent_file.read_text(encoding='utf-8', errors='replace'))}"
                 )
             except OSError:
                 pass

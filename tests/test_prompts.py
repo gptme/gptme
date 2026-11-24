@@ -992,3 +992,22 @@ def test_profile_system_prompt_included_in_stats():
     assert cacheable_diff > 0, (
         "Profile system prompt should be counted in cacheable_tokens"
     )
+
+
+def test_prompt_workspace_survives_non_utf8_agent_file(tmp_path, monkeypatch):
+    """A Latin-1 byte in CLAUDE.md must not crash prompt assembly.
+
+    The content hash read the file strictly and only caught OSError, so a
+    UnicodeDecodeError escaped prompt_workspace() and get_prompt().
+    """
+    from gptme.prompts import prompt_workspace
+
+    fake_home = tmp_path / "home"
+    workspace = fake_home / "proj"
+    workspace.mkdir(parents=True)
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    (workspace / "CLAUDE.md").write_bytes(b"caf\xe9 rules\n")
+
+    msgs = list(prompt_workspace(workspace, include_runtime_context=False))
+    attached = [str(f) for msg in msgs for f in msg.files]
+    assert any(f.endswith("CLAUDE.md") for f in attached), attached
