@@ -24,6 +24,7 @@ import tomlkit
 
 from ..config import ChatConfig, get_project_config
 from ..config.chat import chat_config_lock
+from ..config.user import _back_up_before_reencoding, _read_config_text
 from ..dirs import get_logs_dir
 from .manager import Log
 
@@ -585,8 +586,9 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
     # workspace symlinks, which is unwanted for legacy conversations.
     with chat_config_lock(conv_dir):
         if config_path.exists():
-            with open(config_path) as f:
-                config_data = tomlkit.load(f)
+            # Same UTF-8-first reader as ChatConfig: the platform default codec
+            # would misread the UTF-8 this function writes on a legacy locale.
+            config_data = tomlkit.loads(_read_config_text(config_path))
         else:
             config_data = tomlkit.document()
 
@@ -596,6 +598,8 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
         assert isinstance(chat_section, dict)
         chat_section["name"] = new_name
 
+        # Keep the original bytes if the read above had to guess the codec.
+        _back_up_before_reencoding(config_path)
         # Replace atomically (like ChatConfig.save): a failure mid-dump must
         # not truncate the workspace/model/agent settings already on disk.
         fd, tmp_name = tempfile.mkstemp(

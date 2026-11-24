@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from ..logmanager.conv_checkpoints import (
     conversation_prefix_hash,
+    is_message_index,
     list_conv_checkpoints,
     resolve_conv_checkpoint,
     save_conv_checkpoint,
@@ -155,8 +156,8 @@ def cmd_backtrack(ctx: CommandContext) -> Generator[Message, None, None]:
             f"conversation length ({current_len} messages)"
         )
         return
-    _stripped = target.lstrip("-")
-    is_numeric_target = _stripped.isascii() and _stripped.isdecimal()
+    # Same test as the resolver, so a label like "--5" keeps its prefix check.
+    is_numeric_target = is_message_index(target)
     if not is_numeric_target:
         if not record.prefix_hash:
             print(

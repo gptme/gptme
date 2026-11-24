@@ -120,6 +120,15 @@ def list_conv_checkpoints(logdir: Path) -> list[ConvCheckpoint]:
     return records
 
 
+def is_message_index(identifier: str) -> bool:
+    """Whether a checkpoint identifier is a bare message index, not a label.
+
+    ``isdigit()`` accepts non-ASCII digits like ² and ३, so restrict to [0-9],
+    and allow at most one leading minus: "--5" is a label (int() rejects it).
+    """
+    return re.fullmatch(r"-?[0-9]+", identifier) is not None
+
+
 def resolve_conv_checkpoint(
     logdir: Path,
     identifier: str,
@@ -132,9 +141,7 @@ def resolve_conv_checkpoint(
     """
     records = list_conv_checkpoints(logdir)
 
-    # isdigit() accepts non-ASCII digits like ² and ३; restrict to [0-9].
-    # At most one leading minus: "--5" is not an integer and int() rejects it.
-    if re.fullmatch(r"-?[0-9]+", identifier):
+    if is_message_index(identifier):
         msg_idx = int(identifier)
         return ConvCheckpoint(
             index=msg_idx,

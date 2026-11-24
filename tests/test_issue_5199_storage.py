@@ -145,6 +145,42 @@ def test_rename_failure_mid_dump_keeps_config(tmp_path: Path) -> None:
     assert not [p.name for p in conv_dir.iterdir() if p.name.endswith(".tmp")]
 
 
+def test_rename_reads_utf8_config_under_legacy_default_codec(tmp_path: Path) -> None:
+    """A UTF-8 config.toml (what gptme writes) must survive a rename on a
+    machine whose default text codec is a legacy code page."""
+    import builtins
+
+    conv_dir = tmp_path / "conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text("")
+    (conv_dir / "config.toml").write_bytes(
+        '[chat]\nname = "old"\nworkspace = "/w/café"\n'.encode()
+    )
+
+    class Conv:
+        path = str(conv_dir / "conversation.jsonl")
+
+    real_open = builtins.open
+
+    def legacy_open(file, mode="r", *args, **kwargs):
+        if "b" not in mode and kwargs.get("encoding") is None and len(args) < 2:
+            kwargs["encoding"] = "cp1252"
+        return real_open(file, mode, *args, **kwargs)
+
+    with (
+        patch(
+            "gptme.logmanager.conversations.get_conversation_by_id",
+            return_value=Conv(),
+        ),
+        patch.object(builtins, "open", legacy_open),
+    ):
+        assert rename_conversation("conv", "new")
+
+    text = (conv_dir / "config.toml").read_bytes().decode("utf-8")
+    assert 'workspace = "/w/café"' in text
+    assert 'name = "new"' in text
+
+
 # ── 4. write() must not clobber branches other managers appended to ──
 
 

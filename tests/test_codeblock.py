@@ -3607,3 +3607,17 @@ def test_exec_block_longer_fence_before_code_stays_literal() -> None:
     assert [(b.lang, b.content) for b in _extract_codeblocks(markdown)] == [
         ("shell", "ls\n````\npwd")
     ]
+
+
+def test_joined_fence_not_mistaken_for_opener_by_later_wide_block() -> None:
+    """A later six-backtick block's closer must not make an earlier glued
+    closer+opener ("``````shell") read as a genuine six-backtick opener."""
+    text = (
+        "``````shell\necho hi\n```\n\n"
+        "``````save b.md\n# B\n```python\nx = 1\n```\n``````\n"
+    )
+    blocks = Codeblock.iter_from_markdown(text)
+    assert [(b.lang, b.content) for b in blocks] == [
+        ("shell", "echo hi"),
+        ("save b.md", "# B\n```python\nx = 1\n```"),
+    ]
