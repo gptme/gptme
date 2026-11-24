@@ -18,12 +18,14 @@ from ...credentials import get_credentials_dir
 from ...dirs import get_config_dir
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
+from ...logmanager.manager import _merge_consecutive_messages
 from ...message import Message, MessageMetadata, len_tokens
 from ...tools import ToolUse, has_tool
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
 from ...util.context_measurement import measure_context_tokens
 from ...util.master_context import is_tool_result_message
+from ...util.reduce import limit_log
 from .decision import TRIM_TARGET_RATIO
 
 if TYPE_CHECKING:
@@ -1341,8 +1343,11 @@ def _resume_via_llm(
             turn loop. When supplied, install it without making a second LLM call.
     """
 
-    # Prepare messages for summarization
-    prepared_msgs = prepare_messages(msgs)
+    # Prepare messages for summarization. Skip the last-resort window cut:
+    # _bound_summarize_input bounds the request itself and chunk-summarizes
+    # what does not fit, whereas limit_log would silently drop the oldest
+    # messages of a history larger than the window (#4309, #5247).
+    prepared_msgs = prepare_messages(msgs, limit=False)
 
     if len(prepared_msgs) < 3:
         yield Message(
@@ -1383,7 +1388,9 @@ def _resume_via_llm(
     if checkpoint_response is None and m.full.startswith("anthropic/"):
         native_applied = yield from _apply_native_compaction(
             manager,
-            prepared_msgs,
+            # The provider sees the prefix in one request, so keep the
+            # window-bounded view there (an over-window prefix cannot be sent).
+            _merge_consecutive_messages(limit_log(prepared_msgs)),
             use_view_branch=use_view_branch,
             compact_instructions=compact_instructions,
             keep_recent_tokens=keep_recent_tokens,

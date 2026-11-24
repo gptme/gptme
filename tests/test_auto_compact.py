@@ -6044,3 +6044,50 @@ def test_create_tool_result_summary_save_failure_is_honest(tmp_path):
     assert "could not be saved" in summary
     assert "Full output saved to" not in summary
     assert not (tmp_path / "tool-outputs").exists()
+
+
+def test_resume_via_llm_chunks_history_larger_than_window(tmp_path, monkeypatch):
+    """A history larger than the window is chunk-summarized, not cut by limit_log.
+
+    Regression (#4309 follow-through, #5247 item 2): prepare_messages() applied
+    the last-resort limit_log at the full window before _bound_summarize_input
+    could chunk, so the oldest messages vanished without a trace and only one
+    summarizer request was sent.
+    """
+    from dataclasses import replace as dc_replace
+
+    from gptme.llm.models import get_default_model
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    base = get_default_model()
+    assert base is not None
+    small = dc_replace(base, context=30_000)
+    for target in (
+        "gptme.tools.autocompact.resume.get_default_model",
+        "gptme.util.reduce.get_default_model",
+        "gptme.llm.models.get_default_model",
+    ):
+        monkeypatch.setattr(target, lambda: small)
+
+    messages = [Message("system", "system prompt")]
+    for i in range(60):
+        messages.append(Message("user", f"OLDEST-{i} " + "word " * 700))
+        messages.append(Message("assistant", f"answer {i} " + "word " * 50))
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    requests: list[list[Message]] = []
+
+    def fake_reply(msgs, **kwargs):
+        requests.append(msgs)
+        return Message(
+            "assistant", "## Objective\nTest task.\n\n## Context Files\n(none)"
+        )
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages))
+
+    # Chunk requests for the omitted prefix, then the final summarizer request.
+    assert len(requests) > 1, "no chunk requests: oldest history was dropped"
+    assert any("OLDEST-0 " in m.content for m in requests[0])

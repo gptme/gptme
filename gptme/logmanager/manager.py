@@ -1731,12 +1731,19 @@ def prepare_messages(
     msgs: list[Message],
     workspace: Path | None = None,
     logdir: Path | None = None,
+    *,
+    limit: bool = True,
 ) -> list[Message]:
     """
     Prepares the messages before sending to the LLM.
     - Takes the stored gptme conversation log
     - Enhances it with context such as file contents
     - Transforms it to the format expected by LLM providers
+
+    ``limit=False`` skips the last-resort ``limit_log`` window cut. Callers that
+    bound the request themselves (the compaction summarizer, which chunk-summarizes
+    what does not fit) must see the whole history: ``limit_log`` would silently
+    drop the oldest messages before they could be summarized.
     """
 
     from gptme.llm.models import get_default_model  # fmt: skip
@@ -1788,7 +1795,9 @@ def prepare_messages(
     # This should never fire in normal operation — compaction (via the TURN_POST
     # autocompact hook) keeps the log below the context budget before we get here.
     # If it fires, something bypassed compaction; log a warning so it's visible.
-    msgs_limited = _merge_consecutive_messages(limit_log(msgs_pruned))
+    msgs_limited = (
+        _merge_consecutive_messages(limit_log(msgs_pruned)) if limit else msgs_pruned
+    )
     if len(msgs_pruned) != len(msgs_limited):
         tokens_before = len_tokens(msgs_pruned, model.model)
         tokens_after = len_tokens(msgs_limited, model.model)
