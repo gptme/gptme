@@ -78,10 +78,12 @@ Here is an example:
 The ``user`` section configures user identity:
 
 - ``name``: Your display name, shown at the CLI input prompt and as a tooltip on avatar in the web UI (default: ``"User"``).
-- ``about``: A description of yourself, included in the system prompt of interactive sessions (not ``-n``/``--non-interactive`` runs) so the assistant knows who it's talking to (default: ``"I am a curious human programmer."``).
-- ``response_preference``: Preferences for how the assistant should respond, included alongside ``about`` (e.g. level of detail, default: ``"Basic concepts don't need to be explained."``).
+- ``about``: A description of yourself, added when building the system prompt for an interactive session so the assistant knows who it's talking to (default: ``"I am a curious human programmer."``).
+- ``response_preference``: Preferences for how the assistant should respond, added alongside ``about`` (e.g. level of detail, default: ``"Basic concepts don't need to be explained."``).
 - ``avatar``: Path to your avatar image (supports ``~`` expansion) or URL. Displayed in the web UI next to your messages.
 - ``color``: Color for your name in the CLI and TUI: hex (``"#e5a50a"``), ``"rgb(229,165,10)"``, or a color name (Rich names like ``"hot_pink"``; CSS names like ``"pink"`` with the TUI installed). An invalid value is ignored with a warning (default: green).
+
+The CLI does not add ``about`` and ``response_preference`` when building a new prompt in ``-n``/``--non-interactive`` mode. Resuming a conversation in that mode keeps its saved system prompt, including any values added when it was created.
 
 .. note::
 

@@ -2301,6 +2301,15 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
         gptme-doctor --json       # Machine-readable output
         gptme-doctor --fix        # Repair config corruption and provider setup
     """
+    sys.exit(doctor(verbose, output_json, fix))
+
+
+def doctor(verbose: bool = False, output_json: bool = False, fix: bool = False) -> int:
+    """Run diagnostics (and repair with ``fix``) and return the exit code.
+
+    Shared by the ``gptme-doctor`` CLI, which exits with the code, and the
+    ``/doctor`` chat command, which must not end the chat session.
+    """
     if fix and output_json:
         raise click.UsageError("--fix cannot be used with --json")
 
@@ -2312,7 +2321,7 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
         for line in repair_failures:
             click.echo(f"Error: {line}", err=True)
         if repair_failures:
-            sys.exit(2)
+            return 2
 
     results, summary = run_diagnostics(verbose)
     interactive_repair = fix and _is_interactive_terminal()
@@ -2337,14 +2346,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
             ],
         }
         click.echo(json.dumps(output, indent=2))
-        sys.exit(1 if summary["error"] > 0 else 0)
+        return 1 if summary["error"] > 0 else 0
     exit_code = print_results(results, summary, verbose)
     if not fix or not _provider_repair_needed(results):
-        sys.exit(exit_code)
+        return exit_code
 
     if not interactive_repair:
         click.echo("Interactive repair skipped: run gptme-doctor --fix in a terminal")
-        sys.exit(exit_code)
+        return exit_code
 
     blocking_source = _model_override_blocking_repair()
     if blocking_source:
@@ -2352,7 +2361,7 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
             f"Provider repair cannot replace the active {blocking_source} model "
             "override. Update or unset that override, then rerun gptme-doctor --fix."
         )
-        sys.exit(exit_code)
+        return exit_code
 
     subscription = _subscription_default_candidate(results)
     try:
@@ -2365,14 +2374,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
                 f"Use the detected {subscription} login as the default ({model})?",
                 default=True,
             ):
-                sys.exit(exit_code)
+                return exit_code
             set_config_value("models.default", model)
         else:
             if not click.confirm(
                 "No working provider is configured. Run provider setup now?",
                 default=True,
             ):
-                sys.exit(exit_code)
+                return exit_code
             from .setup import ask_for_api_key
 
             provider, _ = ask_for_api_key(require_default_model=True)
@@ -2385,14 +2394,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
             set_config_value("models.default", selected_model)
     except (KeyboardInterrupt, click.Abort):
         click.echo("\nProvider repair cancelled.")
-        sys.exit(exit_code)
+        return exit_code
     except Exception as exc:
         click.echo(f"Provider repair failed: {exc}", err=True)
-        sys.exit(1)
+        return 1
 
     repaired_results, repaired_summary = run_diagnostics(verbose)
     repaired_exit_code = print_results(repaired_results, repaired_summary, verbose)
-    sys.exit(repaired_exit_code)
+    return repaired_exit_code
 
 
 if __name__ == "__main__":
