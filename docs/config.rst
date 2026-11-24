@@ -461,7 +461,7 @@ This file currently supports a few options:
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.
-- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the active workspace. A new CLI chat uses ``--workspace`` if given, or the directory gptme is started from. A resumed chat keeps its saved workspace unless ``--workspace`` names a directory other than the one gptme is started from: ``--workspace`` is compared against that launch directory, so ``--workspace .`` (or the launch directory's own path) is treated as unset and does not override the saved workspace. ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
+- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the active workspace. The CLI takes the workspace from ``--workspace`` or ``GPTME_WORKSPACE``, defaulting to the directory gptme is started from; the special value ``@log`` selects the chat log's ``workspace`` subdirectory. A new chat uses the resulting path. A resumed chat keeps its saved workspace if the resulting path is the launch directory, including when you pass ``--workspace .``; otherwise it uses the resulting path. ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
 
   .. code-block:: toml
 
