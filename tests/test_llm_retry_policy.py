@@ -349,3 +349,118 @@ def test_anthropic_clients_have_sdk_retries_disabled():
     source = inspect.getsource(llm_anthropic)
     assert "max_retries=SDK_MAX_RETRIES" in source
     assert "max_retries=5" not in source
+
+
+_QUOTA_BODY = {
+    "message": "You exceeded your current quota, please check your plan and "
+    "billing details.",
+    "type": "insufficient_quota",
+    "param": None,
+    "code": "insufficient_quota",
+}
+_RATE_LIMIT_BODY = {
+    "message": "Rate limit reached for requests",
+    "type": "requests",
+    "param": None,
+    "code": "rate_limit_exceeded",
+}
+
+
+def _openai_429(body: dict):
+    from openai import RateLimitError
+
+    req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    resp = httpx.Response(429, request=req, json={"error": body})
+    # The SDK passes the inner ``error`` object as ``body``.
+    return RateLimitError(body["message"], response=resp, body=body)
+
+
+@pytest.fixture
+def offline_reply(monkeypatch):
+    from unittest.mock import Mock
+
+    from gptme import llm
+    from gptme.hooks import clear_hooks
+    from gptme.llm import recovery
+
+    clear_hooks()
+    monkeypatch.setattr(llm, "init_llm", lambda *a: None)
+    monkeypatch.setattr(llm, "is_output_quiet", lambda: True)
+    monkeypatch.setattr(
+        llm, "get_model", lambda *a: Mock(supports_parallel_tool_calls=False)
+    )
+    monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+    monkeypatch.setattr(recovery, "get_max_retries", lambda: 11)
+    waits: list[float] = []
+
+    def record_wait(delay, *a):
+        waits.append(delay)
+        return False
+
+    monkeypatch.setattr(recovery, "backoff_wait", record_wait)
+    yield waits
+    clear_hooks()
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_calls"), [(_QUOTA_BODY, 1), (_RATE_LIMIT_BODY, 11)]
+)
+def test_reply_replays_rate_limits_but_not_insufficient_quota(
+    monkeypatch, offline_reply, body, expected_calls
+):
+    """A 429 for exhausted billing quota is permanent; a real rate limit is not."""
+    from openai import RateLimitError
+
+    from gptme import llm
+    from gptme.message import Message
+
+    calls = []
+
+    def fail(*a, **k):
+        calls.append(1)
+        raise _openai_429(body)
+
+    monkeypatch.setattr(llm, "_chat_complete", fail)
+    with pytest.raises(RateLimitError):
+        llm.reply([Message("user", "hi")], "openai/gpt-4o", stream=False)
+    assert len(calls) == expected_calls, f"waits={offline_reply}"
+
+
+@pytest.mark.parametrize(
+    ("body", "retried"), [(_QUOTA_BODY, False), (_RATE_LIMIT_BODY, True)]
+)
+def test_openai_adapter_does_not_back_off_on_insufficient_quota(
+    monkeypatch, body, retried
+):
+    from gptme.llm import llm_openai
+
+    monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+    waits: list[float] = []
+
+    def record_wait(delay, *a):
+        waits.append(delay)
+        return False
+
+    monkeypatch.setattr(llm_openai, "backoff_wait", record_wait)
+    err = _openai_429(body)
+    if retried:
+        llm_openai._handle_openai_transient_error(err, 0, 11, 1.0)
+        assert waits == [1.0]
+    else:
+        with pytest.raises(type(err)):
+            llm_openai._handle_openai_transient_error(err, 0, 11, 1.0)
+        assert waits == []
+
+
+def test_is_quota_exhausted_reads_code_or_type_in_wrapped_body():
+    from gptme.llm.retry_policy import is_quota_exhausted
+
+    class E:
+        def __init__(self, body):
+            self.body = body
+
+    assert is_quota_exhausted(E(_QUOTA_BODY))
+    assert is_quota_exhausted(E({"error": {"type": "insufficient_quota"}}))
+    assert not is_quota_exhausted(E(_RATE_LIMIT_BODY))
+    assert not is_quota_exhausted(E(None))
+    assert not is_quota_exhausted(E("insufficient_quota"))

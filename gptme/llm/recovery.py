@@ -23,7 +23,12 @@ import httpx
 import requests
 
 from .retry_abort import backoff_wait, current_generation
-from .retry_policy import _retry_after_seconds, get_max_retries, retry_delay_for_error
+from .retry_policy import (
+    _retry_after_seconds,
+    get_max_retries,
+    is_quota_exhausted,
+    retry_delay_for_error,
+)
 
 logger = logging.getLogger(__name__)
 DEFAULT_RECOVERY_SECONDS = 600.0
@@ -282,6 +287,8 @@ def is_transient_provider_error(error: BaseException) -> bool:
     if status is None:
         status = getattr(getattr(error, "response", None), "status_code", None)
     if status is not None:
+        if status == 429 and is_quota_exhausted(error):
+            return False
         return isinstance(status, int) and (status in (408, 429) or 500 <= status < 600)
     if "openai" in modules:
         from openai import APIError

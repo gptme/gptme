@@ -101,3 +101,21 @@ def retry_delay_for_error(
     if retry_after is None:
         return exponential
     return min(max(exponential, retry_after), MAX_RETRY_DELAY)
+
+
+# OpenAI reports exhausted billing quota as HTTP 429, like a rate limit, but
+# waiting never restores it: the account needs a top-up or a different key.
+_QUOTA_EXHAUSTED_CODES = frozenset({"insufficient_quota"})
+
+
+def is_quota_exhausted(error: Any) -> bool:
+    """True when the error body names exhausted billing quota (not a rate limit)."""
+    body = getattr(error, "body", None)
+    payloads = [body] if isinstance(body, dict) else []
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        payloads.append(body["error"])
+    return any(
+        str(payload.get(key, "")).lower() in _QUOTA_EXHAUSTED_CODES
+        for payload in payloads
+        for key in ("code", "type")
+    )

@@ -72,6 +72,7 @@ from .retry_policy import (
     DEFAULT_BASE_DELAY,
     SDK_MAX_RETRIES,
     get_max_retries,
+    is_quota_exhausted,
     retry_delay_for_error,
 )
 from .utils import (
@@ -962,8 +963,14 @@ def _handle_openai_transient_error(
             "service_unavailable_error",
         }
     elif isinstance(e, RateLimitError):
-        # 429 rate limit - should back off and retry
-        should_retry = True
+        # 429 rate limit - should back off and retry, unless the 429 reports
+        # exhausted billing quota, which waiting never restores.
+        should_retry = not is_quota_exhausted(e)
+        if not should_retry:
+            logger.warning(
+                "429 insufficient_quota — the account is out of quota. Top up or "
+                "switch the API key / account; gptme will not retry."
+            )
     elif isinstance(e, APIConnectionError):
         # Connection errors are transient
         should_retry = True
