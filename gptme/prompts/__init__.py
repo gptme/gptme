@@ -121,6 +121,7 @@ def _build_core_prompt_sections(
     include_examples: bool,
     is_selective: bool,
     profile: "Profile | None" = None,
+    workspace: Path | None = None,
 ) -> list[tuple[str, list[Message]]]:
     """Build named core prompt sections in display order."""
     sections: list[tuple[str, list[Message]]] = []
@@ -177,7 +178,9 @@ def _build_core_prompt_sections(
         if include_tools:
             add(
                 "prompt_skills_summary",
-                list(prompt_skills_summary(tool_format=tool_format)),
+                list(
+                    prompt_skills_summary(tool_format=tool_format, workspace=workspace)
+                ),
             )
         if profile and profile.system_prompt:
             add(
@@ -311,6 +314,7 @@ def _build_prompt_sections(
         include_examples=include_examples,
         is_selective=is_selective,
         profile=profile,
+        workspace=workspace,
     )
 
     if include_user_context and prompt != "none":

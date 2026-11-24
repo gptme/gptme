@@ -166,3 +166,64 @@ Content here.
         import xml.etree.ElementTree as ET
 
         ET.fromstring(content)
+
+
+def _write_skill(root: Path, word: str) -> Path:
+    skill_file = root / "skills" / "secret-word" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(f"""---
+name: secret-word
+description: The secret word of this workspace
+---
+
+The secret word is {word}.
+""")
+    return skill_file
+
+
+def _isolate_from_cwd_workspace(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    """Return workspace and cwd dirs, each with its own skill, cwd set to the latter."""
+    from gptme.lessons.index import clear_cache
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.delenv("GPTME_LESSONS_EXTRA_DIRS", raising=False)
+    workspace = tmp_path / "workspace"
+    cwd = tmp_path / "cwd"
+    _write_skill(workspace, "mango")
+    _write_skill(cwd, "papaya")
+    monkeypatch.chdir(cwd)
+    clear_cache()
+    return workspace, cwd
+
+
+def test_prompt_skills_summary_uses_workspace_not_cwd(tmp_path: Path, monkeypatch):
+    """Skills come from the given workspace even when the process cwd differs (#5113)."""
+    workspace, cwd = _isolate_from_cwd_workspace(tmp_path, monkeypatch)
+
+    msgs = list(prompt_skills_summary(workspace=workspace))
+
+    content = "\n".join(m.content for m in msgs)
+    assert str(workspace / "skills" / "secret-word" / "SKILL.md") in content
+    assert str(cwd) not in content
+
+
+def test_get_prompt_skills_summary_uses_workspace(tmp_path: Path, monkeypatch):
+    """get_prompt passes its workspace through to the skills summary (#5113)."""
+    from gptme.prompts import get_prompt
+    from gptme.tools import get_toolchain
+
+    workspace, cwd = _isolate_from_cwd_workspace(tmp_path, monkeypatch)
+
+    msgs = get_prompt(
+        list(get_toolchain(["shell"])),
+        prompt="full",
+        workspace=workspace,
+        include_user_context=False,
+    )
+
+    content = "\n".join(m.content for m in msgs)
+    assert str(workspace / "skills" / "secret-word" / "SKILL.md") in content
+    assert str(cwd / "skills") not in content

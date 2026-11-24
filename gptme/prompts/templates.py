@@ -61,7 +61,7 @@ def prompt_full(
     yield from prompt_project(tool_format=tool_format)
     yield from prompt_systeminfo(workspace, tool_format=tool_format)
     yield from prompt_timeinfo(tool_format=tool_format)
-    yield from prompt_skills_summary(tool_format=tool_format)
+    yield from prompt_skills_summary(tool_format=tool_format, workspace=workspace)
 
 
 def prompt_short(

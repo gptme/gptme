@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Generator
+from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 def prompt_skills_summary(
     tool_format: ToolFormat = "markdown",
+    workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Generate a compact skills summary for the system prompt.
 
@@ -21,11 +23,17 @@ def prompt_skills_summary(
 
     Note: This should only be included when tools are enabled, since loading
     skills on-demand requires tool access (e.g., the shell tool to run `cat`).
+
+    *workspace* anchors workspace-level skill directories. The prompt is built
+    before the session sets its workspace, so without it they would resolve
+    against the process cwd.
     """
     try:
         from ..lessons.index import LessonIndex
+        from ..util.workspace import workspace_scope
 
-        index = LessonIndex()
+        with workspace_scope(workspace):
+            index = LessonIndex()
 
         if not index.lessons:
             return

@@ -9,11 +9,14 @@ relative I/O still uses the process cwd.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from ..tools.shell import ShellSession
 
 
@@ -45,6 +48,23 @@ def current_workspace() -> Path:
     """The directory relative paths resolve against in the current context."""
     workspace = get_workspace_cwd()
     return Path(workspace).resolve() if workspace else Path.cwd().resolve()
+
+
+@contextmanager
+def workspace_scope(workspace: Path | str | None) -> Iterator[None]:
+    """Anchor :func:`current_workspace` at *workspace* for the block.
+
+    For code that runs before the session sets its workspace, such as system
+    prompt assembly. ``None`` leaves the current resolution unchanged.
+    """
+    if workspace is None:
+        yield
+        return
+    token = _workspace_cwd.set(str(workspace))
+    try:
+        yield
+    finally:
+        _workspace_cwd.reset(token)
 
 
 def resolve_in_workspace(path: Path) -> Path:
