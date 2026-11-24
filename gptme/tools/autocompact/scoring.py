@@ -199,8 +199,10 @@ _ACTION_RESULT_PATTERNS = [
 # Reference patterns - content likely to be referenced later
 # Unix paths: /path/to/file.ext, ~/path/to/file, /usr/bin/script (extension optional)
 # Windows paths: C:\path\to\file.ext, C:/path/to/file (extension optional)
+# Exclude trailing punctuation/separators ('.', '/', '\') so sentence-ending
+# periods and trailing directory slashes do not prevent later reference matches.
 _FILE_PATH_PATTERN = re.compile(
-    r"(?:[/~][a-zA-Z0-9_\-./]+(?:\.[a-zA-Z0-9]+)?|[A-Za-z]:[/\\][a-zA-Z0-9_\-./\\]+(?:\.[a-zA-Z0-9]+)?)"
+    r"(?:[/~][a-zA-Z0-9_\-./]*[a-zA-Z0-9_\-]|[A-Za-z]:[/\\][a-zA-Z0-9_\-./\\]*[a-zA-Z0-9_\-])"
 )
 # Relative paths the absolute/home/drive pattern misses, e.g. src/config.py.
 # Requires at least one slash and a file extension so "and/or" does not match.

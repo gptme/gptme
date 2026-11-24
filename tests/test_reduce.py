@@ -832,3 +832,64 @@ def test_limit_log_recovery_skips_internal_checkpoint(
         assert [m.to_dict() for m in messages] == original
     finally:
         _default_model_var.reset(token)
+
+
+def test_limit_log_leaves_room_for_output() -> None:
+    """limit_log must reserve room for model completion output."""
+    from gptme.llm.models import get_model
+    from gptme.llm.models.resolution import _default_model_var
+
+    model = get_model("openai/gpt-4")  # 8192-token window, max_output=None
+    token = _default_model_var.set(model)
+    try:
+        msgs = [Message("system", "You are a helpful assistant.")]
+        for i in range(40):
+            role = "user" if i % 2 == 0 else "assistant"
+            msgs.append(Message(role, " ".join(f"word{i}_{j}" for j in range(150))))
+        assert len_tokens(msgs, model.model) > 2 * model.context
+
+        kept = limit_log(msgs)
+        kept_tokens = len_tokens(kept, model.model)
+        assert kept_tokens <= model.context - 1000, (
+            f"limit_log kept {kept_tokens} input tokens of an {model.context}-token window; "
+            f"only {model.context - kept_tokens} tokens left for the completion"
+        )
+    finally:
+        _default_model_var.reset(token)
+
+
+def test_limit_log_respects_max_output_and_caps_full_window_reserve() -> None:
+    """Explicit max_output is reserved, while full-window max_output does not starve input."""
+    from gptme.llm.models.resolution import _default_model_var
+
+    msgs = [Message("system", "You are a helpful assistant.")]
+    for i in range(100):
+        role = "user" if i % 2 == 0 else "assistant"
+        msgs.append(Message(role, " ".join(f"tok{i}_{j}" for j in range(250))))
+
+    # Model with explicit max_output (e.g. 16k window, 4k max_output).
+    explicit_model = ModelMeta(
+        provider="openai", model="gpt-4", context=16_000, max_output=4_000
+    )
+    token = _default_model_var.set(explicit_model)
+    try:
+        kept = limit_log(msgs)
+        kept_tokens = len_tokens(kept, explicit_model.model)
+        assert kept_tokens <= explicit_model.context - 4_000
+        assert kept_tokens > 0
+    finally:
+        _default_model_var.reset(token)
+
+    # Model advertising max_output == context (e.g. Grok/Kimi): must still retain input
+    # while leaving output headroom.
+    full_window_model = ModelMeta(
+        provider="xai", model="gpt-4", context=16_000, max_output=16_000
+    )
+    token = _default_model_var.set(full_window_model)
+    try:
+        kept = limit_log(msgs)
+        kept_tokens = len_tokens(kept, full_window_model.model)
+        assert kept_tokens <= full_window_model.context - 1000
+        assert kept_tokens >= 8_000
+    finally:
+        _default_model_var.reset(token)

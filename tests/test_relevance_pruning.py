@@ -131,6 +131,78 @@ def test_referenced_relative_path_boosts_score():
     assert score > score_no_ref + 2.0
 
 
+def test_referenced_path_with_trailing_period_is_kept():
+    """Sentence-ending period after a path must not prevent later reference matching."""
+    body = "\n".join(f"row {i}: value={i * 3}" for i in range(400))
+    out = _tool_out(
+        f"{body}\nWrote full report to /tmp/build/report.json.", call_id="c1"
+    )
+    log = [
+        _user("build it"),
+        _assistant("running"),
+        out,
+        _assistant("Now let me open /tmp/build/report.json to inspect it"),
+        _user("ok"),
+        _assistant("reading"),
+        _user("go"),
+    ]
+    score = score_tool_output_relevance(out, 2, log)
+    assert score >= 1.0, f"still-referenced output scored {score} (will be stubbed)"
+
+
+def test_referenced_path_with_trailing_period_not_stubbed_by_phase0():
+    """Phase 0 must keep a tool output whose referenced path ends with a period."""
+    body = "\n".join(f"row {i}: value={i * 3}" for i in range(400))
+    out = _tool_out(
+        f"{body}\nWrote full report to /tmp/build/report.json.", call_id="c1"
+    )
+    log = [
+        _user("build it"),
+        _assistant("running"),
+        out,
+        _assistant("Now let me open /tmp/build/report.json to inspect it"),
+        _user("ok"),
+        _assistant("reading"),
+        _user("go"),
+    ]
+    pruned, saved = prune_stale_tool_outputs(log, "gpt-4")
+    assert pruned[2].content == out.content, (
+        f"still-referenced output stubbed (saved {saved} tokens)"
+    )
+
+
+def test_referenced_path_with_trailing_slash_or_windows_punct_is_kept():
+    """Trailing directory slashes and Windows trailing separators/periods are stripped."""
+    body = "\n".join(f"row {i}: value={i * 3}" for i in range(400))
+    unix_dir = _tool_out(
+        f"{body}\nGenerated artifacts in /tmp/build/assets/ for release", call_id="c1"
+    )
+    unix_log = [
+        _user("build it"),
+        _assistant("running"),
+        unix_dir,
+        _assistant("Inspecting /tmp/build/assets now"),
+        _user("ok"),
+        _assistant("reading"),
+        _user("go"),
+    ]
+    assert score_tool_output_relevance(unix_dir, 2, unix_log) == 5.0
+
+    win_out = _tool_out(
+        f"{body}\nSaved report to C:\\build\\report.json.", call_id="c2"
+    )
+    win_log = [
+        _user("build it"),
+        _assistant("running"),
+        win_out,
+        _assistant("Opening C:\\build\\report.json now"),
+        _user("ok"),
+        _assistant("reading"),
+        _user("go"),
+    ]
+    assert score_tool_output_relevance(win_out, 2, win_log) == 5.0
+
+
 # ---------------------------------------------------------------------------
 # prune_stale_tool_outputs
 # ---------------------------------------------------------------------------

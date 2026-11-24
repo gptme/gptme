@@ -1108,3 +1108,62 @@ def test_stale_legacy_archive_does_not_overwrite_migrated_history(
     reloaded = LogManager.load(manager.logdir, branch="alternative", lock=False)
     assert reloaded.full_log[-1].content == "new migrated output"
     assert "new migrated output" in recall_result(len(reloaded.full_log))
+
+
+def test_tool_output_mimicking_catalog_prefix_survives_compaction(
+    tmp_path: Path,
+) -> None:
+    """A tool output starting with the catalog sentence must not be dropped."""
+    from gptme.llm.models import set_default_model
+    from gptme.tools.autocompact.resume import (
+        _RESULT_STUBS_PREFIX,
+        _build_dropped_result_stubs,
+        _is_result_stubs_message,
+        _resume_via_llm,
+    )
+
+    set_default_model("openai/gpt-4o")
+    tool_output = f"{_RESULT_STUBS_PREFIX} <- first line of README.md\nimportant data"
+    untagged_call = Message("system", tool_output, call_id="call-1")
+    untagged_plain = Message("system", tool_output)
+    assert not _is_result_stubs_message(untagged_call)
+    assert not _is_result_stubs_message(untagged_plain)
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "read README.md and summarize"),
+        Message("assistant", "@read(call-1): {}", call_id=None),
+        untagged_call,
+        Message("assistant", "Here is the summary."),
+        Message("user", "thanks, continue"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conv", lock=False)
+    manager.write()
+
+    # Generated catalogs must carry metadata so re-compaction still recognizes them.
+    catalog = _build_dropped_result_stubs(
+        manager, retained=[messages[0]], model="gpt-4"
+    )
+    assert catalog is not None
+    assert catalog.metadata == {"result_stubs": True}
+    assert _is_result_stubs_message(catalog)
+
+    checkpoint = Message("assistant", "## Objective\nSummarize README.")
+    gen = _resume_via_llm(
+        manager,
+        messages,
+        use_view_branch=True,
+        keep_recent_tokens=100_000,  # whole conversation fits in the tail
+        checkpoint_response=checkpoint,
+    )
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        applied, _ = stop.value
+
+    assert applied
+    view_contents = [m.content for m in manager.log.messages]
+    assert "Here is the summary." in view_contents
+    assert "thanks, continue" in view_contents
+    assert tool_output in view_contents

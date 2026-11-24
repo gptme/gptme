@@ -1404,7 +1404,12 @@ class LogManager:
         self.write()
         logsdir = get_logs_dir()
         sync_root = existing_parent(logsdir / name)
-        shutil.copytree(self.logfile.parent, logsdir / name, symlinks=True)
+        shutil.copytree(
+            self.logdir,
+            logsdir / name,
+            symlinks=True,
+            ignore=lambda d, _: [".lock"] if Path(d) == self.logdir else [],
+        )
         self.logdir = logsdir / name
         self._sync_root = sync_root
         self.chat_id = name

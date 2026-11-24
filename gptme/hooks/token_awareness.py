@@ -36,6 +36,14 @@ _message_counts_var: ContextVar[dict[str, int] | None] = ContextVar(
 _last_warning_tokens_var: ContextVar[dict[str, int] | None] = ContextVar(
     "last_warning_tokens", default=None
 )
+_message_fingerprints_var: ContextVar[
+    dict[str, tuple[str, list[tuple[str, int, int]]]] | None
+] = ContextVar("message_fingerprints", default=None)
+
+
+def _msg_fingerprint(msg: Message) -> tuple[str, int, int]:
+    """Lightweight fingerprint to detect compaction or edits in the log prefix."""
+    return (msg.role, len(msg.content), hash(msg.content))
 
 
 def _ensure_locals():
@@ -46,6 +54,8 @@ def _ensure_locals():
         _message_counts_var.set({})
     if _last_warning_tokens_var.get() is None:
         _last_warning_tokens_var.set({})
+    if _message_fingerprints_var.get() is None:
+        _message_fingerprints_var.set({})
 
 
 # Thresholds for showing warnings
@@ -135,25 +145,48 @@ def add_token_usage_warning(
             token_totals = _token_totals_var.get()
             message_counts = _message_counts_var.get()
             last_warning_tokens = _last_warning_tokens_var.get()
+            message_fingerprints = _message_fingerprints_var.get()
             assert token_totals is not None
             assert message_counts is not None
             assert last_warning_tokens is not None
+            assert message_fingerprints is not None
 
-            # Incremental counting (O(1) amortized per message)
+            # Incremental counting (O(1) amortized per message), with prefix
+            # verification so compaction, edits, or model changes trigger a
+            # full recount instead of retaining a stale total.
             current_count = len(log.messages)
             previous_count = message_counts.get(log_id, 0)
+            prev_state = message_fingerprints.get(log_id)
+            prefix_matches = (
+                previous_count > 0
+                and prev_state is not None
+                and prev_state[0] == model.model
+                and len(prev_state[1]) == previous_count
+                and current_count >= previous_count
+                and all(
+                    _msg_fingerprint(log.messages[i]) == prev_state[1][i]
+                    for i in range(previous_count)
+                )
+            )
 
-            if previous_count == 0:
-                # First time: count all messages
+            if not prefix_matches:
+                # First time, or log shrank / was compacted / edited: recount all
+                # messages and reset the warning watermark.
                 used = len_tokens(log.messages, model.model)
                 token_totals[log_id] = used
                 _token_totals_var.set(token_totals)
                 message_counts[log_id] = current_count
                 _message_counts_var.set(message_counts)
+                message_fingerprints[log_id] = (
+                    model.model,
+                    [_msg_fingerprint(m) for m in log.messages],
+                )
+                _message_fingerprints_var.set(message_fingerprints)
                 last_warning_tokens[log_id] = 0
                 _last_warning_tokens_var.set(last_warning_tokens)
             else:
-                # Subsequent times: only count new messages
+                # Subsequent append-only call: only count new messages
+                assert prev_state is not None
                 new_messages = log.messages[previous_count:]
                 if new_messages:
                     new_tokens = len_tokens(new_messages, model.model)
@@ -162,6 +195,7 @@ def add_token_usage_warning(
                     _token_totals_var.set(token_totals)
                     message_counts[log_id] = current_count
                     _message_counts_var.set(message_counts)
+                    prev_state[1].extend(_msg_fingerprint(m) for m in new_messages)
                 else:
                     # No new messages (shouldn't happen but handle gracefully)
                     used = token_totals.get(log_id, 0)

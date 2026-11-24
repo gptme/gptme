@@ -11,8 +11,10 @@ from typing import Literal
 
 from ..codeblock import Codeblock
 from ..llm.models import get_default_model, get_model
+from ..llm.models.types import ModelMeta
 from ..message import Message, len_tokens
 from . import console
+from .context_budget import _DEFAULT_HEADROOM, _DEFAULT_MAX_OUTPUT, _MIN_BUDGET
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +372,27 @@ def _drop_orphaned_tool_pairs(
     return [m for m in pruned if id(m) in kept_ids]
 
 
+def _input_token_limit(model: ModelMeta) -> int:
+    """Maximum input tokens to retain while leaving room for completion output.
+
+    Reserves the model's output allowance plus safety headroom so the combined
+    request fits the provider window. When ``max_output`` is unset or exceeds
+    half the window (e.g. providers that advertise ``max_output == context``),
+    cap the reserve so input is not starved. Tiny windows (<= ``_MIN_BUDGET``)
+    keep their full declared context as a floor.
+    """
+    reserve = model.max_output or _DEFAULT_MAX_OUTPUT
+    if reserve > model.context // 2:
+        reserve = min(
+            reserve,
+            max(min(_DEFAULT_MAX_OUTPUT, model.context // 4), model.context // 8),
+        )
+    return max(
+        min(_MIN_BUDGET, model.context),
+        model.context - reserve - _DEFAULT_HEADROOM,
+    )
+
+
 def limit_log(log: list[Message]) -> list[Message]:
     """
     Picks messages until the total number of tokens exceeds limit,
@@ -378,6 +401,7 @@ def limit_log(log: list[Message]) -> list[Message]:
     """
     model = get_default_model()
     assert model, "No model loaded"
+    input_limit = _input_token_limit(model)
 
     # Always pick the first system messages
     initial_system_msgs = []
@@ -408,9 +432,9 @@ def limit_log(log: list[Message]) -> list[Message]:
                         break
     extra_pinned = [m for m in log_tail if id(m) in extra_pinned_ids]
 
-    # Reserve budget for always-included messages.
+    # Reserve budget for always-included messages and completion output.
     always_tokens = len_tokens(initial_system_msgs + extra_pinned, model.model)
-    tail_budget = max(0, model.context - always_tokens)
+    tail_budget = max(0, input_limit - always_tokens)
 
     # Pick the non-pinned messages in latest-first order within the remaining budget.
     msgs = []
@@ -477,7 +501,7 @@ def limit_log(log: list[Message]) -> list[Message]:
             has_user_request = True
             if "compaction_checkpoint_view" in (msg.metadata or {}):
                 continue
-            if len_tokens([*result, msg], model.model) <= model.context:
+            if len_tokens([*result, msg], model.model) <= input_limit:
                 kept_ids = {id(m) for m in result} | {id(msg)}
                 logger.warning(
                     "Context limiting dropped the conversation tail; preserving "
