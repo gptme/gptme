@@ -165,23 +165,57 @@ def _truncate_body(body: str, max_tokens: int = DEFAULT_TRUNCATE_TOKENS) -> str:
     )
 
 
+def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
+    """Collect a complete, consistent check-run listing or raise on partial data."""
+    runs: list[dict] = []
+    seen: set[int] = set()
+    total: int | None = None
+    page = 1
+    while True:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        data = json.loads(result.stdout)
+        if not isinstance(data, dict):
+            raise ValueError("Invalid check-run response")
+        count = data.get("total_count")
+        batch = data.get("check_runs")
+        if type(count) is not int or count < 0 or not isinstance(batch, list):
+            raise ValueError("Missing or invalid check-run count/list")
+        if total is None:
+            total = count
+        if count != total:
+            raise ValueError("Check-run total changed during pagination; retry")
+        for run in batch:
+            if not isinstance(run, dict) or type(run.get("id")) is not int:
+                raise ValueError("Invalid check-run entry")
+            if run["id"] in seen:
+                raise ValueError("Repeated check run during pagination; retry")
+            seen.add(run["id"])
+            runs.append(run)
+        if len(runs) > total:
+            raise ValueError("Check-run listing exceeds reported total")
+        if len(runs) == total:
+            return runs
+        if not batch:
+            raise ValueError("Incomplete check-run listing: empty page before total")
+        page += 1
+
+
 def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
     """Get GitHub Actions status for a commit SHA."""
     try:
-        # Get check runs for the commit
-        check_runs_result = subprocess.run(
-            ["gh", "api", f"/repos/{owner}/{repo}/commits/{sha}/check-runs"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-
-        if check_runs_result.returncode != 0:
-            return None
-
-        check_runs_data = json.loads(check_runs_result.stdout)
-        check_runs = check_runs_data.get("check_runs", [])
+        # Read every page: a failure past the first page must not be reported
+        # as an all-green summary. Partial or inconsistent listings raise.
+        check_runs = _get_commit_check_runs(owner, repo, sha)
 
         if not check_runs:
             return None
@@ -258,7 +292,7 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
     except (
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
-        json.JSONDecodeError,
+        ValueError,  # includes json.JSONDecodeError and incomplete listings
         KeyError,
     ) as e:
         logger.debug(f"Failed to get GitHub Actions status: {e}")

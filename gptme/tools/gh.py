@@ -40,6 +40,7 @@ from collections.abc import Generator
 from ..message import Message
 from ..util.gh import (
     DEFAULT_LOG_MAX_TOKENS,
+    _get_commit_check_runs,
     _truncate_log_tail,
     get_github_issue_content,
     get_github_pr_content,
@@ -56,51 +57,6 @@ logger = logging.getLogger(__name__)
 
 def has_gh_tool() -> bool:
     return shutil.which("gh") is not None
-
-
-def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
-    """Collect a complete, consistent check-run listing or raise on partial data."""
-    runs: list[dict] = []
-    seen: set[int] = set()
-    total: int | None = None
-    page = 1
-    while True:
-        result = subprocess.run(
-            [
-                "gh",
-                "api",
-                f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-        data = json.loads(result.stdout)
-        if not isinstance(data, dict):
-            raise ValueError("Invalid check-run response")
-        count = data.get("total_count")
-        batch = data.get("check_runs")
-        if type(count) is not int or count < 0 or not isinstance(batch, list):
-            raise ValueError("Missing or invalid check-run count/list")
-        if total is None:
-            total = count
-        if count != total:
-            raise ValueError("Check-run total changed during pagination; retry")
-        for run in batch:
-            if not isinstance(run, dict) or type(run.get("id")) is not int:
-                raise ValueError("Invalid check-run entry")
-            if run["id"] in seen:
-                raise ValueError("Repeated check run during pagination; retry")
-            seen.add(run["id"])
-            runs.append(run)
-        if len(runs) > total:
-            raise ValueError("Check-run listing exceeds reported total")
-        if len(runs) == total:
-            return runs
-        if not batch:
-            raise ValueError("Incomplete check-run listing: empty page before total")
-        page += 1
 
 
 def _get_pr_check_runs(
@@ -946,6 +902,16 @@ def execute_gh(
         except ValueError as e:
             yield Message("system", f"Error parsing command: {e}")
             return
+    # A markdown block may carry the command in its body instead of on the
+    # fence line. Recover args from it too, so native handlers and their
+    # argument guards (e.g. merge's unsupported-flag refusal) apply to every
+    # invocation form instead of the body falling through to the raw CLI.
+    if not args and code and code.strip():
+        try:
+            args = shlex.split(code.strip().removeprefix("gh "))
+        except ValueError as e:
+            yield Message("system", f"Error parsing command: {e}")
+            return
 
     if (
         args
@@ -1089,7 +1055,9 @@ def execute_gh(
             else get_github_run_logs(run_id)
         )
         if content:
-            yield Message("system", content)
+            # Same credential-redaction policy as the pass-through path: a
+            # failed job log can echo tokens (e.g. GITHUB_TOKEN=ghp_...).
+            yield Message("system", _redact_passthrough_output(content))
         else:
             yield Message(
                 "system",
