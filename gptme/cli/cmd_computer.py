@@ -20,6 +20,7 @@ try:
 except ImportError:  # pragma: no cover
     sync_playwright = cast(Any, None)
 
+from ..codeblock import Codeblock
 from ..dirs import get_logs_dir
 from ..logmanager import _gen_read_jsonl
 from ..tools._computer_gate import (
@@ -28,7 +29,6 @@ from ..tools._computer_gate import (
     ACTION_RISK_WRITE,
     action_risk_level,
 )
-from ..tools.base import ToolUse
 
 # Patterns that indicate text/key content (redact for privacy)
 _SENSITIVE_ACTIONS = frozenset({"type", "key"})
@@ -199,6 +199,14 @@ def _extract_block_calls(code: str, ts: str | None) -> list[dict]:
     return [r for _, _, r in sorted(found, key=lambda f: f[:2])]
 
 
+# Block languages the ipython tool executes (gptme/tools/python.py block_types).
+# Matched directly rather than through the loaded-tool registry: the audit reads
+# saved logs, so it must not depend on (or load) the current process's tools —
+# a TOOL_ALLOWLIST without ipython, or configured MCP servers, would otherwise
+# hide saved calls or start servers just to read a file.
+_IPYTHON_BLOCK_LANGS = frozenset({"ipython", "py"})
+
+
 def _extract_computer_calls(messages) -> list[dict]:
     """Extract computer-use actions from a message list.
 
@@ -230,9 +238,9 @@ def _extract_computer_calls(messages) -> list[dict]:
         if msg.role != "assistant":
             continue
         ts = msg.timestamp.isoformat() if msg.timestamp else None
-        for tu in ToolUse.iter_from_content(msg.content):
-            if tu.is_runnable and tu.content:
-                records.extend(_extract_block_calls(tu.content, ts))
+        for block in Codeblock.iter_from_markdown(msg.content):
+            if block.lang.split(" ")[0] in _IPYTHON_BLOCK_LANGS and block.content:
+                records.extend(_extract_block_calls(block.content, ts))
     return records
 
 
@@ -299,13 +307,6 @@ def audit_log(
         gptme-util computer audit-log --jsonl | jq 'select(.risk_level == "sensitive")'
         gptme-util computer audit-log --agent-id computer-task-abc12345
     """
-    # ToolUse.is_runnable needs the ipython tool loaded; a bare CLI process
-    # has no tools, so every call was skipped ("No computer-use actions found").
-    from ..tools import get_tools, init_tools
-
-    if not get_tools():
-        init_tools()
-
     logs_dir = get_logs_dir()
 
     if agent_id is not None and conversation:

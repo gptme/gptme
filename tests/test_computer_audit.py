@@ -1421,3 +1421,32 @@ def test_audit_log_cli_finds_calls_without_preloaded_tools(tmp_path, monkeypatch
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)[0]["action"] == "left_click"
+
+
+def test_audit_log_cli_ignores_tool_allowlist_and_loads_no_tools(tmp_path, monkeypatch):
+    """The audit reads saved logs: the current allowlist must not hide calls,
+    and it must not initialise tools (which would also connect MCP servers)."""
+    import gptme.tools as tools_mod
+    from gptme.tools import clear_tools, get_tools
+
+    conv_dir = tmp_path / "allowlist-conv"
+    msgs = [
+        _msg("user", "click it"),
+        _msg("assistant", _ipython_block("computer('left_click', coordinate=[3, 4])")),
+    ]
+    _write_conv_jsonl(conv_dir / "conversation.jsonl", msgs)
+    monkeypatch.setattr("gptme.cli.cmd_computer.get_logs_dir", lambda: tmp_path)
+    monkeypatch.setenv("TOOL_ALLOWLIST", "shell")
+
+    def _no_init(*args, **kwargs):
+        raise AssertionError("audit-log must not initialise tools")
+
+    monkeypatch.setattr(tools_mod, "init_tools", _no_init)
+    clear_tools()
+
+    result = CliRunner().invoke(
+        audit_log, [conv_dir.name, "--json"], catch_exceptions=False
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)[0]["coordinate"] == [3, 4]
+    assert not get_tools()
