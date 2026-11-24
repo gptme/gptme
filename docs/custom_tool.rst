@@ -98,8 +98,9 @@ Here's a minimal example of a custom tool:
     from gptme.message import Message
 
     def execute(code, args, kwargs):
-        # Native tool calls pass kwargs; fenced ```hello blocks pass None.
-        name = (kwargs or {}).get('name') or code.strip() or 'World'
+        # Native tool calls pass kwargs and code=None;
+        # fenced ```hello blocks pass the block content and kwargs=None.
+        name = (kwargs or {}).get('name') or (code or '').strip() or 'World'
         yield Message('system', f"Hello, {name}!")
 
     tool = ToolSpec(

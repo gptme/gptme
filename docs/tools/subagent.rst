@@ -85,8 +85,8 @@ Three ways to restrict tools:
   own ``gptme.toml`` controls its secret handling).
 
 Signal tools are loaded regardless of allowlist so the subagent can communicate
-back. Thread-mode subagents get ``complete``, ``clarify``, and ``progress``.
-Subprocess subagents get ``complete``, ``clarify``, ``progress`` and ``yield``.
+back. Both thread-mode and subprocess subagents get ``complete``, ``clarify``,
+``progress`` and ``yield``.
 
 **3. Cancellation and timeout**
 

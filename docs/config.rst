@@ -211,9 +211,9 @@ If no model is configured, gptme will scan your API keys and pick the first avai
 
 So if you have both ``ANTHROPIC_API_KEY`` and ``GROQ_API_KEY`` set, gptme will
 use Anthropic (earlier in the list) unless you override with ``MODEL`` or ``--model``.
-``moonshot``, ``nvidia`` and ``azure`` have no default model: if one of them is
-picked, startup stops with "Provider 'X' requires specifying a model", so set
-``MODEL`` or ``--model`` as well.
+``requesty``, ``moonshot``, ``nvidia`` and ``azure`` have no recommended model:
+if one of them is picked, startup stops with "Provider 'X' requires specifying a
+model", so set ``MODEL`` or ``--model`` to a full ``provider/model`` ID as well.
 See :doc:`providers` for the full list and :doc:`models` for model recommendations.
 
 **Using multiple providers:**
@@ -461,7 +461,7 @@ This file currently supports a few options:
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.
-- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the session workspace (``--workspace``, otherwise the directory gptme is started from). ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
+- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the active workspace: ``--workspace`` if given; otherwise a new CLI chat uses the directory gptme is started from, and a resumed chat keeps its saved workspace. ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
 
   .. code-block:: toml
 
