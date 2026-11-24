@@ -276,3 +276,57 @@ def test_shell_background_completion_wake(
             for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
                 if pipe is not None:
                     pipe.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="requires bash")
+def test_shell_background_completion_without_server_branch_delivers_on_current_branch(
+    logs_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A legacy/CLI job (no server session) delivers on whatever branch runs."""
+    from gptme.hooks import HookType, current_conversation_id, trigger_hook
+    from gptme.tools import ToolUse, init_tools, shell_background
+
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    cid = "matrix-shell-legacy-branch"
+    job = None
+    try:
+        with LogManager.preserve_current():
+            main = LogManager.load(cid, create=True, lock=False)
+            main.append(Message("user", "Run the shell job"))
+            main.branch("feature-x")
+            main.write()
+            origin = LogManager.load(cid, branch="feature-x", lock=False)
+            init_tools(["shell"], include_mcp=False)
+            conversation_token = current_conversation_id.set(cid)
+            try:
+                (tool_use,) = ToolUse.iter_from_content(
+                    '@shell(call-1): {"command": "printf shell-%s result", "background": true}',
+                    "tool",
+                )
+                replies = list(tool_use.execute(log=origin.log, workspace=logs_dir))
+                assert any(
+                    "Started background shell job" in msg.content for msg in replies
+                )
+                (job,) = shell_background.list_background_jobs()
+            finally:
+                current_conversation_id.reset(conversation_token)
+
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=10)
+            assert not job._reader_thread.is_alive()
+            assert job._completion_notified is True
+            # Started outside a server session: unconstrained by branch.
+            assert job.server_session_id is None
+            assert job.server_branch is None
+
+            (completion,) = trigger_hook(HookType.STEP_PRE, manager=origin)
+            assert "finished (exit code 0)" in completion.content
+            assert "shell-result" in completion.content
+            assert not list(trigger_hook(HookType.STEP_PRE, manager=origin))
+    finally:
+        shell_background.reset_background_jobs(cid, all_conversations=False)
+        if job is not None:
+            job.kill()
+            for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
+                if pipe is not None:
+                    pipe.close()
