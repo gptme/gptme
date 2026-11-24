@@ -20,8 +20,12 @@ from gptme.config import setup_config_from_cli
             "-save, -shell",
             lambda tools: "shell" not in tools and "save" not in tools,
         ),
-        ("+browser,+rag", lambda tools: "browser" in tools and "shell" in tools),
-        ("+browser", lambda tools: "browser" in tools and "shell" in tools),
+        # use opt-in tools with no availability check (browser/rag need extras)
+        (
+            "+form,+choice",
+            lambda tools: "form" in tools and "choice" in tools and "shell" in tools,
+        ),
+        ("+form", lambda tools: "form" in tools and "shell" in tools),
         ("none", lambda tools: tools == []),
     ],
 )
