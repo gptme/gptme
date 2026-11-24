@@ -176,10 +176,12 @@ def test_im_first_frame_copy_fallback(tmp_path: Path, raise_in_context: bool) ->
     assert p.read_bytes() == content, "cleanup must preserve the original bytes"
 
 
-def test_im_first_frame_stages_percent_paths(tmp_path):
+@pytest.mark.parametrize("name", ["scan%d.pdf", "scan.p%df"])
+def test_im_first_frame_stages_percent_paths(tmp_path, name):
     """With a ``[0]`` selector, ImageMagick expands ``%d`` as a scene pattern:
-    ``scan%d.pdf[0]`` reads ``scan0.pdf``. Stage the source under a plain name."""
-    p = tmp_path / "scan%d.pdf"
+    ``scan%d.pdf[0]`` reads ``scan0.pdf``. Stage the source under a plain name,
+    including when the ``%`` sits in the extension."""
+    p = tmp_path / name
     p.write_bytes(b"%PDF-1.4")
     with _im_first_frame(p) as source:
         assert source.endswith("[0]")
