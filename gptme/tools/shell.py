@@ -3202,13 +3202,18 @@ def _claim_shell() -> ShellSession:
     two commands, so a second call waits until the first finishes or hands the
     shell off to a background job. A shell that was promoted or closed while we
     waited is no longer this context's shell, so resolve again.
+
+    If resolving hands back the same stale shell (``get_shell`` is overridden,
+    e.g. mocked), return it rather than spin forever.
     """
+    stale: ShellSession | None = None
     while True:
         shell = get_shell()
         shell._call_lock.acquire()
-        if not shell._closed and not shell._detached:
+        if shell is stale or not (shell._closed or shell._detached):
             return shell
         shell._call_lock.release()
+        stale = shell
         if _shell_var.get() is shell:
             _shell_var.set(None)
 
