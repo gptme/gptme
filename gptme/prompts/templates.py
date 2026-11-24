@@ -10,6 +10,7 @@ from ..llm.models import get_model
 from ..message import Message
 from ..tools import FUNCTION_CALL_TOOL, ToolFormat, ToolSpec
 from ..util import clock
+from ..util.workspace import workspace_scope
 from . import _xml_section
 from .skills import prompt_skills_summary
 
@@ -52,13 +53,20 @@ def prompt_full(
     workspace: Path | None = None,
 ) -> Generator[Message, None, None]:
     """Full prompt to start the conversation."""
-    yield from prompt_gptme(
-        interactive, model, agent_name, tool_format=tool_format, tools=tools
-    )
+    # Consume cwd-dependent generators before yielding, so the scope cannot
+    # remain active in the caller while this generator is suspended.
+    with workspace_scope(workspace):
+        base = list(
+            prompt_gptme(
+                interactive, model, agent_name, tool_format=tool_format, tools=tools
+            )
+        )
+        project = list(prompt_project(tool_format=tool_format))
+    yield from base
     yield from prompt_tools(tools=tools, tool_format=tool_format, model=model)
     if interactive:
         yield from prompt_user(tool_format=tool_format)
-    yield from prompt_project(tool_format=tool_format)
+    yield from project
     yield from prompt_systeminfo(workspace, tool_format=tool_format)
     yield from prompt_timeinfo(tool_format=tool_format)
     yield from prompt_skills_summary(tool_format=tool_format, workspace=workspace)

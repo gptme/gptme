@@ -1,8 +1,18 @@
 """Tests for skills summary in prompts."""
 
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 from gptme.prompts import prompt_skills_summary
+
+
+@pytest.fixture(autouse=True)
+def isolate_lesson_cache(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "gptme.lessons.index._trusted_cache_base", str(tmp_path / "cache")
+    )
 
 
 def test_prompt_skills_summary_no_skills():
@@ -254,3 +264,116 @@ def test_get_prompt_project_uses_workspace(tmp_path: Path, monkeypatch):
     assert f"## Current Project: {workspace.name}" in content
     assert "WORKSPACE-RULES" in content
     assert "CWD-RULES" not in content
+
+
+@pytest.mark.parametrize("cwd_source", ["shell", "promoted"])
+def test_explicit_prompt_workspace_overrides_shell(
+    tmp_path: Path, monkeypatch, cwd_source
+):
+    from gptme.util.workspace import _promoted_next_cwd, _shell_var, _workspace_cwd
+
+    workspace, cwd = _isolate_from_cwd_workspace(tmp_path, monkeypatch)
+    workspace_token = _workspace_cwd.set(str(workspace))
+    shell_token = _shell_var.set(Mock(_cwd=str(cwd)) if cwd_source == "shell" else None)
+    promoted_token = _promoted_next_cwd.set(str(cwd))
+    try:
+        content = "\n".join(
+            m.content for m in prompt_skills_summary(workspace=workspace)
+        )
+        assert str(workspace / "skills" / "secret-word" / "SKILL.md") in content
+        assert str(cwd / "skills") not in content
+    finally:
+        _promoted_next_cwd.reset(promoted_token)
+        _shell_var.reset(shell_token)
+        _workspace_cwd.reset(workspace_token)
+
+
+def test_workspace_scope_restores_shell_and_nested_scope(tmp_path: Path):
+    from gptme.util.workspace import (
+        _promoted_next_cwd,
+        _shell_var,
+        _workspace_cwd,
+        current_workspace,
+        workspace_scope,
+    )
+
+    shell_cwd = tmp_path / "shell"
+    outer = tmp_path / "outer"
+    inner = tmp_path / "inner"
+    tokens = (
+        _workspace_cwd.set(str(tmp_path)),
+        _shell_var.set(Mock(_cwd=str(shell_cwd))),
+        _promoted_next_cwd.set(str(tmp_path / "promoted")),
+    )
+    try:
+        assert current_workspace() == shell_cwd
+        with workspace_scope(outer):
+            assert current_workspace() == outer
+            with (
+                pytest.raises(ValueError, match="restore on error"),
+                workspace_scope(inner),
+            ):
+                assert current_workspace() == inner
+                raise ValueError("restore on error")
+            with workspace_scope(None):
+                assert current_workspace() == outer
+        assert current_workspace() == shell_cwd
+    finally:
+        _promoted_next_cwd.reset(tokens[2])
+        _shell_var.reset(tokens[1])
+        _workspace_cwd.reset(tokens[0])
+
+
+def test_prompt_full_workspace_and_no_scope_leak(tmp_path: Path, monkeypatch):
+    from gptme.prompts import prompt_full
+    from gptme.util.workspace import current_workspace
+
+    workspace, cwd = _isolate_from_cwd_workspace(tmp_path, monkeypatch)
+    for repo, word in ((workspace, "WORKSPACE-BASE"), (cwd, "CWD-BASE")):
+        (repo / ".git").mkdir()
+        (repo / "gptme.toml").write_text(
+            f'base_prompt = "{word}"\nprompt = "{word}-PROJECT"\n'
+        )
+    before = current_workspace()
+    content = []
+    for msg in prompt_full(False, [], "markdown", None, workspace=workspace):
+        assert current_workspace() == before
+        content.append(msg.content)
+    text = "\n".join(content)
+    assert "WORKSPACE-BASE" in text
+    assert "CWD-BASE" not in text
+    assert f"## Current Project: {workspace.name}" in text
+
+
+def test_relative_workspace_git_walk(tmp_path: Path, monkeypatch):
+    from gptme.dirs import get_project_git_dir
+    from gptme.util.workspace import _workspace_cwd
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "src" / "logs").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path / "src")
+    token = _workspace_cwd.set("logs")
+    try:
+        assert get_project_git_dir() == tmp_path
+    finally:
+        _workspace_cwd.reset(token)
+
+
+def test_gptme_dir_git_fallback_stays_with_launch_cwd(tmp_path: Path, monkeypatch):
+    from gptme.config import get_project_config
+    from gptme.dirs import get_project_gptme_dir
+    from gptme.util.workspace import workspace_scope
+
+    launch = tmp_path / "launch"
+    (launch / ".git").mkdir(parents=True)
+    (launch / ".github").mkdir()
+    (launch / ".github" / "gptme.toml").write_text("[rag]\nenabled = true\n")
+    (launch / "src").mkdir()
+    workspace = tmp_path / "conversation"
+    workspace.mkdir()
+    monkeypatch.chdir(launch / "src")
+    with workspace_scope(workspace):
+        project_dir = get_project_gptme_dir()
+        assert project_dir == launch
+        config = get_project_config(project_dir)
+        assert config is not None and config.rag.enabled

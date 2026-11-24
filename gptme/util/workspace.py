@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 _shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
 _workspace_cwd: ContextVar[str | None] = ContextVar("workspace_cwd", default=None)
+# Explicit lookup scope takes precedence without changing the shell's cwd/seed.
+_workspace_override: ContextVar[str | None] = ContextVar(
+    "workspace_override", default=None
+)
 # One-shot seed, distinct from the initial workspace / server skip-chdir flag.
 _promoted_next_cwd: ContextVar[str | None] = ContextVar(
     "promoted_next_cwd", default=None
@@ -35,6 +39,8 @@ def set_workspace_cwd(cwd: str) -> None:
 
 def get_workspace_cwd() -> str | None:
     """Return the session cwd, following its shell; None means CLI fallback."""
+    if override := _workspace_override.get():
+        return override
     workspace = _workspace_cwd.get()
     shell = _shell_var.get()
     if workspace is not None:
@@ -60,11 +66,11 @@ def workspace_scope(workspace: Path | str | None) -> Iterator[None]:
     if workspace is None:
         yield
         return
-    token = _workspace_cwd.set(str(workspace))
+    token = _workspace_override.set(str(Path(workspace).resolve()))
     try:
         yield
     finally:
-        _workspace_cwd.reset(token)
+        _workspace_override.reset(token)
 
 
 def resolve_in_workspace(path: Path) -> Path:
