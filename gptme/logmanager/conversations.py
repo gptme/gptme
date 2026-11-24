@@ -7,10 +7,13 @@ and mutation operations (rename, delete) that work on persisted conversation log
 import functools
 import json
 import logging
+import os
 import re
 import shutil
 import sys
+import tempfile
 from collections.abc import Generator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import islice
@@ -593,8 +596,20 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
         assert isinstance(chat_section, dict)
         chat_section["name"] = new_name
 
-        with open(config_path, "w") as f:
-            tomlkit.dump(config_data, f)
+        # Replace atomically (like ChatConfig.save): a failure mid-dump must
+        # not truncate the workspace/model/agent settings already on disk.
+        fd, tmp_name = tempfile.mkstemp(
+            dir=conv_dir, prefix=".config.", suffix=".toml.tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                tomlkit.dump(config_data, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, config_path)
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(tmp_name)
 
     return True
 

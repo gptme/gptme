@@ -105,6 +105,22 @@ def conversation_name_error(value: str) -> str | None:
     return conversation_id_error(value)
 
 
+def _unchanged_since_persisted(log: "Log", path: Path) -> bool:
+    """Whether *log* holds exactly what it last read from or wrote to *path*.
+
+    Such a log has nothing of ours to persist. Another manager may have
+    appended to the file since, and a full rewrite triggered by the disk-size
+    drift in :py:meth:`Log._can_append` would silently drop those messages.
+    """
+    return (
+        log.persisted_path is not None
+        and path.exists()
+        and log.persisted_path == path.resolve()
+        and len(log.persisted) == len(log)
+        and all(old is new for old, new in zip(log.persisted, log))
+    )
+
+
 @dataclass(frozen=True, repr=False)
 class Log:
     messages: list[Message] = field(default_factory=list)
@@ -847,12 +863,19 @@ class LogManager:
                     if self.current_branch != "main":
                         main_path = self.logdir / "conversation.jsonl"
                         main_path.parent.mkdir(parents=True, exist_ok=True)
-                        self._branches[branch] = log.write_jsonl(main_path, append=True)
                         paths.add(main_path)
+                        if not _unchanged_since_persisted(log, main_path):
+                            self._branches[branch] = log.write_jsonl(
+                                main_path, append=True
+                            )
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
-                self._branches[branch] = log.write_jsonl(branch_path, append=True)
                 paths.add(branch_path)
+                # The current branch was written above (directly or through
+                # its view's underlying branch); others may belong to a
+                # concurrent manager, so leave them alone when unchanged here.
+                if not _unchanged_since_persisted(log, branch_path):
+                    self._branches[branch] = log.write_jsonl(branch_path, append=True)
 
             # Write view branches
             if self._views:
@@ -860,8 +883,9 @@ class LogManager:
                 views_dir.mkdir(parents=True, exist_ok=True)
                 for view_name, log in self._views.items():
                     view_path = views_dir / f"{view_name}.jsonl"
-                    self._views[view_name] = log.write_jsonl(view_path, append=True)
                     paths.add(view_path)
+                    if not _unchanged_since_persisted(log, view_path):
+                        self._views[view_name] = log.write_jsonl(view_path, append=True)
 
         # Persist model selection trace alongside the conversation
         trace_path = self.write_model_trace()
