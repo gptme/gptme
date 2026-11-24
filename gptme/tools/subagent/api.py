@@ -1642,9 +1642,7 @@ def _timeout_subagent(
     timeout_result = ReturnType(
         "timeout", f"Auto-cancelled after {max_time}s (max_time exceeded)"
     )
-    if not set_subagent_result_if_absent(
-        agent_id, timeout_result, attempt=expected_run
-    ):
+    if not set_subagent_result_if_absent(agent_id, timeout_result, attempt=sa):
         return  # Another result was set concurrently (subagent finished at the same time)
 
     if sa.execution_mode == "subprocess" and sa.process:
@@ -1652,10 +1650,12 @@ def _timeout_subagent(
         logger.info(
             f"Subagent '{agent_id}' subprocess killed after {max_time}s (max_time)."
         )
-    else:
+    elif sa.execution_mode == "thread":
+        sa.cancel_event.set()
         logger.info(
-            f"Subagent '{agent_id}' marked timed-out after {max_time}s "
-            "(thread will stop at its next checkpoint)."
+            "Subagent '%s' timed out after %ss and will stop at its next checkpoint.",
+            agent_id,
+            max_time,
         )
 
     notify_completion(

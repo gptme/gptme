@@ -12,6 +12,7 @@ children and zombie threads with dangling concurrency slots.
 import logging
 import threading
 from collections.abc import Generator
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,7 @@ from .types import (
     Subagent,
     _completion_queue,
     _progress_queue,
+    _shadowed_subagents,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -41,10 +43,10 @@ logger = logging.getLogger(__name__)
 def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, None]:
     """Apply cancel and steer operations at each STEP_PRE boundary.
 
-    Cancel: reads ``logdir/control.jsonl`` for a ``{"op": "cancel"}`` record
-    written by ``subagent_cancel()``.  On cancel, appends a note, marks the
-    result as *cancelled* (first-writer-wins), and raises
-    ``SessionCompleteException`` so ``chat()`` exits cleanly.
+    Stop: reads ``logdir/control.jsonl`` for a cancellation record or checks the
+    thread's in-memory stop signal. Appends a note and raises
+    ``SessionCompleteException`` so ``chat()`` exits cleanly, preserving any
+    terminal result already published.
 
     Steer: drains steer-flagged messages from the prompt queue (written by
     ``subagent_steer()`` with ``steer=True``) and yields them as user messages
@@ -57,12 +59,19 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
     # Search by logdir, not logdir.name: thread subagent logdirs have a random suffix
     # (subagent-{agent_id}-{suffix}), so logdir.name != agent_id for thread mode.
     with _subagents_lock:
-        sa = next((s for s in _subagents if s.logdir == manager.logdir), None)
+        sa = next(
+            (
+                s
+                for s in chain(reversed(_subagents), reversed(_shadowed_subagents))
+                if s.logdir == manager.logdir
+            ),
+            None,
+        )
     agent_id = sa.agent_id if sa is not None else manager.logdir.name
 
     # ── Cancel check ─────────────────────────────────────────────────────────
-    # Check in-memory fallback first: set by subagent_cancel() when the
-    # control-file write fails with OSError.
+    # The watchdog uses this per-attempt signal. Explicit cancellation uses it
+    # if the control-file write fails.
     in_memory_cancel = sa is not None and sa.cancel_event.is_set()
 
     has_cancel = in_memory_cancel
@@ -89,6 +98,15 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
                     break
 
     if has_cancel:
+        from ..complete import SessionCompleteException
+
+        outcome = sa._cached_result() if in_memory_cancel and sa is not None else None
+        if outcome is not None and outcome.status == "timeout":
+            manager.append(
+                Message("system", "Subagent timed out; ending at this step boundary.")
+            )
+            raise SessionCompleteException("Subagent timed out")
+
         manager.append(
             Message(
                 "system",
@@ -96,10 +114,8 @@ def _subagent_control_hook(manager: "LogManager") -> Generator[Message, None, No
             )
         )
         set_subagent_result_if_absent(
-            agent_id, ReturnType("cancelled", "Cancelled by orchestrator")
+            agent_id, ReturnType("cancelled", "Cancelled by orchestrator"), attempt=sa
         )
-        from ..complete import SessionCompleteException
-
         raise SessionCompleteException("Subagent cancelled by orchestrator")
 
     # ── Steer check ───────────────────────────────────────────────────────────
