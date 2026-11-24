@@ -23,6 +23,7 @@ from gptme.llm.llm_anthropic import (
     _resolve_effort_level,
     _resolve_thinking_budget,
 )
+from gptme.llm.utils import extract_tool_uses_from_assistant_message
 from gptme.message import Message
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import ToolUse, get_tool, init_tools
@@ -181,6 +182,24 @@ def test_assistant_text_survives_tool_conversion(
             "thinking": thinking,
             "signature": "SIG123",
         } in parts
+
+
+def test_same_line_text_after_tool_call_is_not_parsed_as_call():
+    """Text after a call's JSON is mid-line, so a call-like example in it
+    stays text instead of becoming a second call."""
+    init_tools(allowlist=["save"])
+    content = (
+        '@save(call_1): {"path": "a.txt", "content": "x"}'
+        '@save(call_2): {"path": "b.txt", "content": "y"}\n'
+        '@save(call_3): {"path": "c.txt", "content": "z"}'
+    )
+
+    parts, tool_uses = extract_tool_uses_from_assistant_message(
+        content, tool_format_override="tool"
+    )
+
+    assert [t.call_id for t in tool_uses] == ["call_1", "call_3"]
+    assert any("@save(call_2)" in p["text"] for p in parts), parts
 
 
 @pytest.mark.parametrize(

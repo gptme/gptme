@@ -82,12 +82,15 @@ def extract_tool_uses_from_assistant_message(
 
                 tool_uses.append(tooluse)
                 # Streamed text can follow the closing brace on the same
-                # line; keep it so it is not lost with the call's line.
-                text = _text_after_tool_call(text, tooluse)
+                # line. Keep it as its own part: put back in the buffer it
+                # would start a line and could parse as another call.
+                after = _text_after_tool_call(text, tooluse)
+                if after.strip():
+                    content_parts.append({"type": "text", "text": after})
             else:
                 content_parts.append({"type": "text", "text": text})
-                # The text is emptied to start over with the next lines if any.
-                text = ""
+            # The text is emptied to start over with the next lines if any.
+            text = ""
 
     # Keep text after the last tool call. A message without any tool call still
     # returns no parts, so callers fall back to the raw content.
