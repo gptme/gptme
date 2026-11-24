@@ -205,3 +205,52 @@ def test_public_navigation_failure_discards_owned_context(
         tool.open_page(base + "/failure")
     assert "no local auth" in tool.open_page(base + "/after-failure")
     assert requests[-1][2] == ""
+
+
+@pytest.fixture
+def polling_server() -> Iterator[str]:
+    """A page that never reaches network idle: it polls fetch every 100ms."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            if self.path == "/":
+                self.wfile.write(
+                    b"<title>Poll</title><p>polling page loaded</p>"
+                    b"<script>setInterval(() => fetch('/ping'), 100)</script>"
+                )
+            else:
+                self.wfile.write(b"pong")
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_read_url_returns_page_that_never_reaches_network_idle(
+    polling_server: str,
+    live_browser: bt.BrowserThread,
+) -> None:
+    """gptme/gptme#5126 defect 9: goto + networkidle used Playwright's 30s
+    defaults, longer than the browser thread's TIMEOUT, so a polling page
+    always raised TimeoutError and left the worker busy for the next call."""
+    import time
+
+    set_session_allow_hosts(["127.0.0.1"])
+    start = time.monotonic()
+    content = pw.read_url(polling_server)
+    assert "polling page loaded" in content
+    assert time.monotonic() - start < bt.TIMEOUT
+    # The worker is free again: a second read must not time out either.
+    assert "polling page loaded" in pw.read_url(polling_server)

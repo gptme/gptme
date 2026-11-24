@@ -76,6 +76,13 @@ class _ManagedPage:
                 pass
 
 
+# Playwright's navigation/load-state default is 30s, longer than the browser
+# thread's whole-operation TIMEOUT (20s). Keep one navigation, plus the short
+# best-effort network-idle wait below, inside that budget (gptme/gptme#5126).
+NAVIGATION_TIMEOUT_MS = 12_000
+NETWORK_IDLE_TIMEOUT_MS = 3_000
+
+
 def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
     """Create a page, reusing the session context for CDP connections.
 
@@ -99,6 +106,7 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
             _browser._session_context = ctx
         _session_owner = _conversation_key()
         page = ctx.new_page()
+        page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
         headers = context_kwargs.get("extra_http_headers")
         if headers:
             page.set_extra_http_headers(headers)
@@ -106,6 +114,7 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
 
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
+    page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
     return _ManagedPage(page=page, _owned_context=context)
 
 
@@ -212,11 +221,16 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
     nav_response = None
     try:
         nav_response = page.goto(url)
-        # Wait for page to be fully loaded (includes network idle)
-        page.wait_for_load_state("networkidle")
     except Exception as e:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
+    else:
+        # Best effort: pages that keep polling or streaming never reach network
+        # idle, and the loaded document is still worth reading.
+        try:
+            page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
+        except Exception:
+            pass
 
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
