@@ -86,6 +86,11 @@ def extract_tool_uses_from_assistant_message(
             # The text is emptied to start over with the next lines if any.
             text = ""
 
+    # Keep text after the last tool call. A message without any tool call still
+    # returns no parts, so callers fall back to the raw content.
+    if text.strip() and (content_parts or tool_uses):
+        content_parts.append({"type": "text", "text": text})
+
     return content_parts, tool_uses
 
 

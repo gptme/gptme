@@ -126,6 +126,36 @@ def test_message_conversion_without_tools():
     ]
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        # Signed thinking followed by a plain answer, no tool call
+        "<think>\nsimple arithmetic\n<!-- think-sig: SIG123 -->\n</think>\n\nThe answer is 4.",
+        # Text after a native tool call
+        'Let me save it.\n@save(call_1): {"path": "a.txt", "content": "x"}\nThe answer is 4.',
+    ],
+)
+def test_assistant_text_survives_tool_conversion(content: str):
+    """Answer text must not be dropped when a turn has thinking or a tool call."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="What is 2+2?"),
+        Message(role="assistant", content=content),
+        Message(role="system", content="Saved", call_id="call_1"),
+        Message(role="user", content="Thanks"),
+    ]
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    texts = [p["text"] for p in parts if p["type"] == "text"]
+    assert any("The answer is 4." in t for t in texts), assistant["content"]
+
+
 def test_message_conversion_with_tools():
     init_tools(allowlist=["save"])
 
