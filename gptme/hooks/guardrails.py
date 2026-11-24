@@ -171,6 +171,9 @@ def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
     return [expanded] if anchored == expanded else [expanded, anchored]
 
 
+_ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
+
+
 def _is_secret_path(path: str, workspace: Path | None = None) -> bool:
     """Return True if ``path`` looks like it leads to a secret/credential file."""
     expanded = _normalize_path_token(path)
@@ -195,8 +198,11 @@ def _is_secret_spelling(expanded: str) -> bool:
     if basename in ("id_rsa", "id_ecdsa", "id_ed25519", "id_dsa", "credentials"):
         return True
 
-    # .env files but not .envrc or .env.example
-    return basename == ".env" or basename.startswith(".env.local")
+    # .env and its environment variants (.env.production, .env.test.local, ...),
+    # but not .envrc or templates such as .env.example
+    if basename.endswith(_ENV_TEMPLATE_SUFFIXES):
+        return False
+    return basename == ".env" or basename.startswith(".env.")
 
 
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:

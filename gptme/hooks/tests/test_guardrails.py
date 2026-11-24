@@ -91,6 +91,24 @@ class TestIsSecretPath:
     def test_dot_env_local(self):
         assert _is_secret_path(".env.local")
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            ".env.production",
+            ".env.development",
+            ".env.production.local",
+            ".env.test.local",
+        ],
+    )
+    def test_dot_env_environment_variants(self, name):
+        assert _is_secret_path(name)
+
+    @pytest.mark.parametrize(
+        "name", [".env.example", ".env.sample", ".env.template", ".env.dist", ".envrc"]
+    )
+    def test_dot_env_templates_are_not_secret(self, name):
+        assert not _is_secret_path(name)
+
     def test_pem_file(self):
         assert _is_secret_path("/tmp/cert.pem")
 

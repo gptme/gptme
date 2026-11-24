@@ -140,6 +140,16 @@ def _command_reason(words: list[str], depth: int) -> str | None:
     if name in {"export", "declare", "typeset"}:
         if not args or any(arg.startswith("-") and "p" in arg[1:] for arg in args):
             return _REASON
+        # `declare -x` / `typeset -x` with no names list every exported
+        # variable with its value, like `export -p`.
+        if name != "export" and all(arg.startswith(("-", "+")) for arg in args):
+            if any(arg.startswith("-") and "x" in arg[1:] for arg in args):
+                return _REASON
+    if name == "shopt":
+        # `shopt -o -s xtrace` / `shopt -os xtrace` is `set -x`.
+        flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
+        if "o" in flags and "s" in flags and "xtrace" in args:
+            return _REASON
     if name == "set" or name in _SHELLS:
         xtrace, script, _ = _shell_options(args)
         if xtrace:
