@@ -966,6 +966,24 @@ def test_load_context_files_skips_credential_files(tmp_path):
     assert [p for p, _ in loaded] == [".env.example"]
 
 
+def test_load_context_files_skips_relocated_gptme_config_dir(tmp_path, monkeypatch):
+    """XDG_CONFIG_HOME inside the workspace still protects gptme's credential store."""
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    store = tmp_path / "cfg" / "gptme"
+    store.mkdir(parents=True)
+    (store / "credentials.toml").write_text('[openai]\napi_key = "sk-private"\n')
+    (store / "config.toml").write_text('[env]\nOPENAI_API_KEY = "sk-private"\n')
+    (tmp_path / "notes.md").write_text("ok\n")
+
+    loaded = _load_context_files(
+        ["cfg/gptme/credentials.toml", "cfg/gptme/config.toml", "notes.md"],
+        workspace=tmp_path,
+    )
+    assert [p for p, _ in loaded] == ["notes.md"]
+
+
 @pytest.mark.parametrize(
     "credential_path", ["config.env.local", "staging.env.production"]
 )

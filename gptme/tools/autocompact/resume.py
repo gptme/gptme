@@ -5,6 +5,7 @@ context files, and manages conversation resumption.
 """
 
 import logging
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Generator
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ... import llm
+from ...dirs import get_config_dir
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, MessageMetadata, len_tokens
@@ -195,6 +197,22 @@ def _is_secret_bearing_path(path: Path) -> bool:
     return name == ".env" or ".env." in name or name.endswith(".env")
 
 
+def _gptme_config_dirs() -> list[Path]:
+    """gptme's resolved config/credential directories, wherever XDG puts them.
+
+    ``credentials.py`` stores keys under ``$XDG_CONFIG_HOME/gptme``; a relocated
+    config home has no ``.config`` part for ``_is_secret_bearing_path`` to match.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    dirs = []
+    for d in (get_config_dir(), Path(xdg) / "gptme"):
+        try:
+            dirs.append(d.resolve())
+        except (OSError, RuntimeError):
+            continue
+    return dirs
+
+
 def _load_context_files(
     file_paths: list[str],
     workspace: Path | None = None,
@@ -219,6 +237,7 @@ def _load_context_files(
     """
     loaded_files: list[tuple[str, str]] = []
     workspace_path = (workspace or Path.cwd()).resolve()
+    config_dirs = _gptme_config_dirs()
 
     for file_path in file_paths:
         # Resolve path. Absolute and ~/ suggestions are allowed only when the
@@ -245,7 +264,11 @@ def _load_context_files(
             )
             continue
 
-        if _is_secret_bearing_path(candidate) or _is_secret_bearing_path(full_path):
+        if (
+            _is_secret_bearing_path(candidate)
+            or _is_secret_bearing_path(full_path)
+            or any(full_path.is_relative_to(d) for d in config_dirs)
+        ):
             logger.warning("Skipping credential-bearing context file: %s", file_path)
             continue
 
