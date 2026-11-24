@@ -81,3 +81,19 @@ def test_explicit_reference_is_attached(
 def test_long_punctuation_run_is_linear() -> None:
     word = "@a.py" + ")" * 50_000 + ":" * 50_000
     assert _strip_trailing_prose_punctuation(word) == "@a.py"
+
+
+@pytest.mark.parametrize("name", ["report;", "notes:", "draft)"])
+def test_existing_name_with_trailing_punctuation_is_kept(
+    workspace: Path, name: str
+) -> None:
+    """An autocompleted @name that exists exactly is not trimmed to another file."""
+    (workspace / name).write_text("exact\n")
+    (workspace / name[:-1]).write_text("other\n")
+    assert _find_potential_paths(f"see @{name} please") == [name]
+
+
+def test_missing_name_with_trailing_punctuation_is_still_trimmed(
+    workspace: Path,
+) -> None:
+    assert _find_potential_paths("fix @main.py; then rerun") == ["main.py"]

@@ -897,6 +897,14 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
     ]
 
 
+def _exists(prompt: str) -> bool:
+    """Whether a prompt path names an existing workspace entry."""
+    try:
+        return _prompt_file_path(prompt).exists()
+    except (OSError, RuntimeError):
+        return False
+
+
 def _strip_trailing_punctuation(word: str) -> str:
     """Drop trailing ``?.,!`` (the long-standing trim for quoted text and URLs)."""
     return word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
@@ -1055,7 +1063,12 @@ def _iter_discovered_paths(
     content_no_backticks = re.sub(r"`[^`]+`", "", content_no_xml)
     for word in re.split(r"\s+", content_no_backticks):
         word = word.strip()
-        word = _strip_trailing_prose_punctuation(word)
+        trimmed = _strip_trailing_prose_punctuation(word)
+        # Autocomplete inserts a selected name like `report;` unquoted: an
+        # @reference that names an existing entry exactly keeps its punctuation.
+        if trimmed != word and word.startswith("@") and _exists(word[1:]):
+            trimmed = word
+        word = trimmed
         if not word:
             continue
 
