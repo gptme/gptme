@@ -355,3 +355,43 @@ def test_read_url_does_not_follow_redirect_to_disallowed_host():
         set_session_allow_hosts(None)
         server.shutdown()
         server.server_close()
+
+
+def test_redirect_target_parsing():
+    """_redirect_target only returns a Location from a redirect status's header block."""
+    from gptme.tools._browser_lynx import _redirect_target
+
+    base = "https://example.com/a/b"
+    assert _redirect_target("", base) is None
+    assert _redirect_target("HTTP/1.1 200 OK\nLocation: /x\n", base) is None
+    assert _redirect_target("garbage line\n", base) is None
+    # Relative Location is resolved against the current URL
+    assert (
+        _redirect_target("HTTP/1.1 302 Found\nLocation: c\n", base)
+        == "https://example.com/a/c"
+    )
+    # A Location after the blank line (body) is not a header
+    assert (
+        _redirect_target("HTTP/1.1 301 Moved\nServer: x\n\nLocation: /body\n", base)
+        is None
+    )
+    # Redirect status without a Location header
+    assert _redirect_target("HTTP/1.1 307 Temporary\nServer: x\n", base) is None
+
+
+def test_resolve_allowlisted_redirects_too_many_hops():
+    """An endless redirect chain raises instead of looping forever."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools._browser_lynx import _resolve_allowlisted_redirects
+
+    def mock_run(cmd, **kwargs):
+        return CompletedProcess(
+            cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /loop\n", stderr=""
+        )
+
+    with (
+        patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run),
+        pytest.raises(RuntimeError, match="Too many redirects"),
+    ):
+        _resolve_allowlisted_redirects("https://example.com/start", {})
