@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path  # noqa: TC003 — used at runtime in _write_conv_jsonl
 from typing import Literal
 
+import pytest
 from click.testing import CliRunner
 
 from gptme.cli.cmd_computer import (
@@ -1450,3 +1451,21 @@ def test_audit_log_cli_ignores_tool_allowlist_and_loads_no_tools(tmp_path, monke
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)[0]["coordinate"] == [3, 4]
     assert not get_tools()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<tool-use>\n<ipython>\ncomputer('left_click', coordinate=[5, 6])\n"
+        "</ipython>\n</tool-use>",
+        '@ipython(call_1): {"code": "computer(\'left_click\', coordinate=[5, 6])"}',
+    ],
+    ids=["xml", "tool"],
+)
+def test_audit_finds_calls_saved_in_any_tool_format(content):
+    """Sessions run with --tool-format xml/tool save ipython calls that way."""
+    from gptme.tools import clear_tools
+
+    clear_tools()
+    records = _extract_computer_calls([_msg("assistant", content)])
+    assert [r["coordinate"] for r in records] == [[5, 6]]
