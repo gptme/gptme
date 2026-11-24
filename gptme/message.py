@@ -586,8 +586,9 @@ class Message:
                        If set, will truncate at first newline or max_length, whichever comes first.
         """
         if max_length is not None:
-            # Leading blank lines would make the first line empty.
-            stripped = self.content.lstrip("\n")
+            # Leading blank lines (incl. CRLF/whitespace-only ones) would make
+            # the first line empty; keep the first text line's indentation.
+            stripped = re.sub(r"^(?:[^\S\n]*\n)+", "", self.content)
             first_newline = stripped.find("\n")
             max_length = (
                 min(max_length, first_newline) if first_newline != -1 else max_length
@@ -814,7 +815,10 @@ def format_msgs(
                         lang = block.split("\n", 1)[0]
                         content = block.split("\n", 1)[-1]
                         fmt = "underline blue"
-                        block = f"[{fmt}]{escape_markup(lang)}\n[/{fmt}]" + rich_to_str(
+                        # Escape label and newline together: escaping the label
+                        # alone doubles a trailing backslash, which then renders.
+                        lang_line = escape_markup(lang + "\n")
+                        block = f"[{fmt}]{lang_line}[/{fmt}]" + rich_to_str(
                             Syntax(
                                 content.rstrip().replace("[", r"\["),
                                 lang,

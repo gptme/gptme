@@ -1139,7 +1139,7 @@ def test_toml_roundtrip_escapes_call_id_and_metadata_keys() -> None:
 
 
 @pytest.mark.parametrize(
-    "langtag", ["save app/[id]/page.tsx", "txt [bold]", "python [/x]"]
+    "langtag", ["save app/[id]/page.tsx", "txt [bold]", "python [/x]", "save C:\\x\\"]
 )
 def test_format_highlight_shows_codeblock_langtag_verbatim(langtag: str) -> None:
     """A code block's info string is not interpreted as Rich markup."""
@@ -1148,10 +1148,17 @@ def test_format_highlight_shows_codeblock_langtag_verbatim(langtag: str) -> None
 
     msg = Message("user", f"see:\n```{langtag}\nprint(1)\n```\n")
     rendered = format_msgs([msg], highlight=True)[0]
-    assert langtag in rich_to_str(rendered)
+    # Match the whole label line: a trailing backslash must not be doubled.
+    assert f"```{langtag}\n" in rich_to_str(rendered)
 
 
-def test_format_max_length_skips_leading_newline() -> None:
-    """A message starting with a newline still shows its first line of text."""
-    msg = Message("user", "\nPlease fix the login bug in auth.py")
+@pytest.mark.parametrize("prefix", ["\n", "\n\n", "\r\n", " \n\t\n", "  \r\n\n"])
+def test_format_max_length_skips_leading_blank_lines(monkeypatch, prefix: str) -> None:
+    """A message starting with blank lines still shows its first line of text."""
+    from os import terminal_size
+
+    monkeypatch.setattr(
+        "shutil.get_terminal_size", lambda *args, **kwargs: terminal_size((200, 24))
+    )
+    msg = Message("user", f"{prefix}Please fix the login bug in auth.py")
     assert "Please fix the login bug" in msg.format(max_length=100)
