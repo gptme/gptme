@@ -39,6 +39,8 @@ jobs:
         # No ref: defaults to base branch (master), not the fork's head SHA.
         # This prevents a malicious fork from exfiltrating secrets by modifying
         # scripts/github_ci_self_heal.py — we always run the trusted base copy.
+        with:
+          persist-credentials: false
 
       - name: Get PR number
         id: pr
@@ -277,6 +279,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           path: base
+          # PR-head code runs validation commands in this job; keep the
+          # contents:write token out of .git/config on disk.
+          persist-credentials: false
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -359,6 +364,13 @@ jobs:
           HEAD_REF: ${{ needs.analyze.outputs.head_sha }}
         run: |
           set -eo pipefail
+          # Target the source PR's branch as reported by the API metadata the
+          # gate evaluated, never a workflow_run event field, and pass it as data.
+          BASE_BRANCH=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['headRefName'])" /tmp/artifacts/pr-metadata.json)
+          if [ -z "$BASE_BRANCH" ]; then
+            echo "No headRefName in PR metadata — aborting"
+            exit 1
+          fi
           cd pr-head
           FIX_BRANCH="self-heal/pr-${PR_NUMBER}-run-${{ github.run_id }}"
           git config user.name "gptme-bot"
@@ -393,7 +405,7 @@ jobs:
 
           gh pr create \
             --repo ${{ github.repository }} \
-            --base "${{ github.event.workflow_run.head_branch }}" \
+            --base "$BASE_BRANCH" \
             --head "$FIX_BRANCH" \
             --draft \
             --title "fix: auto-fix for PR #${PR_NUMBER}" \
