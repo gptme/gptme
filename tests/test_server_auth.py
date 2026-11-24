@@ -194,3 +194,25 @@ def test_non_ascii_cookie_token_is_rejected_with_401(auth_token):
         client.set_cookie("gptme_auth", "é", path="/api/")
         response = client.get("/api/v2/conversations")
         assert response.status_code == 401
+
+
+def test_non_ascii_server_token_accepts_matching_token(monkeypatch):
+    """A non-ASCII server token still authenticates a matching request token."""
+    import gptme.server.auth
+    from gptme.server.app import create_app
+
+    monkeypatch.delenv("GPTME_DISABLE_AUTH", raising=False)
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", "tökén-é")
+    monkeypatch.setattr(gptme.server.auth, "_server_token", None)
+    # Re-set to itself so monkeypatch restores it after init_auth() changes it.
+    monkeypatch.setattr(
+        gptme.server.auth, "_auth_enabled", gptme.server.auth._auth_enabled
+    )
+    gptme.server.auth.init_auth("0.0.0.0")
+
+    app = create_app()
+    with app.test_client() as client:
+        ok = client.get("/api/v2/conversations", query_string={"token": "tökén-é"})
+        assert ok.status_code == 200
+        wrong = client.get("/api/v2/conversations", query_string={"token": "tökén-x"})
+        assert wrong.status_code == 401
