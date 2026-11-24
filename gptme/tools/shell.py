@@ -4171,6 +4171,15 @@ def _bash_syntax_error(
     return message or fallback or "bash -n rejected the script without a diagnostic"
 
 
+def _require_valid_bash(script: str) -> None:
+    bash_error = _bash_syntax_error(script, fallback=None, strict=True)
+    if bash_error is not None:
+        raise ValueError(
+            f"Shell syntax error: {bash_error}\n"
+            f"Please fix the syntax or use a different approach."
+        )
+
+
 def split_commands(script: str) -> list[str]:
     """Split at top-level newlines, preserving Bash lists and original source.
 
@@ -4186,12 +4195,7 @@ def split_commands(script: str) -> list[str]:
         # strict=True: bash present but the check itself failed must not be
         # mistaken for "bash accepted the script" — fail closed instead of
         # sending a suspect script whole to the persistent shell.
-        bash_error = _bash_syntax_error(script, fallback=None, strict=True)
-        if bash_error is not None:
-            raise ValueError(
-                f"Shell syntax error: {bash_error}\n"
-                f"Please fix the syntax or use a different approach."
-            )
+        _require_valid_bash(script)
         return [script]
 
     commands: list[str] = []
@@ -4218,6 +4222,11 @@ def split_commands(script: str) -> list[str]:
     if start is not None:
         commands.append(source[start:end].decode("utf-8"))
 
+    if len(commands) == 1:
+        # An invalid eval payload cannot emit its completion marker.
+        _require_valid_bash(commands[0])
+        return commands
+
     # A clean tree is not proof of correct Bash boundaries. In particular,
     # tree-sitter can parse `time { ... }` as ordinary words, with no ERROR
     # node. Let Bash reject incomplete fragments before they reach the shell.
@@ -4236,12 +4245,7 @@ def split_commands(script: str) -> list[str]:
         # syntax error, so give the whole script one more bash -n check: raise on
         # a genuine syntax error, otherwise keep the conservative single-command
         # return. `fallback=None` keeps the bash-unavailable case benign.
-        bash_error = _bash_syntax_error(script, fallback=None, strict=True)
-        if bash_error is not None:
-            raise ValueError(
-                f"Shell syntax error: {bash_error}\n"
-                f"Please fix the syntax or use a different approach."
-            )
+        _require_valid_bash(script)
         return [script]
     return commands
 
