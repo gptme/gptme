@@ -34,6 +34,8 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       # LLM/API-related code changed (llm, acp, tools, agent, tests)
       api-related: ${{ steps.filter.outputs.api-related }}
+      # Dependency or interpreter setup changed (gates the Python 3.15 job on PRs)
+      deps: ${{ steps.filter.outputs.deps }}
     steps:
     - uses: actions/checkout@v7
     - uses: dorny/paths-filter@v4
@@ -67,6 +69,11 @@ jobs:
             - 'gptme/executor.py'
             - 'tests/**'
             - 'uv.lock'
+            - 'Makefile'
+            - '.github/workflows/test.yml'
+          deps:
+            - 'uv.lock'
+            - 'pyproject.toml'
             - 'Makefile'
             - '.github/workflows/test.yml'
 
@@ -202,9 +209,13 @@ jobs:
         report_type: test_results
 
   # Newest supported Python: the minimal install on 3.15, without coverage uploads.
+  # Runs on every master push. On PRs it runs only when dependencies or the
+  # interpreter setup change: for a code-only PR it repeats test-minimal's
+  # suite (3.11) at ~18 runner-minutes, the second-largest job in this workflow.
+  # A 3.15-only regression from a code PR surfaces on the master push instead.
   test-py315:
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    if: github.event_name == 'push' || needs.changes.outputs.deps == 'true'
     name: Test on Python 3.15 without API keys or extras
     runs-on: ubuntu-latest
     timeout-minutes: 30
