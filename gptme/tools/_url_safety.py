@@ -113,6 +113,12 @@ def _validate_url_scheme(url: str) -> None:
         )
     if not hostname:
         raise ValueError("URL must include a hostname.")
+    # urlparse keeps a backslash inside the authority, but requests/urllib3
+    # and browsers follow the URL standard and treat it as "/". So
+    # "http://evil.com\.allowed.com/" would match "*.allowed.com" here while
+    # the request goes to evil.com.
+    if "\\" in parsed.netloc:
+        raise ValueError("URL host must not contain a backslash.")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("URL must not include embedded credentials.")
     _validate_url_host(hostname)
