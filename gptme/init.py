@@ -461,9 +461,11 @@ def _maybe_authenticate_gptme_interactively(
 
     from .llm.llm_gptme import DEFAULT_SERVICE_URL, device_flow_authenticate
 
-    service_url = config.get_env("GPTME_CLOUD_BASE_URL") or DEFAULT_SERVICE_URL
-    service_url = service_url.rstrip("/").removesuffix("/v1")
-    device_flow_authenticate(server_url=service_url)
+    # The device flow always authenticates against the default gptme.ai
+    # service, and get_api_key() reads the default token path. Keying the
+    # token by GPTME_CLOUD_BASE_URL saved it where the retried init never
+    # looks. Matches `gptme setup`.
+    device_flow_authenticate(server_url=DEFAULT_SERVICE_URL)
     return True
 
 

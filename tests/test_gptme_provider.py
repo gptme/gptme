@@ -966,3 +966,51 @@ def test_reinit_invalidates_gptme_gateway_client():
         llm_anthropic._anthropic = orig_anthropic
         llm_anthropic._anthropic_gptme = orig_gptme
         llm_anthropic._anthropic_gptme_key = orig_gptme_key
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://auth.gptme.ai/functions/v1/messages",
+        "https://my-server.example.com/v1",
+    ],
+)
+def test_inline_login_token_is_found_by_provider(tmp_path: Path, base_url: str):
+    """A successful inline device-flow login must yield a token get_api_key() reads.
+
+    With GPTME_CLOUD_BASE_URL set, the token used to be keyed by that URL while
+    get_api_key() reads only the default path, so the retried init_llm()
+    raised GptmeAuthError right after login (gptme/gptme#5218 item 7).
+    """
+    from gptme import init as gptme_init
+    from gptme.llm import llm_gptme
+
+    def _resp(status: int, payload: dict) -> MagicMock:
+        r = MagicMock()
+        r.status_code = status
+        r.json.return_value = payload
+        return r
+
+    posts = [
+        _resp(
+            200,
+            {
+                "device_code": "dc",
+                "user_code": "ABCD-EFGH",
+                "verification_uri": "https://gptme.ai/device",
+                "interval": 0,
+                "expires_in": 60,
+            },
+        ),
+        _resp(200, {"access_token": "fresh-device-token", "expires_in": 3600}),
+    ]
+    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": base_url})
+    with (
+        patch.object(llm_gptme, "_TOKEN_DIR", tmp_path),
+        patch("requests.post", side_effect=posts),
+        patch("time.sleep"),
+        patch.object(gptme_init, "is_output_json", return_value=False),
+        patch.object(gptme_init.console, "input", return_value="y"),
+    ):
+        assert gptme_init._maybe_authenticate_gptme_interactively("gptme", True, config)
+        assert llm_gptme.get_api_key(config) == "fresh-device-token"
