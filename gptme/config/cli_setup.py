@@ -212,8 +212,10 @@ def setup_config_from_cli(
                 tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
             ]
     elif existing_chat_config and existing_chat_config.tools is not None:
-        # When resuming, use saved conversation tools unless CLI override provided
-        resolved_tool_allowlist = existing_chat_config.tools
+        # When resuming, use saved conversation tools unless CLI override provided.
+        # Copy: the non-interactive 'complete' append below must not mutate
+        # a throwaway object and then be lost.
+        resolved_tool_allowlist = list(existing_chat_config.tools)
     elif tools_env := config.get_env("TOOL_ALLOWLIST"):
         # Fall back to env/config for new conversations or when no saved tools
         resolved_tool_allowlist = [
@@ -291,6 +293,16 @@ def setup_config_from_cli(
             agent_profile=agent_profile,
         ),
     )
+    # stream/interactive/no_confirm describe this run, not the conversation.
+    # load_or_create only applies CLI values that differ from the dataclass
+    # defaults, so a plain interactive resume of a conversation started with
+    # --non-interactive would otherwise keep auto-confirming every tool.
+    config.chat = replace(
+        config.chat,
+        stream=stream,
+        interactive=interactive,
+        no_confirm=resolved_no_confirm,
+    )
 
     if prune_tool_output is not None:
         config.chat.env = {
@@ -299,7 +311,11 @@ def setup_config_from_cli(
         }
 
     # Set tools if not already set or if a CLI override was provided
-    if config.chat.tools is None or tool_allowlist is not None:
+    if (
+        config.chat.tools is None
+        or tool_allowlist is not None
+        or (not interactive and resolved_tool_allowlist != config.chat.tools)
+    ):
         config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
 
     # Save and set the final config
