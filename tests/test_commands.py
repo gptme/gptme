@@ -954,7 +954,7 @@ def test_session_help_omits_commands_of_unloaded_tools(monkeypatch):
     session = listed(session=True)
     assert "/commit" not in session
     assert "/compact" not in session
-    assert {"/help", "/undo", "/tokens"} <= session
+    assert {"/help", "/undo", "/tokens", "/snapshot", "/account"} <= session
     assert {"/commit", "/compact"} <= listed()
 
     monkeypatch.setattr("gptme.tools.has_tool", lambda name: name == "autocommit")
