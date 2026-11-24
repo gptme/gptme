@@ -157,7 +157,7 @@ def test_start_tool_execution_streams_only_real_tool_output(
     monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
     monkeypatch.setattr(
         "gptme.server.session_step.prepare_execution_environment",
-        lambda workspace, tools, chat_config: None,
+        lambda **kw: None,
     )
     monkeypatch.setattr(
         "gptme.server.session_step._start_step_thread",
@@ -295,7 +295,7 @@ def test_confirmed_tool_runs_in_conversation_workspace(v2_conv, tmp_path, monkey
     monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
     monkeypatch.setattr(
         "gptme.server.session_step.prepare_execution_environment",
-        lambda workspace, tools, chat_config: None,
+        lambda **kw: None,
     )
     monkeypatch.setattr(
         "gptme.server.session_step._start_step_thread",
@@ -447,7 +447,7 @@ def test_start_tool_execution_uses_branch_for_reload_and_continuation(
     monkeypatch.setattr(_step_mod, "_start_step_thread", _recording_start_step_thread)
     monkeypatch.setattr(
         "gptme.server.session_step.prepare_execution_environment",
-        lambda workspace, tools, chat_config: None,
+        lambda **kw: None,
     )
 
     from gptme.message import Message
@@ -3237,7 +3237,7 @@ def test_start_tool_execution_forwards_max_tokens_to_continuation(
     monkeypatch.setattr(_step_mod, "_start_step_thread", _recording_start_step_thread)
     monkeypatch.setattr(
         "gptme.server.session_step.prepare_execution_environment",
-        lambda workspace, tools, chat_config: None,
+        lambda **kw: None,
     )
 
     def fake_execute(self, log=None, workspace=None, on_result_message=None):
