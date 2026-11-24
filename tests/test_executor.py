@@ -295,6 +295,17 @@ class TestPrepareExecutionEnvironment:
 # ===========================================================================
 
 
+@pytest.mark.parametrize(
+    "hook_allowlist",
+    [
+        None,
+        "",
+        "cwd_changed",
+        "server_elicit",
+        "cwd_changed,server_elicit",
+        "not_server_elicit",
+    ],
+)
 @pytest.mark.parametrize("server", [True, False])
 @patch("gptme.executor.init_hooks")
 @patch("gptme.executor.init_tools", return_value=[])
@@ -309,6 +320,7 @@ def test_server_registers_elicit_hook_in_fresh_context(
     mock_init_hooks,
     tmp_workspace,
     server,
+    hook_allowlist,
 ):
     """Server worker threads start with an empty hook registry. Without the
     server elicitation hook, choice/form fall back to a terminal prompt on the
@@ -319,6 +331,8 @@ def test_server_registers_elicit_hook_in_fresh_context(
     from gptme.executor import prepare_execution_environment
     from gptme.hooks import HookType, get_hooks
 
+    mock_config_cls.from_workspace.return_value.get_env.return_value = hook_allowlist
+
     def run() -> tuple[list[str], list[str]]:
         prepare_execution_environment(tmp_workspace, server=server)
         return (
@@ -328,5 +342,8 @@ def test_server_registers_elicit_hook_in_fresh_context(
 
     elicit_hooks, confirm_hooks = contextvars.Context().run(run)
 
-    assert ("server_elicit" in elicit_hooks) is server
+    expected = server and (
+        not hook_allowlist or "server_elicit" in hook_allowlist.split(",")
+    )
+    assert ("server_elicit" in elicit_hooks) is expected
     assert "server_confirm" not in confirm_hooks

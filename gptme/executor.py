@@ -74,6 +74,9 @@ def prepare_execution_environment(
     if server:
         from .hooks.server_elicit import register as register_server_elicit
 
-        register_server_elicit()
+        # Match init_hooks(): an explicit allowlist replaces the default hooks.
+        allowlist = config.get_env("HOOK_ALLOWLIST")
+        if not allowlist or "server_elicit" in allowlist.split(","):
+            register_server_elicit()
 
     return config, initialized_tools
