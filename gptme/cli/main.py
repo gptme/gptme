@@ -1433,8 +1433,22 @@ def main(
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
     logger.debug(f"Using tools: {config.chat.tools}")
+    # Check if we're opening an existing conversation (via --resume, --name, or pick)
+    # If so, skip generating initial messages (including expensive context_cmd)
+    # as they're already in the loaded log
+    log_file = logdir / "conversation.jsonl"
+    is_existing_conversation = log_file.exists() and log_file.stat().st_size > 0
+    # Resolve the persisted profile before loading tools: its read_only
+    # behavior restricts the toolset, not just the prompt.
+    if selected_profile is None and is_existing_conversation:
+        selected_profile = _resolve_resume_profile(config.chat.agent_profile)
+        if selected_profile:
+            logger.info(f"Using persisted agent profile: {selected_profile.name}")
     try:
-        tools = init_tools(config.chat.tools)
+        tools = init_tools(
+            config.chat.tools,
+            read_only=bool(selected_profile and selected_profile.behavior.read_only),
+        )
     except ValueError as e:
         raise click.UsageError(str(e)) from e
 
@@ -1446,12 +1460,6 @@ def main(
         agent_name=agent_name,
         interactive=interactive,
     )
-
-    # Check if we're opening an existing conversation (via --resume, --name, or pick)
-    # If so, skip generating initial messages (including expensive context_cmd)
-    # as they're already in the loaded log
-    log_file = logdir / "conversation.jsonl"
-    is_existing_conversation = log_file.exists() and log_file.stat().st_size > 0
 
     # Validate --output-format json and --non-interactive requirements early,
     # before the expensive get_prompt() call (which can take 10+ seconds).
@@ -1531,10 +1539,6 @@ def main(
         # persisted with the conversation, so a resume or interface switch keeps
         # the same identity without passing the flag again. ``resume_key`` makes
         # the application idempotent across resumes without content sniffing.
-        if selected_profile is None:
-            selected_profile = _resolve_resume_profile(config.chat.agent_profile)
-            if selected_profile:
-                logger.info(f"Using persisted agent profile: {selected_profile.name}")
         if selected_profile and selected_profile.system_prompt:
             resume_msgs = [
                 Message(

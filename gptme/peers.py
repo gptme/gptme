@@ -167,6 +167,11 @@ def send_peer_message(
     promised. A caller retry queues a new message with a new correlation ID.
     The 16 KiB limit measures UTF-8 bytes of the supplied message text.
     """
+    from .tools import is_read_only_session  # fmt: skip
+
+    if is_read_only_session():
+        # A peer may hold every tool; a read-only agent must not steer it.
+        raise PermissionError("Peer messages are not allowed under a read-only profile")
     validate_conversation_id(branch)
     if not message.strip():
         raise ValueError("Peer message cannot be empty")

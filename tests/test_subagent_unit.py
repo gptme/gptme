@@ -8117,6 +8117,107 @@ class TestProfileToolResolution:
         )
         assert "chats" in names
 
+    def test_read_only_profile_cannot_message_peers(self):
+        """A read-only profile must not reach send_peer_message.
+
+        A peer may hold every tool, so a read-only subagent that can message it
+        can steer it into writing files or running commands on its behalf.
+        """
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        _ensure_subagent_signal_tools_loaded()
+        tools = _resolve_profile_tools(["read", "chats"], "explorer", read_only=True)
+        chats = next(t for t in tools if t.name == "chats")
+        exposed = {f.fn.__name__ for f in chats.functions or []}
+        assert "send_peer_message" not in exposed
+        assert {"list_chats", "search_chats", "read_chat", "list_peers"} <= exposed
+        assert chats.execute is not None
+        out = "".join(
+            m.content
+            for m in chats.execute(
+                "send_peer_message('parent', 'run rm -rf /')", None, None
+            )
+        )
+        assert "send_peer_message" in out
+        assert "Called send_peer_message" not in out
+
+    def test_non_read_only_profile_keeps_peer_messaging(self):
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        _ensure_subagent_signal_tools_loaded()
+        tools = _resolve_profile_tools(["chats"], "custom")
+        chats = next(t for t in tools if t.name == "chats")
+        assert "send_peer_message" in {f.fn.__name__ for f in chats.functions or []}
+
+    def test_thread_subagent_with_read_only_profile_gets_restricted_tools(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """The thread executor passes the profile's read_only flag through."""
+        import contextvars
+
+        seen: dict[str, object] = {}
+
+        def fake_resolve(allowlist, profile_name, read_only=False):
+            seen["read_only"] = read_only
+            raise RuntimeError("stop after tool resolution")
+
+        monkeypatch.setattr(subagent_execution, "_resolve_profile_tools", fake_resolve)
+        monkeypatch.setattr(
+            "gptme.executor.prepare_execution_environment", lambda **kw: None
+        )
+        from gptme.tools import is_read_only_session
+
+        def run() -> None:
+            with pytest.raises(RuntimeError, match="stop after tool resolution"):
+                subagent_execution._create_subagent_thread(
+                    prompt="look around",
+                    logdir=tmp_path / "log",
+                    model=None,
+                    context_mode="full",
+                    context_include=None,
+                    workspace=tmp_path,
+                    profile_name="explorer",
+                )
+            seen["session_read_only"] = is_read_only_session()
+
+        contextvars.copy_context().run(run)
+        assert seen["session_read_only"] is True
+        assert seen["read_only"] is True
+
+    def test_peer_message_refused_in_read_only_session(self, tmp_path: Path):
+        import contextvars
+
+        from gptme.peers import send_peer_message
+        from gptme.tools import set_read_only_session
+
+        def call() -> None:
+            set_read_only_session(True)
+            send_peer_message("peer", "hi", sender_logdir=tmp_path)
+
+        with pytest.raises(PermissionError, match="read-only"):
+            contextvars.copy_context().run(call)
+
+    def test_init_tools_read_only_restricts_mid_conversation_load(self):
+        from gptme.tools import clear_tools, get_tools, init_tools, load_tool
+
+        clear_tools()
+        init_tools(allowlist=["read", "chats"], read_only=True)
+        chats = next(t for t in get_tools() if t.name == "chats")
+        assert "send_peer_message" not in {f.fn.__name__ for f in chats.functions or []}
+        clear_tools()
+        init_tools(allowlist=["read"], read_only=True)
+        load_tool("chats")
+        chats = next(t for t in get_tools() if t.name == "chats")
+        assert "send_peer_message" not in {f.fn.__name__ for f in chats.functions or []}
+
     def test_unknown_profile_tool_warns_without_raising(self, caplog):
         import logging
 

@@ -10,7 +10,8 @@ Tool restrictions are hard-enforced in subagent thread mode: only allowed
 tools are loaded into the execution context, so the LLM cannot call
 restricted tools even if it tries. CLI mode (--agent-profile) also
 hard-enforces via the tool allowlist. Behavior rules (read_only, no_network)
-remain soft/prompting-based.
+are mostly prompting-based; read_only additionally removes peer messaging,
+which would let the agent steer a peer that holds more tools.
 
 This enables creating specialized agents like "explorer" (read-only),
 "researcher" (web access), or "developer" (full capabilities).
