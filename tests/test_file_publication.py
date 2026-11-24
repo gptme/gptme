@@ -242,7 +242,9 @@ def test_in_place_restore_failure_is_reported(
     target.write_bytes(b"ORIGINAL\n")
     with pytest.raises(OSError, match="injected write failure") as exc:
         file_write.write_text_preserving_original(target, "R\n", newline="")
-    assert any("Restoring the original" in note for note in exc.value.__notes__)
+    # Tools report str(error), so the damage warning must be in the message.
+    assert "Restoring the original" in str(exc.value)
+    assert "may be damaged" in str(exc.value)
 
 
 @pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)

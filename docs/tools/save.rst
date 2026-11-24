@@ -3,8 +3,9 @@
 Save
 ====
 
-Save stages a complete replacement beside the destination before publishing it.
-A failed write or close leaves the original intact. Existing permission bits and
+Save stages a complete replacement beside the destination before publishing it
+(except for existing files on Windows and macOS, see below). A failed staged
+write or close leaves the original intact. Existing permission bits and
 symlink targets are preserved; hard-linked destinations are refused rather than
 silently splitting aliases. Replacement requires a writable parent directory.
 On POSIX, staging requires a parent owned by the current user with no group or

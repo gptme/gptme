@@ -74,10 +74,14 @@ def _rewrite_in_place(path: Path, info: os.stat_result, data: bytes) -> None:
                 _write_all(fd, original)
                 os.ftruncate(fd, len(original))
             except OSError as restore_exc:
-                exc.add_note(
-                    f"Restoring the original contents of `{path}` also failed: "
-                    f"{restore_exc}"
+                warning = (
+                    f"Restoring the original contents of `{path}` also failed "
+                    f"({restore_exc}); the file may be damaged"
                 )
+                if isinstance(exc, OSError):
+                    # Tools surface only str(error): put the warning in it.
+                    raise OSError(exc.errno, f"{exc}; {warning}") from exc
+                exc.add_note(warning)
             raise
     finally:
         os.close(fd)
