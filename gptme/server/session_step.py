@@ -2189,6 +2189,19 @@ def _start_step_thread(
             with session.step_lock:
                 if session.step_seq == step_seq:
                     session.finish_skill_turn("failed", error_type=type(e).__name__)
+                    # step() raised before its own finally could release the
+                    # reservation; otherwise the conversation stays wedged
+                    # (409 on every write) until interrupt or the stale sweep.
+                    if session.generating:
+                        session.generating = False
+                        session.generating_since = None
+                        session.last_error = str(e)
+                        SessionManager.add_event(
+                            conversation_id, {"type": "error", "error": str(e)}
+                        )
+                        SessionManager.add_event(
+                            conversation_id, {"type": "step_complete"}
+                        )
             raise
 
     # Propagate ContextVars (model, config) from the caller into the step thread.
