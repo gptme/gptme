@@ -564,6 +564,7 @@ def test_tox_ini_default_env_with_any_command_key_is_discovered(
     assert command.argv[:1] == ("tox",)
 
 
+@pytest.mark.timeout(5)
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
 def test_include_replaced_by_fifo_fails_fingerprint_without_blocking(
     tmp_path: Path,
