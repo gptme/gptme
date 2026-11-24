@@ -897,6 +897,45 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
     ]
 
 
+def _exists(prompt: str) -> bool:
+    """Whether a prompt path names an existing workspace entry."""
+    try:
+        return _prompt_file_path(prompt).exists()
+    except (OSError, RuntimeError):
+        return False
+
+
+def _strip_trailing_punctuation(word: str) -> str:
+    """Drop trailing ``?.,!`` (the long-standing trim for quoted text and URLs)."""
+    return word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+
+
+def _strip_trailing_prose_punctuation(word: str) -> str:
+    """Drop sentence punctuation after an unquoted path (``@main.py:``, ``(see @a.py)``).
+
+    A closing parenthesis is only dropped when unbalanced, so ``notes(1)`` stays.
+    URLs keep the narrower trim: ``;``, ``:`` and ``)`` can be part of a query.
+    """
+    if word.removeprefix("@").lower().startswith(("http://", "https://")):
+        return _strip_trailing_punctuation(word)
+    end = len(word)
+    unbalanced_closes: int | None = None
+    while end:
+        char = word[end - 1]
+        if char in "?.,!:;":
+            end -= 1
+        elif char == ")":
+            if unbalanced_closes is None:
+                unbalanced_closes = word.count(")") - word.count("(")
+            if unbalanced_closes <= 0:
+                break
+            unbalanced_closes -= 1
+            end -= 1
+        else:
+            break
+    return word[:end]
+
+
 def _iter_discovered_paths(
     content: str, *, auto_include: bool = True
 ) -> list[_DiscoveredPath]:
@@ -1006,7 +1045,9 @@ def _iter_discovered_paths(
     # First find backtick-wrapped content
     for match in re.finditer(r"`([^`]+)`", content_no_xml):
         word = match.group(1).strip()
-        word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+        # Backticks already mark where the reference ends; only trim the
+        # sentence punctuation that was always trimmed here.
+        word = _strip_trailing_punctuation(word)
         if is_path_like(word):
             _add_path(word)
         elif not auto_include:
@@ -1022,7 +1063,12 @@ def _iter_discovered_paths(
     content_no_backticks = re.sub(r"`[^`]+`", "", content_no_xml)
     for word in re.split(r"\s+", content_no_backticks):
         word = word.strip()
-        word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+        trimmed = _strip_trailing_prose_punctuation(word)
+        # Autocomplete inserts a selected name like `report;` unquoted: an
+        # @reference that names an existing entry exactly keeps its punctuation.
+        if trimmed != word and word.startswith("@") and _exists(word[1:]):
+            trimmed = word
+        word = trimmed
         if not word:
             continue
 
