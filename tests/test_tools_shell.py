@@ -162,41 +162,6 @@ multiline command"
     assert len(commands) == 1
 
 
-def test_redirect_background_stdin_before_ampersand():
-    from gptme.tools.shell import _redirect_background_stdin
-
-    assert _redirect_background_stdin("sleep 1 &") == "sleep 1 < /dev/null &"
-    assert _redirect_background_stdin("sleep 1 & echo done") == (
-        "sleep 1 < /dev/null & echo done < /dev/null"
-    )
-    assert _redirect_background_stdin("sleep 1 & cat") == (
-        "sleep 1 < /dev/null & cat < /dev/null"
-    )
-    assert _redirect_background_stdin("echo '&' && echo ok") == "echo '&' && echo ok"
-    assert _redirect_background_stdin("echo ok 2>&1") == "echo ok 2>&1"
-    assert _redirect_background_stdin("echo ok &> output") == "echo ok &> output"
-    assert _redirect_background_stdin("cat <<'EOF'\na & b\nEOF") == (
-        "cat <<'EOF'\na & b\nEOF"
-    )
-
-
-def test_redirect_background_stdin_grammar_gap_returns_unchanged(monkeypatch):
-    """On a tree-sitter grammar gap the command is returned unchanged."""
-    from gptme.tools import shell
-
-    class FakeNode:
-        type = "program"
-        has_error = True
-
-    monkeypatch.setattr(shell, "_parse_bash", lambda source: FakeNode())
-    assert (
-        shell._redirect_background_stdin("some-weird-grammar-gap-command &")
-        == "some-weird-grammar-gap-command &"
-    )
-    assert shell._redirect_background_stdin("weird & gap") == "weird & gap"
-    assert shell._redirect_background_stdin("weird &&") == "weird &&"
-
-
 def test_heredoc_complex(shell):
     # Test nested heredocs
     ret, out, err = shell.run(
@@ -551,12 +516,6 @@ def test_split_commands_heredoc_followed_by_redirect_keeps_body():
     assert split_commands("cat <<EOF 2>&1\nbody\nEOF") == ["cat <<EOF 2>&1\nbody\nEOF"]
     timed = "time cat <<'EOF' > out.txt\nbody\nEOF"
     assert split_commands(timed) == [timed]
-
-
-def test_redirect_background_stdin_with_time_keyword():
-    from gptme.tools.shell import _redirect_background_stdin
-
-    assert _redirect_background_stdin("time sleep 1 &") == "time sleep 1 < /dev/null &"
 
 
 def test_function(shell):
@@ -1643,6 +1602,35 @@ def test_stdin_reading_command_does_not_consume_protocol(shell):
     assert ret2 == 0, (ret2, out2, err2)
     assert out2.strip() == "SURVIVED"
     assert "__gptme_rc" not in out2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bash semantics")
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        # A string scan for "|" used to inject `< /dev/null` into these.
+        ("x=b; case $x in a|b) echo match;; esac", "match"),
+        ("x=a; [[ $x =~ ^(a|b)$ ]] && echo re-ok", "re-ok"),
+        # shlex reads `|&` as one token, so `< /dev/null` was appended to the
+        # last stage and it read nothing.
+        ("echo hi |& cat", "hi"),
+    ],
+)
+def test_pipe_characters_are_not_rewritten(shell, command, expected):
+    ret, out, err = shell.run(command, output=False, timeout=5.0)
+    assert (ret, out.strip()) == (0, expected), (ret, out, err)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX bash semantics")
+def test_background_stdin_reader_does_not_consume_later_commands(shell):
+    """Background jobs inherit the eval's /dev/null stdin, not bash's pipe."""
+    ret, out, err = shell.run("cat & wait", output=False, timeout=5.0)
+    assert ret == 0, (ret, out, err)
+    assert "ReturnCode:" not in out
+    assert shell.run("echo SURVIVED", output=False, timeout=5.0)[:2] == (
+        0,
+        "SURVIVED",
+    )
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX bash semantics")
