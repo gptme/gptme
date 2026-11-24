@@ -27,7 +27,10 @@ jobs:
   # Detect which paths changed to skip expensive jobs on config-only PRs
   # (docs-only PRs still run the no-API tests; API tests stay code-gated)
   changes:
-    name: Detect changes
+    # Unique name: tauri.yml also has a "Detect changes" job, and this one is a
+    # required check for the merge queue (a failed changes job would otherwise
+    # skip the test jobs, and skipped satisfies a required check).
+    name: Test / detect changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -41,6 +44,7 @@ jobs:
       deps: ${{ steps.filter.outputs.deps }}
     steps:
     - uses: actions/checkout@v7
+      if: github.event_name != 'merge_group'
     - uses: dorny/paths-filter@v4
       id: filter
       # merge_group runs the core suites unconditionally (see job conditions).
