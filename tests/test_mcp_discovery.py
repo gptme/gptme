@@ -328,8 +328,17 @@ def test_execute_mcp_info_for_official_registry_package(include_remote: bool) ->
     assert "url =" not in message.content
 
 
-def test_load_remote_from_official_registry() -> None:
-    """Pass an SSE remote with a nonstandard path to the HTTP connection."""
+@pytest.mark.parametrize(
+    ("transport", "url", "use_sse"),
+    [
+        ("streamable-http", "https://mcp.example.net/sse?region=us&version=1", False),
+        ("sse", "https://mcp.example.net/events", True),
+    ],
+)
+def test_load_remote_from_official_registry(
+    transport: str, url: str, use_sse: bool
+) -> None:
+    """Pass declared transports to the HTTP connection, not URL-path guesses."""
     from mcp.types import ListToolsResult
 
     from gptme.config import Config
@@ -337,7 +346,6 @@ def test_load_remote_from_official_registry() -> None:
     from gptme.tools.mcp_adapter import unload_mcp_server
 
     name = "io.github.example/remote"
-    url = "https://mcp.example.net/events"
     connection = (ListToolsResult(tools=[]), MagicMock())
     with (
         patch("gptme.tools.mcp_adapter.get_config", return_value=Config()),
@@ -358,7 +366,7 @@ def test_load_remote_from_official_registry() -> None:
                         "name": name,
                         "description": "A remote server",
                         "version": "1.0.0",
-                        "remotes": [{"type": "sse", "url": url}],
+                        "remotes": [{"type": transport, "url": url}],
                     }
                 }
             ]
@@ -366,10 +374,75 @@ def test_load_remote_from_official_registry() -> None:
         (message,) = execute_mcp(f"load {name}", None, None)
         try:
             assert f"Successfully loaded server '{name}'" in message.content
-            http.assert_awaited_once_with(url, {}, use_sse=True, auth=None)
+            http.assert_awaited_once_with(url, {}, use_sse=use_sse, auth=None)
             stdio.assert_not_awaited()
         finally:
             unload_mcp_server(name)
+
+
+def test_load_override_switches_saved_transport() -> None:
+    """Apply a transport override to a saved server, restoring it on failure."""
+    from mcp.types import ListToolsResult
+
+    from gptme.config import Config, MCPConfig, MCPServerConfig
+    from gptme.mcp.client import MCPClient
+    from gptme.tools.mcp_adapter import unload_mcp_server
+
+    name = "saved-remote"
+    connection = (ListToolsResult(tools=[]), MagicMock())
+    config = Config()
+    config.user.mcp = MCPConfig(
+        enabled=True,
+        servers=[
+            MCPServerConfig(
+                name=name,
+                enabled=True,
+                url="https://old.example.net/sse",
+                transport="sse",
+            )
+        ],
+    )
+    override = 'load saved-remote\n{"url": "https://new.example.net/mcp", "transport": "streamable-http"}'
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=config),
+        patch("gptme.tools.mcp.confirm", return_value=True),
+        patch("gptme.mcp.client.build_oauth_provider", return_value=None),
+        patch.object(
+            MCPClient, "_setup_http_connection", return_value=connection
+        ) as http,
+        patch.object(
+            MCPClient, "_setup_stdio_connection", return_value=connection
+        ) as stdio,
+    ):
+        (message,) = execute_mcp(override, None, None)
+        assert f"Successfully loaded server '{name}'" in message.content
+        http.assert_awaited_once_with(
+            "https://new.example.net/mcp", {}, use_sse=False, auth=None
+        )
+        stdio.assert_not_awaited()
+        assert config.user.mcp is not None
+        [saved] = config.user.mcp.servers
+        assert saved.url == "https://new.example.net/mcp"
+        assert saved.transport == "streamable-http"
+        unload_mcp_server(name)
+
+    # A failed connection restores the saved transport too.
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=config),
+        patch("gptme.tools.mcp.confirm", return_value=True),
+        patch("gptme.mcp.client.build_oauth_provider", return_value=None),
+        patch.object(
+            MCPClient,
+            "_setup_http_connection",
+            side_effect=RuntimeError("connection failed"),
+        ),
+    ):
+        (message,) = execute_mcp(override, None, None)
+        assert f"Failed to load server '{name}'" in message.content
+        assert config.user.mcp is not None
+        [saved] = config.user.mcp.servers
+        assert saved.url == "https://old.example.net/sse"
+        assert saved.transport == "sse"
 
 
 def test_execute_mcp_unknown_command():
