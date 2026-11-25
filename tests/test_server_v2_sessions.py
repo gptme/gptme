@@ -240,10 +240,10 @@ class TestStepEndpoint:
     """Test POST /api/v2/conversations/<id>/step validation."""
 
     @pytest.mark.parametrize("peer_session", [False, True])
-    def test_step_preserves_pending_batch(
+    def test_step_supersedes_unanswered_approvals(
         self, conv, client: FlaskClient, peer_session
     ):
-        """A new step must not strand or split another approval batch."""
+        """Replying instead of approving (or after an A2A turn) must not block."""
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
         owner = (
@@ -255,16 +255,55 @@ class TestStepEndpoint:
             tool_id="approval", tooluse=ToolUse("shell", [], "pwd"), step_seq=5
         )
         session.step_seq = 5
+        cursor = session.events_count
+        url = f"/api/v2/conversations/{conv['conversation_id']}"
         with patch("gptme.server.api_v2_sessions._start_step_thread") as start:
             response = client.post(
-                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                f"{url}/step",
                 json={"session_id": session.id, "model": "openai/gpt-4o-mini"},
             )
-        assert response.status_code == 409
-        assert "pending" in response.get_json()["error"].lower()
-        assert session.step_seq == 5
-        assert owner.pending_tools["approval"].step_seq == 5
-        start.assert_not_called()
+        assert response.status_code == 200
+        start.assert_called_once()
+        assert not owner.pending_tools
+        events, _ = session.read_events(cursor)
+        snapshots = [event for event in events if event["type"] == "tool_state"]
+        assert cast("dict", snapshots[-1])["pending_tools"] == []
+        # The old batch cannot be revived into the new turn.
+        late = client.post(
+            f"{url}/tool/confirm",
+            json={"session_id": owner.id, "tool_id": "approval", "action": "confirm"},
+        )
+        assert late.get_json()["message"] == "Tool already handled"
+
+    @pytest.mark.parametrize("queued", ["auto", "approved"])
+    @pytest.mark.parametrize("endpoint", ["step", "rerun"])
+    def test_new_turn_preserves_queued_execution(
+        self, conv, client: FlaskClient, endpoint, queued
+    ):
+        """A tool already owed an execution must not be dropped or split."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        for tool_id in ("manual", queued):
+            session.pending_tools[tool_id] = ToolExecution(
+                tool_id=tool_id,
+                tooluse=ToolUse("shell", [], "pwd"),
+                auto_confirm=tool_id == "auto",
+            )
+        if queued == "approved":
+            session.remember_handled_tool(queued)
+        epoch = session.step_seq
+        try:
+            with patch("gptme.server.api_v2_sessions._start_step_thread") as start:
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/{endpoint}",
+                    json={"session_id": session.id, "model": "openai/gpt-4o-mini"},
+                )
+            assert response.status_code == 409
+            assert set(session.pending_tools) == {"manual", queued}
+            assert session.step_seq == epoch
+            start.assert_not_called()
+        finally:
+            session.pending_tools.clear()
 
     def test_refresh_approvals_is_an_ordered_event(self, conv, client: FlaskClient):
         """Refreshing approvals leaves the existing event cursor usable."""
@@ -2910,7 +2949,7 @@ class TestRerunEndpoint:
         finally:
             session.pending_tools.clear()
 
-    def test_rerun_rejects_pending_approvals(self, conv, client: FlaskClient):
+    def test_rerun_replaces_pending_approvals(self, conv, client: FlaskClient):
         """A second rerun must not leave approvals from two turns live."""
         conversation_id = conv["conversation_id"]
         client.post(
@@ -2922,13 +2961,14 @@ class TestRerunEndpoint:
         url = f"/api/v2/conversations/{conversation_id}/rerun"
         first = client.post(url, json={"session_id": session.id})
         assert first.status_code == 200
-        pending = dict(session.pending_tools)
-        epoch = session.step_seq
-        second = client.post(url, json={"session_id": session.id})
-        assert second.status_code == 409
-        assert "pending" in second.get_json()["error"].lower()
-        assert session.pending_tools == pending
-        assert session.step_seq == epoch
+        old = set(session.pending_tools)
+        try:
+            second = client.post(url, json={"session_id": session.id})
+            assert second.status_code == 200
+            assert set(session.pending_tools) == set(second.get_json()["tool_ids"])
+            assert old.isdisjoint(session.pending_tools)
+        finally:
+            session.pending_tools.clear()
 
     def test_rerun_nonexistent_conversation(self, conv, client: FlaskClient):
         """Rerun on nonexistent conversation returns 404."""

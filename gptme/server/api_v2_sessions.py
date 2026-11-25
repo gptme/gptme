@@ -376,6 +376,37 @@ def _publish_tool_state(conversation_id: str) -> None:
         )
 
 
+def _has_queued_execution(conversation_id: str) -> bool:
+    """Whether a pending tool is still owed an execution.
+
+    True for auto-confirmed tools and for approved calls their worker has not
+    claimed yet. Caller holds ``conversation_lock``.
+    """
+    return any(
+        tool.auto_confirm or tool_id in owner.handled_tools
+        for owner in SessionManager.get_sessions_for_conversation(conversation_id)
+        for tool_id, tool in list(owner.pending_tools.items())
+    )
+
+
+def _discard_pending_approvals(conversation_id: str) -> bool:
+    """Drop the unanswered approvals that a new user turn supersedes.
+
+    The user sent a message or reran instead of answering, and A2A turns queue
+    approvals that no client may ever answer, so rejecting the new turn would
+    block the conversation. Dropping them all keeps a batch from being split
+    across turns; a late approval gets the "already handled" receipt. Caller
+    holds ``conversation_lock`` and has ruled out queued executions.
+    """
+    discarded = False
+    for owner in SessionManager.get_sessions_for_conversation(conversation_id):
+        for tool_id in list(owner.pending_tools):
+            owner.pending_tools.pop(tool_id, None)
+            owner.remember_handled_tool(tool_id)
+            discarded = True
+    return discarded
+
+
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/events/refresh", methods=["POST"]
 )
@@ -561,12 +592,9 @@ def api_conversation_step(conversation_id: str):
             conversation_id
         ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify({"error": "Generation already in progress"}), 409
-        if any(
-            owner.pending_tools
-            for owner in SessionManager.get_sessions_for_conversation(conversation_id)
-        ):
+        if _has_queued_execution(conversation_id):
             return flask.jsonify(
-                {"error": "Cannot step while tool approvals are pending"}
+                {"error": "Cannot step while tools are waiting to run"}
             ), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
         effort_provided = req_json.get("reasoning_effort") is not None
@@ -634,6 +662,8 @@ def api_conversation_step(conversation_id: str):
 
             session.use_acp = True
             session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
+        # Only now that the request is valid: a rejected step keeps approvals.
+        superseded = _discard_pending_approvals(conversation_id)
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
         # Claim a new generation epoch before dispatch. If later setup fails,
@@ -642,6 +672,8 @@ def api_conversation_step(conversation_id: str):
         session.interrupted = False
         session.step_seq += 1
         step_seq = session.step_seq
+        if superseded:
+            _publish_tool_state(conversation_id)
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -1150,12 +1182,9 @@ def api_conversation_rerun(conversation_id: str):
                 {"error": "Cannot rerun while generation is in progress"}
             ), 409
 
-        if any(
-            owner.pending_tools
-            for owner in SessionManager.get_sessions_for_conversation(conversation_id)
-        ):
+        if _has_queued_execution(conversation_id):
             return flask.jsonify(
-                {"error": "Cannot rerun while tool approvals are pending"}
+                {"error": "Cannot rerun while tools are waiting to run"}
             ), 409
 
         # Load conversation and find the last assistant message
@@ -1203,6 +1232,7 @@ def api_conversation_rerun(conversation_id: str):
         # and revoke old workers before tagging any new approvals, even when
         # no tool is auto-confirmed. Otherwise the last manual worker refuses
         # to continue after an earlier interrupt.
+        superseded = _discard_pending_approvals(conversation_id)
         session.interrupted = False
         session.step_seq += 1
         for tooluse in tooluses:
@@ -1250,6 +1280,9 @@ def api_conversation_rerun(conversation_id: str):
                 chat_config,
                 reserved=True,
             )
+        # Other viewers may still show a card from the replaced batch.
+        if superseded:
+            _publish_tool_state(conversation_id)
 
         return flask.jsonify(
             {
