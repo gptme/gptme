@@ -263,16 +263,9 @@ def _next_tag(content: str, pos: int, name: str) -> re.Match[str] | None:
     marker = re.compile(rf"^{_FENCE_OPEN_RE.pattern}|</?{name}>", re.MULTILINE)
     while found := marker.search(content, pos):
         if found.group(1):
-            fence = found.group(1)
             body = _line_end(content, found.start())
-            end = _fence_end(content, body, fence)
-            # An unclosed fence hides nothing: it may sit inside the block. So
-            # does one that only "closes" after swallowing another opener.
-            nested = re.compile(
-                rf"^[ \t]*{fence[0]}{{{len(fence)},}}[ \t]*[^ \t\r\n{fence[0]}]",
-                re.MULTILINE,
-            )
-            pos = body if end is None or nested.search(content, body, end) else end
+            # An unclosed fence hides nothing: it may sit inside the block.
+            pos = _fence_end(content, body, found.group(1)) or body
         elif _quoted(content, found):
             pos = found.end()
         else:
