@@ -516,6 +516,17 @@ def test_stray_backtick_block_may_contain_fenced_code() -> None:
     assert remove_reasoning(content) == "Use ` here.Done"
 
 
+@pytest.mark.parametrize("unfinished", ["```", "```sh", "~~~"])
+def test_unfinished_fence_in_block_does_not_hide_its_close(unfinished: str) -> None:
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    answer = f"Answer\n{unfinished[:3]}py\ncode\n{unfinished[:3]}"
+    content = f"Use ` here.<think>plan ` x\n{unfinished}\nunfinished\n</think>{answer}"
+    assert remove_reasoning(content) == f"Use ` here.{answer}"
+    assert _prose(content) == f"Use ` here.{answer}"
+
+
 @pytest.mark.parametrize(
     "content",
     [

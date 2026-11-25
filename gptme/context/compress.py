@@ -263,9 +263,16 @@ def _next_tag(content: str, pos: int, name: str) -> re.Match[str] | None:
     marker = re.compile(rf"^{_FENCE_OPEN_RE.pattern}|</?{name}>", re.MULTILINE)
     while found := marker.search(content, pos):
         if found.group(1):
+            fence = found.group(1)
             body = _line_end(content, found.start())
-            # An unclosed fence hides nothing: it may sit inside the block.
-            pos = _fence_end(content, body, found.group(1)) or body
+            end = _fence_end(content, body, fence)
+            # An unclosed fence hides nothing: it may sit inside the block. So
+            # does one that only "closes" after swallowing another opener.
+            nested = re.compile(
+                rf"^[ \t]*{fence[0]}{{{len(fence)},}}[ \t]*[^ \t\r\n{fence[0]}]",
+                re.MULTILINE,
+            )
+            pos = body if end is None or nested.search(content, body, end) else end
         elif _quoted(content, found):
             pos = found.end()
         else:
@@ -279,12 +286,14 @@ def _splits_reasoning(content: str, start: int, end: int) -> bool:
     True when it holds an opener without its closer, and the next tag of that
     name past the span (outside later code examples) is a closer.
     """
+    checked: set[str] = set()  # Search past the span once per tag name.
     for opener in _REASONING_OPEN_RE.finditer(content, start, end):
         name = opener.group(1)
-        if _quoted(content, opener):
+        if name in checked or _quoted(content, opener):
             continue
         if content.find(f"</{name}>", opener.end(), end) != -1:
             continue
+        checked.add(name)
         after = _next_tag(content, end, name)
         if after and after.group().startswith("</"):
             return True
