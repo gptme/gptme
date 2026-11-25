@@ -217,44 +217,50 @@ def create_app(
     app.register_blueprint(docs_api)
     logger.info("OpenAPI documentation available at /api/docs/")
 
-    if cors_origin:
-        # Support comma-separated origins so the desktop sidecar can allow
-        # multiple known webview origins (tauri://localhost on macOS/Linux,
-        # http://tauri.localhost on Windows, etc.) in a single flag.
-        origins_list = [o.strip() for o in cors_origin.split(",") if o.strip()]
-        if origins_list:
-            origins: str | list[str] = (
-                origins_list[0] if len(origins_list) == 1 else origins_list
-            )
-            # Browsers reject credentials with a wildcard origin.
-            # Similarly, wildcard CORS must not opt in to Private Network
-            # Access — doing so lets *any* HTTPS page reach the local server,
-            # defeating Chrome's PNA protection. Both flags require named origins.
-            non_wildcard = "*" not in origins_list
-            allow_credentials = non_wildcard
-            CORS(
-                app,
-                resources={
-                    r"/api/*": {
-                        "origins": origins,
-                        "supports_credentials": allow_credentials,
-                        # Allow public-origin -> loopback requests. Chrome's
-                        # Private Network Access policy blocks a secure public
-                        # origin (e.g. https://chat.gptme.org) from fetching a
-                        # local server (http://127.0.0.1:5700) unless the
-                        # preflight response carries
-                        # Access-Control-Allow-Private-Network: true. Passing
-                        # a named --cors-origin is the user's opt-in for
-                        # exactly that hosted-webui -> local-server workflow.
-                        # Wildcard origins are excluded: any HTTPS page would
-                        # then be able to reach loopback, bypassing PNA.
-                        "allow_private_network": non_wildcard,
-                    }
-                },
-            )
+    # Support comma-separated origins so the desktop sidecar can allow
+    # multiple known webview origins (tauri://localhost on macOS/Linux,
+    # http://tauri.localhost on Windows, etc.) in a single flag.
+    origins_list = [o.strip() for o in (cors_origin or "").split(",") if o.strip()]
+    if origins_list:
+        origins: str | list[str] = (
+            origins_list[0] if len(origins_list) == 1 else origins_list
+        )
+        # Browsers reject credentials with a wildcard origin.
+        # Similarly, wildcard CORS must not opt in to Private Network
+        # Access — doing so lets *any* HTTPS page reach the local server,
+        # defeating Chrome's PNA protection. Both flags require named origins.
+        non_wildcard = "*" not in origins_list
+        allow_credentials = non_wildcard
+        CORS(
+            app,
+            resources={
+                r"/api/*": {
+                    "origins": origins,
+                    "supports_credentials": allow_credentials,
+                    # Allow public-origin -> loopback requests. Chrome's
+                    # Private Network Access policy blocks a secure public
+                    # origin (e.g. https://chat.gptme.org) from fetching a
+                    # local server (http://127.0.0.1:5700) unless the
+                    # preflight response carries
+                    # Access-Control-Allow-Private-Network: true. Passing
+                    # a named --cors-origin is the user's opt-in for
+                    # exactly that hosted-webui -> local-server workflow.
+                    # Wildcard origins are excluded: any HTTPS page would
+                    # then be able to reach loopback, bypassing PNA.
+                    "allow_private_network": non_wildcard,
+                }
+            },
+        )
 
     # Initialize auth (required by default for every bind address).
-    from .auth import init_auth, init_host_validation, validate_host  # fmt: skip
+    from .auth import (  # fmt: skip
+        get_trusted_origins,
+        init_auth,
+        init_host_validation,
+        init_origin_check,
+        validate_cookie_origin,
+        validate_host,
+    )
 
     init_auth(host=host, display=False)
 
@@ -263,6 +269,37 @@ def create_app(
     # Registered as a before_request hook so it runs ahead of any route/auth.
     init_host_validation(host=host, allowed_hosts=allowed_hosts)
     app.before_request(validate_host)
+
+    # CSRF: reject state-changing cookie-authenticated requests from foreign
+    # origins (same-site pages on other ports get the SameSite=Lax cookie, and
+    # multipart POSTs need no preflight). Named --cors-origin values are trusted.
+    init_origin_check(app, origins_list)
+    app.before_request(validate_cookie_origin)
+
+    # Clickjacking: the authenticated SPA must not be framable by other origins.
+    # Same-origin framing stays allowed (the computer view iframes /chat), and
+    # named --cors-origin values may frame it as they already hold API access.
+    # /api/ and preview-blueprint responses are left alone: preview content and
+    # plugin panels are meant to be framed by the webui. Unmatched /preview/
+    # paths can serve the SPA and must retain its framing protection.
+    frame_ancestors = " ".join(["'self'", *sorted(get_trusted_origins(app))])
+
+    @app.after_request
+    def set_frame_protection(response: flask.Response) -> flask.Response:
+        path = flask.request.path
+        if path.startswith("/api/") or flask.request.blueprint == "preview_proxy_api":
+            return response
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        csp = response.headers.get("Content-Security-Policy")
+        if not csp:
+            response.headers["Content-Security-Policy"] = (
+                f"frame-ancestors {frame_ancestors}"
+            )
+        elif "frame-ancestors" not in csp:
+            response.headers["Content-Security-Policy"] = (
+                f"{csp.rstrip('; ')}; frame-ancestors {frame_ancestors}"
+            )
+        return response
 
     # Register Prometheus metrics middleware and /api/v0/metrics endpoint
     from .metrics import init_metrics  # fmt: skip
