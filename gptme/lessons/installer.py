@@ -234,10 +234,16 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
             logger.error("Could not check out the skill path")
             return None
         source_dir = tmp / skill_path
-        if not _copy_shared_skill_md(tmp, source_dir):
-            return None
     else:
         source_dir = tmp
+    # Check containment before looking for or reading any metadata.
+    if not source_dir.is_dir() or not source_dir.resolve().is_relative_to(
+        tmp.resolve()
+    ):
+        logger.error(f"Skill path not found in repository: {skill_path}")
+        return None
+    if not _copy_shared_skill_md(tmp, source_dir):
+        return None
     if source_dir.resolve() == tmp.resolve():
         # Repository metadata is not part of the skill.
         try:
@@ -246,12 +252,6 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
             logger.error(f"Could not drop .git from clone: {e}")
             return None
 
-    # A #path (or a symlink along it) must not select a tree outside the clone.
-    if not source_dir.is_dir() or not source_dir.resolve().is_relative_to(
-        tmp.resolve()
-    ):
-        logger.error(f"Skill path not found in repository: {skill_path}")
-        return None
     return source_dir
 
 
@@ -259,20 +259,20 @@ def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
     """Replace a SKILL.md link to a file elsewhere in the clone with a copy.
 
     The skill is published without the rest of the checkout, so such a link
-    would dangle. Other links (and links leaving the clone) are left as-is.
+    would dangle. Reject metadata links outside the clone or into .git before
+    reading them. Non-metadata links are left as-is.
     """
     skill_md = _find_skill_md(source_dir)
     if skill_md is None or not skill_md.is_symlink():
         return True
     root = tmp.resolve()
-    target = skill_md.resolve()
-    if (
-        not target.is_relative_to(root)
-        or target.is_relative_to(root / ".git")
-        or target.is_relative_to(source_dir.resolve())
-    ):
-        return True
     try:
+        target = skill_md.resolve()
+        if not target.is_relative_to(root) or target.is_relative_to(root / ".git"):
+            logger.error(f"{skill_md.name} resolves outside the clone or into .git")
+            return False
+        if target.is_relative_to(source_dir.resolve()):
+            return True
         if not target.exists() and target.parent != root:
             # Outside the sparse cone: check out the directory holding it.
             subprocess.run(
@@ -303,7 +303,7 @@ def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
         content = real.read_bytes()
         skill_md.unlink()
         skill_md.write_bytes(content)
-    except (OSError, subprocess.SubprocessError) as e:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
         logger.error(f"Could not copy shared {skill_md.name}: {e}")
         return False
     return True

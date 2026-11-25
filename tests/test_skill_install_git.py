@@ -161,6 +161,88 @@ def test_shared_skill_md_that_checks_out_as_outside_link_is_not_copied(
     assert not (skills_dir / "stolen").exists()
 
 
+@pytest.mark.usefixtures("requires_symlinks")
+@pytest.mark.parametrize("prefix", ["", "skills/foo/"])
+@pytest.mark.parametrize("target_kind", ["outside", "git", "loop", "shared-loop"])
+def test_unsafe_git_skill_metadata_is_rejected_before_reading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+    target_kind: str,
+) -> None:
+    secret = tmp_path / "secret.md"
+    secret.write_text(skill_md("stolen"))
+    targets = {
+        "outside": str(secret),
+        "git": "../../.git/config" if prefix else ".git/config",
+        "loop": "SKILL.md",
+        "shared-loop": "../../shared/SKILL.md" if prefix else "shared/SKILL.md",
+    }
+    links = {f"{prefix}SKILL.md": targets[target_kind]}
+    if target_kind == "shared-loop":
+        links["shared/SKILL.md"] = "SKILL.md"
+    repo = make_repo(tmp_path / "repo", {f"{prefix}helper.py": "print('hi')\n"}, links)
+    real_parse = installer._parse_skill_frontmatter
+
+    def parse(path: Path) -> dict:
+        # Untrusted git metadata must be rejected before even parsing host data.
+        assert path.resolve() != secret
+        return real_parse(path)
+
+    monkeypatch.setattr(installer, "_parse_skill_frontmatter", parse)
+    suffix = "#skills/foo" if prefix else ""
+    ok, msg = installer.install_skill(f"{repo.as_uri()}{suffix}")
+    assert not ok, msg
+    assert installer.get_manifest().skills == {}
+    assert list(installer.get_skills_dir().iterdir()) == []
+    assert secret.read_text() == skill_md("stolen")
+
+
+@pytest.mark.usefixtures("requires_symlinks")
+def test_metadata_link_within_skill_is_preserved(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path / "repo",
+        {"skills/foo/metadata.md": skill_md("foo")},
+        {"skills/foo/SKILL.md": "metadata.md"},
+    )
+    ok, msg = installer.install_skill(f"{repo.as_uri()}#skills/foo")
+    assert ok, msg
+    installed = installer.get_skills_dir() / "foo"
+    assert (installed / "SKILL.md").is_symlink()
+    assert (installed / "SKILL.md").read_text() == skill_md("foo")
+
+
+@pytest.mark.parametrize("failure", ["timeout", "missing-git", "drop-git"])
+def test_git_setup_failure_does_not_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    repo = make_repo(tmp_path / "repo", {"SKILL.md": skill_md("foo")})
+    installed = install_local(tmp_path, "foo", "notes.txt")
+    manifest_before = installer.get_manifest_path().read_bytes()
+    if failure == "drop-git":
+        real_rmtree = installer.shutil.rmtree
+
+        def rmtree(path, *args, **kwargs):
+            if Path(path).name == ".git":
+                raise PermissionError("cannot remove git metadata")
+            return real_rmtree(path, *args, **kwargs)
+
+        monkeypatch.setattr(installer.shutil, "rmtree", rmtree)
+    else:
+
+        def run(cmd, *args, **kwargs):
+            if failure == "timeout":
+                raise subprocess.TimeoutExpired(cmd, 60)
+            raise FileNotFoundError("git not found")
+
+        monkeypatch.setattr(installer.subprocess, "run", run)
+    ok, msg = installer.install_skill(repo.as_uri(), force=True)
+    assert not ok
+    assert "Failed to install skill from" in msg
+    assert (installed / "notes.txt").read_text() == "user data"
+    assert installer.get_manifest_path().read_bytes() == manifest_before
+
+
 def test_failed_sparse_checkout_and_fallback_fails_install(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
