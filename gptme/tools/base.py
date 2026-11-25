@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import difflib
 import importlib
 import importlib.util
 import inspect
@@ -1663,6 +1664,36 @@ def read_text_lf(path: Path) -> str:
     on write.
     """
     return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+
+
+def strip_added_crs(text: str, source: str) -> str:
+    """Remove CRLF line endings that ``text`` gained outside the file.
+
+    ``source`` is the :func:`read_text_lf` model that a provider or editor
+    turned into ``text``. In that model ``"\\r\\n"`` means a line whose content
+    ends in a lone carriage return, so without such a line every CRLF in
+    ``text`` is noise. Otherwise ``text`` counts as CRLF-encoded only if all its
+    line endings are CRLF, and each line then loses one carriage return; in LF or
+    mixed text the carriage returns are content. Lines differing from the source
+    only by trailing carriage returns are taken from the source. The text after
+    the last newline has no line ending and is never altered.
+    """
+    if "\r\n" not in source:
+        return text.replace("\r\n", "\n")
+
+    *source_lines, _ = source.split("\n")
+    *lines, last = text.split("\n")
+    if all(line.endswith("\r") for line in lines):
+        lines = [line[:-1] for line in lines]
+    matcher = difflib.SequenceMatcher(
+        None,
+        [line.rstrip("\r") for line in source_lines],
+        [line.rstrip("\r") for line in lines],
+        autojunk=False,
+    )
+    for src, dst, size in matcher.get_matching_blocks():
+        lines[dst : dst + size] = source_lines[src : src + size]
+    return "\n".join([*lines, last])
 
 
 def file_newline(path: Path) -> str:

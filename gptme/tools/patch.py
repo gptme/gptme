@@ -109,8 +109,11 @@ class Patch:
         # (``content``) is already normalized by ``read_text_lf`` and must not be
         # normalized again: a preserved lone carriage return sitting right before
         # a newline would be read as a CRLF pair and silently deleted from an
-        # untouched line.
-        updated = self.updated.replace("\r\n", "\n")
+        # untouched line. For the same reason, an ORIGINAL chunk that names such
+        # a carriage return puts the replacement in that model too: keep it as is.
+        updated = self.updated
+        if "\r\n" not in self.original and not self.original.endswith("\r"):
+            updated = updated.replace("\r\n", "\n")
         # Fast path: try exact match first (backward compatible)
         first_match = content.find(self.original)
         if first_match != -1:

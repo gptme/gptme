@@ -24,6 +24,7 @@ from .base import (
     file_newline,
     get_path,
     read_text_lf,
+    strip_added_crs,
 )
 
 # Prompt from Morph Fast Apply v2 documentation
@@ -188,34 +189,6 @@ def execute_morph(
     )
 
 
-def _strip_provider_crs(response: str, source: str) -> str:
-    """Remove CRLF line endings added by the provider from ``response``.
-
-    ``source`` is the :func:`read_text_lf` model of the file, where a ``"\\r\\n"``
-    means a line whose content ends in a lone carriage return. Without such a
-    line every CRLF in the response is noise. Otherwise the two look the same, so
-    lines unchanged from the source are taken from it verbatim and only the
-    remaining lines lose their trailing carriage return.
-    """
-    if "\r\n" not in source:
-        return response.replace("\r\n", "\n")
-
-    source_lines = source.split("\n")
-    response_lines = response.split("\n")
-    matcher = difflib.SequenceMatcher(
-        None,
-        [line.rstrip("\r") for line in source_lines],
-        [line.rstrip("\r") for line in response_lines],
-        autojunk=False,
-    )
-    # The last element has no newline after it, so its CR is not a line ending.
-    result = [line.removesuffix("\r") for line in response_lines[:-1]]
-    result.append(response_lines[-1])
-    for src, dst, size in matcher.get_matching_blocks():
-        result[dst : dst + size] = source_lines[src : src + size]
-    return "\n".join(result)
-
-
 def execute_morph_impl(
     content: str,
     path: Path | None,
@@ -268,7 +241,7 @@ def execute_morph_impl(
         # returns kept as content by ``read_text_lf``. Python's newline= then
         # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
         # for LF).
-        text = _strip_provider_crs(content, current_content)
+        text = strip_added_crs(content, current_content)
         # Validate UTF-8 before touching the file, then replace it atomically so an
         # encode error or a full disk cannot leave the target truncated.
         text.encode("utf-8")

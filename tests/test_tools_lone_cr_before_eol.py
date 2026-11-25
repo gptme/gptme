@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from gptme.hooks import ConfirmationResult
 from gptme.tools.base import read_text_lf
 from gptme.tools.hashline_edit import execute_hashline_edit, store_snapshot
 from gptme.tools.morph import execute_morph_impl
@@ -92,6 +93,11 @@ def test_morph_keeps_trailing_cr(tmp_path: Path):
         (ORIGINAL_BYTES, "a = 1\r\nb = 2\r\n", EXPECTED_BYTES),
         # CR before the line ending, provider answers with LF and drops it
         (ORIGINAL_BYTES, "a = 1\nb = 2\n", EXPECTED_BYTES),
+        # a changed line keeps the CR when the answer is not CRLF-encoded
+        (ORIGINAL_BYTES, "a = 2\r\nb = 1\n", b"a = 2\r\r\nb = 1\r\n"),
+        # the CR after the last newline is content: it can be added or removed
+        (b"a\r\r\nlast", "a\r\nlast\r", b"a\r\r\nlast\r"),
+        (b"a\r\r\nlast\r", "a\r\nlast", b"a\r\r\nlast"),
         # inserted lines get no extra CR, including at the end of the file
         (
             ORIGINAL_BYTES,
@@ -108,4 +114,65 @@ def test_morph_strips_only_provider_crs(
 
     _messages(execute_morph_impl(response, f, read_text_lf(f)))
 
+    assert f.read_bytes() == expected
+
+
+@pytest.mark.parametrize(
+    ("patch", "expected"),
+    [
+        # the line with the CR is repeated as context
+        (
+            "<<<<<<< ORIGINAL\na = 1\r\nb = 1\n=======\na = 1\r\nb = 2\n>>>>>>> UPDATED",
+            EXPECTED_BYTES,
+        ),
+        # the chunk ends at the CR and the replacement adds a line after it
+        (
+            "<<<<<<< ORIGINAL\na = 1\r\n=======\na = 1\r\nc = 3\n>>>>>>> UPDATED",
+            b"a = 1\r\r\nc = 3\r\nb = 1\r\n",
+        ),
+    ],
+)
+def test_patch_keeps_trailing_cr_in_context(
+    tmp_path: Path, patch: str, expected: bytes
+):
+    f = tmp_path / "f.txt"
+    f.write_bytes(ORIGINAL_BYTES)
+
+    msgs = _messages(execute_patch(patch, [str(f)], None))
+
+    assert "successfully" in msgs[0].lower(), msgs
+    assert f.read_bytes() == expected
+
+
+@pytest.mark.parametrize(
+    ("original", "edited", "expected"),
+    [
+        # CRLF file, the editor returns CRLF line endings
+        (b"a = 1\r\nb = 1\r\n", "a = 1\r\nb = 3\r\n", b"a = 1\r\nb = 3\r\n"),
+        # LF file, same editor
+        (b"a = 1\nb = 1\n", "a = 1\r\nb = 3\r\n", b"a = 1\nb = 3\n"),
+        # a preserved CR survives both editor styles
+        (ORIGINAL_BYTES, "a = 1\r\r\nb = 3\r\n", b"a = 1\r\r\nb = 3\r\n"),
+        (ORIGINAL_BYTES, "a = 1\r\nb = 3\n", b"a = 1\r\r\nb = 3\r\n"),
+    ],
+)
+def test_hashline_normalizes_edited_preview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    original: bytes,
+    edited: str,
+    expected: bytes,
+):
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation",
+        lambda **_: ConfirmationResult.edit(edited),
+    )
+    f = tmp_path / "f.txt"
+    f.write_bytes(original)
+    tag = store_snapshot(str(f.resolve()), read_text_lf(f))
+    block = f"[{f.resolve()}#{tag}]\nPUT 2.=2:\n+b = 2\n"
+
+    msgs = _messages(execute_hashline_edit(block, [str(f)], None))
+
+    assert "applied" in msgs[0].lower(), msgs
     assert f.read_bytes() == expected

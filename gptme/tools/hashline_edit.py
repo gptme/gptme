@@ -60,6 +60,7 @@ from .base import (
     ToolUse,
     file_newline,
     read_text_lf,
+    strip_added_crs,
 )
 
 if TYPE_CHECKING:
@@ -1105,7 +1106,8 @@ def execute_hashline_edit(
         confirm_result.action == ConfirmAction.EDIT
         and confirm_result.edited_content is not None
     ):
-        updated = confirm_result.edited_content
+        # An editor may return CRLF line endings; keep preserved lone CRs.
+        updated = strip_added_crs(confirm_result.edited_content, updated)
 
     # Re-read before every write: ordinary and merge-recovered targets can both
     # change while confirmation is open, including when the user edits the preview.
@@ -1125,10 +1127,11 @@ def execute_hashline_edit(
     # Write via the shared atomic writer (stage beside the target, then
     # os.replace), keeping the file's line endings. Like patch/save, it refuses
     # hard-linked targets instead of silently splitting them from their aliases.
-    # ``updated`` derives from ``read_text_lf`` and the edit block is normalized
-    # in ``_parse_operations``, so it is LF-only apart from preserved lone CRs;
-    # newline= restores CRLF. Re-normalizing here would pair a preserved lone CR
-    # with its following newline and delete it from an untouched line.
+    # ``updated`` derives from ``read_text_lf``, and both the edit block and any
+    # user-edited preview are normalized above, so it is LF-only apart from
+    # preserved lone CRs; newline= restores CRLF. Re-normalizing here would pair
+    # a preserved lone CR with its following newline and delete it from an
+    # untouched line.
     try:
         newline = file_newline(resolved)
         write_text_preserving_original(resolved, updated, newline=newline)
