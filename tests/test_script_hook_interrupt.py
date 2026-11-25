@@ -6,6 +6,8 @@ is not an ``Exception`` and bypasses every cleanup branch, so the child is
 orphaned and keeps running after gptme gave up on it.
 """
 
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -16,9 +18,22 @@ from gptme.config import ScriptHookConfig
 from gptme.hooks.script import _run_script_hook
 
 
+def _wait_until_dead(pid: int, timeout: float = 5.0) -> bool:
+    """True once ``pid`` no longer exists (killed processes are reaped async)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX")
-def test_keyboard_interrupt_kills_script_hook_process(tmp_path, monkeypatch):
+def test_keyboard_interrupt_kills_script_hook_process_tree(tmp_path, monkeypatch):
     spawned: list[subprocess.Popen] = []
+    child_pid_file = tmp_path / "child.pid"
     real_popen = subprocess.Popen
 
     class RecordingPopen(real_popen):  # type: ignore[misc,valid-type]
@@ -31,13 +46,22 @@ def test_keyboard_interrupt_kills_script_hook_process(tmp_path, monkeypatch):
             # Simulate the user pressing Ctrl-C while gptme waits on the hook.
             if not self._interrupted and timeout == 30:
                 self._interrupted = True
-                time.sleep(0.2)
+                # Only interrupt once the hook's own child is running, so the
+                # assertions below cannot pass because it never started.
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline and not child_pid_file.exists():
+                    time.sleep(0.05)
                 raise KeyboardInterrupt
             return super().wait(timeout)
 
     monkeypatch.setattr("gptme.hooks.script.subprocess.Popen", RecordingPopen)
 
-    hook = ScriptHookConfig(event="session.start", command="sleep 30", timeout=30)
+    hook = ScriptHookConfig(
+        event="session.start",
+        command=f"sleep 30 & echo $! > {child_pid_file}; wait",
+        timeout=30,
+    )
+    child_pid = 0
     try:
         with pytest.raises(KeyboardInterrupt):
             _run_script_hook(hook, tmp_path, logdir=tmp_path, model="m")
@@ -49,12 +73,22 @@ def test_keyboard_interrupt_kills_script_hook_process(tmp_path, monkeypatch):
         assert proc.returncode is not None, (
             "script hook process was not reaped before KeyboardInterrupt propagated"
         )
+
+        # The shell is the hook's process-group leader, so killing only the
+        # shell would leave this grandchild running.
+        assert child_pid_file.exists(), "hook grandchild never started"
+        child_pid = int(child_pid_file.read_text().strip())
+        assert _wait_until_dead(child_pid), (
+            f"script hook grandchild {child_pid} survived Ctrl-C"
+        )
     finally:
+        if child_pid:
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         for p in spawned:
             if p.poll() is None:
-                import os
-                import signal
-
                 os.killpg(p.pid, signal.SIGKILL)
                 p.wait()
 
