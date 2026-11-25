@@ -226,6 +226,24 @@ def test_serialized_input_overhead_is_bounded_before_http(provider_client):
     assert not sent
 
 
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_text_only_bound_counts_messages_not_routing_overhead(provider_client):
+    import json
+
+    _, model, sent, status = provider_client
+    status["code"] = 200
+    strict_reply(model)
+    body = json.loads(sent[0].content)
+    messages_only = len(
+        json.dumps({"messages": body["messages"]}, ensure_ascii=False).encode()
+    )
+    assert len(sent[0].content) > messages_only
+    assert strict_reply(model, max_input_bytes=messages_only).content == "ok"
+    with pytest.raises(ValueError, match="serialized input byte"):
+        strict_reply(model, max_input_bytes=messages_only - 1)
+    assert len(sent) == 2
+
+
 @pytest.mark.parametrize("unsafe", ["sdk-retries", "proxy"])
 def test_unsupported_sdk_configuration_is_rejected(provider_client, unsafe):
     client, model, sent, _ = provider_client
@@ -637,10 +655,11 @@ def test_strict_native_rejects_subagent_before_provider(monkeypatch):
 
 @pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
 def test_cli_native_tool_execution_and_exhaustion(
-    provider_client, tmp_path, monkeypatch
+    provider_client, tmp_path, monkeypatch, request
 ):
     import importlib
     import json
+    import signal
 
     from click.testing import CliRunner
 
@@ -654,6 +673,10 @@ def test_cli_native_tool_execution_and_exhaustion(
     from gptme.llm.models import set_default_model
 
     set_default_model(model)
+    # The CLI installs its own Ctrl-C handler; model, tools and cwd are
+    # already reset between tests by conftest.
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    request.addfinalizer(lambda: signal.signal(signal.SIGINT, previous_sigint))
     monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
     status.update(code=200, tool_call=True, tool_call_once=True)
     result = CliRunner().invoke(

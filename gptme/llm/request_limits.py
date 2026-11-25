@@ -193,6 +193,12 @@ def strict_request_bounds_active() -> bool:
     return _limits.get() is not None
 
 
+def native_request_bounds_active() -> bool:
+    """Whether the scope bounds the whole request body, not just the messages."""
+    limit = _limits.get()
+    return limit is not None and limit.native_tools
+
+
 def _validate_client(client: Any, provider: str, limit: _RequestLimits) -> None:
     if (
         provider != limit.provider

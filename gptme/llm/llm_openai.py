@@ -63,6 +63,7 @@ from .provider_plugins import is_plugin_provider
 from .request_limits import (
     bounded_attempts,
     bounded_client,
+    native_request_bounds_active,
     reserve_request,
     strict_request_bounds_active,
 )
@@ -1025,7 +1026,7 @@ def _handle_openai_transient_error(
                     logger.warning(
                         "OpenAI/OpenRouter 402 insufficient credits — the request "
                         "reservation exceeds available key budget. Lower the "
-                        "reservation by setting --max-tokens (or GPTME_MAX_TOKENS) "
+                        "reservation by setting GPTME_MAX_TOKENS "
                         "to a value such as 16000, or top up / switch the key. "
                         "Detail: %s",
                         combined_error[:500],
@@ -1394,16 +1395,20 @@ def chat(
             max_tokens=max_tokens,
             relaxed_privacy=relaxed_privacy,
         )
+        # Text-only per-reply bounds count the messages alone; the native scope
+        # also counts tool schemas and routing parameters.
+        bounded_input: dict[str, Any] = {"messages": messages_dicts}
+        if native_request_bounds_active():
+            bounded_input |= {
+                "model": api_model.split("@")[0],
+                **optional_kwargs,
+                **body,
+            }
         with bounded_client(client, str(provider)) as send_client:
             reserve_request(
                 send_client,
                 str(provider),
-                {
-                    "model": api_model.split("@")[0],
-                    "messages": messages_dicts,
-                    **optional_kwargs,
-                    **(body or {}),
-                },
+                bounded_input,
                 relaxed_parameters=relaxed_privacy,
             )
             from .recovery import reserve_recovery_request
