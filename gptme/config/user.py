@@ -11,7 +11,6 @@ import locale
 import logging
 import os
 import re
-import stat
 from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -130,13 +129,12 @@ def _back_up_before_reencoding(path: str | Path) -> None:
     staged = Path(f"{path}.orig.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
         original = Path(path).read_bytes()
-        mode = stat.S_IMODE(os.stat(path).st_mode)
-        # Owner-only until written: the umask default could expose a private
-        # config (an [env] table can hold API keys). Then match the original.
+        # Keep backups owner-only, including after publication. Copying mode
+        # bits onto a new inode can grant a different group or inherited ACL
+        # access to [env] secrets. Backups need not retain shared readability.
         fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(original)
-        os.chmod(staged, mode)
         try:
             # No-clobber publish: the first completed backup wins, since every
             # concurrent save copied the same original bytes.
