@@ -12,7 +12,7 @@ import sys
 import textwrap
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,11 @@ from mcp import McpError, types
 
 from gptme.config import Config, MCPConfig, MCPServerConfig, UserConfig
 from gptme.mcp.client import MCPClient, _is_connection_error
-from gptme.tools.mcp_adapter import _call_mcp_tool_with_retry
+from gptme.message import Message
+from gptme.tools.mcp_adapter import (
+    _call_mcp_tool_with_retry,
+    create_mcp_execute_function,
+)
 
 SERVER_SRC = textwrap.dedent(
     """
@@ -350,5 +354,42 @@ def test_http_connection_ignores_old_stdio_stream(use_sse: bool) -> None:
                 client._setup_http_connection("http://example/mcp", {}, use_sse)
             )
             assert client.call_tool("echo", {}) == "HTTP result"
+    finally:
+        client.close()
+
+
+def test_server_connection_error_detail_reaches_tool_message_without_retry() -> None:
+    """The adapter renders str(error), so chaining alone hides server diagnostics."""
+    client = MCPClient()
+    client._read_stream = _FakeStream(1)
+    session = AsyncMock()
+    session.call_tool.side_effect = McpError(
+        types.ErrorData(code=-32000, message="database connection closed")
+    )
+    client.session = session
+    execute = create_mcp_execute_function(
+        "update", "srv", Config(), clients={"srv": client}
+    )
+
+    def confirm(
+        code: str, args: Any, kwargs: Any, *, execute_fn: Any, **options: Any
+    ) -> Iterator[Message]:
+        yield from execute_fn(code)
+
+    try:
+        with (
+            patch(
+                "gptme.tools.mcp_adapter.execute_with_confirmation", side_effect=confirm
+            ),
+            patch("gptme.mcp.client.MCPClient") as replacement,
+        ):
+            result = execute("{}", None, None)
+            messages = [result] if isinstance(result, Message) else list(result)
+        assert any(
+            "database connection closed" in message.content for message in messages
+        )
+        assert any("result is unknown" in message.content for message in messages)
+        replacement.assert_not_called()
+        session.call_tool.assert_awaited_once_with("update", {})
     finally:
         client.close()

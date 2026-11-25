@@ -73,8 +73,14 @@ class MCPInterruptedError(Exception):
     """
 
 
+class MCPUnknownOutcomeError(RuntimeError):
+    """A sent tool call failed and must not be retried, even with connection text."""
+
+
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates MCP connection failure"""
+    if isinstance(error, MCPUnknownOutcomeError):
+        return False
     # A closed or broken transport stream: str() of these is empty.
     if isinstance(
         error,
@@ -785,7 +791,7 @@ class MCPClient:
                     # have run. Not a connection error, so the auto-restart does
                     # not repeat a call that may have changed data; the next call
                     # sees the closed stream and restarts.
-                    raise RuntimeError(
+                    raise MCPUnknownOutcomeError(
                         "MCP server exited during the call; its result is unknown "
                         "and it was not retried"
                     )
@@ -797,9 +803,9 @@ class MCPClient:
                     # The SDK may fail a pending request before the EOF watcher
                     # runs. Once sent, even a completed transport failure cannot
                     # prove whether the tool ran; never retry that operation.
-                    raise RuntimeError(
+                    raise MCPUnknownOutcomeError(
                         "MCP server failed during the call; its result is unknown "
-                        "and it was not retried"
+                        f"and it was not retried: {str(error) or type(error).__name__}"
                     ) from error
                 raise
         finally:
