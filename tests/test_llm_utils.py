@@ -1391,6 +1391,7 @@ def test_handle_tools_signed_thinking_keeps_quoted_content(
     init_tools()
     if length_framed:
         reasoning += "\nExample:\n<think>\nquoted\n</think>\nContinue"
+        reasoning += "\n<think>\nx\n<!-- think-sig: inner\nthink-chars: 1 -->\n</think>"
     tool_call = '@shell(real-call): {"command": "echo real"}'
     framing = f"\nthink-chars: {len(reasoning)}" if length_framed else ""
     content = (

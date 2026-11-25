@@ -1392,7 +1392,7 @@ def _extract_thinking_content(
     framed_blocks: dict[int, tuple[int, str, str]] = {}
     footer_pattern = re.compile(
         r"\n<!-- think-sig: ((?:(?!-->).)*?)\n"
-        r"think-chars: ([0-9]{1,12}) -->\n</(think|thinking)>\s*",
+        r"think-chars: ([0-9]{1,12}) -->\n</(think|thinking)>",
         re.DOTALL,
     )
     for footer in footer_pattern.finditer(text_content):
@@ -1444,6 +1444,8 @@ def _extract_thinking_content(
         framed = framed_blocks.get(opener.start())
         if framed:
             end, block, signature = framed
+            while end < len(text_content) and text_content[end].isspace():
+                end += 1
             kept.append(text_content[pos : opener.start()])
             pos = search_from = end
             thinking_blocks.append((block, signature))
