@@ -375,6 +375,9 @@ def list_checkpoints(repo_root: str | Path) -> list[CheckpointRecord]:
     return records
 
 
+_MIN_SHA_PREFIX = 4
+
+
 def _resolve_checkpoint(repo_root: Path, identifier: str) -> CheckpointRecord:
     """Resolve a 1-based index or SHA prefix to a :class:`CheckpointRecord`."""
     records = list_checkpoints(repo_root)
@@ -388,6 +391,18 @@ def _resolve_checkpoint(repo_root: Path, identifier: str) -> CheckpointRecord:
         if 1 <= idx <= len(records):
             return records[idx - 1]
         raise CheckpointError(f"checkpoint index {idx} out of range (1-{len(records)})")
+
+    # Every SHA starts with "", so an empty (e.g. unset ``$ID``) or very short
+    # prefix would silently select a checkpoint and reset HEAD. Require at
+    # least git's minimum abbreviation length for hex prefixes.
+    if len(identifier) < _MIN_SHA_PREFIX and all(
+        c in "0123456789abcdefABCDEF" for c in identifier
+    ):
+        raise CheckpointError(
+            f"checkpoint SHA prefix {identifier!r} is too short "
+            f"(use an index 1-{len(records)} or at least "
+            f"{_MIN_SHA_PREFIX} hex characters)"
+        )
 
     matches = [r for r in records if r.head_sha.startswith(identifier)]
     if len(matches) == 1:
