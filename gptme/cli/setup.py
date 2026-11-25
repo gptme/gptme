@@ -159,19 +159,19 @@ def _install_click_completions(shell: str) -> None:
         if not destination.exists() or destination.read_text() != script:
             updates[destination] = script
     # A script this installer generated earlier would keep completing a CLI
-    # whose parser can no longer be loaded. Files it did not write stay.
+    # whose parser can no longer be loaded. The user may have edited it since,
+    # so it is reported rather than deleted: the header only says where the
+    # file started, not that the current content is ours.
     stale = [
         path
         for path in map(destination_for, skipped)
         if path.is_file() and ARGPARSE_MARKER in path.read_text()
     ]
-    if updates or stale:
+    if updates:
         if not Confirm.ask(
             f"Install/update {shell} completions for all gptme CLIs?", default=True
         ):
             return
-        for path in stale:
-            path.unlink()
         directory.mkdir(parents=True, exist_ok=True)
         for destination, script in updates.items():
             # Old Fish installs symlink into a source checkout. Never write
@@ -186,6 +186,11 @@ def _install_click_completions(shell: str) -> None:
         console.print(
             f"   [yellow]Skipped {', '.join(sorted(skipped))}: optional dependencies not installed[/yellow]"
         )
+        for path in stale:
+            console.print(
+                f"   [yellow]Existing completion left in place: {path_with_tilde(path)}[/yellow]"
+                " [dim](delete it if it is stale)[/dim]"
+            )
     if shell == "zsh":
         console.print(
             "   Add this to ~/.zshrc before compinit, if not already present:"

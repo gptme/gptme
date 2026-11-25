@@ -92,8 +92,11 @@ def complete_prompt(
             ]
             if names and incomplete:
                 # The first word may also be a context file (`gptme main.py`),
-                # so offer paths too. File comes first: Click's Bash script
-                # resets COMPREPLY on a file item, so Bash keeps the names.
+                # so offer paths too. zsh and fish show both. In Bash, Click's
+                # template turns the file item into `COMPREPLY=()` plus the
+                # `default` fallback, and readline only uses that fallback when
+                # there are no other matches: Bash therefore shows the names
+                # only. Paths still complete when no name matches.
                 return [
                     CompletionItem(incomplete, type="file"),
                     *(CompletionItem(n) for n in names),

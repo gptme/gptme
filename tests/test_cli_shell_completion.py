@@ -646,7 +646,7 @@ def test_first_prompt_word_offers_paths_with_subcommands():
     assert lines.index("file") < lines.index("models"), lines
 
 
-def test_setup_removes_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
+def test_setup_reports_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
     from gptme.cli import argparse_completion
     from gptme.cli.setup import _install_click_completions
 
@@ -665,6 +665,9 @@ def test_setup_removes_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("gptme.cli.setup.console.width", 1000)
     monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
     _install_click_completions("bash")
-    assert not stale.exists()
+    # The user may have edited the file, so it is reported, not deleted.
+    assert stale.exists()
     assert foreign.exists()  # regenerated: its parser still loads
-    assert "Skipped gptme-convert" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Skipped gptme-convert" in out
+    assert "Existing completion left in place" in out
