@@ -528,7 +528,8 @@ class MCPClient:
                 raise RuntimeError("Failed to get tools list")
 
             return (self.tools, self.session)
-        except Exception:
+        except BaseException:
+            self._read_stream = None
             if self.stack:
                 await self.stack.__aexit__(None, None, None)
                 self.stack = None
@@ -542,6 +543,7 @@ class MCPClient:
         auth: httpx.Auth | None = None,
     ) -> tuple[types.ListToolsResult, ClientSession]:
         """Set up HTTP connection and maintain it"""
+        self._read_stream = None
         self.stack = AsyncExitStack()
         await self.stack.__aenter__()
 
@@ -734,6 +736,7 @@ class MCPClient:
                 self.stack = None
                 self.session = None
                 self.tools = None
+                self._read_stream = None
                 close_oauth_provider(self._oauth_provider)
                 self._oauth_provider = None
                 if not self.loop.is_closed():
@@ -748,8 +751,9 @@ class MCPClient:
         The event loop only runs during a call, so when a stdio server exits
         between calls the SDK notices the EOF only after the next request is
         sent, and that request then waits forever for a response. Race the
-        request against the read stream's writer closing so the caller gets a
-        connection error its auto-restart can act on.
+        request against the read stream's writer closing. Only a close observed
+        before sending is safe to retry; transport failures after sending have
+        an unknown outcome and must not repeat the tool call.
         """
         stream = self._read_stream
         if stream is None:
@@ -786,7 +790,18 @@ class MCPClient:
                         "and it was not retried"
                     )
                 await asyncio.wait({request}, timeout=0.1)
-            return request.result()
+            try:
+                return request.result()
+            except Exception as error:
+                if _is_connection_error(error):
+                    # The SDK may fail a pending request before the EOF watcher
+                    # runs. Once sent, even a completed transport failure cannot
+                    # prove whether the tool ran; never retry that operation.
+                    raise RuntimeError(
+                        "MCP server failed during the call; its result is unknown "
+                        "and it was not retried"
+                    ) from error
+                raise
         finally:
             if not request.done():
                 request.cancel()

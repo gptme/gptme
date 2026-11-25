@@ -12,11 +12,15 @@ import sys
 import textwrap
 import threading
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import pytest
+from mcp import McpError, types
 
 from gptme.config import Config, MCPConfig, MCPServerConfig, UserConfig
 from gptme.mcp.client import MCPClient, _is_connection_error
@@ -35,6 +39,13 @@ SERVER_SRC = textwrap.dedent(
     @app.tool()
     def echo(text: str) -> str:
         return f"echo:{text}"
+
+
+    @app.tool()
+    def record_and_die(path: str) -> str:
+        with open(path, "a") as f:
+            f.write("executed\\n")
+        os._exit(1)
 
 
     if __name__ == "__main__":
@@ -218,3 +229,126 @@ def test_eof_pending_from_between_calls_is_seen_before_send():
     assert isinstance(error, ConnectionError), error
     assert _is_connection_error(error)
     assert sent == []
+
+
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize(
+    "error",
+    [
+        McpError(types.ErrorData(code=-32000, message="Connection closed")),
+        anyio.ClosedResourceError(),
+        anyio.BrokenResourceError(),
+        anyio.EndOfStream(),
+    ],
+)
+def test_completed_transport_failure_is_not_retryable(
+    error: Exception, closed: bool
+) -> None:
+    """SDK failures can complete before the EOF watcher sees the closed pipe."""
+    stream = _FakeStream(1)
+
+    async def request() -> None:
+        if closed:
+            stream.open_streams = 0
+        raise error
+
+    with pytest.raises(RuntimeError, match="result is unknown") as info:
+        anyio.run(_bare_client(stream)._unless_transport_closed, request())
+    assert not _is_connection_error(info.value)
+
+
+def test_completed_response_before_eof_is_returned() -> None:
+    stream = _FakeStream(1)
+
+    async def request() -> str:
+        stream.open_streams = 0
+        return "confirmed result"
+
+    assert anyio.run(_bare_client(stream)._unless_transport_closed, request()) == (
+        "confirmed result"
+    )
+
+
+@pytest.mark.timeout(60)
+def test_server_exit_after_side_effect_is_not_retried(tmp_path: Path) -> None:
+    """Exercise the SDK EOF error and adapter retry with a real stdio server."""
+    server = tmp_path / "tiny_server.py"
+    server.write_text(SERVER_SRC)
+    marker = tmp_path / "side-effects.txt"
+    srv = MCPServerConfig(
+        name="tiny", command=sys.executable, args=[str(server), str(tmp_path / "pid")]
+    )
+    config = Config(user=UserConfig(mcp=MCPConfig(enabled=True, servers=[srv])))
+    client = MCPClient(config=config)
+    clients = {"tiny": client}
+    client.connect("tiny")
+    try:
+        with pytest.raises(RuntimeError, match="result is unknown") as info:
+            _call_mcp_tool_with_retry(
+                "tiny", "record_and_die", {"path": str(marker)}, config, clients=clients
+            )
+        assert marker.read_text().splitlines() == ["executed"]
+        assert not _is_connection_error(info.value)
+        assert "result is unknown" in str(info.value)
+    finally:
+        for connected in clients.values():
+            connected.close()
+
+
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("handshake failed"), asyncio.CancelledError()]
+)
+def test_failed_stdio_setup_clears_read_stream(failure: BaseException) -> None:
+    stream = _FakeStream(1)
+    client = MCPClient()
+
+    @asynccontextmanager
+    async def transport(_params: Any) -> AsyncIterator[tuple[_FakeStream, object]]:
+        try:
+            yield stream, object()
+        finally:
+            stream.open_streams = 0
+
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.initialize.side_effect = failure
+    try:
+        with (
+            patch("gptme.mcp.client.stdio_client", transport),
+            patch("gptme.mcp.client.ClientSession", return_value=session),
+            pytest.raises(type(failure)),
+        ):
+            client.loop.run_until_complete(client._setup_stdio_connection(MagicMock()))
+        assert client._read_stream is None
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("use_sse", [False, True])
+def test_http_connection_ignores_old_stdio_stream(use_sse: bool) -> None:
+    client = MCPClient()
+    client._read_stream = _FakeStream(0)
+
+    @asynccontextmanager
+    async def transport(*_args: Any, **_kwargs: Any) -> AsyncIterator[tuple[Any, ...]]:
+        streams = object(), object()
+        yield streams if use_sse else (*streams, lambda: None)
+
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.list_tools.return_value = types.ListToolsResult(tools=[])
+    session.call_tool.return_value = types.CallToolResult(
+        content=[types.TextContent(type="text", text="HTTP result")]
+    )
+    try:
+        with (
+            patch("gptme.mcp.client.sse_client", transport),
+            patch("gptme.mcp.client.streamablehttp_client", transport),
+            patch("gptme.mcp.client.ClientSession", return_value=session),
+        ):
+            client._run_async(
+                client._setup_http_connection("http://example/mcp", {}, use_sse)
+            )
+            assert client.call_tool("echo", {}) == "HTTP result"
+    finally:
+        client.close()
