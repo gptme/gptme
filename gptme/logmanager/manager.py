@@ -225,17 +225,15 @@ class Log:
                 and all(old is new for old, new in zip(self.persisted, self))
             ):
                 return self
-            # Snapshotting legacy attachments requires rewriting old rows. Do
-            # not migrate a stale copy over a newer transcript; let the caller
-            # reload rather than silently lose either messages or saved hashes.
+            # Load-time attachment snapshotting alone is not a local change:
+            # defer that migration rather than write a stale copy over a newer
+            # transcript. Real local changes and truncation still rewrite below.
             if (
-                self.loaded is not None
-                and any(old is not new for old, new in zip(self.persisted, self.loaded))
-                and output.stat().st_size != self.persisted_size
+                self.persisted_size is not None
+                and output.stat().st_size > self.persisted_size
+                and _unchanged_since_persisted(self, output)
             ):
-                raise ValueError(
-                    f"Transcript changed on disk; reload before saving: {output}"
-                )
+                return self
         append_safe = append and self._can_append(output)
         start = len(self.persisted) if append_safe else 0
         lines = (json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:])

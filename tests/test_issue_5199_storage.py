@@ -150,7 +150,9 @@ def test_conv_checkpoint_bad_rows_are_skipped(tmp_path: Path, bad: bytes) -> Non
 # ── 5. /backtrack --5 ────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("target", ["--5", "-", "5-", "-5-"])
+@pytest.mark.parametrize(
+    "target", ["--5", "-", "5-", "-5-", pytest.param("1" * 5000, id="oversized")]
+)
 def test_resolve_malformed_numeric_target_raises_keyerror(
     tmp_path: Path, target: str
 ) -> None:
@@ -428,13 +430,44 @@ def test_noop_active_view_preserves_concurrent_append(
     a.append(Message("user", "concurrent"))
     path = tmp_path / "views" / "compacted-001.jsonl"
     saved = path.read_bytes()
-    if legacy_attachment:
-        with pytest.raises(ValueError, match="changed on disk"):
-            b.write()
-    else:
-        b.write()
+    b.write()
     assert path.read_bytes() == saved
     assert [msg.content for msg in Log.read_jsonl(path)] == ["summary", "concurrent"]
+
+
+def _legacy_transcript(tmp_path: Path) -> Path:
+    """A conversation whose attachment row predates file hashes."""
+    from gptme.logmanager import Log
+
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("original bytes")
+    path = tmp_path / "conversation.jsonl"
+    Log([Message("user", "main", files=[attachment])]).write_jsonl(path)
+    return path
+
+
+def test_legacy_snapshot_append_persists_after_concurrent_growth(
+    tmp_path: Path,
+) -> None:
+    path = _legacy_transcript(tmp_path)
+    b = LogManager.load(tmp_path, lock=False)
+    a = LogManager.load(tmp_path, lock=False)
+    a.append(Message("user", "concurrent"))
+
+    # Same-branch conflicts are not handled; the stale manager must still be
+    # able to save, as it can for a transcript without legacy rows.
+    b.append(Message("user", "first"))
+    b.append(Message("user", "second"))
+    assert _contents(path) == ["main", "first", "second"]
+
+
+def test_legacy_snapshot_repairs_truncated_transcript(tmp_path: Path) -> None:
+    path = _legacy_transcript(tmp_path)
+    manager = LogManager.load(tmp_path, lock=False)
+    path.write_text("")
+
+    manager.write()
+    assert _contents(path) == ["main"]
 
 
 def test_other_branch_preserves_concurrent_lossless_append(tmp_path: Path) -> None:

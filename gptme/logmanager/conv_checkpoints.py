@@ -133,8 +133,9 @@ def is_message_index(identifier: str) -> bool:
 
     ``isdigit()`` accepts non-ASCII digits like ² and ३, so restrict to [0-9],
     and allow at most one leading minus: "--5" is a label (int() rejects it).
+    The length cap keeps int() under CPython's integer string conversion limit.
     """
-    return re.fullmatch(r"-?[0-9]+", identifier) is not None
+    return re.fullmatch(r"-?[0-9]{1,18}", identifier) is not None
 
 
 def resolve_conv_checkpoint(
