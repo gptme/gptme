@@ -8886,6 +8886,48 @@ Reference pages:
    cli/sessions
    cli/evaluation
 
+Shell completions
+-----------------
+
+Install or refresh completions without starting a chat:
+
+.. code-block:: bash
+
+    gptme-util completions --shell bash   # or zsh / fish
+
+    # From a source checkout:
+    make install-completions COMPLETION_SHELL=fish
+
+The in-chat ``/setup`` command also installs completions for the detected shell.
+Re-run installation after upgrading to add newly shipped commands. Existing
+completions, including legacy Fish symlinks, are updated with confirmation.
+
+Options, subcommands, and choices come from the CLI definitions, so each command
+gets its own options rather than inheriting those of ``gptme``. Model completion
+in ``gptme``, ``gptme-tui``, and ``gptme-server serve`` uses bundled model metadata
+and custom-provider defaults without network requests or authentication. You can
+still enter model IDs that are not in the bundled list.
+
+Fish loads files from ``$XDG_CONFIG_HOME/fish/completions`` (default:
+``~/.config/fish/completions``). Bash needs ``bash-completion`` installed and
+enabled; files are installed under ``$XDG_DATA_HOME/bash-completion/completions``
+(default: ``~/.local/share/bash-completion/completions``). Without bash-completion,
+source those generated files from ``~/.bashrc``. For Zsh, add the installation
+directory printed by the installer before ``compinit`` in ``~/.zshrc``. With the
+default ``XDG_DATA_HOME``, this is:
+
+.. code-block:: zsh
+
+    fpath=(~/.local/share/zsh/completions $fpath)
+    autoload -Uz compinit
+    compinit
+
+Restart the shell after installation. These completions cover the Click-based
+entry points, including optional commands when their extras are installed.
+``gptme-wut``, ``gptme-convert``, and ``gptme-eval-trends`` currently use argparse
+and are not covered; ``gptme-acp`` is a stdio protocol transport, not an interactive
+CLI.
+
 Common invocations
 ------------------
 

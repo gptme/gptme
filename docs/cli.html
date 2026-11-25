@@ -643,6 +643,7 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell-completions">Shell completions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-invocations">Common invocations</a></li>
 </ul>
             </nav>
@@ -719,6 +720,41 @@ itself; the others cover setup, utilities, agents, and evaluation. Every tool ac
 </ul>
 <div class="toctree-wrapper compound">
 </div>
+<section id="shell-completions">
+<h2>Shell completions<a class="headerlink" href="#shell-completions" title="Link to this heading">#</a></h2>
+<p>Install or refresh completions without starting a chat:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>completions<span class="w"> </span>--shell<span class="w"> </span>bash<span class="w">   </span><span class="c1"># or zsh / fish</span>
+
+<span class="c1"># From a source checkout:</span>
+make<span class="w"> </span>install-completions<span class="w"> </span><span class="nv">COMPLETION_SHELL</span><span class="o">=</span>fish
+</pre></div>
+</div>
+<p>The in-chat <code class="docutils literal notranslate"><span class="pre">/setup</span></code> command also installs completions for the detected shell.
+Re-run installation after upgrading to add newly shipped commands. Existing
+completions, including legacy Fish symlinks, are updated with confirmation.</p>
+<p>Options, subcommands, and choices come from the CLI definitions, so each command
+gets its own options rather than inheriting those of <code class="docutils literal notranslate"><span class="pre">gptme</span></code>. Model completion
+in <code class="docutils literal notranslate"><span class="pre">gptme</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme-tui</span></code>, and <code class="docutils literal notranslate"><span class="pre">gptme-server</span> <span class="pre">serve</span></code> uses bundled model metadata
+and custom-provider defaults without network requests or authentication. You can
+still enter model IDs that are not in the bundled list.</p>
+<p>Fish loads files from <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/fish/completions</span></code> (default:
+<code class="docutils literal notranslate"><span class="pre">~/.config/fish/completions</span></code>). Bash needs <code class="docutils literal notranslate"><span class="pre">bash-completion</span></code> installed and
+enabled; files are installed under <code class="docutils literal notranslate"><span class="pre">$XDG_DATA_HOME/bash-completion/completions</span></code>
+(default: <code class="docutils literal notranslate"><span class="pre">~/.local/share/bash-completion/completions</span></code>). Without bash-completion,
+source those generated files from <code class="docutils literal notranslate"><span class="pre">~/.bashrc</span></code>. For Zsh, add the installation
+directory printed by the installer before <code class="docutils literal notranslate"><span class="pre">compinit</span></code> in <code class="docutils literal notranslate"><span class="pre">~/.zshrc</span></code>. With the
+default <code class="docutils literal notranslate"><span class="pre">XDG_DATA_HOME</span></code>, this is:</p>
+<div class="highlight-zsh notranslate"><div class="highlight"><pre><span></span><span class="nv">fpath</span><span class="o">=(</span>~/.local/share/zsh/completions<span class="w"> </span><span class="nv">$fpath</span><span class="o">)</span>
+autoload<span class="w"> </span>-Uz<span class="w"> </span>compinit
+compinit
+</pre></div>
+</div>
+<p>Restart the shell after installation. These completions cover the Click-based
+entry points, including optional commands when their extras are installed.
+<code class="docutils literal notranslate"><span class="pre">gptme-wut</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme-convert</span></code>, and <code class="docutils literal notranslate"><span class="pre">gptme-eval-trends</span></code> currently use argparse
+and are not covered; <code class="docutils literal notranslate"><span class="pre">gptme-acp</span></code> is a stdio protocol transport, not an interactive
+CLI.</p>
+</section>
 <section id="common-invocations">
 <h2>Common invocations<a class="headerlink" href="#common-invocations" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w">                                   </span><span class="c1"># pick or start a conversation</span>
@@ -822,6 +858,7 @@ inside a session, and <a class="reference internal" href="config.html"><span cla
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell-completions">Shell completions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-invocations">Common invocations</a></li>
 </ul>
   </nav></div>
