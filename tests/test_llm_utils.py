@@ -1655,6 +1655,27 @@ def test_handle_tools_mid_line_closer_keeps_tool_pair(
 
 
 @pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("example", ['{"command": ', '{"command": "echo'])
+def test_handle_tools_mention_then_unfinished_call(tag: str, example: str) -> None:
+    """An unfinished example stays in the reasoning, so it cannot hide a call."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    content = (
+        f"<{tag}>\nClose with </{tag}> later.\n@shell(quoted): {example}\n"
+        f'</{tag}>\n\nAnswer.\n@shell(call-1): {{"command": "echo real"}}'
+    )
+
+    result = list(_handle_tools([{"role": "assistant", "content": content}]))
+
+    parts = result[0]["content"]
+    assert [part["type"] for part in parts] == ["text", "tool_use"]
+    assert parts[0]["text"].strip() == "Answer."
+    assert parts[1]["id"] == "call-1"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
 def test_extract_thinking_content_mention_then_quoted_call(tag: str) -> None:
     """Known limit: a mentioned closer before a quoted call ends the reasoning.
 

@@ -1468,6 +1468,14 @@ def _extract_thinking_content(
             return len(text_content), None
         return match.start(), find_json_end(text_content, match.start(3))
 
+    def has_complete_call(start: int, end: int) -> bool:
+        while found := toolcall_re.search(text_content, start, end):
+            start = found.start(3)
+            json_end = find_json_end(text_content, start)
+            if json_end is not None and json_end <= end:
+                return True
+        return False
+
     def unsigned_block(start: int) -> re.Match[str] | None:
         """The leading unsigned reasoning block opening at ``start``, if any."""
         block = unsigned_block_pattern.match(text_content, start)
@@ -1476,7 +1484,8 @@ def _extract_thinking_content(
         first = first_closer_pattern.match(text_content, start)
         # A call after an earlier closer may be real. Dropping it would orphan its
         # tool_result, so end the reasoning at that closer instead.
-        if first and toolcall_re.search(text_content, first.end(2), block.end(2)):
+        # An unfinished example is never executed, so it has no result to orphan.
+        if first and has_complete_call(first.end(2), block.end(2)):
             return first
         return block
 
