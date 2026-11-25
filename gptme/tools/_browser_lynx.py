@@ -258,21 +258,59 @@ def _parse_set_cookie(
     return key, (value, expires, secure)
 
 
-def _create_cookie_jar(cookies: dict[str, str], host: str) -> _CookieJar:
+def _primary_lynx_config(env: dict[str, str], deadline: float) -> str | None:
+    """Path of the lynx.cfg lynx loads on its own, as reported by lynx.
+
+    The location is compiled in (and overridable with ``LYNX_CFG``), so ask
+    instead of guessing. Returns ``None`` if lynx does not report one.
+    """
+    page = subprocess.run(
+        [
+            "lynx",
+            "-dump",
+            "-nolist",
+            "-width=1000",
+            "--display_charset=utf-8",
+            "LYNXCFG:",
+        ],
+        env={**env, "LC_ALL": "C"},  # the label below is translated
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=_remaining(deadline),
+        check=False,  # no report just means nothing to include
+    ).stdout
+    match = re.search(r"#Your primary configuration (.+)", page)
+    return match.group(1).strip() if match else None
+
+
+def _create_cookie_jar(
+    cookies: dict[str, str], host: str, base_config: str | None
+) -> _CookieJar:
     """Create a private jar seeded with the caller's cookies, plus a lynx config.
 
     The config file is what enables ``PERSISTENT_COOKIES``; lynx ignores
-    ``-cookie_file`` without it. Seed cookies are host-only for ``host``.
+    ``-cookie_file`` without it. ``-cfg`` replaces lynx's own configuration, so
+    ``base_config`` is included first to keep site settings such as proxies.
+    Seed cookies are host-only for ``host``.
     """
     fd, cookie_file = tempfile.mkstemp(suffix=".txt", prefix="lynx_cookies_")
-    jar = _CookieJar(cookie_file, f"{cookie_file}.cfg")
+    jar = _CookieJar(cookie_file, "")
     fd_open = True
     try:
         Path(cookie_file).chmod(0o600)
         with os.fdopen(fd, "w") as handle:
             fd_open = False
             handle.write("# Netscape HTTP Cookie File\n")
-        Path(jar.config_path).write_text("PERSISTENT_COOKIES:TRUE\n", encoding="utf-8")
+        # Its own mkstemp: lynx obeys this file, so nobody else may create it.
+        config_fd, jar.config_path = tempfile.mkstemp(
+            suffix=".cfg", prefix="lynx_cookies_"
+        )
+        with os.fdopen(config_fd, "w", encoding="utf-8") as handle:
+            if base_config:
+                handle.write(f"INCLUDE:{base_config}\n")
+            handle.write("PERSISTENT_COOKIES:TRUE\n")
         expires = int(time.time()) + _SESSION_COOKIE_TTL
         for name, value in cookies.items():
             # Tail-matching domain, as before: these are the caller's cookies
@@ -283,7 +321,8 @@ def _create_cookie_jar(cookies: dict[str, str], host: str) -> _CookieJar:
         if fd_open:
             os.close(fd)
         Path(cookie_file).unlink(missing_ok=True)
-        Path(jar.config_path).unlink(missing_ok=True)
+        if jar.config_path:
+            Path(jar.config_path).unlink(missing_ok=True)
         raise
     return jar
 
@@ -353,7 +392,9 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     # needed even without caller cookies: a server can set a session cookie on
     # the redirect that the next hop (and the final fetch) expects back.
     jar = (
-        _create_cookie_jar(cookies or {}, cookie_host or "")
+        _create_cookie_jar(
+            cookies or {}, cookie_host or "", _primary_lynx_config(env, deadline)
+        )
         if cookies or allow_hosts is not None
         else None
     )

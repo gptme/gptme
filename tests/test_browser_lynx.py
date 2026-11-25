@@ -15,6 +15,18 @@ from gptme.tools._browser_lynx import _validate_url_scheme, read_url, search
 lynx_available = shutil.which("lynx") is not None
 
 
+@pytest.fixture(autouse=True)
+def real_config_lookup(monkeypatch):
+    """Keep subprocess mocks to the fetch itself; yield the real config lookup."""
+    from gptme.tools import _browser_lynx
+
+    real = _browser_lynx._primary_lynx_config
+    monkeypatch.setattr(
+        _browser_lynx, "_primary_lynx_config", lambda env, deadline: None
+    )
+    return real
+
+
 def test_header_probe_bounds_bytes_before_decoding(monkeypatch):
     """A large raw body must not be captured or decoded in full."""
     import subprocess
@@ -137,15 +149,14 @@ def test_read_url_rejects_cookie_line_injection(cookies):
 
 
 def test_read_url_cookie_file_is_private():
-    observed_mode = None
-    cookie_path = None
+    observed_modes: list[int] = []
+    paths: list[str] = []
 
     def mock_run(cmd, **kwargs):
-        nonlocal cookie_path, observed_mode
-        cookie_path = next(
-            arg.split("=", 1)[1] for arg in cmd if arg.startswith("-cookie_file=")
-        )
-        observed_mode = stat.S_IMODE(os.stat(cookie_path).st_mode)
+        for flag in ("-cookie_file=", "-cfg="):
+            path = next(a.split("=", 1)[1] for a in cmd if a.startswith(flag))
+            paths.append(path)
+            observed_modes.append(stat.S_IMODE(os.stat(path).st_mode))
 
         from unittest.mock import MagicMock
 
@@ -156,10 +167,13 @@ def test_read_url_cookie_file_is_private():
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
         read_url("https://example.com", cookies={"CONSENT": "YES"})
 
-    assert cookie_path is not None
-    assert not os.path.exists(cookie_path)
+    assert len(paths) == 2
+    assert not any(os.path.exists(path) for path in paths)
+    # The config name must not be derivable from the jar name: another user
+    # could otherwise create it first and control what lynx loads.
+    assert not paths[1].startswith(paths[0])
     if sys.platform != "win32":
-        assert observed_mode == 0o600
+        assert observed_modes == [0o600, 0o600]
 
 
 def test_read_url_closes_cookie_descriptor_when_chmod_fails():
@@ -671,7 +685,9 @@ def test_read_url_cookie_file_removed_when_redirect_probe_fails(mock_probe_via_r
 
 
 @pytest.mark.skipif(not lynx_available, reason="lynx not installed")
-def test_allowlisted_redirect_hops_carry_session_cookie():
+def test_allowlisted_redirect_hops_carry_session_cookie(
+    monkeypatch, real_config_lookup
+):
     """A session cookie set on one hop must reach the next hop and the fetch.
 
     With an allowlist every hop is its own lynx process, so the cookie only
@@ -680,7 +696,11 @@ def test_allowlisted_redirect_hops_carry_session_cookie():
     import http.server
     import threading
 
+    from gptme.tools import _browser_lynx
     from gptme.tools._url_safety import set_session_allow_hosts
+
+    # The installed lynx.cfg is included, so ours must still override it.
+    monkeypatch.setattr(_browser_lynx, "_primary_lynx_config", real_config_lookup)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -723,6 +743,66 @@ def test_allowlisted_redirect_hops_carry_session_cookie():
         set_session_allow_hosts(None)
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_cookie_fetch_keeps_lynx_site_config(monkeypatch, tmp_path, real_config_lookup):
+    """``-cfg`` replaces lynx.cfg, so the user's settings must be included."""
+    import http.server
+    import threading
+
+    from gptme.tools import _browser_lynx
+
+    cookie_headers: list[str] = []
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            cookie_headers.append(self.headers.get("Cookie", ""))
+            body = b"<p>VIA PROXY</p>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    site_config = tmp_path / "site lynx.cfg"
+    site_config.write_text(
+        f"http_proxy:http://127.0.0.1:{server.server_port}/\n"
+        # Distribution configs ship this, and ours has to win over it.
+        "PERSISTENT_COOKIES:FALSE\n",
+        encoding="utf-8",
+    )
+    for name in ("http_proxy", "HTTP_PROXY", "no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LYNX_CFG", str(site_config))
+    monkeypatch.setattr(_browser_lynx, "_primary_lynx_config", real_config_lookup)
+    try:
+        output = read_url("http://site.invalid/", cookies={"sid": "abc123"})
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert "VIA PROXY" in output
+    assert cookie_headers == ["sid=abc123"]
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_primary_lynx_config_finds_the_default(monkeypatch, real_config_lookup):
+    import time
+
+    monkeypatch.delenv("LYNX_CFG", raising=False)
+    monkeypatch.delenv("lynx_cfg", raising=False)
+
+    path = real_config_lookup(os.environ.copy(), time.monotonic() + 10)
+
+    assert path is not None
+    assert os.path.isfile(path)
 
 
 def _absorb(headers: list[str], url: str, jar_dir, seed: dict | None = None):
