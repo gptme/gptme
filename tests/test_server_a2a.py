@@ -676,6 +676,8 @@ def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
     """A step_complete posted while a stalled holder owns step_lock completes."""
     import threading
 
+    caplog.set_level("INFO", logger="gptme.server.a2a_api")
+
     import gptme.server.a2a_api as a2a_api_module
     import gptme.server.session_step as session_step_module
     from gptme.logmanager import LogManager
