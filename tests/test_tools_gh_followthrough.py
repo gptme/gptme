@@ -184,8 +184,9 @@ def test_pr_view_actions_status_warns_on_incomplete_listing() -> None:
 
 
 @pytest.mark.parametrize("form", FORMS)
+@pytest.mark.parametrize("ref", ["42", " 42 ", " #42 "])
 def test_bare_merge_ref_resolves_against_session_workspace(
-    form: str, tmp_path, monkeypatch
+    form: str, ref: str, tmp_path, monkeypatch
 ) -> None:
     """A bare PR number must resolve against the session checkout, which is the
     cwd the CLI pass-through used, not the host process cwd."""
@@ -202,12 +203,14 @@ def test_bare_merge_ref_resolves_against_session_workspace(
                 "repo",
                 "view",
                 "--json",
-                "nameWithOwner",
+                "url",
                 "--jq",
-                ".nameWithOwner",
+                ".url",
             ]
             repo = "session/repo" if kwargs.get("cwd") == str(tmp_path) else "host/repo"
-            return SimpleNamespace(returncode=0, stdout=repo + "\n", stderr="")
+            return SimpleNamespace(
+                returncode=0, stdout=f"https://github.com/{repo}\n", stderr=""
+            )
         return SimpleNamespace(
             returncode=0, stdout="git@github.com:fork/repo.git\n", stderr=""
         )
@@ -220,7 +223,7 @@ def test_bare_merge_ref_resolves_against_session_workspace(
             return_value={"success": True, "message": "synthetic", "sha": "m"},
         ) as merge,
     ):
-        invoke(f"pr merge 42 --squash --match-head-commit {SHA}", form)
+        invoke(f"pr merge {shlex.quote(ref)} --squash --match-head-commit {SHA}", form)
     assert seen_cwds == [str(tmp_path)]
     assert merge.call_args.args == ("session", "repo", "42")
 
@@ -311,3 +314,37 @@ def test_bare_merge_fails_closed_when_gh_repo_is_unknown(output) -> None:
         messages = invoke("pr merge 42 --squash", "body")
     merge.assert_not_called()
     assert "Use owner/repo#N or --repo owner/repo" in messages[0].content
+
+
+@pytest.mark.parametrize("host", ["enterprise.example.com", "github.com.evil.example"])
+def test_bare_merge_rejects_selected_enterprise_host(host) -> None:
+    with (
+        patch(
+            "gptme.tools.gh.subprocess.run",
+            return_value=SimpleNamespace(stdout=f"https://{host}/o/r"),
+        ),
+        patch("gptme.tools.gh.merge_github_pr") as merge,
+    ):
+        messages = invoke("pr merge 42 --squash", "body")
+    merge.assert_not_called()
+    assert "Error:" in messages[0].content
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_native_run_view_deleted_workspace(explicit, tmp_path) -> None:
+    from gptme.util.workspace import workspace_scope
+
+    missing = tmp_path / "removed"
+
+    def transport(cmd, **kwargs):
+        if str(kwargs.get("cwd")) == str(missing):
+            raise FileNotFoundError(str(missing))
+        return SimpleNamespace(returncode=0, stdout='{"jobs": []}', stderr="")
+
+    with (
+        workspace_scope(missing),
+        patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh"),
+        patch("gptme.util.gh.subprocess.run", side_effect=transport),
+    ):
+        messages = invoke("run view 123" + (" --repo o/r" if explicit else ""), "body")
+    assert ("No job data available" if explicit else "Error:") in messages[0].content

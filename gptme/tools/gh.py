@@ -442,6 +442,7 @@ def _resolve_ref(
     if not ref:
         return None, Message("system", f"Error: No {entity_name} provided")
 
+    ref = ref.strip()
     # Match gh's repository selection, including GH_REPO and the default set
     # by `gh repo set-default` in fork checkouts. Never guess origin for a
     # mutation when gh cannot determine the intended repository.
@@ -453,9 +454,9 @@ def _resolve_ref(
                     "repo",
                     "view",
                     "--json",
-                    "nameWithOwner",
+                    "url",
                     "--jq",
-                    ".nameWithOwner",
+                    ".url",
                 ],
                 cwd=get_workspace_cwd(),
                 capture_output=True,
@@ -463,10 +464,12 @@ def _resolve_ref(
                 check=True,
                 timeout=10,
             )
-            repo = result.stdout.strip()
-            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
-                raise ValueError("Invalid repository returned by gh")
-            ref = f"{repo}#{ref.lstrip('#')}"
+            repo_url = result.stdout.strip().rstrip("/")
+            if not re.fullmatch(
+                r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_url
+            ):
+                raise ValueError("Unsupported repository returned by gh")
+            ref = f"{repo_url}/{default_type}/{ref.lstrip('#')}"
         except (subprocess.SubprocessError, OSError, ValueError):
             return None, Message(
                 "system",

@@ -6,6 +6,7 @@ Originally prototyped as scripts/gh-pr-view-with-pr-comments.py (since removed)
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -304,12 +305,14 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
 
         return "\n".join(lines) if lines else None
 
-    except ValueError as e:  # includes json.JSONDecodeError and incomplete listings
-        logger.debug(f"Incomplete GitHub Actions status: {e}")
-        return "⚠️ CI status unavailable (could not obtain a complete check listing; retry)."
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, KeyError) as e:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        ValueError,
+        KeyError,
+    ) as e:
         logger.debug(f"Failed to get GitHub Actions status: {e}")
-        return None
+        return "⚠️ CI status unavailable (could not obtain a complete check listing; retry)."
 
 
 def _get_repo_from_git_remote(
@@ -1220,6 +1223,10 @@ def get_github_run_logs(
     from .workspace import get_workspace_cwd
 
     cwd = get_workspace_cwd()
+    # An explicit repository does not need checkout inference. If the session
+    # checkout was removed, use a neutral directory, never the server's repo.
+    if repo and cwd and not Path(cwd).is_dir():
+        cwd = os.path.abspath(os.sep)
     repo_args = ["--repo", repo] if repo else []
 
     def bounded_output(output: str) -> str:
@@ -1410,7 +1417,7 @@ def get_github_run_logs(
 
         return bounded_output(output)
 
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
         logger.warning(f"Failed to get run info: {e}")
         return None
     except json.JSONDecodeError as e:
