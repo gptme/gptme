@@ -3133,6 +3133,9 @@ def api_conversation_metadata_patch(conversation_id: str):
     if error_msg := validate_metadata_patch(req_json):
         return flask.jsonify({"error": error_msg}), 400
     logdir = get_logs_dir() / conversation_id
+    # Reject missing conversations before allocating a persistent lock entry.
+    if not (logdir / "conversation.jsonl").is_file():
+        return _conversation_not_found(conversation_id)
     # Check under the lock: a DELETE that wins the lock removes the folder.
     with SessionManager.conversation_lock(conversation_id):
         if not (logdir / "conversation.jsonl").is_file():

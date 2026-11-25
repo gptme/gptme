@@ -165,13 +165,23 @@ class TestMetadata:
         client.get("/api/v2/conversations?limit=1000")
         assert api_v2._conversations_cache is not None
 
-    def test_unknown_conversation_is_404(self, client: FlaskClient):
+    def test_unknown_conversation_is_404_without_allocating_lock(
+        self, client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        from unittest.mock import Mock
+
+        from gptme.server.session_models import SessionManager
+
         cid = f"missing-{uuid4().hex[:8]}"
+        lock = Mock(wraps=SessionManager.conversation_lock)
+        monkeypatch.setattr(SessionManager, "conversation_lock", lock)
         assert client.get(f"/api/v2/conversations/{cid}/metadata").status_code == 404
         resp = client.patch(
             f"/api/v2/conversations/{cid}/metadata", json={"starred": True}
         )
         assert resp.status_code == 404
+        lock.assert_not_called()
+        assert cid not in SessionManager._conversation_locks
 
 
 class TestConfigPatchModelValidation:
