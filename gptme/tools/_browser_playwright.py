@@ -701,10 +701,19 @@ def _goto_and_snapshot(url: str) -> str:
     """Navigate the current interactive page and return its ARIA snapshot."""
     if _current_page is None:
         raise RuntimeError("No page is currently open")
+    url_before = _current_page.url
     try:
         _current_page.goto(url, timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
         # A redirect may land outside the allowlist; reject the final URL.
         _validate_page_url(_current_page.url)
+    except PlaywrightTimeoutError as e:
+        # A slow resource can hold the load event past the budget after the
+        # document has committed. Closing the session here would log the user
+        # out, so keep it: read the committed page (_page_snapshot enforces the
+        # allowlist on the live URL), or report the timeout if nothing loaded.
+        if _current_page.url == url_before:
+            raise RuntimeError(f"Timed out navigating to {url}: {e}") from e
+        logger.info(f"Load event for '{url}' timed out; reading committed page")
     except Exception as e:
         _close_current_page()
         if isinstance(e, ValueError):

@@ -1581,6 +1581,78 @@ class TestOpenPageSessionReuse:
         create_page.assert_not_called()
         close.assert_called_once_with()
 
+    def test_load_timeout_after_commit_keeps_session_and_reads_page(self):
+        """A load event held past the budget must not log the user out."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        def commit_then_time_out(url, timeout):
+            page.url = url
+            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+
+        page.goto.side_effect = commit_then_time_out
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            patch.object(bp, "_close_current_page") as close,
+        ):
+            result = bp._open_page(MagicMock(), "https://example.com/slow")
+
+        assert result == "snapshot"
+        close.assert_not_called()
+        ctx.close.assert_not_called()
+        assert bp._current_page is page
+        assert bp._current_context is ctx
+
+    def test_load_timeout_before_commit_raises_without_closing_session(self):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.goto.side_effect = bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot") as snapshot,
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="Timed out navigating"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/unreachable")
+
+        snapshot.assert_not_called()
+        close.assert_not_called()
+        assert bp._current_context is ctx
+
+    def test_non_timeout_navigation_error_still_closes_session(self):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.goto.side_effect = Exception("net::ERR_NAME_NOT_RESOLVED")
+        bp._current_page = page
+        bp._current_context = MagicMock()
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="Failed to navigate"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/missing")
+
+        close.assert_called_once_with()
+
     def test_close_current_page_closes_owned_context(self):
         from gptme.tools import _browser_playwright as bp
 
