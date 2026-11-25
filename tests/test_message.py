@@ -1164,7 +1164,9 @@ def test_format_max_length_skips_leading_blank_lines(monkeypatch, prefix: str) -
     assert "Please fix the login bug" in msg.format(max_length=100)
 
 
-@pytest.mark.parametrize("content", ["\n", "\n\n", " \n\t\n", "\r\n"])
+@pytest.mark.parametrize(
+    "content", ["\n", "\n\n", " \n\t\n", "\r\n", " \n  ", "\n\n ", "\r\n\t"]
+)
 def test_format_max_length_all_blank_keeps_sender(monkeypatch, content: str) -> None:
     """An all-blank message still previews as its sender plus a placeholder."""
     from os import terminal_size

@@ -589,7 +589,7 @@ class Message:
             # Leading blank lines (incl. CRLF/whitespace-only ones) would make
             # the first line empty; keep the first text line's indentation.
             stripped = re.sub(r"^(?:[^\S\n]*\n)+", "", self.content)
-            if not stripped:
+            if not stripped.strip():
                 # All-blank message: keep the original so the preview still
                 # shows the sender with a "..." placeholder.
                 stripped = self.content
