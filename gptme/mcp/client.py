@@ -5,7 +5,7 @@ import re
 import socket
 import ssl
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import AsyncExitStack
 from typing import Any
 from urllib.parse import urlparse
@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 import anyio
 import httpx
 import mcp.types as types  # Import all types
-from mcp import ClientSession
+from mcp import ClientSession, McpError
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.session import RequestContext
 from mcp.client.sse import sse_client
@@ -74,13 +74,40 @@ class MCPInterruptedError(Exception):
     """
 
 
-class MCPUnknownOutcomeError(RuntimeError):
-    """A sent tool call failed and must not be retried, even with connection text."""
+class MCPToolCallError(RuntimeError):
+    """A tool call failed and must not be retried, even with connection text."""
+
+
+class MCPUnknownOutcomeError(MCPToolCallError):
+    """A sent tool call failed without a confirmed response."""
+
+
+async def _await_tool_response(coro: Awaitable[Any]) -> Any:
+    """Keep explicit server errors distinct from uncertain transport failures."""
+    try:
+        return await coro
+    except Exception as error:
+        known_failure = (
+            isinstance(error, McpError) and error.error.code != types.CONNECTION_CLOSED
+        )
+        if known_failure or _is_connection_error(error):
+            diagnostic = str(error) or type(error).__name__
+            if len(diagnostic) > _MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS:
+                diagnostic = (
+                    diagnostic[:_MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS] + " [truncated]"
+                )
+            if known_failure:
+                raise MCPToolCallError(f"MCP tool failed: {diagnostic}") from error
+            raise MCPUnknownOutcomeError(
+                "MCP server failed during the call; its result is unknown "
+                f"and it was not retried: {diagnostic}"
+            ) from error
+        raise
 
 
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates MCP connection failure"""
-    if isinstance(error, MCPUnknownOutcomeError):
+    if isinstance(error, MCPToolCallError):
         return False
     # A closed or broken transport stream: str() of these is empty.
     if isinstance(
@@ -764,7 +791,7 @@ class MCPClient:
         """
         stream = self._read_stream
         if stream is None:
-            return await coro
+            return await _await_tool_response(coro)
         # The loop was stopped since the last call, so an EOF from a server that
         # exited in between is still unprocessed. Let the reader task run first:
         # without this the closed stream is seen only after the request is sent,
@@ -797,24 +824,7 @@ class MCPClient:
                         "and it was not retried"
                     )
                 await asyncio.wait({request}, timeout=0.1)
-            try:
-                return request.result()
-            except Exception as error:
-                if _is_connection_error(error):
-                    # The SDK may fail a pending request before the EOF watcher
-                    # runs. Once sent, even a completed transport failure cannot
-                    # prove whether the tool ran; never retry that operation.
-                    diagnostic = str(error) or type(error).__name__
-                    if len(diagnostic) > _MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS:
-                        diagnostic = (
-                            diagnostic[:_MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS]
-                            + " [truncated]"
-                        )
-                    raise MCPUnknownOutcomeError(
-                        "MCP server failed during the call; its result is unknown "
-                        f"and it was not retried: {diagnostic}"
-                    ) from error
-                raise
+            return await _await_tool_response(request)
         finally:
             if not request.done():
                 request.cancel()

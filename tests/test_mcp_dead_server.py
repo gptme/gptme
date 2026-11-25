@@ -68,18 +68,34 @@ def test_closed_transport_stream_is_a_connection_error(exc):
     assert _is_connection_error(exc) is True
 
 
-def test_closed_transport_stream_triggers_restart():
-    dead = MagicMock()
-    dead.call_tool.side_effect = anyio.ClosedResourceError()
-    fresh = MagicMock()
-    fresh.call_tool.return_value = "ok"
-    clients: dict[str, Any] = {"srv": dead}
-    with patch("gptme.mcp.client.MCPClient", return_value=fresh):
-        result = _call_mcp_tool_with_retry(
-            "srv", "echo", {}, MagicMock(), clients=clients
-        )
-    assert result == "ok"
-    assert clients["srv"] is fresh
+@pytest.mark.parametrize(
+    "error",
+    [anyio.ClosedResourceError(), anyio.BrokenResourceError(), anyio.EndOfStream()],
+)
+def test_http_stream_failure_after_side_effect_is_not_retried(error: Exception) -> None:
+    client = MCPClient()
+    session = AsyncMock()
+    executions = []
+
+    async def request(*_args: Any) -> None:
+        executions.append("executed")
+        raise error
+
+    session.call_tool.side_effect = request
+    client.session = session
+    try:
+        with (
+            patch("gptme.mcp.client.MCPClient") as replacement,
+            pytest.raises(RuntimeError, match="result is unknown") as info,
+        ):
+            _call_mcp_tool_with_retry(
+                "srv", "update", {}, Config(), clients={"srv": client}
+            )
+        assert executions == ["executed"]
+        assert not _is_connection_error(info.value)
+        replacement.assert_not_called()
+    finally:
+        client.close()
 
 
 @pytest.mark.timeout(60)
@@ -360,16 +376,21 @@ def test_http_connection_ignores_old_stdio_stream(use_sse: bool) -> None:
 
 
 @pytest.mark.parametrize("diagnostic_size", [0, 200_000])
+@pytest.mark.parametrize("stdio", [False, True])
+@pytest.mark.parametrize("error_code", [types.CONNECTION_CLOSED, types.INTERNAL_ERROR])
 def test_server_connection_error_detail_reaches_tool_message_without_retry(
     diagnostic_size: int,
+    stdio: bool,
+    error_code: int,
 ) -> None:
     """The adapter renders str(error), so chaining alone hides server diagnostics."""
     client = MCPClient()
-    client._read_stream = _FakeStream(1)
+    client._read_stream = _FakeStream(1) if stdio else None
     session = AsyncMock()
     session.call_tool.side_effect = McpError(
         types.ErrorData(
-            code=-32000, message="database connection closed" + "x" * diagnostic_size
+            code=error_code,
+            message="database connection closed" + "x" * diagnostic_size,
         )
     )
     client.session = session
@@ -394,8 +415,14 @@ def test_server_connection_error_detail_reaches_tool_message_without_retry(
         assert any(
             "database connection closed" in message.content for message in messages
         )
-        assert any("result is unknown" in message.content for message in messages)
-        assert any("it was not retried" in message.content for message in messages)
+        if error_code == types.CONNECTION_CLOSED:
+            assert all("result is unknown" in message.content for message in messages)
+            assert all("it was not retried" in message.content for message in messages)
+        else:
+            assert all(
+                "result is unknown" not in message.content for message in messages
+            )
+            assert all("MCP tool failed" in message.content for message in messages)
         assert all(len(message.content) < 1_200 for message in messages)
         if diagnostic_size:
             assert any("[truncated]" in message.content for message in messages)
