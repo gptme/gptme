@@ -31,6 +31,7 @@ def extract_tool_uses_from_assistant_message(
             - tool_uses: List of extracted ToolUse objects with call_id
     """
     text = ""
+    carry = ""  # same-line text after a tool call, kept out of the parser
     content_parts = []
     tool_uses = []
 
@@ -75,25 +76,27 @@ def extract_tool_uses_from_assistant_message(
             # We only want to add a tool call if we have a call_id which
             # means it is a tool response
             if tooluse.call_id:
-                before_tool = text[: tooluse.start]
+                before_tool = carry + text[: tooluse.start]
 
                 if before_tool.strip():
                     content_parts.append({"type": "text", "text": before_tool})
 
                 tool_uses.append(tooluse)
                 # Streamed text can follow the closing brace on the same
-                # line. Keep it as its own part: put back in the buffer it
-                # would start a line and could parse as another call.
-                after = _text_after_tool_call(text, tooluse)
-                if after.strip():
-                    content_parts.append({"type": "text", "text": after})
+                # line. Put back in the buffer it would start a line and
+                # could parse as another call, so carry it unparsed and
+                # prepend it to the next part: a separate part would be
+                # joined with blank lines by some providers.
+                carry = _text_after_tool_call(text, tooluse)
             else:
-                content_parts.append({"type": "text", "text": text})
+                content_parts.append({"type": "text", "text": carry + text})
+                carry = ""
             # The text is emptied to start over with the next lines if any.
             text = ""
 
     # Keep text after the last tool call. A message without any tool call still
     # returns no parts, so callers fall back to the raw content.
+    text = carry + text
     if text.strip() and (content_parts or tool_uses):
         content_parts.append({"type": "text", "text": text})
 

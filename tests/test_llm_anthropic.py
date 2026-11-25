@@ -184,6 +184,28 @@ def test_assistant_text_survives_tool_conversion(
         } in parts
 
 
+def test_unsigned_thinking_without_tool_call_is_kept_verbatim():
+    """Visible <think> text from a non-reasoning model is not a signed
+    thinking block: it must not be stripped from later requests."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    content = "<think>\nweighing options\n</think>\n\nThe answer is 4."
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="What is 2+2?"),
+        Message(role="assistant", content=content),
+        Message(role="user", content="Thanks"),
+    ]
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    dumped = json.dumps(assistant["content"])
+    assert "weighing options" in dumped, assistant
+    assert "The answer is 4." in dumped, assistant
+
+
 def test_same_line_text_after_tool_call_is_not_parsed_as_call():
     """Text after a call's JSON is mid-line, so a call-like example in it
     stays text instead of becoming a second call."""
@@ -200,6 +222,29 @@ def test_same_line_text_after_tool_call_is_not_parsed_as_call():
 
     assert [t.call_id for t in tool_uses] == ["call_1", "call_3"]
     assert any("@save(call_2)" in p["text"] for p in parts), parts
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        # Text continues on the next line after same-line text
+        '@save(call_1): {"path": "a.txt", "content": "x"}- one\n- two',
+        # ...and the next part ends at another call
+        '@save(call_1): {"path": "a.txt", "content": "x"}- one\n- two\n'
+        '@save(call_2): {"path": "b.txt", "content": "y"}',
+    ],
+)
+def test_same_line_text_after_tool_call_stays_one_part(content: str):
+    """Providers join parts with blank lines, so text after a call that
+    spans lines must be one part, or a list or code sample breaks apart."""
+    init_tools(allowlist=["save"])
+
+    parts, _ = extract_tool_uses_from_assistant_message(
+        content, tool_format_override="tool"
+    )
+
+    texts = [p["text"] for p in parts]
+    assert texts == ["- one\n- two\n"], parts
 
 
 @pytest.mark.parametrize(

@@ -1576,8 +1576,10 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 cleaned_content, tool_format_override="tool"
             )
 
-            if not thinking_blocks and not tool_uses:
-                # Nothing to convert: keep the original blocks, images included.
+            # Unsigned thinking is dropped below, so with no signed block and
+            # no tool call there is nothing to convert: keep the original
+            # blocks, visible <think> text and images included.
+            if not any(sig for _, sig in thinking_blocks) and not tool_uses:
                 pending_call_ids = set()
                 yield modified_message
                 continue
