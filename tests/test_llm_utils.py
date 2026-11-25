@@ -1293,6 +1293,92 @@ def test_handle_tools_keeps_tool_use_with_literal_think_argument():
     assert "<think>keep</think>" in str(tool_uses[0]["input"])
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("prefix", ["", "Wrap it in <think> tags.\n"])
+def test_handle_tools_literal_opener_before_signed_thinking(
+    tag: str, prefix: str
+) -> None:
+    """An unmatched literal cannot consume a later signed block or its tool pair."""
+    import json
+
+    from gptme.llm.llm_anthropic import _extract_thinking_content, _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    command = f"printf '<{tag}>'"
+    tool_call = f"@shell(call-1): {json.dumps({'command': command})}"
+    literal = prefix + tool_call
+    signed = f"<{tag}>\nmore reasoning\n<!-- think-sig: laterSig== -->\n</{tag}>"
+    content = f"{literal}\n{signed}\nDone."
+
+    assert _extract_thinking_content(content) == (
+        [("more reasoning", "laterSig==")],
+        f"{literal}\nDone.",
+    )
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "ok"},
+            ]
+        )
+    )
+    uses = [part for part in result[0]["content"] if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["input"] == {"command": command}
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "call-1"
+    assert result[0]["content"][0] == {
+        "type": "thinking",
+        "thinking": "more reasoning",
+        "signature": "laterSig==",
+    }
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_extract_thinking_content_unmatched_prose_opener(tag: str) -> None:
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    literal = f"Wrap it in <{tag}> tags."
+    content = (
+        f"{literal}\n<{tag}>\nreasoning\n<!-- think-sig: sig -->\n</{tag}>\nAnswer."
+    )
+    assert _extract_thinking_content(content) == (
+        [("reasoning", "sig")],
+        f"{literal}\nAnswer.",
+    )
+
+
+@pytest.mark.parametrize("multiline", [False, True])
+def test_extract_thinking_content_signed_literal_in_tool(multiline: bool) -> None:
+    """Even a signature-looking comment inside JSON is tool data, not thinking."""
+    import json
+
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    argument = "<think>\nliteral\n<!-- think-sig: not-a-signature -->\n</think>"
+    arguments = json.dumps({"content": argument}, indent=2 if multiline else None)
+    tool_call = f"@save(call-1): {arguments}"
+    content = (
+        f"{tool_call}\n"
+        "<think>\nreal reasoning\n<!-- think-sig: realSig -->\n</think>\nDone."
+    )
+    assert _extract_thinking_content(content) == (
+        [("real reasoning", "realSig")],
+        f"{tool_call}\nDone.",
+    )
+
+
+def test_extract_thinking_content_many_literal_blocks() -> None:
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    literal = "Example: " + "<think>literal</think> " * 10_000
+    content = literal + "<think>\nreasoning\n<!-- think-sig: sig -->\n</think>"
+    assert _extract_thinking_content(content) == (
+        [("reasoning", "sig")],
+        literal.strip(),
+    )
+
+
 def test_handle_tools_thinking_with_signature():
     """_handle_tools must include thinking block with signature when available."""
     from gptme.llm.llm_anthropic import _handle_tools

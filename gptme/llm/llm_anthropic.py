@@ -23,7 +23,7 @@ from pydantic import BaseModel  # fmt: skip
 
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
-from ..tools.base import ToolSpec, truncate_tool_description
+from ..tools.base import ToolSpec, find_json_end, toolcall_re, truncate_tool_description
 from ..tools.native_names import canonical_tool_name, native_tool_name
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
@@ -1381,25 +1381,46 @@ def _extract_thinking_content(
     # the span crossed a tool call, dropped a tool_use whose tool_result was
     # still sent (gptme/gptme#5218 item 11).
     sig_pattern = re.compile(r"\n<!-- think-sig: (.*?) -->", re.DOTALL)
-    block_pattern = re.compile(r"<(think|thinking)>(.*?)</\1>\s*", re.DOTALL)
+    # An unmatched literal opener must not absorb a later real block.
+    block_pattern = re.compile(
+        r"<(think|thinking)>((?:(?!<(?:think|thinking)>).)*?)</\1>\s*",
+        re.DOTALL,
+    )
+    # Scan only the text between complete native calls. Thinking-looking bytes
+    # in JSON arguments are data, even if they contain a signature comment.
+    text_ranges: list[tuple[int, int]] = []
+    search_from = 0
+    while call := toolcall_re.search(text_content, search_from):
+        call_end = find_json_end(text_content, call.start(3))
+        if call_end is None:
+            break
+        text_ranges.append((search_from, call.start()))
+        search_from = call_end
+    text_ranges.append((search_from, len(text_content)))
+
     thinking_blocks: list[tuple[str, str]] = []
     kept: list[str] = []
     pos = 0
     leading = True
-    for match in block_pattern.finditer(text_content):
-        before = text_content[pos : match.start()]
-        if before.strip():
+    for start, end in text_ranges:
+        if start > pos:
             leading = False
-        block = match.group(2)
-        sig_match = sig_pattern.search(block)
-        if not (leading or sig_match):
-            continue
-        kept.append(before)
-        pos = match.end()
-        signature = sig_match.group(1).strip() if sig_match else ""
-        cleaned_block = sig_pattern.sub("", block).strip()
-        if cleaned_block or signature:
-            thinking_blocks.append((cleaned_block, signature))
+        for match in block_pattern.finditer(text_content, start, end):
+            block = match.group(2)
+            sig_match = sig_pattern.search(block)
+            if not (leading or sig_match):
+                continue
+            before = text_content[pos : match.start()]
+            if leading and before.strip():
+                leading = False
+                if not sig_match:
+                    continue
+            kept.append(before)
+            pos = match.end()
+            signature = sig_match.group(1).strip() if sig_match else ""
+            cleaned_block = sig_pattern.sub("", block).strip()
+            if cleaned_block or signature:
+                thinking_blocks.append((cleaned_block, signature))
     kept.append(text_content[pos:])
     cleaned_content = "".join(kept).strip()
 
