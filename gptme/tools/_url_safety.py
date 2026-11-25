@@ -174,6 +174,10 @@ def _validate_page_url(url: str) -> None:
         )
     if not hostname:
         raise ValueError("URL must include a hostname.")
+    # Same rule as _validate_url_scheme. A browser normalizes page.url, so this
+    # is not expected to fire; it keeps the two allowlist checks consistent.
+    if "\\" in parsed.netloc:
+        raise ValueError("URL host must not contain a backslash.")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("URL must not include embedded credentials.")
     _validate_url_host(hostname)

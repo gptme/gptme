@@ -109,6 +109,13 @@ def test_backslash_in_authority_rejected_when_unrestricted():
 def test_backslash_in_path_still_allowed():
     set_session_allow_hosts(["*.allowed.com"])
     _validate_url_scheme("https://api.allowed.com/a\\b")  # no raise
+    _validate_page_url("https://api.allowed.com/a\\b")  # no raise
+
+
+def test_page_url_rejects_backslash_in_authority():
+    set_session_allow_hosts(["*.allowed.com"])
+    with pytest.raises(ValueError, match="backslash"):
+        _validate_page_url("http://evil.com\\.allowed.com/")
 
 
 def test_wildcard_does_not_cover_base_domain():
