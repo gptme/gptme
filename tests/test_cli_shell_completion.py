@@ -638,6 +638,38 @@ def test_bash_argparse_completion_word_breaks(
     assert not unexpected & candidates, result.stdout
 
 
+def test_bash_argparse_completion_rejoins_a_path_split_at_a_colon(tmp_path):
+    """Bash breaks words at ':' too, so a literal ``run:cur`` path must complete."""
+    if not shutil.which("bash"):
+        pytest.skip("bash is not installed")
+    parser = load_parser("gptme-eval-trends")
+    assert parser is not None
+    script = generate_argparse_completion("bash", "gptme-eval-trends", parser)
+    assert script is not None
+    source = tmp_path / "completion"
+    source.write_text(script)
+    cwd = tmp_path / "cwd"
+    (cwd / "run:current").mkdir(parents=True)
+    func = "_gptme_eval_trends_completion"
+    code = (
+        f"compopt() {{ :; }}; source {source}; "
+        "COMP_WORDS=('gptme-eval-trends' '--results-dir' 'run' ':' 'cur'); "
+        f"COMP_CWORD=4; {func}; printf '%s\\n' \"${{COMPREPLY[@]}}\""
+    )
+    result = subprocess.run(
+        ["bash", "-c", code],
+        check=False,
+        text=True,
+        capture_output=True,
+        cwd=cwd,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    # Only the fragment after the last ':' is replaced, so the option's path
+    # prefix must be stripped again.
+    assert set(result.stdout.splitlines()) == {"current"}, result.stdout
+
+
 def test_first_prompt_word_offers_paths_with_subcommands():
     # `gptme m<Tab>` may name a context file such as main.py, not only `models`.
     from gptme.cli.main import main as gptme_main
@@ -766,6 +798,8 @@ def test_fish_completion_ignores_user_configuration(
 
 def test_bash_filename_handling_is_scoped_to_paths(tmp_path):
     """Readline must not append '/' to a choice that also names a directory."""
+    if not shutil.which("bash"):
+        pytest.skip("bash is not installed")
     parser = load_parser("gptme-convert")
     assert parser is not None
     script = generate_argparse_completion("bash", "gptme-convert", parser)
@@ -814,6 +848,8 @@ printf '%s:%s\\n' "$mode" "${{COMPREPLY[*]}}"
 
 @pytest.mark.parametrize("has_compopt", [False, True])
 def test_bash_registers_filename_fallback_without_compopt(tmp_path, has_compopt):
+    if not shutil.which("bash"):
+        pytest.skip("bash is not installed")
     parser = load_parser("gptme-convert")
     assert parser is not None
     source = tmp_path / "completion"
@@ -851,6 +887,8 @@ def test_bash_registers_filename_fallback_without_compopt(tmp_path, has_compopt)
 def test_legacy_bash_readline_keeps_choices_plain_and_quotes_paths(
     tmp_path, monkeypatch, command, expected
 ):
+    if not shutil.which("bash"):
+        pytest.skip("bash is not installed")
     # Exercise readline itself: calling the function cannot reveal an added '/'.
     pty = pytest.importorskip("pty")
     import select

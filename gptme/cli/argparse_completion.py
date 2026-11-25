@@ -149,8 +149,9 @@ def _bash(prog: str, scope: _Scope) -> str:
     files = (
         "if type compopt >/dev/null 2>&1; then "
         "compopt -o filenames 2>/dev/null || :; "
-        'COMPREPLY=(); while IFS= read -r candidate; do COMPREPLY+=("$candidate"); '
-        'done < <(compgen -f -- "$cur"); fi'
+        "COMPREPLY=(); while IFS= read -r candidate; do "
+        'COMPREPLY+=("${candidate#"$path_prefix"}"); '
+        'done < <(compgen -f -- "$path_prefix$cur"); fi'
     )
 
     def options(_name, sc):
@@ -167,7 +168,7 @@ def _bash(prog: str, scope: _Scope) -> str:
 # Static: completing never runs {prog}.
 {func}() {{
     local cur="${{COMP_WORDS[COMP_CWORD]}}" prev="${{COMP_WORDS[COMP_CWORD-1]}}"
-    local sub="" dd="" i candidate
+    local sub="" dd="" i candidate cw=$COMP_CWORD path_prefix=""
     COMPREPLY=()
     # Filename handling belongs only to path results, not options or choices.
     compopt +o filenames 2>/dev/null || :
@@ -176,6 +177,18 @@ def _bash(prog: str, scope: _Scope) -> str:
         cur=""
     elif [[ "$prev" == "=" ]]; then
         prev="${{COMP_WORDS[COMP_CWORD-2]}}"
+    fi
+    # It splits a path at ':' and '=' as well (run:cur), so rebuild the value
+    # from its fragments: the option stays recognisable and compgen sees the
+    # whole path. readline replaces only the last fragment, so strip the
+    # rebuilt prefix from each candidate again.
+    while (( cw >= 2 )) && [[ "${{COMP_WORDS[cw-1]}}" == ":" || "${{COMP_WORDS[cw-1]}}" == "=" ]] \\
+        && [[ "${{COMP_WORDS[cw-2]}}" != -* ]]; do
+        path_prefix="${{COMP_WORDS[cw-2]}}${{COMP_WORDS[cw-1]}}$path_prefix"
+        cw=$((cw-2))
+    done
+    if (( cw != COMP_CWORD )); then
+        prev="${{COMP_WORDS[cw-1]}}"
     fi
 {_scan(scope, "COMP_WORDS", 1, "COMP_CWORD")}    if [[ -z "$dd" ]]; then
         case "$sub:$prev" in
