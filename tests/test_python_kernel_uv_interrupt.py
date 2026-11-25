@@ -80,7 +80,13 @@ def test_uv_cancellation_interrupts_workers(uv_backend: KernelBackend, worker: s
         assert result.error and result.error["ename"] == "ExecutionTimeout"
         followup = uv_backend.execute("worker.wait(timeout=5), 6 * 7", timeout=7)
         assert followup.error is None, followup.error
-        assert followup.result_text == f"({-signal.SIGINT}, 42)"
+        expected = {f"({-signal.SIGINT}, 42)"}
+        if worker == "popen":
+            # The kernel interrupt can land after the cell's waitpid() reaped
+            # the worker but before CPython stored the status; the next wait()
+            # then reports 0. A surviving worker would time out above instead.
+            expected.add("(0, 42)")
+        assert followup.result_text in expected
     finally:
         try:
             os.kill(pid, signal.SIGKILL)
