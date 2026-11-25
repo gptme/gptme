@@ -1368,6 +1368,68 @@ def test_extract_thinking_content_signed_literal_in_tool(multiline: bool) -> Non
     )
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize(
+    "reasoning",
+    [
+        'Consider this call:\n@shell(quoted): {"command": "echo example"}\nDo not run it.',
+        "The user wants <think> tags preserved.",
+        "The user wants <thinking> tags preserved.",
+        "Keep the literal <think>x</think> and <thinking>y</thinking>.",
+        "  reasoning with significant whitespace\n\n",
+    ],
+)
+@pytest.mark.parametrize("prefix", ["", "An interleaved answer.\n"])
+def test_handle_tools_signed_thinking_keeps_quoted_content(
+    tag: str, reasoning: str, prefix: str
+) -> None:
+    """Replay the provider's exact signed text, not tags/calls quoted inside it."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content, _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    tool_call = '@shell(real-call): {"command": "echo real"}'
+    content = (
+        f"{prefix}<{tag}>\n{reasoning}\n<!-- think-sig: signed== -->\n</{tag}>\n"
+        f"{tool_call}"
+    )
+    assert _extract_thinking_content(content) == (
+        [(reasoning, "signed==")],
+        f"{prefix}{tool_call}",
+    )
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "real-call", "content": "real"},
+            ]
+        )
+    )
+    assert result[0]["content"][0] == {
+        "type": "thinking",
+        "thinking": reasoning,
+        "signature": "signed==",
+    }
+    uses = [part for part in result[0]["content"] if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["input"] == {"command": "echo real"}
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "real-call"
+
+
+def test_extract_thinking_content_unsigned_before_signed() -> None:
+    """A legacy unsigned block must not absorb the following signed block."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        "<think>\nlegacy\n</think>\nAnswer.\n"
+        "<think>\nsigned\n<!-- think-sig: sig -->\n</think>"
+    )
+    assert _extract_thinking_content(content) == (
+        [("legacy", ""), ("signed", "sig")],
+        "Answer.",
+    )
+
+
 def test_extract_thinking_content_many_literal_blocks() -> None:
     from gptme.llm.llm_anthropic import _extract_thinking_content
 

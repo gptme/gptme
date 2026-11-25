@@ -1380,47 +1380,56 @@ def _extract_thinking_content(
     # content and must survive; stripping it altered tool arguments and, when
     # the span crossed a tool call, dropped a tool_use whose tool_result was
     # still sent (gptme/gptme#5218 item 11).
-    sig_pattern = re.compile(r"\n<!-- think-sig: (.*?) -->", re.DOTALL)
-    # An unmatched literal opener must not absorb a later real block.
-    block_pattern = re.compile(
+    # Signed blocks have the framing emitted by chat()/stream(). Their body is
+    # opaque: quoted tags and native calls are reasoning, not message syntax.
+    # A subsequent framed opener starts a new block, so legacy/literal openers
+    # cannot consume the signature belonging to that later block.
+    signed_pattern = re.compile(
+        r"<(think|thinking)>\n"
+        r"(?:((?:(?!\n<(?:think|thinking)>\n).)*?)\n)?"
+        r"<!-- think-sig: (.*?) -->\n</\1>\s*",
+        re.DOTALL,
+    )
+    unsigned_pattern = re.compile(
         r"<(think|thinking)>((?:(?!<(?:think|thinking)>).)*?)</\1>\s*",
         re.DOTALL,
     )
-    # Scan only the text between complete native calls. Thinking-looking bytes
-    # in JSON arguments are data, even if they contain a signature comment.
-    text_ranges: list[tuple[int, int]] = []
-    search_from = 0
-    while call := toolcall_re.search(text_content, search_from):
-        call_end = find_json_end(text_content, call.start(3))
-        if call_end is None:
-            break
-        text_ranges.append((search_from, call.start()))
-        search_from = call_end
-    text_ranges.append((search_from, len(text_content)))
-
+    opener_pattern = re.compile(r"<(?:think|thinking)>")
     thinking_blocks: list[tuple[str, str]] = []
     kept: list[str] = []
     pos = 0
+    search_from = 0
     leading = True
-    for start, end in text_ranges:
-        if start > pos:
-            leading = False
-        for match in block_pattern.finditer(text_content, start, end):
-            block = match.group(2)
-            sig_match = sig_pattern.search(block)
-            if not (leading or sig_match):
-                continue
-            before = text_content[pos : match.start()]
-            if leading and before.strip():
+    while search_from < len(text_content):
+        opener = opener_pattern.search(text_content, search_from)
+        call = toolcall_re.search(text_content, search_from)
+        if call and (opener is None or call.start() < opener.start()):
+            call_end = find_json_end(text_content, call.start(3))
+            if call_end is not None:
+                # Outside reasoning, complete JSON is opaque too, including
+                # literal tags and signature-looking strings in tool arguments.
+                search_from = call_end
                 leading = False
-                if not sig_match:
-                    continue
-            kept.append(before)
-            pos = match.end()
-            signature = sig_match.group(1).strip() if sig_match else ""
-            cleaned_block = sig_pattern.sub("", block).strip()
-            if cleaned_block or signature:
-                thinking_blocks.append((cleaned_block, signature))
+                continue
+        if opener is None:
+            break
+        if leading and text_content[search_from : opener.start()].strip():
+            leading = False
+        match = signed_pattern.match(text_content, opener.start())
+        if match:
+            # Remove only the framing newline, never strip signed whitespace.
+            block, signature = match.group(2) or "", match.group(3).strip()
+        elif leading and (
+            match := unsigned_pattern.match(text_content, opener.start())
+        ):
+            block, signature = match.group(2).strip(), ""
+        else:
+            search_from = opener.end()
+            continue
+        kept.append(text_content[pos : match.start()])
+        pos = search_from = match.end()
+        if block or signature:
+            thinking_blocks.append((block, signature))
     kept.append(text_content[pos:])
     cleaned_content = "".join(kept).strip()
 
