@@ -275,7 +275,8 @@ def test_argparse_completion_runs_in_shell_without_running_cli(
     else:
         quoted = " ".join(f"'{w}'" for w in words)
         code = (
-            f"source {source}; COMP_WORDS=({quoted}); COMP_CWORD={len(words) - 1}; "
+            f"compopt() {{ :; }}; source {source}; "
+            f"COMP_WORDS=({quoted}); COMP_CWORD={len(words) - 1}; "
             f'{func}; printf "%s\\n" "${{COMPREPLY[@]}}"'
         )
     result = subprocess.run(
@@ -619,7 +620,8 @@ def test_bash_argparse_completion_word_breaks(
     func = "_" + prog.replace("-", "_") + "_completion"
     quoted = " ".join(f"'{w}'" for w in [prog, *words])
     code = (
-        f"source {source}; COMP_WORDS=({quoted}); COMP_CWORD={len(words)}; "
+        f"compopt() {{ :; }}; source {source}; "
+        f"COMP_WORDS=({quoted}); COMP_CWORD={len(words)}; "
         f'{func}; printf "%s\\n" "${{COMPREPLY[@]}}"'
     )
     result = subprocess.run(
@@ -847,7 +849,7 @@ def test_bash_registers_filename_fallback_without_compopt(tmp_path, has_compopt)
     ],
 )
 def test_legacy_bash_readline_keeps_choices_plain_and_quotes_paths(
-    tmp_path, command, expected
+    tmp_path, monkeypatch, command, expected
 ):
     # Exercise readline itself: calling the function cannot reveal an added '/'.
     pty = pytest.importorskip("pty")
@@ -863,6 +865,9 @@ def test_legacy_bash_readline_keeps_choices_plain_and_quotes_paths(
     (tmp_path / "input dir").mkdir()
     (tmp_path / "input dir/file.json").touch()
     captured = tmp_path / "args"
+    inputrc = tmp_path / ".hostile-inputrc"
+    inputrc.write_text('"\\C-i": "BROKEN"\n')
+    monkeypatch.setenv("INPUTRC", str(inputrc))
     prompt = b"GPTME_TEST> "
     master, slave = pty.openpty()
     process = subprocess.Popen(
@@ -875,6 +880,7 @@ def test_legacy_bash_readline_keeps_choices_plain_and_quotes_paths(
             **_isolated_shell_env(tmp_path, tmp_path / "bin"),
             "PS1": prompt.decode(),
             "TERM": "dumb",
+            "INPUTRC": os.devnull,
         },
     )
     os.close(slave)

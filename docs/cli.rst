@@ -125,6 +125,12 @@ Tab cannot capture a tmux pane, convert a file, or read eval results. Rerun the
 installer after upgrading gptme to pick up new options. ``gptme-acp`` is a stdio
 protocol transport, not an interactive CLI, and has no completion.
 
+On Bash 3.2, these argparse completions use Readline's native filename fallback
+when there are no generated matches. This preserves path quoting and directory
+completion, but can also suggest filenames for free-text values such as
+``gptme-eval-trends --model``. Bash 4 and newer limit filename handling to path
+arguments.
+
 Common invocations
 ------------------
 
