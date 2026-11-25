@@ -216,3 +216,39 @@ def test_non_ascii_server_token_accepts_matching_token(monkeypatch):
         assert ok.status_code == 200
         wrong = client.get("/api/v2/conversations", query_string={"token": "tökén-x"})
         assert wrong.status_code == 401
+
+
+def test_non_ascii_server_token_accepts_matching_bearer_header(monkeypatch):
+    """A non-ASCII server token authenticates via the Authorization header.
+
+    Under PEP 3333 a WSGI server puts header values in the environ as the raw
+    bytes decoded as latin-1, so a client sending ``Bearer tökén-é`` as UTF-8
+    reaches the app as mojibake. The werkzeug test client stores header strings
+    verbatim, so build the environ value the way a real server would.
+    """
+    import gptme.server.auth
+    from gptme.server.app import create_app
+
+    monkeypatch.delenv("GPTME_DISABLE_AUTH", raising=False)
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", "tökén-é")
+    monkeypatch.setattr(gptme.server.auth, "_server_token", None)
+    monkeypatch.setattr(
+        gptme.server.auth, "_auth_enabled", gptme.server.auth._auth_enabled
+    )
+    gptme.server.auth.init_auth("0.0.0.0")
+
+    def wsgi_header(value: str) -> str:
+        return value.encode("utf-8").decode("latin-1")
+
+    app = create_app()
+    with app.test_client() as client:
+        ok = client.get(
+            "/api/v2/conversations",
+            headers={"Authorization": wsgi_header("Bearer tökén-é")},
+        )
+        assert ok.status_code == 200
+        wrong = client.get(
+            "/api/v2/conversations",
+            headers={"Authorization": wsgi_header("Bearer tökén-x")},
+        )
+        assert wrong.status_code == 401

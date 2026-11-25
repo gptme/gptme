@@ -267,6 +267,8 @@ def require_auth(f):
                 logger.warning("Invalid Authorization header format")
                 return jsonify({"error": "Invalid authorization header format"}), 401
 
+        token_from_header = bool(token)
+
         # 2. Check HttpOnly cookie (for SSE/EventSource connections)
         if not token:
             token = request.cookies.get(AUTH_COOKIE_NAME)
@@ -286,7 +288,16 @@ def require_auth(f):
             return jsonify({"error": "Missing authentication credentials"}), 401
 
         # Compare bytes: compare_digest raises TypeError on non-ASCII str.
-        if not secrets.compare_digest(token.encode(), server_token.encode()):
+        # PEP 3333 header values are the raw bytes decoded as latin-1, so
+        # re-encode a header token via latin-1 to recover what the client sent;
+        # cookies and query args are already UTF-8 decoded by werkzeug.
+        token_bytes = token.encode()
+        if token_from_header:
+            try:
+                token_bytes = token.encode("latin-1")
+            except UnicodeEncodeError:
+                pass  # not a PEP 3333 header value; keep the UTF-8 encoding
+        if not secrets.compare_digest(token_bytes, server_token.encode()):
             logger.warning("Invalid or expired token")
             return jsonify({"error": "Invalid or expired token"}), 401
 
