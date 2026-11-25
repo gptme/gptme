@@ -755,6 +755,7 @@ def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
 def test_a2a_resume_serializes_with_error_persistence(client, monkeypatch, tmp_path):
     """A resume cannot be overwritten by a crash handler's older log copy."""
     import threading
+    from contextlib import contextmanager
     from uuid import uuid4
 
     from gptme.logmanager import LogManager
@@ -769,17 +770,28 @@ def test_a2a_resume_serializes_with_error_persistence(client, monkeypatch, tmp_p
     )
     session = SessionManager.get_session(result.get_json()["session_id"])
     assert session is not None
-    started = threading.Event()
+    contended = threading.Event()
     loaded = threading.Event()
     errors: list[BaseException] = []
     real_load = LogManager.load
+    real_lock = SessionManager.conversation_lock
+
+    @contextmanager
+    def observed_lock(conversation_id):
+        lock = real_lock(conversation_id)
+        if not lock.acquire(blocking=False):
+            contended.set()
+            lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
 
     def observed_load(*args, **kwargs):
         loaded.set()
         return real_load(*args, **kwargs)
 
     def resume():
-        started.set()
         try:
             a2a_api._append_task_message(name, "follow-up must survive")
         except BaseException as exc:
@@ -787,13 +799,16 @@ def test_a2a_resume_serializes_with_error_persistence(client, monkeypatch, tmp_p
 
     worker = threading.Thread(target=resume)
     try:
-        with SessionManager.conversation_lock(name):
+        with real_lock(name):
             # Simulate the crash handler's load/persist critical section.
             old = real_load(name, lock=False)
             monkeypatch.setattr(LogManager, "load", observed_load)
+            monkeypatch.setattr(SessionManager, "conversation_lock", observed_lock)
             worker.start()
-            assert started.wait(5)
-            loaded_while_locked = loaded.wait(0.2)
+            # Prove the worker reached and contended on the actual lock;
+            # a descheduled worker must not make this test pass vacuously.
+            assert contended.wait(5), "resume never contended on conversation_lock"
+            assert not loaded.is_set(), "resume loaded before acquiring the lock"
             old.append(Message("system", "Error: setup failed"))
             old.write()
         worker.join(5)
@@ -801,9 +816,7 @@ def test_a2a_resume_serializes_with_error_persistence(client, monkeypatch, tmp_p
         assert not errors
         messages = real_load(name, lock=False).log.messages
         assert any(m.content == "follow-up must survive" for m in messages)
-        assert not loaded_while_locked, (
-            "resume loaded a stale log without conversation_lock"
-        )
+        assert loaded.is_set()
     finally:
         worker.join(5)
         SessionManager.remove_session(session.id)
