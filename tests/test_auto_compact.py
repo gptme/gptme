@@ -446,6 +446,40 @@ def test_inline_code_may_continue_with_line_start_tag(tag: str, newline: str) ->
     assert _prose(content) == content
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_stray_backtick_cannot_split_reasoning_block(tag: str, newline: str) -> None:
+    """A span may not hold a line-start opener while its closer stays outside."""
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = (
+        f"Note: use ` for code.{newline}<{tag}>secret ` thing</{tag}>{newline}Answer"
+    )
+    expected = f"Note: use ` for code.{newline}{newline}Answer"
+    assert remove_reasoning(content) == expected
+    assert _prose(content) == expected
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        "<think>private</think>",
+        "```xml\n<think>example</think>\n```",
+    ],
+)
+def test_literal_tag_span_ignores_closer_of_later_block(later: str) -> None:
+    """A later block's closer does not belong to a literal tag in inline code."""
+    from gptme.context.compress import remove_reasoning
+
+    literal = "Use `the\n<think> tag` here."
+    result = remove_reasoning(f"{literal}\n{later}")
+    assert result.startswith(literal)
+    assert "private" not in result
+    if later.startswith("```"):
+        assert result.endswith(later)
+
+
 def test_strip_reasoning_marker_shaped_text_is_literal():
     """Text that looks like an internal placeholder is never rewritten."""
     from gptme.context import strip_reasoning

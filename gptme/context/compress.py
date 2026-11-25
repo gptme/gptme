@@ -244,6 +244,7 @@ _FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`+")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
+_LINE_START_OPEN_RE = re.compile(r"^[ \t]*<(think|thinking)>", re.MULTILINE)
 # A blank line, a fence opener, or a reasoning marker alone on its line (the
 # shape providers emit). A tag followed by other text may continue inline code.
 _INLINE_BOUNDARY_RE = re.compile(
@@ -251,6 +252,24 @@ _INLINE_BOUNDARY_RE = re.compile(
     r"|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,}|<think(?:ing)?>[ \t]*\r?$)",
     re.MULTILINE,
 )
+
+
+def _splits_reasoning(content: str, start: int, end: int) -> bool:
+    """Whether an inline span candidate would cut a reasoning block in two.
+
+    True when ``content[start:end]`` holds a line-start opener whose closer
+    lies past ``end``, with no other line-start opener of that tag in between.
+    """
+    for opener in _LINE_START_OPEN_RE.finditer(content, start, end):
+        tag = opener.group(1)
+        if content.find(f"</{tag}>", opener.end(), end) != -1:
+            continue
+        after = re.compile(rf"</{tag}>|^[ \t]*<{tag}>", re.MULTILINE).search(
+            content, end
+        )
+        if after and after.group().startswith("</"):
+            return True
+    return False
 
 
 def _line_end(content: str, pos: int) -> int:
@@ -323,6 +342,8 @@ def _reasoning_segments(
                 if delimiter
                 else None
             )
+            if closing and _splits_reasoning(content, inline.end(), closing.start()):
+                closing = None  # A stray backtick, not code around the block.
             segments.append(("text", content[pos:start]))
             if closing:
                 segments.append(("code", content[start : closing.end()]))
