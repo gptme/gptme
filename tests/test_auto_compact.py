@@ -413,6 +413,27 @@ def test_strip_reasoning_inline_mention_before_fenced_example():
     assert remove_reasoning(content, drop_unclosed=True) == content
 
 
+@pytest.mark.parametrize("literal", ["~~~<think>", "~~~<think>example</think>"])
+def test_inline_tildes_are_not_a_block_boundary(literal: str) -> None:
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"Use `{literal}` in XML.\nAnswer"
+    assert remove_reasoning(content) == content
+    assert _prose(content) == content
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_inline_code_cannot_cross_streamed_reasoning_marker(tag: str) -> None:
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"An unmatched ` marker.\n<{tag}>\nprivate `variable`\n</{tag}>\nAnswer"
+    expected = "An unmatched ` marker.\n\nAnswer"
+    assert remove_reasoning(content) == expected
+    assert _prose(content) == expected
+
+
 def test_strip_reasoning_marker_shaped_text_is_literal():
     """Text that looks like an internal placeholder is never rewritten."""
     from gptme.context import strip_reasoning

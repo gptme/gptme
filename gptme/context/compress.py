@@ -244,6 +244,10 @@ _FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`+")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
+_INLINE_BOUNDARY_RE = re.compile(
+    r"\r?\n[ \t]*\r?\n|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,}|<think(?:ing)?>)",
+    re.MULTILINE,
+)
 
 
 def _line_end(content: str, pos: int) -> int:
@@ -279,6 +283,7 @@ def _reasoning_segments(
     segments: list[tuple[str, str]] = []
     pos = 0
     line_start = True
+    inline_limit = -1
     while pos < len(content):
         if line_start:
             fence = _FENCE_OPEN_RE.match(content, pos)
@@ -301,17 +306,16 @@ def _reasoning_segments(
             if (start - escape_start) % 2:
                 start += 1
             delimiter = content[start : inline.end()]
-            # Block boundaries end the paragraph too: inline code cannot
-            # swallow a later fence and pair with a backtick inside reasoning.
-            boundary = re.search(
-                r"\r?\n[ \t]*\r?\n|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,})",
-                content[inline.end() :],
-                re.MULTILINE,
-            )
-            limit = inline.end() + boundary.start() if boundary else len(content)
+            # Search the original string so ^ means a real line start. Reuse
+            # the next boundary throughout the paragraph instead of rescanning
+            # the entire suffix for every inline span. A line-start reasoning
+            # marker also prevents stray prose backticks from hiding a block.
+            if inline_limit < inline.end():
+                boundary = _INLINE_BOUNDARY_RE.search(content, inline.end())
+                inline_limit = boundary.start() if boundary else len(content)
             closing = (
                 re.compile(r"(?<!`)" + re.escape(delimiter) + r"(?!`)").search(
-                    content, inline.end(), limit
+                    content, inline.end(), inline_limit
                 )
                 if delimiter
                 else None

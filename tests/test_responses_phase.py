@@ -262,6 +262,30 @@ def test_prose_keeps_fenced_reasoning_example() -> None:
     assert _prose(code + "\nDone <think>cut off") == code + "\nDone"
 
 
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("Use `~~~<think>` in XML.\nAnswer", "Use `~~~<think>` in XML.\nAnswer"),
+        (
+            "An unmatched ` marker.\n<think>\nprivate `variable`\n</think>\nAnswer",
+            "An unmatched ` marker.\n\nAnswer",
+        ),
+    ],
+)
+def test_inline_scan_phase_roundtrip(content: str, expected: str) -> None:
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(content, "final_answer"))
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    replay = [{"role": "assistant", "content": expected, "phase": "final_answer"}]
+    assert replay_responses_output(content, metadata["responses_output"]) == replay
+    stripped, _ = strip_reasoning(content)
+    assert replay_responses_output(stripped, metadata["responses_output"]) == replay
+
+
 @pytest.mark.parametrize("indent", ["", "  "])
 @pytest.mark.parametrize("ending", ["\n", "\r\n", "\n  "])
 def test_fenced_phase_whitespace_roundtrip(indent: str, ending: str) -> None:
