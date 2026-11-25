@@ -14,7 +14,7 @@ from ..llm.models import get_default_model, get_model
 from ..llm.models.types import ModelMeta
 from ..message import Message, len_tokens
 from . import console
-from .context_budget import resolve_safe_input_ceiling
+from .context_budget import MIN_BUDGET, resolve_safe_input_ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -374,10 +374,13 @@ def _drop_orphaned_tool_pairs(
 
 def _input_token_limit(model: ModelMeta) -> int:
     """Maximum input tokens to retain while leaving room for completion output."""
-    return resolve_safe_input_ceiling(
-        model.context,
-        max_output=model.max_output or None,
-        model_id=model.full,
+    return max(
+        min(MIN_BUDGET, model.context),
+        resolve_safe_input_ceiling(
+            model.context,
+            max_output=model.max_output or None,
+            model_id=model.full,
+        ),
     )
 
 

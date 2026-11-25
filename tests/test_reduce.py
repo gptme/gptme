@@ -985,3 +985,26 @@ def test_input_token_limit_respects_openrouter_default_and_env_max_tokens(
         assert env_limit + 32_000 <= model.context
     finally:
         set_config(previous_cfg)
+
+
+def test_input_token_limit_tiny_window_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Small windows must not drop below the min(MIN_BUDGET, context) floor."""
+    from gptme.config import Config, UserConfig, get_config, set_config
+    from gptme.util.reduce import _input_token_limit
+
+    monkeypatch.delenv("GPTME_MAX_TOKENS", raising=False)
+    previous_cfg = get_config()
+    try:
+        set_config(Config(user=UserConfig()))
+        unset_max_output = ModelMeta(
+            provider="openai", model="gpt-4", context=2_000, max_output=None
+        )
+        full_window_max_output = ModelMeta(
+            provider="openai", model="gpt-4", context=2_000, max_output=2_000
+        )
+        assert _input_token_limit(unset_max_output) == 1_000
+        assert _input_token_limit(full_window_max_output) == 1_000
+    finally:
+        set_config(previous_cfg)
