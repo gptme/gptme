@@ -74,9 +74,8 @@ class _AcpTurn:
     # Resolved on the event loop by session/cancel, so prompt() can answer
     # without waiting for the worker to reach its next checkpoint.
     cancel_waiter: asyncio.Future[None] | None = None
-    # Messages of the steps completed so far, republished (never mutated) by
-    # the worker after each step, so a cancel that cannot wait for the worker
-    # still persists the steps whose side effects already happened.
+    # Messages yielded so far, republished (never mutated) by the worker after
+    # each message, so cancellation between tools preserves their results.
     completed: list[Message] = field(default_factory=list)
 
     def cancel(self) -> None:
@@ -374,6 +373,19 @@ class GptmeAgent:
         self._background_tasks: set[asyncio.Task[None]] = set()
         # The in-flight prompt turn per session, so session/cancel can stop it.
         self._active_turns: dict[str, _AcpTurn] = {}
+        # A cancelled prompt can answer before its worker or MCP cleanup ends.
+        # Do not reload another LogManager/session until both owners finish.
+        self._draining_sessions: set[str] = set()
+        self._closing_sessions: set[str] = set()
+
+    def _session_is_finishing(self, session_id: str) -> bool:
+        """Whether a cancelled conversation still has a writer or cleanup owner."""
+        turn = self._active_turns.get(session_id)
+        return (
+            (turn is not None and turn.cancelled.is_set())
+            or session_id in self._draining_sessions
+            or session_id in self._closing_sessions
+        )
 
     def on_connect(self, conn: Any) -> None:
         """Called when a client connects.
@@ -958,6 +970,10 @@ class GptmeAgent:
         # so editor restarts resume the previous conversation.
         if cwd:
             session_id = _cwd_session_id(cwd)
+            if self._session_is_finishing(session_id):
+                if session_clients:
+                    await self._close_mcp_clients(list(session_clients.values()))
+                raise RuntimeError(f"Session {session_id} is still finishing its turn")
             logdir = logs_dir / session_id
             logfile = logdir / "conversation.jsonl"
 
@@ -1673,8 +1689,8 @@ class GptmeAgent:
                 try:
                     return _run_steps(response_msgs, step_log, max_steps)
                 except _TurnCancelled:
-                    # Output of the interrupted step is dropped; completed
-                    # steps are returned so the caller can persist them.
+                    # Keep every yielded message, including results of tools
+                    # that completed before a later tool boundary cancelled.
                     logger.info("ACP prompt turn cancelled: session=%s", session_id)
                     return response_msgs, "cancelled"
 
@@ -1701,22 +1717,23 @@ class GptmeAgent:
                     # failed output with the replacement response. Bind in this
                     # worker and cover iterator consumption, not just creation.
                     with recovery_disabled():
-                        step_msgs = list(
-                            chat_step(
-                                log=step_log,
-                                stream=True,
-                                tool_format="markdown",
-                                workspace=log.workspace,
-                                model=effective_model,
-                                on_token=on_token,
-                                on_tool_execution=on_tool_execution,
-                                logdir=log.logdir,
-                                max_tokens=prompt_max_tokens,
-                            )
-                        )
+                        step_msgs: list[Message] = []
+                        for step_msg in chat_step(
+                            log=step_log,
+                            stream=True,
+                            tool_format="markdown",
+                            workspace=log.workspace,
+                            model=effective_model,
+                            on_token=on_token,
+                            on_tool_execution=on_tool_execution,
+                            stream_tool_outputs=True,
+                            logdir=log.logdir,
+                            max_tokens=prompt_max_tokens,
+                        ):
+                            step_msgs.append(step_msg)
+                            response_msgs.append(step_msg)
+                            turn.completed = list(response_msgs)
                     settle_step_tool_calls(step_msgs)
-                    response_msgs.extend(step_msgs)
-                    turn.completed = list(response_msgs)
                     step_log.extend(step_msgs)
                     step_count += 1
 
@@ -1894,13 +1911,18 @@ class GptmeAgent:
             return completed, "cancelled"
 
         def persist_late_steps(done: asyncio.Future[tuple[list[Message], str]]) -> None:
-            # Also retrieves a late exception so it is not reported unretrieved.
-            if done.cancelled() or done.exception() is not None:
-                return
-            late_msgs, _ = done.result()
-            for late_msg in late_msgs[len(completed) :]:
-                log.append(late_msg)
+            try:
+                # A failure can follow already-executed tools; retain their
+                # yielded messages even if the worker cannot return normally.
+                late_msgs = turn.completed
+                if not done.cancelled() and done.exception() is None:
+                    late_msgs, _ = done.result()
+                for late_msg in late_msgs[len(completed) :]:
+                    log.append(late_msg)
+            finally:
+                self._draining_sessions.discard(turn.session_id)
 
+        self._draining_sessions.add(turn.session_id)
         worker.add_done_callback(persist_late_steps)
         logger.info(
             "ACP worker did not stop within %.1fs of cancel: session=%s",
@@ -1928,6 +1950,10 @@ class GptmeAgent:
             NewSessionResponse if session found, None otherwise
         """
         if not _import_acp():
+            return None
+
+        if self._session_is_finishing(session_id):
+            logger.info("load_session: %s still finishing its turn", session_id[:16])
             return None
 
         # Check if already loaded in-memory
@@ -2050,6 +2076,9 @@ class GptmeAgent:
             session_id: Session to cancel
         """
         logger.info("Cancelling session %s", session_id)
+        if session_id in self._closing_sessions:
+            return
+        self._closing_sessions.add(session_id)
         # Make the session unavailable before waking the cancelled prompt: a
         # client that sends the next prompt as soon as it sees "cancelled"
         # must not start a turn on MCP clients being closed below, only for
@@ -2068,6 +2097,7 @@ class GptmeAgent:
             await self._close_mcp_clients(clients)
         finally:
             self._cleanup_session(session_id)
+            self._closing_sessions.discard(session_id)
 
     async def list_sessions(
         self,

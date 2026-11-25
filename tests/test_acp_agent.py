@@ -1940,6 +1940,152 @@ class TestPromptCancel:
         persisted = [c.args[0].content for c in log.append.call_args_list]
         assert persisted == at_return + ["```shell\necho 2\n```", "out 2"]
 
+    @pytest.mark.parametrize("late", [False, True])
+    def test_cancel_between_tools_preserves_executed_output(
+        self, monkeypatch, tmp_path, late
+    ):
+        """The real tool loop must retain output yielded before its next checkpoint."""
+        from gptme.message import Message
+        from gptme.tools.base import ToolSpec
+
+        assistant = "```effect\nfirst\n```\n\n```effect\nsecond\n```"
+        agent = TestPromptToolCallOutcomes._setup(monkeypatch, [assistant])
+        from gptme.hooks.registry import HookRegistry
+
+        agent._hook_registry = HookRegistry()
+        log = agent._registry.get("s1").log
+        entered = threading.Event()
+        release = threading.Event()
+        marker = tmp_path / "marker"
+        ran = []
+
+        def execute(code, args, kwargs):
+            ran.append(code.strip())
+            marker.write_text(code.strip())
+            entered.set()
+            assert release.wait(5.0)
+            return Message("system", "effect completed")
+
+        spec = ToolSpec(name="effect", desc="", execute=execute, block_types=["effect"])
+        monkeypatch.setattr("gptme.tools.get_tool", {"effect": spec}.get)
+        monkeypatch.setattr("gptme.tools.get_tool_for_langtag", {"effect": spec}.get)
+        monkeypatch.setattr("gptme.acp.agent._CANCEL_GRACE_S", 0.05 if late else 1.0)
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+            )
+            try:
+                await _wait_until(entered.is_set, task)
+                await agent.cancel(session_id="s1")
+                if late:
+                    result = await asyncio.wait_for(task, 2.0)
+                    assert [c.args[0].content for c in log.append.call_args_list] == [
+                        "go",
+                        assistant,
+                    ]
+                    release.set()
+                else:
+                    release.set()
+                    result = await asyncio.wait_for(task, 2.0)
+                deadline = time.monotonic() + 3.0
+                while (
+                    len(log.append.call_args_list) < 3 and time.monotonic() < deadline
+                ):
+                    await asyncio.sleep(0.01)
+                return result
+            finally:
+                release.set()
+
+        result = _run(scenario())
+        assert result.stop_reason == "cancelled"
+        assert marker.read_text() == "first"
+        assert ran == ["first"]
+        persisted = [c.args[0] for c in log.append.call_args_list]
+        assert [m.content for m in persisted] == ["go", assistant, "effect completed"]
+        assert persisted[1].metadata["tool_format"] == "markdown"
+        assert "tool_ms" not in persisted[1].metadata.get("timings", {})
+        assert persisted[2].metadata["timings"]["tool_ms"] >= 0
+
+    @pytest.mark.parametrize("blocked_part", ["worker", "cleanup"])
+    def test_reload_waits_for_cancelled_session_writers(
+        self, monkeypatch, tmp_path, blocked_part
+    ):
+        """Reload cannot race an old writer or cleanup, and succeeds once both end."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+
+        agent, _ = _make_prompt_agent()
+        log = LogManager.load(tmp_path / "s1", create=True, lock=False)
+        agent._registry.remove("s1")
+        agent._registry.create("s1", log=log)
+        monkeypatch.setattr("gptme.acp.agent.get_logs_dir", lambda: tmp_path)
+        monkeypatch.setattr("gptme.acp.agent._cwd_session_id", lambda cwd: "s1")
+        monkeypatch.setattr("gptme.acp.agent._CANCEL_GRACE_S", 0.05)
+        entered = threading.Event()
+        release = threading.Event()
+        closing = asyncio.Event()
+        release_close = asyncio.Event()
+
+        def fake_step(log, **kwargs):
+            entered.set()
+            assert release.wait(5.0)
+            yield Message("assistant", "old result")
+
+        async def close(clients):
+            closing.set()
+            if blocked_part == "cleanup":
+                await asyncio.wait_for(release_close.wait(), 5.0)
+
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+        monkeypatch.setattr(agent, "_close_mcp_clients", close)
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(
+                    prompt=[{"type": "text", "text": "old prompt"}], session_id="s1"
+                )
+            )
+            cancel_task = None
+            try:
+                await _wait_until(entered.is_set, task)
+                cancel_task = asyncio.create_task(agent.cancel(session_id="s1"))
+                await asyncio.wait_for(closing.wait(), 2.0)
+                if blocked_part == "cleanup":
+                    release.set()
+                assert (await asyncio.wait_for(task, 2.0)).stop_reason == "cancelled"
+                assert await agent.load_session(session_id="s1") is None
+                with pytest.raises(RuntimeError, match="still finishing"):
+                    await agent.new_session(cwd=str(tmp_path), mcp_servers=[])
+                assert agent._registry.get("s1") is None
+                release.set()
+                release_close.set()
+                await asyncio.wait_for(cancel_task, 2.0)
+                deadline = time.monotonic() + 3.0
+                while not any(m.content == "old result" for m in log.log):
+                    assert time.monotonic() < deadline
+                    await asyncio.sleep(0.01)
+                assert await agent.load_session(session_id="s1") is not None
+                restored = agent._registry.get("s1").log
+                restored.append(Message("user", "new prompt"))
+                reread = LogManager.load(tmp_path / "s1", lock=False)
+                assert [m.content for m in reread.log] == [
+                    "old prompt",
+                    "old result",
+                    "new prompt",
+                ]
+            finally:
+                release.set()
+                release_close.set()
+                if cancel_task is not None:
+                    await asyncio.wait_for(cancel_task, 2.0)
+
+        _run(scenario())
+
     def test_cancel_during_tool_report_keeps_tool_from_starting(self, monkeypatch):
         """A cancel arriving while the tool call is being reported wins."""
         if not _import_acp():
