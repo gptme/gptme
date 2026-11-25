@@ -5,6 +5,7 @@ Uses local ``file://`` repositories in place of remotes, so no network access.
 
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -110,9 +111,13 @@ def test_whole_repo_install_keeps_subdirectories_and_drops_git_dir(
 
 
 @pytest.mark.usefixtures("requires_symlinks")
+@pytest.mark.parametrize("metadata_names", [("SKILL.md",), ("SKILL.md", "skill.md")])
 def test_skill_md_linked_to_shared_file_in_checkout_is_copied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metadata_names: tuple[str, ...]
 ) -> None:
+    (tmp_path / "case.md").touch()
+    if len(metadata_names) > 1 and (tmp_path / "CASE.md").exists():
+        pytest.skip("Requires a case-sensitive filesystem")
     use_registry(
         tmp_path,
         monkeypatch,
@@ -121,15 +126,18 @@ def test_skill_md_linked_to_shared_file_in_checkout_is_copied(
             "skills/foo/helper.py": "print('hi')\n",
         },
         links={
-            "skills/foo/SKILL.md": "../../shared/SKILL.md",
+            **{
+                f"skills/foo/{name}": "../../shared/SKILL.md" for name in metadata_names
+            },
             "skills/foo/common.md": "../../shared/common.md",
         },
     )
     ok, msg = installer.install_skill("foo")
     assert ok, msg
     installed = installer.get_skills_dir() / "foo"
-    assert not (installed / "SKILL.md").is_symlink()
-    assert (installed / "SKILL.md").read_text() == skill_md("foo")
+    for name in metadata_names:
+        assert not (installed / name).is_symlink()
+        assert (installed / name).read_text() == skill_md("foo")
     # Other links are kept as links.
     assert os.readlink(installed / "common.md") == "../../shared/common.md"
 
@@ -187,6 +195,45 @@ def test_unsafe_git_skill_metadata_is_rejected_before_reading(
     def parse(path: Path) -> dict:
         # Untrusted git metadata must be rejected before even parsing host data.
         assert path.resolve() != secret
+        return real_parse(path)
+
+    monkeypatch.setattr(installer, "_parse_skill_frontmatter", parse)
+    suffix = "#skills/foo" if prefix else ""
+    ok, msg = installer.install_skill(f"{repo.as_uri()}{suffix}")
+    assert not ok, msg
+    assert installer.get_manifest().skills == {}
+    assert list(installer.get_skills_dir().iterdir()) == []
+    assert secret.read_text() == skill_md("stolen")
+
+
+@pytest.mark.usefixtures("requires_symlinks")
+@pytest.mark.parametrize("prefix", ["", "skills/foo/"])
+def test_all_git_metadata_case_variants_are_checked_before_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prefix: str
+) -> None:
+    (tmp_path / "case.md").touch()
+    if (tmp_path / "CASE.md").exists():
+        pytest.skip("Requires a case-sensitive filesystem")
+    secret = tmp_path / "secret.md"
+    secret.write_text(skill_md("stolen"))
+    repo = make_repo(
+        tmp_path / "repo",
+        {f"{prefix}skill.md": skill_md("foo")},
+        {f"{prefix}SKILL.md": str(secret)},
+    )
+    real_iterdir = Path.iterdir
+
+    def iterdir(path: Path) -> Iterator[Path]:
+        # Model a filesystem that orders the clone and publication directory
+        # differently: the guard sees regular metadata first, staging sees the link.
+        preferred = "SKILL.md" if path.name.startswith(".skill-new-") else "skill.md"
+        return iter(sorted(real_iterdir(path), key=lambda p: p.name != preferred))
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    real_parse = installer._parse_skill_frontmatter
+
+    def parse(path: Path) -> dict:
+        assert path.resolve() != secret, "Unvalidated host metadata was read"
         return real_parse(path)
 
     monkeypatch.setattr(installer, "_parse_skill_frontmatter", parse)

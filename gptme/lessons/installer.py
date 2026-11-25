@@ -256,14 +256,22 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
 
 
 def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
+    """Normalize every metadata candidate before later directory scans select one."""
+    return all(
+        _copy_skill_md_link(tmp, source_dir, path)
+        for path in source_dir.iterdir()
+        if path.name.lower() == "skill.md"
+    )
+
+
+def _copy_skill_md_link(tmp: Path, source_dir: Path, skill_md: Path) -> bool:
     """Replace a SKILL.md link to a file elsewhere in the clone with a copy.
 
     The skill is published without the rest of the checkout, so such a link
     would dangle. Reject metadata links outside the clone or into .git before
     reading them. Non-metadata links are left as-is.
     """
-    skill_md = _find_skill_md(source_dir)
-    if skill_md is None or not skill_md.is_symlink():
+    if not skill_md.is_symlink():
         return True
     root = tmp.resolve()
     try:
