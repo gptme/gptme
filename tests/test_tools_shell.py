@@ -438,7 +438,9 @@ def test_split_commands_syntax_errors_raise():
 def test_bad_single_command_leaves_shell_running(
     shell: ShellSession, command: str
 ) -> None:
-    status, _, _ = shell.run("export GPTME_SYNTAX_TEST=retained", output=False)
+    status, _, _ = shell.run(
+        "export GPTME_SYNTAX_TEST=retained", output=False, timeout=5
+    )
     assert status == 0
     original_process = shell.process
 
@@ -446,7 +448,7 @@ def test_bad_single_command_leaves_shell_running(
         shell.run(command, output=False, timeout=0.5)
 
     assert shell.process is original_process
-    status, stdout, _ = shell.run('echo "$GPTME_SYNTAX_TEST"', output=False)
+    status, stdout, _ = shell.run('echo "$GPTME_SYNTAX_TEST"', output=False, timeout=5)
     assert status == 0
     assert stdout == "retained"
 

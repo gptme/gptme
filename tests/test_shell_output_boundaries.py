@@ -54,7 +54,7 @@ def test_multiline_output_matches_unsplit_bash(
         # Exercise the queue-based reader with real pipes on a Bash-capable host.
         monkeypatch.setattr(shell, "_read_output_unix", shell._read_output_windows)
     elif reader == "tty":
-        monkeypatch.setattr(shell, "_needs_tty", lambda command: True)
+        monkeypatch.setattr(shell, "_command_needs_tty", lambda command: True)
     commands = [command + redirect for command in commands]
     script = "\n".join(commands)
     direct = subprocess.run(
@@ -99,7 +99,7 @@ def test_multiline_timeout_preserves_boundaries_and_stops(
     shell: ShellSession, monkeypatch: pytest.MonkeyPatch, reader: str
 ) -> None:
     if reader == "tty":
-        monkeypatch.setattr(shell, "_needs_tty", lambda command: True)
+        monkeypatch.setattr(shell, "_command_needs_tty", lambda command: True)
     result = shell.run(
         "printf 'BEFORE\\n'\n"
         "printf 'BEFORE-ERR\\n' >&2\n"
