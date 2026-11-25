@@ -684,10 +684,11 @@ def test_allowlisted_redirect_hops_carry_session_cookie():
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path.startswith("/start"):
+            if self.path == "/account/start":
                 self.send_response(302)
-                self.send_header("Set-Cookie", "sid=abc123; Path=/")
-                self.send_header("Location", "/check")
+                # No Path: defaults to /account, which must match /account.
+                self.send_header("Set-Cookie", "sid=abc123")
+                self.send_header("Location", "/account")
                 self.end_headers()
             elif "sid=abc123" in self.headers.get("Cookie", ""):
                 body = b"<p>WELCOME</p>"
@@ -699,7 +700,7 @@ def test_allowlisted_redirect_hops_carry_session_cookie():
             else:
                 # No cookie: bounce back, like a login wall does.
                 self.send_response(302)
-                self.send_header("Location", "/start")
+                self.send_header("Location", "/account/start")
                 self.end_headers()
 
         do_HEAD = do_GET
@@ -710,7 +711,7 @@ def test_allowlisted_redirect_hops_carry_session_cookie():
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    url = f"http://127.0.0.1:{server.server_port}/start"
+    url = f"http://127.0.0.1:{server.server_port}/account/start"
     try:
         # One lynx process follows the chain in-process, so cookies survive.
         assert "WELCOME" in read_url(url)
@@ -722,3 +723,118 @@ def test_allowlisted_redirect_hops_carry_session_cookie():
         set_session_allow_hosts(None)
         server.shutdown()
         server.server_close()
+
+
+def _absorb(headers: list[str], url: str, jar_dir, seed: dict | None = None):
+    """Feed Set-Cookie headers into a jar and return ``{(domain, path, name): value}``."""
+    from gptme.tools._browser_lynx import _CookieJar
+
+    jar = _CookieJar(str(jar_dir / "jar.txt"), str(jar_dir / "jar.cfg"))
+    jar.entries.update(seed or {})
+    head = "HTTP/1.1 302 Found\r\n" + "".join(f"Set-Cookie: {h}\r\n" for h in headers)
+    jar.absorb(head + "\r\n", url)
+    return {key: entry[0] for key, entry in jar.entries.items()}
+
+
+@pytest.mark.parametrize(
+    ("url", "domain", "expected"),
+    [
+        ("https://a.example.com/", "example.com", ".example.com"),
+        ("https://a.example.com/", ".Example.com", ".example.com"),
+        ("https://example.com/", "example.com", ".example.com"),
+        ("https://localhost/", "localhost", "localhost"),
+        ("https://127.0.0.1/", "127.0.0.1", "127.0.0.1"),
+        # Not the sender's own host or a parent of it.
+        ("https://a.example/", "b.example", None),
+        ("https://evilexample.com/", "example.com", None),
+        ("https://example.com/", "a.example.com", None),
+        # Suffixes shared between unrelated owners, and IP "parents".
+        ("https://a.example.com/", "com", None),
+        ("https://a.example.co.uk/", "co.uk", None),
+        ("https://127.0.0.1/", "0.0.1", None),
+    ],
+)
+def test_cookie_domain_is_limited_to_sending_host(tmp_path, url, domain, expected):
+    stored = _absorb([f"sid=x; Domain={domain}; Path=/"], url, tmp_path)
+
+    assert stored == ({(expected, "/", "sid"): "x"} if expected else {})
+
+
+@pytest.mark.parametrize(
+    "deletion",
+    [
+        "sid=gone; Path=/; Max-Age=0",
+        "sid=; Path=/",
+        "sid=gone; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        "sid=gone; Path=/; Domain=example.com; Max-Age=-1",
+    ],
+)
+def test_cookie_deletion_removes_stored_cookie(tmp_path, deletion):
+    # The seed has the tail-matching form used for caller-supplied cookies.
+    seed = {(".example.com", "/", "sid"): ("old", 2**33, False)}
+
+    assert _absorb([deletion], "https://example.com/", tmp_path, seed) == {}
+    assert "old" not in (tmp_path / "jar.txt").read_text()
+
+
+def test_cookie_deletion_cannot_reach_unrelated_domain(tmp_path):
+    seed = {(".b.example", "/", "sid"): ("keep", 2**33, False)}
+
+    stored = _absorb(
+        ["sid=; Domain=b.example; Path=/; Max-Age=0"],
+        "https://a.example/",
+        tmp_path,
+        seed,
+    )
+
+    assert stored == {(".b.example", "/", "sid"): "keep"}
+
+
+def test_subdomain_cannot_delete_parent_host_only_cookie(tmp_path):
+    seed = {("example.com", "/", "sid"): ("keep", 2**33, False)}
+
+    stored = _absorb(
+        ["sid=; Domain=example.com; Path=/; Max-Age=0"],
+        "https://a.example.com/",
+        tmp_path,
+        seed,
+    )
+
+    assert stored == {("example.com", "/", "sid"): "keep"}
+
+
+@pytest.mark.parametrize(
+    ("request_path", "cookie_path"),
+    [
+        ("", "/"),
+        ("/login", "/"),
+        ("/account/login", "/account"),
+        ("/account/", "/account"),
+    ],
+)
+def test_cookie_default_path(tmp_path, request_path, cookie_path):
+    url = f"https://example.com{request_path}"
+
+    assert _absorb(["sid=x"], url, tmp_path) == {
+        ("example.com", cookie_path, "sid"): "x"
+    }
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        # Max-Age wins in either order.
+        "Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        "Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=3600",
+        # Unreadable attributes are ignored.
+        "Max-Age=--1",
+        "Max-Age=\u00b2",
+        "Max-Age=" + "9" * 5000,
+        "Expires=Thu, 01 Jan 99999999 00:00:00 GMT",
+        "Expires=not a date",
+    ],
+)
+def test_cookie_lifetime_attributes(tmp_path, attributes):
+    stored = _absorb([f"sid=x; {attributes}"], "https://example.com/", tmp_path)
+
+    assert stored == {("example.com", "/", "sid"): "x"}

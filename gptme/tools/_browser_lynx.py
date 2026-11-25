@@ -4,6 +4,7 @@ Browser tool by calling lynx --dump
 
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -93,6 +94,9 @@ def _probe_headers(cmd: list[str], env: dict[str, str], deadline: float) -> str:
 # deadline: lynx drops jar rows whose expiry is 0 when it loads them.
 _SESSION_COOKIE_TTL = 3600
 
+# Second-level labels under which country-code registries sell names (co.uk).
+_CCTLD_SECOND_LEVELS = frozenset({"ac", "co", "com", "edu", "gov", "net", "org"})
+
 # Netscape jar row: domain, path, name -> value, expiry, secure.
 _CookieKey = tuple[str, str, str]
 _CookieEntry = tuple[str, int, bool]
@@ -116,14 +120,22 @@ class _CookieJar:
     def absorb(self, head_dump: str, url: str) -> None:
         """Store the response's cookies so later requests send them."""
         now = int(time.time())
+        host = (urlparse(url).hostname or "").lower()
         changed = False
         for header in _set_cookie_headers(head_dump):
             parsed = _parse_set_cookie(header, url, now)
             if parsed is None:
                 continue
-            key, entry = parsed
-            if self.entries.get(key) != entry:
-                self.entries[key] = entry
+            (domain, path, name), entry = parsed
+            # A host replaces (or deletes) its own cookie in both the host-only
+            # and the tail-matching form; caller cookies use the latter. Another
+            # host only touches the scope it named.
+            own = domain.lstrip(".") == host
+            for variant in {host, f".{host}"} if own else {domain}:
+                if self.entries.pop((variant, path, name), None) is not None:
+                    changed = True
+            if entry is not None:
+                self.entries[(domain, path, name)] = entry
                 changed = True
         if changed:
             self.flush()
@@ -155,50 +167,95 @@ def _set_cookie_headers(head_dump: str) -> list[str]:
 
 def _cookie_default_path(url: str) -> str:
     """Directory of the request path, the RFC 6265 default cookie Path."""
-    path = urlparse(url).path or "/"
-    if not path.startswith("/") or path.count("/") <= 1:
+    path = urlparse(url).path
+    if not path.startswith("/"):
         return "/"
-    return path.rsplit("/", 1)[0] + "/"
+    return path.rsplit("/", 1)[0] or "/"
+
+
+def _cookie_domain(attribute: str, host: str) -> str | None:
+    """Jar domain for a ``Domain`` attribute, or None if ``host`` may not set it.
+
+    A response may only scope a cookie to its own host or a parent of it. TLDs
+    and ``co.uk``-style suffixes are refused; there is no full public suffix
+    list here (``requests``, used for PDF fetches, has none either).
+    """
+    domain = attribute.removeprefix(".").lower()
+    is_ip = ":" in host or host.rsplit(".", 1)[-1].isdigit()
+    labels = domain.split(".")
+    is_suffix = len(labels) < 2 or (
+        len(labels) == 2 and len(labels[1]) == 2 and labels[0] in _CCTLD_SECOND_LEVELS
+    )
+    if domain == host:
+        return host if is_ip or is_suffix else f".{domain}"
+    if is_ip or is_suffix or not all(labels) or not host.endswith(f".{domain}"):
+        return None
+    return f".{domain}"
+
+
+def _cookie_expiry(value: str) -> int | None:
+    """Timestamp of an ``Expires`` attribute, or None if it is unreadable."""
+    try:
+        parsed = parsedate_tz(value)
+        return None if parsed is None else int(mktime_tz(parsed))
+    except (IndexError, OverflowError, TypeError, ValueError):
+        return None
 
 
 def _parse_set_cookie(
     header: str, url: str, now: int
-) -> tuple[_CookieKey, _CookieEntry] | None:
-    """Parse one Set-Cookie header into a jar row, or None if unusable."""
-    name, separator, remainder = header.partition("=")
+) -> tuple[_CookieKey, _CookieEntry | None] | None:
+    """Parse one Set-Cookie header.
+
+    Returns the jar key and the row to store under it, or ``None`` as the row
+    when the header deletes the cookie (expired, or an empty value, which leaves
+    nothing to forward). Returns ``None`` altogether if the header is unusable.
+    """
+    pair, *attributes = header.split(";")
+    name, separator, value = pair.partition("=")
     name = name.strip()
-    value = remainder.split(";", 1)[0].strip()
-    if not separator or not name or not value:
-        # An empty value is a deletion, and there is nothing to forward.
-        return None
-    if any(char in name + value for char in "\r\n\t"):
-        return None
+    value = value.strip()
     host = (urlparse(url).hostname or "").lower()
-    if not host:
+    if not separator or not name or not host:
         return None
-    domain = host
+    domain_attribute = ""
     path = _cookie_default_path(url)
-    expires = now + _SESSION_COOKIE_TTL
+    max_age: int | None = None
+    expires_at: int | None = None
     secure = False
-    for attribute in remainder.split(";")[1:]:
+    for attribute in attributes:
         attribute_name, _, attribute_value = attribute.partition("=")
         attribute_name = attribute_name.strip().lower()
         attribute_value = attribute_value.strip()
         if attribute_name == "domain" and attribute_value:
-            domain = "." + attribute_value.lstrip(".").lower()
+            domain_attribute = attribute_value
         elif attribute_name == "path" and attribute_value.startswith("/"):
             path = attribute_value
-        elif attribute_name == "max-age" and attribute_value.lstrip("-").isdigit():
-            expires = now + int(attribute_value)
+        elif attribute_name == "max-age":
+            if re.fullmatch(r"-?[0-9]{1,18}", attribute_value):
+                max_age = int(attribute_value)
         elif attribute_name == "expires":
-            parsed = parsedate_tz(attribute_value)
+            parsed = _cookie_expiry(attribute_value)
             if parsed is not None:
-                expires = int(mktime_tz(parsed))
+                expires_at = parsed
         elif attribute_name == "secure":
             secure = True
-    if expires <= now:
+    if any(char in name + value + path for char in "\r\n\t"):
         return None
-    return (domain, path, name), (value, expires, secure)
+    domain = _cookie_domain(domain_attribute, host) if domain_attribute else host
+    if domain is None:
+        return None
+    # Max-Age wins over Expires, whatever order the attributes come in.
+    if max_age is not None:
+        expires = now + max_age
+    elif expires_at is not None:
+        expires = expires_at
+    else:
+        expires = now + _SESSION_COOKIE_TTL
+    key = (domain, path, name)
+    if not value or expires <= now:
+        return key, None
+    return key, (value, expires, secure)
 
 
 def _create_cookie_jar(cookies: dict[str, str], host: str) -> _CookieJar:
