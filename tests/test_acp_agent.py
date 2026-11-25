@@ -2227,6 +2227,76 @@ class TestPromptCancel:
         assert steps == steps_before
         assert "s1" not in agent._active_turns
 
+    def test_cancelled_permission_answer_does_not_recreate_policy(self):
+        """An answer already queued when Stop lands cannot restore allow-always."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        agent, _ = _make_prompt_agent()
+
+        async def scenario():
+            turn = _AcpTurn(
+                agent=agent, session_id="s1", loop=asyncio.get_running_loop()
+            )
+            agent._active_turns["s1"] = turn
+
+            async def permission(**kwargs):
+                await agent.cancel(session_id="s1")
+                return _mock_permission_response("allow-always")
+
+            agent._conn.request_permission = AsyncMock(side_effect=permission)
+            call = ToolCall("call", "Shell", ToolKind.EXECUTE)
+            assert not await agent._request_tool_permission("s1", call)
+            assert "s1" not in agent._permission_policies
+
+        _run(scenario())
+
+    def test_cancel_returns_while_final_update_is_blocked(self, monkeypatch):
+        """A started transport write may finish, but cannot hold the prompt open."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.message import Message
+
+        agent, log = _make_prompt_agent()
+        sending = asyncio.Event()
+        release = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def update(**kwargs):
+            sending.set()
+            await release.wait()
+            finished.set()
+
+        def fake_step(log, on_token=None, **kwargs):
+            on_token("short")
+            yield Message("assistant", "short")
+
+        agent._conn.session_update = AsyncMock(side_effect=update)
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+            )
+            try:
+                await asyncio.wait_for(sending.wait(), 2.0)
+                await agent.cancel(session_id="s1")
+                assert (
+                    await asyncio.wait_for(asyncio.shield(task), 0.5)
+                ).stop_reason == "cancelled"
+                assert [c.args[0].content for c in log.append.call_args_list] == [
+                    "go",
+                    "short",
+                ]
+                assert not finished.is_set()
+            finally:
+                release.set()
+                await asyncio.gather(task, return_exceptions=True)
+                await asyncio.wait_for(finished.wait(), 1.0)
+
+        _run(scenario())
+
     def test_cancel_wakes_unanswered_permission(self, monkeypatch):
         """Stop releases the worker without a client permission answer."""
         if not _import_acp():

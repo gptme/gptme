@@ -509,6 +509,9 @@ class GptmeAgent:
             if tool_key in policies:
                 return policies[tool_key] == "allow"
 
+        # Capture the turn before awaiting: cancel() may remove its registry
+        # entry while a ready permission answer is still queued on the loop.
+        turn = self._active_turns.get(session_id)
         # Request permission from client
         try:
             options = [
@@ -540,6 +543,8 @@ class GptmeAgent:
                 options=[opt.to_dict() for opt in options],
             )
 
+            if turn is not None and turn.cancelled.is_set():
+                return False
             outcome = result.outcome
             if outcome.outcome == "cancelled":
                 return False
@@ -808,6 +813,7 @@ class GptmeAgent:
         self,
         session_id: str,
         success: bool = True,
+        turn: _AcpTurn | None = None,
     ) -> None:
         """Settle open calls and retry undelivered terminal updates.
 
@@ -819,6 +825,8 @@ class GptmeAgent:
             return
 
         for tool_call_id, tool_call in list(self._tool_calls[session_id].items()):
+            if turn is not None and turn.cancelled.is_set():
+                break
             # A stored terminal status is an undelivered outcome, not a call
             # whose result can be inferred from the turn's overall success.
             # A PENDING call never got permission to run, so it cannot have
@@ -1820,23 +1828,49 @@ class GptmeAgent:
                 _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
                 return _PromptResponse(stop_reason="cancelled")
 
-            # Final flush: send any remaining buffered tokens. From here on a
-            # session/cancel stops further updates (each send is awaited to
-            # completion, not torn mid-message) and the turn answers
-            # "cancelled"; every completed message is still persisted.
+            async def await_final_update(coro: Coroutine[Any, Any, None]) -> None:
+                # Do not cancel a transport write mid-message. On Stop, leave
+                # that one send alive but release the prompt immediately.
+                send = self._create_background_task(coro)
+                assert turn.cancel_waiter is not None
+                await asyncio.wait(
+                    {send, turn.cancel_waiter}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if send.done():
+                    send.result()
+                    return
+                # A terminal tool update may still mutate per-session state.
+                # Keep replacement sessions out until that send has finished.
+                self._draining_sessions.add(session_id)
+
+                def sent(done: asyncio.Task[None]) -> None:
+                    self._draining_sessions.discard(session_id)
+                    if not done.cancelled() and done.exception() is not None:
+                        logger.debug(
+                            "Final ACP update failed after cancel: %r", done.exception()
+                        )
+
+                send.add_done_callback(sent)
+
+            # Final flush: a cancelled prompt must not wait for a blocked
+            # transport, but its already-started write is allowed to finish.
             if batch_buffer and self._conn and not turn.cancelled.is_set():
                 batch_text = "".join(batch_buffer)
                 final_chunk = update_agent_message(text_block(batch_text))
-                await self._conn.session_update(
-                    session_id=session_id,
-                    update=final_chunk,
-                    source="gptme-stream",
+                await await_final_update(
+                    self._conn.session_update(
+                        session_id=session_id,
+                        update=final_chunk,
+                        source="gptme-stream",
+                    )
                 )
                 batch_buffer.clear()  # Only clear after confirmed successful send
 
             # Settle any call whose outcome no step observed.
             if not turn.cancelled.is_set():
-                await self._complete_pending_tool_calls(session_id)
+                await await_final_update(
+                    self._complete_pending_tool_calls(session_id, turn=turn)
+                )
 
             # Process response messages: add to log and forward non-assistant messages.
             # Assistant messages were already streamed incrementally via on_token,
@@ -1858,10 +1892,12 @@ class GptmeAgent:
                         text = block.get("text", "")
                         if text and self._conn and not turn.cancelled.is_set():
                             chunk = update_agent_message(text_block(text))
-                            await self._conn.session_update(
-                                session_id=session_id,
-                                update=chunk,
-                                source="gptme",
+                            await await_final_update(
+                                self._conn.session_update(
+                                    session_id=session_id,
+                                    update=chunk,
+                                    source="gptme",
+                                )
                             )
                     log.append(response_msg)
 
