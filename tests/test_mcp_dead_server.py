@@ -94,6 +94,15 @@ def test_http_stream_failure_after_side_effect_is_not_retried(error: Exception) 
         assert executions == ["executed"]
         assert not _is_connection_error(info.value)
         replacement.assert_not_called()
+        fresh = MagicMock()
+        fresh.call_tool.return_value = "next call result"
+        with patch("gptme.mcp.client.MCPClient", return_value=fresh):
+            result = _call_mcp_tool_with_retry(
+                "srv", "next_tool", {}, Config(), clients={"srv": client}
+            )
+        assert result == "next call result"
+        fresh.call_tool.assert_called_once_with("next_tool", {})
+        assert executions == ["executed"]
     finally:
         client.close()
 

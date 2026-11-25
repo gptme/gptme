@@ -400,6 +400,9 @@ class MCPClient:
         self.session: ClientSession | None = None
         # stdio read stream; its writer closes when the server's stdout hits EOF.
         self._read_stream: Any = None
+        # An uncertain call is never replayed; the next independent call can
+        # safely reconnect before sending anything on this failed session.
+        self._tool_transport_failed = False
         self.tools: types.ListToolsResult | None = None
         self.stack: AsyncExitStack | None = None
         self.roots: list[types.Root] = []
@@ -561,6 +564,7 @@ class MCPClient:
             if not self.tools:
                 raise RuntimeError("Failed to get tools list")
 
+            self._tool_transport_failed = False
             return (self.tools, self.session)
         except BaseException:
             self._read_stream = None
@@ -614,6 +618,7 @@ class MCPClient:
             if not self.tools:
                 raise RuntimeError("Failed to get tools list")
 
+            self._tool_transport_failed = False
             return (self.tools, self.session)
         except asyncio.CancelledError:
             user_interrupted = self._interrupt_ops.is_set()
@@ -844,9 +849,15 @@ class MCPClient:
             session = self.session
             if session is None:
                 raise RuntimeError("Should not be None")
-            result = await self._unless_transport_closed(
-                session.call_tool(tool_name, arguments)
-            )
+            if self._tool_transport_failed:
+                raise ConnectionError("MCP transport closed after the previous call")
+            try:
+                result = await self._unless_transport_closed(
+                    session.call_tool(tool_name, arguments)
+                )
+            except MCPUnknownOutcomeError:
+                self._tool_transport_failed = True
+                raise
             # Safely access content for logging
             if (
                 result.content
