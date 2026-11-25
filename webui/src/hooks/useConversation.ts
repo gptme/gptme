@@ -1364,7 +1364,11 @@ export function useConversation(conversationId: string, serverId?: string) {
         }
       } catch (error) {
         // A newer event or owner has already settled this request's UI state.
-        if (!isCurrent()) return;
+        // Still preserve the rejection contract for non-Skip approvals.
+        if (!isCurrent()) {
+          if (action !== 'skip') throw error;
+          return;
+        }
         console.error('Error confirming tool:', error);
 
         // A rejected Skip never started its continuation; release its reservation

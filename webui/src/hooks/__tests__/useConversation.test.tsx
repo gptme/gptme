@@ -508,6 +508,29 @@ describe('useConversation', () => {
     expect(confirmToolApi).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects failed approval even when a sibling event overtakes it', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('approval', { tool: 'shell' }, false));
+    let reject!: (error: Error) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise((_, fail) => {
+        reject = fail;
+      })
+    );
+    let confirming!: Promise<void>;
+    act(() => {
+      confirming = result.current.confirmTool('confirm');
+    });
+    act(() => eventHandlers!.onToolComplete!('sibling', 1, true));
+    await act(async () => {
+      const rejected = expect(confirming).rejects.toThrow('Approval failed');
+      reject(new ApiClientError('Approval failed', 500));
+      await rejected;
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('approval');
+  });
+
   it('retries generation without reposting a saved user message', async () => {
     conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
     step.mockRejectedValueOnce(new Error('generation unavailable'));

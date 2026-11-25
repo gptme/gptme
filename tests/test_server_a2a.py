@@ -1333,6 +1333,16 @@ def test_skip_reports_deferred_reply_and_remaining_approvals(
     session.pending_tools["skip-me"] = ToolExecution(
         tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
     )
+    session.pending_tools["approved"] = ToolExecution(
+        tool_id="approved", tooluse=ToolUse("shell", [], "echo approved"), step_seq=5
+    )
+    session.remember_handled_tool("approved")
+    session.pending_tools["automatic"] = ToolExecution(
+        tool_id="automatic",
+        tooluse=ToolUse("shell", [], "echo auto"),
+        step_seq=5,
+        auto_confirm=True,
+    )
     session.pending_tools["keeper"] = ToolExecution(
         tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
     )

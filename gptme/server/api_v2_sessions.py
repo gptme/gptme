@@ -958,7 +958,11 @@ def api_conversation_tool_confirm(conversation_id: str):
                 # Workers claim pending tools under this lock. Materialize the
                 # response here so a claim cannot invalidate its dict iterator.
                 pending_tools = [
-                    tool.to_pending_dict() for tool in session.pending_tools.values()
+                    tool.to_pending_dict()
+                    for tool in session.pending_tools.values()
+                    if tool.status == ToolStatus.PENDING
+                    and not tool.auto_confirm
+                    and tool.tool_id not in session.handled_tools
                 ]
 
         if skip_step_seq is None:
