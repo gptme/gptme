@@ -1282,6 +1282,7 @@ class KernelBackend:
         know the request ID (KernelManager.interrupt_kernel does not return it).
         """
         deadline = _monotonic() + 5.0
+        acknowledged = False
         try:
             request = self._kc.session.msg("interrupt_request", content={})
             self._kc.control_channel.send(request)
@@ -1296,14 +1297,22 @@ class KernelBackend:
                     == request["header"]["msg_id"]
                 ):
                     if reply.get("content", {}).get("status") == "ok":
+                        acknowledged = True
                         return
                     break
         except Exception:
             logger.warning("Kernel interrupt control channel failed", exc_info=True)
-        # A missing/error reply leaves interrupt ordering unknown. A fresh
-        # kernel is safer than letting this interrupt cancel the next cell.
-        logger.warning("Kernel did not acknowledge interrupt; shutting it down")
-        self.shutdown()
+        finally:
+            if not acknowledged:
+                # This also runs on a second Ctrl-C. Mark the kernel unusable
+                # before cleanup, which can itself be interrupted.
+                self._started = False
+                self._memory_notice = (
+                    "Kernel interrupt was not acknowledged; the kernel is reset. "
+                    "Variables and imports from earlier cells are lost."
+                )
+                logger.warning("Kernel did not acknowledge interrupt; shutting it down")
+                self.shutdown()
 
 
 def _cap_kernel_text(text: str) -> str:

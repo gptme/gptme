@@ -345,3 +345,24 @@ def test_uv_worker_enumeration_failures_are_safe(
     finally:
         backend._km = None
         backend.shutdown()
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, RuntimeError])
+def test_failed_control_wait_reports_state_loss(monkeypatch, failure):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._kc.get_control_msg.side_effect = failure
+    shutdown = Mock()
+    monkeypatch.setattr(backend, "shutdown", shutdown)
+    try:
+        if failure is KeyboardInterrupt:
+            with pytest.raises(KeyboardInterrupt):
+                backend._interrupt_via_control()
+        else:
+            backend._interrupt_via_control()
+        shutdown.assert_called_once()
+        notice = backend._take_memory_notice()
+        assert notice and "interrupt" in notice and "lost" in notice
+    finally:
+        backend._kc = None
+        backend._bridge.stop()
