@@ -81,6 +81,9 @@ from gptme.tools.base import ToolUse
         'echo "$(printf %s "$API_KEY")"',
         'API_KEY=synthetic echo "$OTHER_TOKEN"',
         # In zsh and ksh, -F selects floating-point variables and prints values.
+        "zsh -c 'typeset -F'",
+        "ksh -c 'typeset -F'",
+        "zsh <<'EOF'\ntypeset -F\nEOF",
         "zsh -c 'typeset -Fx'",
         "ksh -c 'typeset -F -x'",
         "zsh <<'EOF'\ntypeset -Fx\nEOF",

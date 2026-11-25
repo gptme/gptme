@@ -158,7 +158,9 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
                 return _REASON
         if name != "export" and all(arg.startswith(("-", "+")) for arg in args):
             flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
-            if "x" in flags and ("F" not in flags or shell != "bash"):
+            if ("x" in flags and "F" not in flags) or (
+                shell != "bash" and ("x" in flags or "F" in flags)
+            ):
                 return _REASON
     if name == "shopt":
         # `shopt -o -s xtrace` / `shopt -os xtrace` is `set -x`.
