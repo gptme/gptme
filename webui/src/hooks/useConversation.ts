@@ -366,7 +366,13 @@ export function useConversation(conversationId: string, serverId?: string) {
 
         // The first handshake follows the load above; later ones are reconnects
         // (the callbacks survive api.ts retries) and must re-sync the log.
-        let handshakes = 0;
+        // Re-subscribing a cached window skips the load (eviction by the
+        // connection cap, credential-driven client replacement), so when an
+        // earlier stream existed its outage must be recovered on the first
+        // handshake too. streamClientGeneration is recorded just below.
+        const resubscribedWithoutLoad =
+          isWindowHydrated && conversation$?.streamClientGeneration?.peek() != null;
+        let handshakes = resubscribedWithoutLoad ? 1 : 0;
 
         // Keep stream ownership by identity: a late attachment POST can append
         // a user message after the assistant currently receiving tokens.

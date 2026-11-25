@@ -179,15 +179,41 @@ export function mergeReconnectSnapshot(
     snapshotOffset: number;
     snapshotHasMore: boolean;
     arrivedCount: number;
+    /** Prompts that were still unsaved when the request started: the snapshot
+     *  may predate their save even if they are marked `sent` by now. */
+    pendingAtStart?: Message[];
   }
 ): { log: Message[]; window?: { logOffset: number; hasMoreBefore: boolean } } {
   const isIncomplete = (entry: Message) => 'isComplete' in entry && entry.isComplete === false;
   const matches = (entry: Message, saved: Message) =>
     sameLogMessage(entry, saved) ||
     (!entry.timestamp && entry.role === saved.role && entry.content === saved.content);
-  const inSnapshot = (entry: Message) => snapshot.some((saved) => matches(entry, saved));
-  const merged = snapshot.map((entry) => {
-    const previous = local.find((candidate) => matches(candidate, entry));
+  // While generating, the snapshot may already hold the saved copy of the
+  // reply the stream is still filling (generation_complete not yet received).
+  // Pair the partial with that row so it keeps the stream's identity instead
+  // of surviving next to it and being completed into a duplicate.
+  const folded = new Map<number, Message>();
+  if (options.generating) {
+    const lastAssistant = snapshot.map((entry) => entry.role).lastIndexOf('assistant');
+    local.forEach((entry, index) => {
+      if (lastAssistant < 0 || entry.role !== 'assistant' || !isIncomplete(entry)) return;
+      if (snapshot.some((saved) => matches(entry, saved))) return;
+      const saved = snapshot[lastAssistant];
+      if (folded.has(lastAssistant) || !saved.content.startsWith(entry.content)) return;
+      if (local.some((candidate) => matches(candidate, saved))) return;
+      // The saved reply must come after the row the partial followed locally.
+      const before = index > 0 ? snapshot.findIndex((row) => matches(local[index - 1], row)) : -1;
+      if (index > 0 && before < 0) return;
+      if (before < lastAssistant) folded.set(lastAssistant, entry);
+    });
+  }
+  const foldedRows = new Set(folded.values());
+  const inSnapshot = (entry: Message) =>
+    foldedRows.has(entry) || snapshot.some((saved) => matches(entry, saved));
+  const pendingAtStart = options.pendingAtStart ?? [];
+  const merged = snapshot.map((entry, snapshotIndex) => {
+    const previous =
+      local.find((candidate) => matches(candidate, entry)) ?? folded.get(snapshotIndex);
     if (!previous) return entry;
     // Keep the local identity spelling and client-only status fields.
     return {
@@ -213,6 +239,8 @@ export function mergeReconnectSnapshot(
     (options.generating || !isIncomplete(entry)) &&
     (entry._status === 'pending' ||
       entry._status === 'failed' ||
+      entry._synthetic === true ||
+      pendingAtStart.some((prompt) => matches(entry, prompt)) ||
       index >= arrivedFrom ||
       isIncomplete(entry));
   if (anchor >= 0 && options.localOffset + anchor === snapshotStart) {
@@ -1568,6 +1596,8 @@ export class ApiClient {
               role: 'system',
               content: formatWatchEventContent(watch),
               timestamp: new Date().toISOString(),
+              // No server row will ever match it; the reconnect resync keeps it.
+              _synthetic: true,
             });
             break;
           }
@@ -2007,6 +2037,7 @@ export class ApiClient {
     const logAtStart = state.data.log.peek() as Message[];
     const lastAtStart = logAtStart[logAtStart.length - 1];
     const lengthAtStart = logAtStart.length;
+    const pendingAtStart = logAtStart.filter((message) => message._status === 'pending');
     const offsetAtStart = state.logOffset.peek();
     const data = await this.getConversation(conversationId, { limit: RECONNECT_RESYNC_LIMIT });
     if (
@@ -2034,6 +2065,7 @@ export class ApiClient {
       snapshotOffset: data.before ?? 0,
       snapshotHasMore: data.has_more ?? false,
       arrivedCount,
+      pendingAtStart,
     });
     const logOffset = window ? window.logOffset : state.logOffset.peek();
     const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();

@@ -279,6 +279,26 @@ describe('resyncLogAfterReconnect (#5145)', () => {
     expect(get).not.toHaveBeenCalled();
   });
 
+  it('keeps a prompt that was pending when the request started (saved after the snapshot)', async () => {
+    const prompt: Message = {
+      role: 'user',
+      content: 'new prompt',
+      timestamp: '2026-11-24T10:00:05Z',
+      _status: 'pending',
+    };
+    replaceLog(ID, [user, reply, prompt]);
+    jest.spyOn(client, 'getConversation').mockImplementation(async () => {
+      // The send succeeded while the GET was in flight; its snapshot predates it.
+      const log = conversations$.get(ID)!.data.log;
+      log[2]._status.set('sent');
+      return response([user, reply]);
+    });
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([user, reply, { ...prompt, _status: 'sent' }]);
+  });
+
   it('does not bump the log revision when nothing changed', async () => {
     replaceLog(ID, [user, reply]);
     const revision = state().logRevision.get();
@@ -309,6 +329,31 @@ describe('mergeReconnectSnapshot', () => {
     const system: Message = { role: 'system', content: 'Instructions' };
     const { log } = mergeReconnectSnapshot([system, user], [system, user, reply], opts);
     expect(log).toEqual([system, user, reply]);
+  });
+
+  it('folds a partial reply into its saved copy instead of duplicating it', () => {
+    // The GET saw the saved reply before generation_complete reached the page.
+    const partial = { ...streaming, content: 'Hello' };
+    const { log } = mergeReconnectSnapshot([user, partial], [user, reply], {
+      ...opts,
+      generating: true,
+    });
+    // The row keeps the stream's timestamp so generation_complete fills it.
+    expect(log).toEqual([
+      user,
+      { ...reply, timestamp: partial.timestamp, content: 'Hello', isComplete: false },
+    ]);
+  });
+
+  it('keeps client-synthesized rows the server never stores', () => {
+    const notice: Message = {
+      role: 'system',
+      content: 'Subagent finished',
+      timestamp: '2026-11-24T10:00:04.567Z',
+      _synthetic: true,
+    };
+    const { log } = mergeReconnectSnapshot([user, notice], [user, reply], opts);
+    expect(log).toEqual([user, reply, notice]);
   });
 
   it('drops a row a peer deleted during the outage instead of resurrecting it', () => {

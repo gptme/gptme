@@ -493,6 +493,18 @@ describe('useConversation', () => {
     expect(conv$.logOffset.get()).toBe(10);
   });
 
+  it('re-syncs on the first handshake when re-subscribing a cached conversation (#5145)', async () => {
+    // Evicted by the connection cap or moved to a replacement client: the
+    // cached window is reused (no load), so the stream outage is unrecovered.
+    conversations$.get('chat-placeholder')!.streamClientGeneration.set(999);
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const resync = primaryClient.resyncLogAfterReconnect as jest.Mock;
+    act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
+    expect(resync).toHaveBeenCalledTimes(1);
+    expect(resync).toHaveBeenCalledWith('chat-placeholder');
+  });
+
   it('clears stale pending approval when reconnect reports no pending tools', async () => {
     renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());

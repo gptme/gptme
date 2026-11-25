@@ -30,6 +30,8 @@ export interface Message {
   _status?: 'pending' | 'sent' | 'failed';
   /** Client-only: error message when _status is 'failed' */
   _error?: string;
+  /** Client-only: synthesized by the page (e.g. watch_event notices), never stored server-side. */
+  _synthetic?: true;
   /** Client-only: persistence outcome and generation settings for explicit Retry. */
   _retry?: {
     /** Persisted system diagnostics belonging to attempts of this prompt. */
