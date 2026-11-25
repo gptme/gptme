@@ -201,6 +201,43 @@ def test_large_provider_default_reservation_is_not_reduced():
     )
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("moonshot/kimi-k3", 256_000),  # long-window default cap
+        ("moonshot/kimi-k2.6", 228_376),
+        ("xai/grok-4", 223_000),
+        ("xai/grok-3", 113_688),
+        ("openai-subscription/gpt-5.3-codex-spark", 111_000),
+    ],
+)
+def test_window_sized_max_output_without_request_limit_does_not_collapse(
+    model_id, expected
+):
+    """max_output == context is never a real reservation, even without max_tokens.
+
+    These providers send no max_tokens, so _resolve_max_tokens returns None.
+    Reserving the whole window used to clamp the budget to 1000 tokens, smaller
+    than the system prompt, so autocompact fired every turn.
+    """
+    from gptme.llm.models import get_model
+
+    m = get_model(model_id)
+    assert m.max_output == m.context
+    budget = get_context_budget(m.context, max_output=m.max_output, model_id=m.full)
+    assert budget == expected
+
+
+def test_window_sized_provider_default_is_bounded():
+    """A provider-default reservation that leaves no input room gets the bound."""
+    assert (
+        get_context_budget(
+            200_000, max_output=200_000, model_id="anthropic/claude-sonnet-4-6"
+        )
+        == 174_000
+    )
+
+
 def test_large_reservation_without_model_metadata_is_not_reduced():
     """A standalone caller's explicit reservation is not provider metadata."""
     assert get_context_budget(200_000, max_output=150_000) == 49_000
