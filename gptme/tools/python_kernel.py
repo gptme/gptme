@@ -28,6 +28,7 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
@@ -1207,9 +1208,10 @@ class KernelBackend:
         if self._active_execute_msg_id is None:
             return
         deadline = _monotonic() + grace
-        while _monotonic() < deadline:
+        # One clock read per poll: pyzmq blocks forever on a negative timeout.
+        while (remaining := deadline - _monotonic()) > 0:
             try:
-                msg = self._kc.get_iopub_msg(timeout=min(deadline - _monotonic(), 0.5))
+                msg = self._kc.get_iopub_msg(timeout=min(remaining, 0.5))
             except queue.Empty:
                 continue
             except Exception:
@@ -1222,6 +1224,37 @@ class KernelBackend:
             ):
                 self._active_execute_msg_id = None
                 break
+
+    @staticmethod
+    def _list_processes() -> list[tuple[int, int, int]]:
+        """Return ``(pid, ppid, pgid)`` for every visible process.
+
+        Linux reads procfs directly: slim container images ship without ``ps``.
+        """
+        processes = []
+        if sys.platform == "linux":
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                try:
+                    stat = Path(f"/proc/{entry}/stat").read_bytes()
+                except OSError:  # exited since the listing, or hidden from us
+                    continue
+                # The parenthesised command name may contain spaces or ")".
+                fields = stat.rpartition(b")")[2].split()
+                processes.append((int(entry), int(fields[1]), int(fields[2])))
+            return processes
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid=,pgid="],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        for line in listing.stdout.splitlines():
+            pid, ppid, pgid = map(int, line.split())
+            processes.append((pid, ppid, pgid))
+        return processes
 
     def _interrupt_uv_workers(self) -> bool:
         """Signal cell workers without signalling uv or the kernel twice.
@@ -1245,16 +1278,7 @@ class KernelBackend:
         if pgid == os.getpgrp():
             return False
         try:
-            processes = subprocess.run(
-                ["ps", "-A", "-o", "pid=,ppid=,pgid="],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=5,
-            )
-            members = [
-                tuple(map(int, line.split())) for line in processes.stdout.splitlines()
-            ]
+            members = self._list_processes()
         except (OSError, subprocess.SubprocessError, ValueError):
             logger.warning("Could not enumerate uv kernel workers", exc_info=True)
             return False

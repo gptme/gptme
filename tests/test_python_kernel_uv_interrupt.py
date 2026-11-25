@@ -18,6 +18,9 @@ pytest.importorskip("ipykernel")
 
 from gptme.tools.python_kernel import KernelBackend
 
+# (pid, ppid, pgid): uv, its kernel child, and one cell worker.
+_UV_GROUP = [(100, 1, 100), (101, 100, 100), (102, 101, 100)]
+
 
 @pytest.fixture
 def uv_backend(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -120,6 +123,25 @@ def test_drain_retries_empty_polls(monkeypatch: pytest.MonkeyPatch):
         backend.shutdown()
 
 
+def test_drain_never_polls_past_the_deadline(monkeypatch: pytest.MonkeyPatch):
+    """pyzmq treats a negative timeout as "block forever"."""
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._active_execute_msg_id = "current"
+    backend._kc.get_iopub_msg.side_effect = queue.Empty
+    # The deadline (1.0) passes between two consecutive clock reads.
+    clock = iter([0.0, 0.999, 1.001, 1.002])
+    monkeypatch.setattr("gptme.tools.python_kernel._monotonic", lambda: next(clock))
+    try:
+        backend._drain_until_idle(grace=1.0)
+        polls = backend._kc.get_iopub_msg.call_args_list
+        assert polls
+        assert all(poll.kwargs["timeout"] > 0 for poll in polls)
+    finally:
+        backend._kc = None
+        backend.shutdown()
+
+
 def test_drain_without_active_request_does_not_poll():
     backend = KernelBackend()
     backend._kc = Mock()
@@ -170,10 +192,9 @@ def test_uv_workers_use_live_group_when_provisioner_has_no_pgid(monkeypatch):
     backend = KernelBackend()
     backend._km = SimpleNamespace(provisioner=SimpleNamespace(pid=100, pgid=None))
     monkeypatch.setattr(os, "getpgid", lambda pid: 100)
-    run = Mock(
-        return_value=SimpleNamespace(stdout="100 1 100\n101 100 100\n102 101 100\n")
+    monkeypatch.setattr(
+        KernelBackend, "_list_processes", staticmethod(lambda: _UV_GROUP)
     )
-    monkeypatch.setattr("gptme.tools.python_kernel.subprocess.run", run)
     kill = Mock()
     monkeypatch.setattr(os, "kill", kill)
     try:
@@ -314,7 +335,9 @@ def test_control_interrupt_deadline_replaces_kernel(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
-@pytest.mark.parametrize("case", ["no_pid", "gone", "own_group", "bad_ps", "denied"])
+@pytest.mark.parametrize(
+    "case", ["no_pid", "gone", "own_group", "unlistable", "denied"]
+)
 def test_uv_worker_enumeration_failures_are_safe(
     monkeypatch: pytest.MonkeyPatch, case: str
 ):
@@ -328,14 +351,11 @@ def test_uv_worker_enumeration_failures_are_safe(
     if case == "gone":
         getpgid.side_effect = ProcessLookupError
     monkeypatch.setattr(os, "getpgid", getpgid)
-    run = Mock(
-        return_value=SimpleNamespace(
-            stdout="invalid"
-            if case == "bad_ps"
-            else "100 1 100\n101 100 100\n102 101 100\n"
-        )
+    listing = Mock(
+        return_value=_UV_GROUP,
+        side_effect=OSError if case == "unlistable" else None,
     )
-    monkeypatch.setattr("gptme.tools.python_kernel.subprocess.run", run)
+    monkeypatch.setattr(KernelBackend, "_list_processes", listing)
     kill = Mock(side_effect=PermissionError)
     monkeypatch.setattr(os, "kill", kill)
     try:
@@ -426,30 +446,71 @@ def test_reset_preserves_pending_memory_notice(monkeypatch):
         backend._bridge.stop()
 
 
-@pytest.mark.parametrize("failure", [FileNotFoundError, ValueError])
+def _running_members(pgid: int) -> list[str]:
+    """Group members still running; unreaped zombies are not workers."""
+    listing = subprocess.run(
+        ["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, check=True
+    ).stdout
+    return [
+        state
+        for group, state in (line.split(maxsplit=1) for line in listing.splitlines())
+        if int(group) == pgid and not state.startswith("Z")
+    ]
+
+
+@pytest.mark.parametrize("failure", [OSError, ValueError])
 def test_uv_enumeration_failure_retires_group(uv_backend, monkeypatch, failure):
     """Without worker enumeration, fail closed rather than reuse a busy kernel."""
     manager = uv_backend._km
     pgid = manager.provisioner.pgid
-    run = subprocess.run
-
-    def no_ps(args, *a, **kw):
-        if args[0] == "ps":
-            raise failure("cannot enumerate workers")
-        return run(args, *a, **kw)
-
-    monkeypatch.setattr("gptme.tools.python_kernel.subprocess.run", no_ps)
+    monkeypatch.setattr(
+        KernelBackend, "_list_processes", Mock(side_effect=failure("cannot list"))
+    )
     result = uv_backend.execute("import os; os.system('sleep 60')", timeout=0.3)
     assert result.error and result.error["ename"] == "ExecutionTimeout"
     assert "lost" in result.stderr
     # The former launch group must contain no live workers, not just a dead uv.
-    from gptme.tools.shell_memory import group_alive
-
     deadline = time.monotonic() + 5
-    while group_alive(pgid) and time.monotonic() < deadline:
+    while _running_members(pgid) and time.monotonic() < deadline:
         time.sleep(0.05)
-    assert not group_alive(pgid)
+    assert not _running_members(pgid)
     followup = uv_backend.execute("6 * 7", timeout=3)
     assert followup.error is None, followup.error
     assert followup.result_text == "42"
     assert uv_backend._km is not manager
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="procfs")
+def test_uv_interrupt_keeps_state_without_ps(uv_backend, monkeypatch):
+    """Slim container images ship without procps."""
+    manager = uv_backend._km
+    run = subprocess.run
+
+    def no_ps(args, *a, **kw):
+        if args[0] == "ps":
+            raise FileNotFoundError("ps")
+        return run(args, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", no_ps)
+    assert uv_backend.execute("kept = 42").error is None
+    result = uv_backend.execute("import os; os.system('sleep 60')", timeout=0.3)
+    assert result.error and result.error["ename"] == "ExecutionTimeout"
+    assert "lost" not in result.stderr
+    followup = uv_backend.execute("kept", timeout=3)
+    assert followup.error is None, followup.error
+    assert followup.result_text == "42"
+    assert uv_backend._km is manager
+
+
+def test_list_processes_includes_this_process():
+    if os.name != "posix":
+        pytest.skip("requires POSIX process groups")
+    me = (os.getpid(), os.getppid(), os.getpgrp())
+    assert me in KernelBackend._list_processes()
+
+
+def test_list_processes_parses_ps_without_procfs(monkeypatch: pytest.MonkeyPatch):
+    run = Mock(return_value=Mock(stdout="  100     1   100\n  101   100   100\n"))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(subprocess, "run", run)
+    assert KernelBackend._list_processes() == [(100, 1, 100), (101, 100, 100)]
