@@ -165,6 +165,37 @@ class TestMetadata:
         client.get("/api/v2/conversations?limit=1000")
         assert api_v2._conversations_cache is not None
 
+    @pytest.mark.parametrize("rebuild", [False, True])
+    def test_partial_refresh_cannot_restore_cache_after_metadata_edit(
+        self, client: FlaskClient, monkeypatch: pytest.MonkeyPatch, rebuild: bool
+    ):
+        import gptme.server.api_v2 as api_v2
+
+        active = _create_conv(client)
+        other = _create_conv(client)
+        assert _list_item(client, other)["starred"] is False
+        real_read = api_v2.get_conversation_meta_direct
+
+        def read_with_concurrent_edit(*args, **kwargs):
+            updated = real_read(*args, **kwargs)
+            # The partial refresh is doing filesystem I/O while another request
+            # edits metadata and optionally rebuilds the full cache.
+            resp = client.patch(
+                f"/api/v2/conversations/{other}/metadata", json={"starred": True}
+            )
+            assert resp.status_code == 200
+            if rebuild:
+                assert _list_item(client, other)["starred"] is True
+            return updated
+
+        monkeypatch.setattr(
+            api_v2, "get_conversation_meta_direct", read_with_concurrent_edit
+        )
+        api_v2._update_conversation_in_cache(active)
+        if not rebuild:
+            assert api_v2._conversations_cache is None
+        assert _list_item(client, other)["starred"] is True
+
     def test_unknown_conversation_is_404_without_allocating_lock(
         self, client: FlaskClient, monkeypatch: pytest.MonkeyPatch
     ):
@@ -313,7 +344,10 @@ class TestConfigPatchModelValidation:
         )
         assert resp.status_code == 200, resp.get_json()
 
-    def test_rename_keeps_padded_saved_model_and_effort(self, client: FlaskClient):
+    @pytest.mark.parametrize("echo_model", [False, True])
+    def test_rename_keeps_padded_saved_model_and_effort(
+        self, client: FlaskClient, echo_model: bool
+    ):
         """Before #5187 PATCH saved the model untrimmed; a padded stored model
         is still the unchanged pair, so a rename must not revalidate it."""
         import tomlkit
@@ -328,9 +362,12 @@ class TestConfigPatchModelValidation:
         chat["reasoning_effort"] = "high"
         config_path.write_text(tomlkit.dumps(doc))
 
+        patch = {"name": "renamed"}
+        if echo_model:
+            patch["model"] = "retired-provider/old "
         resp = client.patch(
             f"/api/v2/conversations/{cid}/config",
-            json={"chat": {"name": "renamed"}},
+            json={"chat": patch},
         )
         assert resp.status_code == 200, resp.get_json()
 

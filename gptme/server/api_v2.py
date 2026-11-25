@@ -409,7 +409,7 @@ def _effective_model_for_effort_validation(chat_config: ChatConfig) -> str | Non
             effective_model = Config.from_workspace(
                 workspace=chat_config.workspace
             ).get_env("MODEL")
-    return effective_model
+    return effective_model.strip() if isinstance(effective_model, str) else None
 
 
 def _append_conversation_system_prompt(
