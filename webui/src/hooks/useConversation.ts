@@ -570,17 +570,16 @@ export function useConversation(conversationId: string, serverId?: string) {
             onMessageAdded: (message) => {
               // A reconnect resync may already have restored this saved row,
               // possibly followed by later rows: match by identity across the log.
-              // Timestamp-only identity is too coarse for client-synthesized
-              // notices (e.g. two subagents finishing in the same millisecond
-              // share role and timestamp), so those must also match content.
+              // Timestamp-only identity is too coarse: two prompts or notices
+              // can share a timestamp, so a replay must also match content.
               const messages$ = conversation$?.data.log;
               const log = (messages$?.peek() ?? []) as Message[];
               if (
                 log.some(
                   (entry) =>
                     sameLogMessage(entry, message) &&
-                    (!message._synthetic ||
-                      (entry._synthetic === true && entry.content === message.content))
+                    entry.content === message.content &&
+                    entry._synthetic === message._synthetic
                 )
               ) {
                 return;

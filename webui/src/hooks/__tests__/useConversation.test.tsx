@@ -583,6 +583,28 @@ describe('useConversation', () => {
     ]);
   });
 
+  it('keeps distinct saved prompts sharing a timestamp and dedupes their replay (#5158)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const prompt = (content: string): Message => ({
+      role: 'user',
+      content,
+      timestamp: '2026-11-25T00:00:00.000Z',
+    });
+    act(() => {
+      eventHandlers!.onMessageAdded!(prompt('A'));
+      eventHandlers!.onMessageAdded!(prompt('B'));
+      eventHandlers!.onMessageAdded!(prompt('A'));
+    });
+    expect(
+      conversations$
+        .get('chat-placeholder')!
+        .data.log.get()
+        .slice(-2)
+        .map((row) => row.content)
+    ).toEqual(['A', 'B']);
+  });
+
   it('keeps synthetic notices that share a timestamp but differ in content (#5158)', async () => {
     renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());
