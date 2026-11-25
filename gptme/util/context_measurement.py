@@ -101,18 +101,22 @@ def measure_context_tokens(messages: list[Message], model: str) -> int:
     return len_tokens(visible, model)
 
 
-def measure_provider_overhead(messages: list[Message], model: str) -> int:
+def measure_provider_overhead(
+    messages: list[Message], model: str, count_model: str
+) -> int:
     """Non-reclaimable provider token overhead above stored visible text.
 
     When an anchored provider usage measurement exceeds the local stored-text
     estimate (e.g. tool schemas, chat-template framing, images, tokenizer
     drift), returns the positive delta ``measured - visible_stored``.
+    ``model`` is the qualified identity the usage anchor was recorded under;
+    ``count_model`` must be the tokenizer the caller counts stored text with.
     Returns ``0`` when no valid anchor applies or the provider counted no more
     than the local estimate.
     """
     visible = [message for message in messages if not message.ui_only]
     measured = measure_context_tokens(messages, model)
-    stored = len_tokens(visible, model)
+    stored = len_tokens(visible, count_model)
     return max(0, measured - stored)
 
 

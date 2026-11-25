@@ -488,3 +488,32 @@ def test_provider_measured_over_budget_phase2_non_stale_tool_output_trims():
     overhead = measured - stored
     assert trimmed < stored
     assert trimmed + overhead < budget
+
+
+def test_overhead_alone_over_budget_engine_leaves_stored_text_alone():
+    """Direct callers (trim-only after a failed summarize) must not shred the log."""
+    from gptme.llm.models import get_default_model, get_model
+    from gptme.tools.autocompact import auto_compact_log
+    from gptme.util.context_measurement import prefix_digests
+
+    model = get_default_model() or get_model("gpt-4")
+    code = "\n".join(f"value_{i} = compute({i})" for i in range(300))
+    log = [
+        Message("system", "You are a helpful assistant."),
+        Message("user", "list things"),
+        Message("assistant", "ok"),
+        Message("user", f"refactor this:\n```python\n{code}\n```"),
+    ]
+    anchor_idx = 2
+    log[anchor_idx] = log[anchor_idx].replace(
+        metadata={
+            "usage": {"input_tokens": 30_000},
+            "input_log_messages": anchor_idx,
+            "input_log_digest": prefix_digests(log)[anchor_idx],
+            "input_log_model": model.full,
+        }
+    )
+    budget = len_tokens(log, model.model) + 5_000
+
+    out = [m for m in auto_compact_log(log, limit=budget) if isinstance(m, Message)]
+    assert [m.content for m in out] == [m.content for m in log]

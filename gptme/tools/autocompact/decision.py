@@ -90,7 +90,7 @@ def estimate_compaction_savings(
         if has_ui_only
         else total_tokens
     )
-    provider_overhead = measure_provider_overhead(log, model.full)
+    provider_overhead = measure_provider_overhead(log, model.full, model.model)
     effective_limit = limit - provider_overhead
 
     # The configured budget is the sole compaction trigger.
@@ -135,7 +135,7 @@ def estimate_compaction_savings(
         # be counted here. Otherwise the estimate can select ``rule_based`` for
         # savings the engine cannot realize, and the post-hoc savings gate then
         # rejects the view — leaving the log over budget until provider overflow.
-        if msg.pinned or idx < keep_head:
+        if msg.pinned or msg.ui_only or idx < keep_head:
             continue
 
         msg_tokens = len_tokens(msg.content, model.model)
@@ -235,7 +235,7 @@ def should_auto_compact(
     # even all estimated trim savings still leave the provider-measured context
     # at or above budget, fall back to LLM summarization instead of picking a
     # trim that cannot satisfy the budget.
-    provider_overhead = measure_provider_overhead(log, model.full)
+    provider_overhead = measure_provider_overhead(log, model.full, model.model)
     if provider_overhead > 0 and total_tokens - estimated_savings >= limit:
         logger.info(
             f"Skipping rule-based auto-compact: estimated savings ({estimated_savings} tokens) "

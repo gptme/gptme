@@ -404,7 +404,11 @@ def auto_compact_log(
         if has_ui_only
         else tokens
     )
-    provider_overhead = measure_provider_overhead(log, model.full)
+    provider_overhead = measure_provider_overhead(log, model.full, model.model)
+    if provider_overhead >= limit:
+        # No amount of trimming can fit: don't destroy stored text trying.
+        # Summarization is the path that handles this.
+        provider_overhead = 0
     effective_limit = limit - provider_overhead
 
     # Phase 0: Relevance-scored pruning of stale tool outputs.
@@ -714,12 +718,11 @@ def auto_compact_log(
     # respects the pinned flag, not the keep_head index.
     logger.info("Auto-compacting not sufficient, falling back to regular reduction")
 
-    reduce_limit = max(0, effective_limit)
     if keep_head > 0 and keep_head < len(compacted_log):
         head_msgs = [m.replace(pinned=True) for m in compacted_log[:keep_head]]
         tail_msgs = compacted_log[keep_head:]
         head_tokens = len_tokens(head_msgs, model.model)
-        tail_limit = max(0, reduce_limit - head_tokens)
+        tail_limit = max(0, effective_limit - head_tokens)
         yield from head_msgs
         yield from reduce_log(tail_msgs, tail_limit)
     elif keep_head >= len(compacted_log):
@@ -733,4 +736,4 @@ def auto_compact_log(
         )
         yield from (m.replace(pinned=True) for m in compacted_log)
     else:
-        yield from reduce_log(compacted_log, reduce_limit)
+        yield from reduce_log(compacted_log, effective_limit)
