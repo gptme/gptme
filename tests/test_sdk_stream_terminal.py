@@ -218,7 +218,27 @@ def test_responses_terminal_text_is_used_when_only_whitespace_streamed() -> None
         },
     ]
 
-    assert "the answer" in "".join(_stream_responses_events(events))
+    assert "".join(_stream_responses_events(events)) == "\nthe answer"
+
+
+def test_responses_terminal_text_prefix_is_not_duplicated() -> None:
+    """Whitespace streamed and repeated by the terminal text is emitted once."""
+    events = [
+        {"type": "response.output_text.delta", "delta": "  "},
+        {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "  # heading"}],
+                    }
+                ]
+            },
+        },
+    ]
+
+    assert "".join(_stream_responses_events(events)) == "  # heading"
 
 
 @pytest.mark.parametrize("terminal", ["response.completed", "response.done"])

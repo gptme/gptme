@@ -591,6 +591,7 @@ def _stream_responses_events(
             yield event
 
     emitted = False
+    emitted_ws = ""
     for chunk in _stream_responses_event_chunks(
         _counted(event_iter),
         usage_callback=usage_callback,
@@ -602,7 +603,10 @@ def _stream_responses_events(
         # A whitespace-only chunk is not the answer: some backends stream a
         # newline and carry the real text only in the terminal response, so the
         # fallback below must still apply.
-        emitted = emitted or bool(chunk.strip())
+        if chunk.strip():
+            emitted = True
+        else:
+            emitted_ws += chunk
         yield chunk
 
     response_obj = terminal.get("response")
@@ -614,7 +618,14 @@ def _stream_responses_events(
             if not any(previous is call for previous in ordered_output):
                 ordered_output.append(call)
         elif not emitted and _obj_get(item, "type") == "message":
-            ordered_output.extend(_completed_output_chunks({"output": [item]}))
+            for chunk in _completed_output_chunks({"output": [item]}):
+                # The streamed whitespace is already in the output. If the
+                # terminal text repeats it, yielding both would add it twice
+                # (four leading spaces turn a heading into a code block).
+                if emitted_ws and chunk.startswith(emitted_ws):
+                    chunk = chunk[len(emitted_ws) :]
+                if chunk:
+                    ordered_output.append(chunk)
     # Terminal order is authoritative; retain calls from delta-only providers.
     ordered_output.extend(
         call
