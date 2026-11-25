@@ -202,16 +202,18 @@ def test_large_provider_default_reservation_is_not_reduced():
 
 
 @pytest.mark.parametrize(
-    "model_id",
+    ("model_id", "expected"),
     [
-        "moonshot/kimi-k3",
-        "moonshot/kimi-k2.6",
-        "xai/grok-4",
-        "xai/grok-3",
-        "openai-subscription/gpt-5.3-codex-spark",
+        ("moonshot/kimi-k3", 256_000),  # long-window default cap
+        ("moonshot/kimi-k2.6", 228_376),
+        ("xai/grok-4", 223_000),
+        ("xai/grok-3", 113_688),
+        ("openai-subscription/gpt-5.3-codex-spark", 111_000),
     ],
 )
-def test_window_sized_max_output_without_request_limit_does_not_collapse(model_id):
+def test_window_sized_max_output_without_request_limit_does_not_collapse(
+    model_id, expected
+):
     """max_output == context is never a real reservation, even without max_tokens.
 
     These providers send no max_tokens, so _resolve_max_tokens returns None.
@@ -223,8 +225,7 @@ def test_window_sized_max_output_without_request_limit_does_not_collapse(model_i
     m = get_model(model_id)
     assert m.max_output == m.context
     budget = get_context_budget(m.context, max_output=m.max_output, model_id=m.full)
-    # 256k is the long-window default cap.
-    assert min(m.context // 4, 256_000) <= budget < m.context
+    assert budget == expected
 
 
 def test_window_sized_provider_default_is_bounded():

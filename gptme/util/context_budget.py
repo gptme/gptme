@@ -79,10 +79,11 @@ def get_context_budget(
         # for input and caused compaction every few tool calls.
         # Only reduce metadata when we know the actual request allowance;
         # other providers may fill in their own max_tokens from metadata.
-        # A max_output that leaves no room for input is never a real
-        # reservation (no request could honour it), so bound it too: xai,
-        # moonshot and Codex models advertise max_output == context and
-        # otherwise clamp the budget to 1000, compacting every turn.
+        # If the metadata allowance and local headroom leave no room for
+        # input, bound the reserve used for compaction too, without changing
+        # the outgoing request. xai, moonshot and Codex models advertise
+        # max_output == context and would otherwise clamp the budget to 1000,
+        # compacting every turn.
         leaves_no_input = max_output + headroom >= model_context
         if (
             request_output is not None or leaves_no_input
