@@ -135,10 +135,12 @@ def test_im_first_frame_stages_bracketed_paths(tmp_path):
     from being read as ``foo.pdf`` plus a frame selector."""
     p = tmp_path / "foo[0].pdf"
     p.write_bytes(b"%PDF-1.4")
-    with _im_first_frame(p) as source:
+    with _im_first_frame(p) as (source, directory):
+        assert directory is not None
         assert source.endswith("[0]")
-        staged = Path(source.removesuffix("[0]"))
-        assert "[" not in str(staged) and "]" not in str(staged)
+        assert "[" not in source.removesuffix("[0]")
+        assert "]" not in source.removesuffix("[0]")
+        staged = Path(directory) / source.removesuffix("[0]")
         assert staged.suffix == ".pdf"
         assert staged.read_bytes() == b"%PDF-1.4"
     assert not staged.exists(), "the staged alias is temporary"
@@ -160,11 +162,13 @@ def test_im_first_frame_copy_fallback(tmp_path: Path, raise_in_context: bool) ->
     ):
         if raise_in_context:
             stack.enter_context(pytest.raises(RuntimeError, match="conversion failed"))
-        with _im_first_frame(p) as source:
+        with _im_first_frame(p) as (source, directory):
             symlink.assert_called_once_with(p.absolute())
+            assert directory is not None
             assert source.endswith("[0]")
-            staged = Path(source.removesuffix("[0]"))
-            assert "[" not in str(staged) and "]" not in str(staged)
+            assert "[" not in source.removesuffix("[0]")
+            assert "]" not in source.removesuffix("[0]")
+            staged = Path(directory) / source.removesuffix("[0]")
             assert staged.suffix == ".pdf"
             assert not staged.is_symlink()
             assert staged.read_bytes() == content
@@ -183,10 +187,11 @@ def test_im_first_frame_stages_percent_paths(tmp_path, name):
     including when the ``%`` sits in the extension."""
     p = tmp_path / name
     p.write_bytes(b"%PDF-1.4")
-    with _im_first_frame(p) as source:
+    with _im_first_frame(p) as (source, directory):
+        assert directory is not None
         assert source.endswith("[0]")
-        staged = Path(source.removesuffix("[0]"))
-        assert "%" not in str(staged)
+        assert "%" not in source
+        staged = Path(directory) / source.removesuffix("[0]")
         assert staged.suffix == ".pdf"
         assert staged.read_bytes() == b"%PDF-1.4"
     assert not staged.exists(), "the staged alias is temporary"
@@ -219,8 +224,9 @@ def test_real_imagemagick_percent_source_reads_named_file(
 def test_im_first_frame_plain_path_unchanged(tmp_path):
     """A path with no brackets is passed through (modulo dash prefix guard)."""
     p = tmp_path / "plain.pdf"
-    with _im_first_frame(p) as source:
+    with _im_first_frame(p) as (source, directory):
         assert source == f"{_arg(p)}[0]"
+        assert directory is None
 
 
 class _MockRun:
