@@ -776,6 +776,49 @@ class TestLessonDeduplication:
         assert [lesson.title for lesson in index.lessons] == ["Shell"]
         assert index.lessons[0].metadata.keywords == ["shell"]
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "---\n\n# Test Lesson\n\nDescription.\n",
+            "---\nnull\n---\n# Test Lesson\n\nDescription.\n",
+            "---\n~\n---\n# Test Lesson\n\nDescription.\n",
+            "---\nmatch:\n  keywords: [shell]\n# Test Lesson\n\nDescription.\n",
+        ],
+        ids=["markdown-divider", "null", "tilde", "unclosed-yaml"],
+    )
+    def test_sole_default_metadata_lesson_remains_searchable(
+        self, tmp_path: Path, content: str
+    ):
+        """A parseable body remains available when there is no valid replacement."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        (lesson_dir / "tools").mkdir(parents=True)
+        lesson_file = lesson_dir / "tools" / "test.md"
+        lesson_file.write_text(content)
+
+        # Check both the cold parse and a subsequent cached index build.
+        for _ in range(2):
+            index = LessonIndex([lesson_dir])
+            assert [lesson.title for lesson in index.lessons] == ["Test Lesson"]
+            assert index.lessons[0].path == lesson_file
+            assert index.search("Test Lesson")
+            assert index.get_by_category("tools") == index.lessons
+
+    def test_first_default_metadata_copy_is_fallback(self, tmp_path: Path):
+        """Fallbacks still deduplicate, and a valid inactive copy still suppresses them."""
+        clear_cache()
+        dirs = [tmp_path / name for name in ("first", "second", "inactive")]
+        for directory in dirs:
+            (directory / "tools").mkdir(parents=True)
+        (dirs[0] / "tools" / "test.md").write_text("---\n\n# First\n")
+        (dirs[1] / "tools" / "test.md").write_text("---\nnull\n---\n# Second\n")
+        (dirs[2] / "tools" / "test.md").write_text(
+            "---\nstatus: deprecated\n---\n# Inactive\n"
+        )
+
+        assert [lesson.title for lesson in LessonIndex(dirs[:2]).lessons] == ["First"]
+        assert LessonIndex(dirs).lessons == []
+
     def test_lesson_with_null_match_field_still_indexed(self, tmp_path: Path):
         """A null ``patterns:`` must not drop the lesson from the index."""
         clear_cache()

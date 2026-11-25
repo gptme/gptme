@@ -503,6 +503,9 @@ class LessonIndex:
         # called SKILL.md, so relative-path dedup can never collapse two copies
         # of the same skill (backup/snapshot dirs, versioned skill packs).
         seen_skill_names: set[str] = set()
+        # Keep ordinary lessons with default metadata as a last resort. An
+        # opening Markdown divider is indistinguishable from an unclosed header.
+        fallback_lessons: list[tuple[Path, Lesson]] = []
 
         for lesson_dir in self.lesson_dirs:
             if not lesson_dir.exists():
@@ -510,11 +513,25 @@ class LessonIndex:
                 continue
 
             hits, misses, skipped = self._index_directory(
-                lesson_dir, seen_paths, seen_rel_paths, seen_skill_names
+                lesson_dir,
+                seen_paths,
+                seen_rel_paths,
+                seen_skill_names,
+                fallback_lessons,
             )
             cache_hits += hits
             cache_misses += misses
             skipped_duplicates += skipped
+
+        # Only after all roots have been scanned can we know that no valid copy
+        # (including an intentionally inactive one) reserved this fallback's slot.
+        for directory, lesson in fallback_lessons:
+            if self._claim_lesson_slot(
+                lesson.path, directory, seen_paths, seen_rel_paths
+            ):
+                self.lessons.append(lesson)
+            else:
+                skipped_duplicates += 1
 
         if cache_misses:
             _save_disk_cache()
@@ -531,6 +548,7 @@ class LessonIndex:
         seen_paths: set[str],
         seen_rel_paths: set[str],
         seen_skill_names: set[str],
+        fallback_lessons: list[tuple[Path, Lesson]],
     ) -> tuple[int, int, int]:
         """Index all lessons in a directory (with caching and deduplication).
 
@@ -539,6 +557,7 @@ class LessonIndex:
             seen_paths: Set of resolved lesson paths already indexed (for deduplication)
             seen_rel_paths: Set of relative paths already indexed (cross-dir dedup)
             seen_skill_names: Set of skill names already indexed (cross-dir dedup)
+            fallback_lessons: Ordinary lessons to retain if no valid copy wins
 
         Returns:
             Tuple of (cache_hits, cache_misses, skipped_duplicates)
@@ -637,11 +656,12 @@ class LessonIndex:
                 continue
 
             if lesson.malformed_frontmatter:
-                # Its metadata is defaults, not what the file declared. Skip it
-                # without reserving the path, so a later valid copy is indexed.
-                logger.warning(
-                    f"Skipping lesson with malformed frontmatter: {lesson_file}"
-                )
+                # Do not reserve the path: a valid copy in a later root wins.
+                # Preserve ordinary body-only lessons if no valid copy exists;
+                # malformed skills still require usable frontmatter as before.
+                if lesson_file.name.upper() != "SKILL.MD":
+                    fallback_lessons.append((directory, lesson))
+                logger.warning("Malformed lesson frontmatter: %s", lesson_file)
                 continue
 
             # Skills are identified by their declared name, not by file path:
