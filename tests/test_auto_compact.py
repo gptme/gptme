@@ -434,6 +434,18 @@ def test_inline_code_cannot_cross_streamed_reasoning_marker(tag: str) -> None:
     assert _prose(content) == expected
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_inline_code_may_continue_with_line_start_tag(tag: str, newline: str) -> None:
+    """Only a marker alone on its line (as providers emit it) ends an inline span."""
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"Use `the{newline}<{tag}>` tag.{newline}Answer"
+    assert remove_reasoning(content) == content
+    assert _prose(content) == content
+
+
 def test_strip_reasoning_marker_shaped_text_is_literal():
     """Text that looks like an internal placeholder is never rewritten."""
     from gptme.context import strip_reasoning

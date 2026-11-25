@@ -266,6 +266,7 @@ def test_prose_keeps_fenced_reasoning_example() -> None:
     ("content", "expected"),
     [
         ("Use `~~~<think>` in XML.\nAnswer", "Use `~~~<think>` in XML.\nAnswer"),
+        ("Use `the\n<think>` tag.\nAnswer", "Use `the\n<think>` tag.\nAnswer"),
         (
             "An unmatched ` marker.\n<think>\nprivate `variable`\n</think>\nAnswer",
             "An unmatched ` marker.\n\nAnswer",

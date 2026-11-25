@@ -244,8 +244,11 @@ _FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`+")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
+# A blank line, a fence opener, or a reasoning marker alone on its line (the
+# shape providers emit). A tag followed by other text may continue inline code.
 _INLINE_BOUNDARY_RE = re.compile(
-    r"\r?\n[ \t]*\r?\n|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,}|<think(?:ing)?>)",
+    r"\r?\n[ \t]*\r?\n"
+    r"|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,}|<think(?:ing)?>[ \t]*\r?$)",
     re.MULTILINE,
 )
 
@@ -308,7 +311,7 @@ def _reasoning_segments(
             delimiter = content[start : inline.end()]
             # Search the original string so ^ means a real line start. Reuse
             # the next boundary throughout the paragraph instead of rescanning
-            # the entire suffix for every inline span. A line-start reasoning
+            # the entire suffix for every inline span. A standalone reasoning
             # marker also prevents stray prose backticks from hiding a block.
             if inline_limit < inline.end():
                 boundary = _INLINE_BOUNDARY_RE.search(content, inline.end())
