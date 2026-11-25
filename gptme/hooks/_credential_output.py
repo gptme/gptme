@@ -144,6 +144,18 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
         # variable with its value, like `export -p`. In bash `-F` lists
         # function names only, so `declare -Fx` prints no values. In zsh and
         # ksh `-F` selects floating-point variables and still prints values.
+        # Invoke bash explicitly for that exception: sh may be another shell.
+        if shell == "zsh" and name != "export":
+            # Zsh prints existing named parameters without -p, and -m lists
+            # pattern matches. Assignments do not print the previous value.
+            flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
+            if any(
+                not arg.startswith(("-", "+"))
+                and not _ASSIGNMENT.match(arg)
+                and ("m" in flags or _SECRET_NAME.search(arg))
+                for arg in args
+            ):
+                return _REASON
         if name != "export" and all(arg.startswith(("-", "+")) for arg in args):
             flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
             if "x" in flags and ("F" not in flags or shell != "bash"):

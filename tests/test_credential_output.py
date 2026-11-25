@@ -84,6 +84,11 @@ from gptme.tools.base import ToolUse
         "zsh -c 'typeset -Fx'",
         "ksh -c 'typeset -F -x'",
         "zsh <<'EOF'\ntypeset -Fx\nEOF",
+        "zsh -c 'typeset OPENAI_API_KEY'",
+        "zsh -c 'declare GITHUB_TOKEN'",
+        "zsh -c \"typeset -m '*TOKEN*'\"",
+        "zsh <<'EOF'\ntypeset OPENAI_API_KEY\nEOF",
+        "sh -c 'declare -Fx'",
     ],
 )
 def test_credential_output_is_blocked(command, monkeypatch):
@@ -138,6 +143,10 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "typeset -F -x",
         "bash -c 'declare -Fx'",
         "declare -x FOO=bar",
+        "zsh -c 'typeset OPENAI_API_KEY=synthetic'",
+        "zsh -c 'typeset -x OPENAI_API_KEY=synthetic'",
+        "zsh -c 'typeset SESSION_LABEL'",
+        "bash -c 'typeset OPENAI_API_KEY'",
         "shopt -s nullglob",
         "shopt -ou xtrace",
         "set -e",
