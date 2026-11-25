@@ -934,8 +934,11 @@ regardless of bind address. Loopback is a transport boundary, not an identity
 boundary: another local process must not gain shell and config access merely by
 reaching <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>. A small set of public routes remain unauthenticated: the
 API root (<code class="docutils literal notranslate"><span class="pre">/api/v2</span></code>), version info (<code class="docutils literal notranslate"><span class="pre">/api/v2/version</span></code>), config metadata
-(<code class="docutils literal notranslate"><span class="pre">/api/v2/config</span></code>), Prometheus metrics (<code class="docutils literal notranslate"><span class="pre">/api/v0/metrics</span></code>), and the API
-documentation at <code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code>. Set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> to a fixed value;
+(<code class="docutils literal notranslate"><span class="pre">/api/v2/config</span></code>), Prometheus metrics (<code class="docutils literal notranslate"><span class="pre">/api/v0/metrics</span></code>), the liveness
+probe (<code class="docutils literal notranslate"><span class="pre">/api/v2/server/health</span></code>, which reports session counts, an overall
+health level, and each slot’s short ID, whether it is generating, and its
+elapsed generation time when known), and the API documentation at
+<code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code>. Set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> to a fixed value;
 if unset the server generates one and prints it at startup.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_AUTH</span></code> disables bearer checks entirely
