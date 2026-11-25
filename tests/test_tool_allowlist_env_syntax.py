@@ -75,3 +75,12 @@ def test_tool_allowlist_env_rejects_mixed_syntax(tmp_path, monkeypatch):
     workspace.mkdir()
     with pytest.raises(ValueError, match="TOOL_ALLOWLIST"):
         setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+
+
+def test_parser_strips_each_exclusion_prefix():
+    """The internal exclusion spec has one leading '-', not one per name."""
+    from gptme.config.cli_setup import parse_tool_specs
+
+    spec = parse_tool_specs(["-save,-shell"])
+    assert spec == "-save,shell"
+    assert spec[1:].split(",") == ["save", "shell"]
