@@ -280,6 +280,52 @@ def test_assistant_images_survive_tool_conversion(content: str, tmp_path: Path):
     assert any("Here is the chart." in t for t in texts), parts
 
 
+@pytest.mark.parametrize("has_call", [False, True])
+def test_assistant_attachment_labels_stay_with_images(has_call: bool, tmp_path: Path):
+    """The production converter must retain each file label beside its image."""
+    from PIL import Image
+
+    images = [tmp_path / "first.png", tmp_path / "second.png"]
+    for image, color in zip(images, ["red", "blue"], strict=True):
+        Image.new("RGB", (2, 2), color=color).save(image)
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    content = (
+        "<think>\nlooking\n<!-- think-sig: SIG123 -->\n</think>\nHere are the charts."
+    )
+    if has_call:
+        content += '\n@save(call_1): {"path": "a.txt", "content": "x"}'
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Compare the charts"),
+        Message(role="assistant", content=content, files=[*images]),
+    ]
+    if has_call:
+        messages.append(Message(role="system", content="Saved", call_id="call_1"))
+    messages.append(Message(role="user", content="Thanks"))
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    assert parts[0] == {
+        "type": "thinking",
+        "thinking": "looking",
+        "signature": "SIG123",
+    }
+    image_indices = [i for i, part in enumerate(parts) if part["type"] == "image"]
+    assert len(image_indices) == 2, parts
+    for image, index in zip(images, image_indices, strict=True):
+        assert parts[index - 1]["type"] == "text", parts
+        assert (
+            parts[index - 1]["text"].strip().endswith(f"![{image.name}]({image.name}):")
+        ), parts
+        other = images[1] if image == images[0] else images[0]
+        assert other.name not in parts[index - 1]["text"], parts
+    assert sum(p["type"] == "tool_use" for p in parts) == has_call
+
+
 def test_text_after_tool_call_precedes_attached_image():
     """Text that follows a tool call must stay before an attached image:
     the image is appended while the text is still pending otherwise."""

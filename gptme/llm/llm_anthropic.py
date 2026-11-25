@@ -1566,10 +1566,24 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             modified_message = dict(message)
             original_content = message["content"]
 
-            # Extract thinking content from <think> tags for proper Anthropic format
-            thinking_blocks, cleaned_content = _extract_thinking_content(
-                original_content
-            )
+            # Extract thinking within each text block, keeping attachment labels
+            # and images in their original order instead of flattening the list.
+            cleaned_content: str | list = original_content
+            thinking_blocks: list[tuple[str, str]] = []
+            if isinstance(original_content, list):
+                cleaned_content = []
+                for part in original_content:
+                    if part.get("type") == "text":
+                        blocks, text = _extract_thinking_content(part["text"])
+                        thinking_blocks.extend(blocks)
+                        if text:
+                            cleaned_content.append({**part, "text": text})
+                    else:
+                        cleaned_content.append(part)
+            else:
+                thinking_blocks, cleaned_content = _extract_thinking_content(
+                    original_content
+                )
 
             # Parse tool uses from the cleaned content (without thinking tags)
             content_parts, tool_uses = extract_tool_uses_from_assistant_message(
@@ -1586,17 +1600,11 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
             # No tool call: the helper returns no parts, so keep the reply text.
             # Otherwise a signed thinking block would replace the whole answer.
-            # _extract_thinking_content always returns stripped text.
             if not content_parts and not tool_uses and cleaned_content:
-                content_parts = [{"type": "text", "text": cleaned_content}]
-
-            # The parsed text is text only: carry non-text blocks (images
-            # attached by _process_file) over from the original content.
-            if isinstance(original_content, list):
-                content_parts.extend(
-                    part
-                    for part in original_content
-                    if isinstance(part, dict) and part.get("type") != "text"
+                content_parts = (
+                    cleaned_content
+                    if isinstance(cleaned_content, list)
+                    else [{"type": "text", "text": cleaned_content}]
                 )
 
             # Build content array in proper order: thinking first, then text, then tools
