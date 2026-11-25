@@ -111,6 +111,9 @@ def parse_tool_specs(specs: Iterable[str]) -> str | None:
     """
     tools_list = [t.strip() for spec in specs for t in spec.split(",") if t.strip()]
 
+    if any(t.startswith(("+", "-")) and t[1:].lower() == "none" for t in tools_list):
+        raise ValueError("'none' must be used alone without a '+' or '-' prefix")
+
     if any(t.lower() == "none" for t in tools_list):
         non_none = [t for t in tools_list if t.lower() != "none"]
         if non_none:

@@ -7,6 +7,8 @@ from click.testing import CliRunner
 
 import gptme.cli.cmd_init as cmd_init
 
+pytestmark = pytest.mark.usefixtures("requires_symlinks")
+
 
 def test_dangling_claude_symlink_writes_outside_project(tmp_path):
     """A dangling CLAUDE.md symlink makes the copy fallback write through the
@@ -67,3 +69,47 @@ def test_force_rejects_symlink_directories(
     else:
         assert (outside / "README.md").read_text() == "preserve me\n"
         assert sorted(p.name for p in outside.iterdir()) == ["README.md"]
+
+
+@pytest.mark.parametrize("directory", ["journal", "knowledge", "lessons", "skills"])
+def test_force_preserves_links_to_unwritten_directories(tmp_path, directory):
+    target = tmp_path / "proj"
+    target.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "notes.md").write_text("preserve me\n")
+    link = target / directory
+    link.symlink_to(outside, target_is_directory=True)
+
+    result = CliRunner().invoke(
+        cmd_init.main, [str(target), "--force", "--lessons", "--skills"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert link.is_symlink()
+    assert (target / "gptme.toml").is_file()
+    assert (outside / "notes.md").read_text() == "preserve me\n"
+    assert sorted(p.name for p in outside.iterdir()) == ["notes.md"]
+
+
+def test_force_rejects_mount_point_reparse_tag(tmp_path, monkeypatch):
+    """Exercise the Windows lstat junction tag even on non-Windows CI."""
+    from types import SimpleNamespace
+
+    target = tmp_path / "proj"
+    tasks = target / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "README.md").write_text("preserve me\n")
+    original_lstat = Path.lstat
+
+    def junction_lstat(path, *args, **kwargs):
+        result = original_lstat(path, *args, **kwargs)
+        if path == tasks:
+            return SimpleNamespace(st_mode=result.st_mode, st_reparse_tag=0xA0000003)
+        return result
+
+    monkeypatch.setattr(Path, "lstat", junction_lstat)
+    result = CliRunner().invoke(cmd_init.main, [str(target), "--force"])
+    assert result.exit_code != 0
+    assert "junction directory" in result.output
+    assert (tasks / "README.md").read_text() == "preserve me\n"

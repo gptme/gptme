@@ -84,3 +84,21 @@ def test_parser_strips_each_exclusion_prefix():
     spec = parse_tool_specs(["-save,-shell"])
     assert spec == "-save,shell"
     assert spec[1:].split(",") == ["save", "shell"]
+
+
+@pytest.mark.parametrize("spec", ["+none", "-none", "+NoNe", "+none,shell"])
+def test_parser_rejects_prefixed_none(spec):
+    from gptme.config.cli_setup import parse_tool_specs
+
+    with pytest.raises(ValueError, match="'none'"):
+        parse_tool_specs([spec])
+
+
+def test_env_preset_cannot_be_combined_with_other_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOOL_ALLOWLIST", "read-only,shell")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ValueError, match="cannot be combined"):
+        setup_config_from_cli(
+            workspace=workspace, logdir=tmp_path / "logs", interactive=False
+        )

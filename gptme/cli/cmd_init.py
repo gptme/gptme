@@ -14,6 +14,7 @@ import datetime
 import logging
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -190,6 +191,16 @@ def _create_directory(path: Path, *, target: Path) -> None:
             raise click.ClickException(
                 f"Refusing to write through symlink directory: {current}"
             )
+        try:
+            reparse_tag = getattr(current.lstat(), "st_reparse_tag", 0)
+        except FileNotFoundError:
+            continue
+        # Path.is_junction() only exists on Python 3.12+. lstat exposes this
+        # tag on Windows on every supported Python, including 3.11.
+        if reparse_tag == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003):
+            raise click.ClickException(
+                f"Refusing to write through junction directory: {current}"
+            )
     path.mkdir(parents=True, exist_ok=True)
 
 
@@ -261,7 +272,12 @@ def _scaffold_project(
         dirs.append(".github/workflows")
 
     for subdir in dirs:
-        _create_directory(target / subdir, target=target)
+        if subdir in ("tasks", ".github/workflows"):
+            _create_directory(target / subdir, target=target)
+        else:
+            # These directories receive no scaffold files. Existing directory
+            # links are safe to leave in place; only write paths need guarding.
+            (target / subdir).mkdir(parents=True, exist_ok=True)
 
     # Project files
     _create_file(

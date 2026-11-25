@@ -249,3 +249,21 @@ def test_interactive_default_setup_does_not_discover_tools(
     cfg = setup_config_from_cli(workspace=ws, logdir=tmp_path / "logs")
     assert cfg.chat is not None
     assert cfg.chat.tools is None
+
+
+def test_interactive_resume_updates_modes_on_disk(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        interactive=False,
+        no_confirm=True,
+        stream=False,
+    )
+    setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=True)
+    saved = ChatConfig.from_logdir(logdir)
+    assert saved.no_confirm is None
+    assert saved.interactive is True
+    assert saved.stream is True
