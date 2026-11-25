@@ -1326,6 +1326,92 @@ def test_call_on_stopped_loop_raises_instead_of_hanging(tmp_path):
         _run(asyncio.wait_for(runtime._run_on_loop(work), 5))
 
 
+def test_runtime_call_from_own_loop(monkeypatch, tmp_path):
+    """A callback already on the transport loop can await another runtime call."""
+    import gptme.server.acp_session_runtime as mod
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _DummyClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def nested_prompt():
+        return await runtime.prompt("nested")
+
+    text, _ = _run(asyncio.wait_for(runtime._run_on_loop(nested_prompt), 5))
+    assert text == "hello world"
+    _run(runtime.close())
+
+
+def test_runtime_rejected_submission_closes_coroutine(monkeypatch, tmp_path):
+    """A loop closed during submission must not leave an unawaited coroutine."""
+    import inspect
+
+    import gptme.server.acp_session_runtime as mod
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    submitted = []
+
+    def reject(coro, loop):
+        submitted.append(coro)
+        raise RuntimeError("Event loop is closed")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", reject)
+    with pytest.raises(RuntimeError, match="Event loop is closed"):
+        _run(runtime.start())
+
+    assert len(submitted) == 1
+    assert inspect.getcoroutinestate(submitted[0]) == inspect.CORO_CLOSED
+    assert runtime.session_id is None
+
+
+@pytest.mark.timeout(15)
+def test_runtime_cancelled_sync_close_uses_process_fallback(monkeypatch, tmp_path):
+    """Cancelling graceful close must release its waiter and still signal the child."""
+    import gptme.server.acp_session_runtime as mod
+
+    closing = threading.Event()
+
+    class _BlockingCloseClient(_DummyClient):
+        _process = object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            closing.set()
+            await asyncio.Future()
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _BlockingCloseClient)
+    fallback = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    loop_thread = runtime._loop_thread
+    errors = []
+
+    def terminate():
+        try:
+            runtime.terminate_subprocess_sync(timeout=5)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=terminate, daemon=True)
+    thread.start()
+    try:
+        assert closing.wait(5), "Graceful close never started"
+        runtime._stop_loop()
+    finally:
+        runtime._stop_loop()
+        thread.join(5)
+
+    assert not thread.is_alive()
+    assert loop_thread is not None and not loop_thread.is_alive()
+    assert errors == []
+    assert fallback == [_BlockingCloseClient._process]
+    assert runtime._client is None
+    assert runtime.session_id is None
+
+
 def test_loop_calls_cancels_pending_futures_on_close():
     """Calls accepted but never started are cancelled when the loop closes."""
     import concurrent.futures
