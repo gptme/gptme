@@ -750,8 +750,9 @@ def approved_execution_argv(
 
 # Leading spaces only: a tab-indented line is a recipe, not an include.
 _MAKE_INCLUDE = re.compile(r" *(?:-include|sinclude|include)[ \t]+(.+?)\s*")
-# make joins backslash-newline before it strips comments.
-_MAKE_CONTINUATION = re.compile(r"\\\r?\n[ \t]*")
+# make joins backslash-newline before it strips comments, but only after an
+# odd run of backslashes: an even run is literal and ends the line.
+_MAKE_CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n[ \t]*")
 _MAKE_UNESCAPED_COMMENT = re.compile(r"(?<!\\)#.*")
 _MAKE_MAX_FILES = 16
 
@@ -759,7 +760,7 @@ _MAKE_MAX_FILES = 16
 def _make_include_tokens(text: str) -> list[str]:
     """Return the filenames named by ``include`` lines in ``text``."""
     tokens: list[str] = []
-    for line in _MAKE_CONTINUATION.sub(" ", text).split("\n"):
+    for line in _MAKE_CONTINUATION.sub(r"\1 ", text).split("\n"):
         line = _MAKE_UNESCAPED_COMMENT.sub("", line)
         match = _MAKE_INCLUDE.fullmatch(line)
         if match:
@@ -791,7 +792,14 @@ def _scan_makefile(
         except (OSError, RuntimeError):
             return False
         if key in seen:
-            return True  # its bytes are already recorded
+            # make reads it again by this path; bind that path too, so a
+            # symlink alias retargeted after approval is caught.
+            if all(path != read for read, _ in reads):
+                try:
+                    reads.append((path, _read_regular(path)))
+                except OSError:
+                    return False
+            return True
         if len(seen) >= _MAKE_MAX_FILES:
             return False
         seen.add(key)
