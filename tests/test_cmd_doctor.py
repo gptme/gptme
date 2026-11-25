@@ -98,25 +98,36 @@ def _patch_interactive_repair(monkeypatch: pytest.MonkeyPatch, confirm) -> None:
         "_subscription_default_candidate",
         lambda results: "openai-subscription",
     )
+    monkeypatch.setattr(
+        "gptme.llm.models.get_recommended_model", lambda provider: "test-model"
+    )
     monkeypatch.setattr(doctor_mod.click, "confirm", confirm)
 
 
 def test_doctor_keeps_health_code_when_subscription_switch_declined(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_interactive_repair(monkeypatch, confirm=lambda *a, **kw: False)
+    confirm = MagicMock(return_value=False)
+    _patch_interactive_repair(monkeypatch, confirm=confirm)
 
     assert doctor_mod.doctor(fix=True) == 1
+    confirm.assert_called_once_with(
+        "Use the detected openai-subscription login as the default "
+        "(openai-subscription/test-model)?",
+        default=True,
+    )
 
 
 def test_doctor_keeps_health_code_when_provider_repair_cancelled(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     import click
 
-    def _abort(*args, **kwargs):
-        raise click.Abort
-
-    _patch_interactive_repair(monkeypatch, confirm=_abort)
+    confirm = MagicMock(side_effect=click.Abort)
+    _patch_interactive_repair(monkeypatch, confirm=confirm)
 
     assert doctor_mod.doctor(fix=True) == 1
+    confirm.assert_called_once()
+    output = capsys.readouterr()
+    assert "Provider repair cancelled." in output.out
+    assert "Provider repair failed:" not in output.err
