@@ -228,6 +228,26 @@ def test_bare_merge_ref_resolves_against_session_workspace(
     assert merge.call_args.args == ("session", "repo", "42")
 
 
+@pytest.mark.parametrize("form", FORMS)
+@pytest.mark.parametrize("ref", ["42", " 42 ", " #42 "])
+@pytest.mark.parametrize("repo_flag", ["--repo o/r", "--repo=o/r", "-R o/r", "-Ro/r"])
+def test_explicit_repo_merge_normalizes_reference(
+    form: str, ref: str, repo_flag: str
+) -> None:
+    """An explicit repository must not be lost to default-repo discovery."""
+    with (
+        patch("gptme.tools.gh.subprocess.run", side_effect=AssertionError("CLI")),
+        patch(
+            "gptme.tools.gh.merge_github_pr",
+            return_value={"success": True, "message": "synthetic", "sha": "m"},
+        ) as merge,
+    ):
+        messages = invoke(f"pr merge {shlex.quote(ref)} {repo_flag} --squash", form)
+    merge.assert_called_once()
+    assert merge.call_args.args == ("o", "r", "42")
+    assert "synthetic" in messages[0].content
+
+
 def test_run_log_redacted_before_truncation(monkeypatch) -> None:
     """Wherever the tail cut lands, no fragment of the credential survives.
 

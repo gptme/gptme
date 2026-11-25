@@ -902,6 +902,8 @@ def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
     repo, err = _parse_run_repo(repo_flags)
     if err:
         return args, err
+    if positional:
+        positional[0] = positional[0].strip()
     if repo and positional and re.fullmatch(r"#?\d+", positional[0]):
         positional[0] = f"{repo}#{positional[0].lstrip('#')}"
     return [*args[:2], *positional], None
