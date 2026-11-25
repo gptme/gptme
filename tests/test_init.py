@@ -1062,6 +1062,7 @@ class TestInitModelContextOverride:
         assert saved_meta.provider == "anthropic"
         assert saved_meta.model == "anthropic/claude-sonnet-4-6"
 
+    @pytest.mark.parametrize("raw", ["not-a-number", "0", "-4096"])
     @patch("gptme.init.set_default_model")
     @patch("gptme.init.get_model")
     @patch("gptme.init.init_llm")
@@ -1078,8 +1079,9 @@ class TestInitModelContextOverride:
         mock_init_llm,
         mock_get_model,
         mock_set_default,
+        raw,
     ):
-        """Invalid GPTME_CONTEXT_LENGTH should be ignored with a warning."""
+        """Invalid or non-positive GPTME_CONTEXT_LENGTH is ignored with a warning."""
         from gptme.init import init_model
 
         original_meta = ModelMeta(
@@ -1094,7 +1096,7 @@ class TestInitModelContextOverride:
         )
         mock_get_model.return_value = original_meta
 
-        with patch.dict(os.environ, {"GPTME_CONTEXT_LENGTH": "not-a-number"}):
+        with patch.dict(os.environ, {"GPTME_CONTEXT_LENGTH": raw}):
             init_model(model="anthropic/claude-sonnet-4-6")
 
         # Context should remain unchanged

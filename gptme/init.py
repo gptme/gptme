@@ -301,6 +301,8 @@ def init_model(
         try:
             context_length = int(context_length_str)
         except ValueError:
+            context_length = 0
+        if context_length <= 0:
             logger.warning(
                 f"Invalid GPTME_CONTEXT_LENGTH value: {context_length_str!r}, ignoring"
             )
