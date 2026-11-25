@@ -39,7 +39,15 @@ const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://loca
 
 export const WelcomeView = () => {
   const { consumeSeedPrompt } = useEmbeddedContext();
-  const { api, isConnected$, connectionConfig, switchServer, connect, retryConnection } = useApi();
+  const {
+    api,
+    isConnected$,
+    connectionConfig,
+    switchServer,
+    connect,
+    retryConnection,
+    restartAutoConnect,
+  } = useApi();
   // The new-chat draft belongs to the active server and account.
   const draftKey = composerDraftKey(connectionConfig);
   const [inputValue, setInputValue] = useComposerDraft(draftKey);
@@ -242,11 +250,9 @@ export const WelcomeView = () => {
       // Server is already running — just retry the connection below
     }
     try {
-      // Not connect(): the server may not accept requests yet, and connect()
-      // would cancel the auto-connect loop that picks it up later.
-      await retryConnection();
-    } catch {
-      // The direct-connect fallback already shows toast.error; avoid double-toast
+      // Not connect(): the server may not accept requests yet, so keep retrying.
+      // Not retryConnection() either: it can wait on a probe sent before launch.
+      await restartAutoConnect();
     } finally {
       setIsRestartingServer(false);
     }

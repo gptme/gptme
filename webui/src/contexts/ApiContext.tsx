@@ -65,6 +65,12 @@ interface ApiContextType {
    * `connect()`.
    */
   retryConnection: () => Promise<void>;
+  /**
+   * Call after the server was (re)started: probe it now and restart the
+   * auto-connect loop with a full retry budget. A probe already in flight may
+   * predate the server, so its result is discarded.
+   */
+  restartAutoConnect: () => Promise<void>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -535,6 +541,11 @@ export function ApiProvider({
     await autoConnect(false, true);
   }, [autoConnect, connect]);
 
+  const restartAutoConnect = useCallback(async () => {
+    stopAutoConnect();
+    await autoConnect(false, true);
+  }, [autoConnect]);
+
   // Handle auth code exchange on mount
   useEffect(() => {
     const handleAuthCodeExchange = async () => {
@@ -647,6 +658,10 @@ export function ApiProvider({
 
   // Attempt initial connection (skip if auth code exchange is happening)
   useEffect(() => {
+    // The target changed. The previous client's pending retry, in-flight probe
+    // and spent attempts do not apply to it, even if no new loop starts below.
+    stopAutoConnect();
+
     const currentHash = window.location.hash.substring(1);
     if (hasAuthCodeInHash(currentHash)) return;
     if (isTauri && isLoadingTauriStatus) return;
@@ -654,15 +669,10 @@ export function ApiProvider({
     if (shouldSkipInitialMobileAutoConnect) return;
     if (shouldSkipHostedLoopbackAutoConnectOnFirstLoad) return;
 
-    void (async () => {
-      console.log('[ApiContext] Attempting initial connection');
-      // A baseUrl/credential change starts a fresh loop for the new client: cancel
-      // the previous client's pending retry and reset the attempt budget, or that
-      // old timer could fire mid-probe and supersede (or exhaust) the new attempt.
-      stopAutoConnect();
-      await autoConnect(true);
-    })();
+    console.log('[ApiContext] Attempting initial connection');
+    void autoConnect(true);
   }, [
+    activeServer?.id,
     autoConnect,
     connectionConfig.baseUrl,
     // A credential change swaps in a fresh, not-yet-connected client (the pool
@@ -696,6 +706,7 @@ export function ApiProvider({
         switchServer,
         stopAutoConnect,
         retryConnection,
+        restartAutoConnect,
       }}
     >
       {children}

@@ -11,6 +11,7 @@ const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
 const mockRetryConnection = jest.fn();
+const mockRestartAutoConnect = jest.fn();
 const mockCreateConversation = jest.fn();
 const mockWaitForConversationCreation = jest.fn();
 const mockSendFailure = jest.fn();
@@ -89,6 +90,7 @@ jest.mock('@/contexts/ApiContext', () => {
       isAutoConnecting$,
       connect: mockConnect,
       retryConnection: mockRetryConnection,
+      restartAutoConnect: mockRestartAutoConnect,
       connectionConfig: { baseUrl: mockBaseUrl },
       switchServer: jest.fn(),
     }),
@@ -181,6 +183,7 @@ describe('WelcomeView', () => {
     settingsModal$.set({ open: false, category: 'appearance' });
     mockConnect.mockReset();
     mockRetryConnection.mockReset().mockResolvedValue(undefined);
+    mockRestartAutoConnect.mockReset().mockResolvedValue(undefined);
     mockCreateConversation.mockReset();
     mockWaitForConversationCreation.mockReset().mockResolvedValue(undefined);
     mockSendFailure.mockReset();
@@ -1003,7 +1006,6 @@ describe('WelcomeView', () => {
 
     it('shows "Restart server" button in Tauri that invokes start_server then retries', async () => {
       mockInvokeTauri.mockResolvedValue(5700);
-      mockRetryConnection.mockResolvedValue(undefined);
 
       render(
         <SettingsProvider>
@@ -1018,10 +1020,12 @@ describe('WelcomeView', () => {
 
       await waitFor(() => {
         expect(mockInvokeTauri).toHaveBeenCalledWith('start_server');
-        expect(mockRetryConnection).toHaveBeenCalled();
+        expect(mockRestartAutoConnect).toHaveBeenCalled();
       });
       // connect() would cancel the auto-connect loop while the server boots.
       expect(mockConnect).not.toHaveBeenCalled();
+      // retryConnection() could wait on a probe sent before the server launched.
+      expect(mockRetryConnection).not.toHaveBeenCalled();
     });
 
     it('still shows "Retry connection" button alongside "Restart server"', () => {
@@ -1049,7 +1053,6 @@ describe('WelcomeView', () => {
 
     it('falls back to retry-only when start_server says already running', async () => {
       mockInvokeTauri.mockRejectedValue('Server is already running');
-      mockRetryConnection.mockResolvedValue(undefined);
 
       render(
         <SettingsProvider>
@@ -1060,7 +1063,7 @@ describe('WelcomeView', () => {
       fireEvent.click(screen.getByRole('button', { name: /restart server/i }));
 
       await waitFor(() => {
-        expect(mockRetryConnection).toHaveBeenCalled();
+        expect(mockRestartAutoConnect).toHaveBeenCalled();
       });
       expect(mockConnect).not.toHaveBeenCalled();
     });
