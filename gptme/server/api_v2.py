@@ -699,19 +699,48 @@ def _mcp_server_signature(server: dict | object) -> tuple:
     )
 
 
-def _match_saved_mcp_server(body_server: dict, matches: list, body_group: list[dict]):
+def _has_redacted_mcp_secret(server: dict) -> bool:
+    """Whether a body server still relies on ``***`` values for secret keys."""
+
+    for field_name in ("env", "headers"):
+        values = server.get(field_name)
+        if not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            if value == _REDACT_SENTINEL and _MCP_SECRET_KEY_RE.search(str(key)):
+                return True
+    return False
+
+
+def _match_saved_mcp_server(
+    body_server: dict,
+    matches: list,
+    body_group: list[dict],
+    masked_ids: set[int],
+):
     """Pair duplicate-name entries one-to-one using their public settings.
 
-    Reordering is safe when each public signature retains the same multiplicity.
-    Identical signatures keep their relative order, as in an unchanged redacted
-    echo. An edited or duplicated signature cannot identify the saved credential;
-    callers must supply real secrets for such edits instead of guessing by position.
+    Reordering is safe when each public signature retains the same multiplicity
+    in the redacted peers. Identical signatures keep their relative order, as in
+    an unchanged redacted echo. A body entry that supplies its own real secret
+    needs no match, so it does not compete for a saved one: an edit that merges
+    two public signatures stays valid as long as the remaining masked peers can
+    each claim exactly one saved entry. An edited or duplicated masked signature
+    cannot identify the saved credential; callers must supply real secrets for
+    such edits instead of guessing by position.
     """
     if len(matches) <= 1:
         return matches[0] if matches else None
     signature = _mcp_server_signature(body_server)
     same = [srv for srv in matches if _mcp_server_signature(srv) == signature]
-    peers = [srv for srv in body_group if _mcp_server_signature(srv) == signature]
+    # ``masked_ids`` is captured before any value is restored: an earlier row in
+    # the same request may already carry a real secret again by the time this one
+    # is matched, but it still occupies a saved entry.
+    peers = [
+        srv
+        for srv in body_group
+        if _mcp_server_signature(srv) == signature and id(srv) in masked_ids
+    ]
     if len(same) != len(peers):
         raise ValueError(
             f"{body_server.get('name', '')}: redacted secrets cannot be matched "
@@ -732,8 +761,9 @@ def _restore_conversation_mcp_secrets(
     replace the real secret. A body server matches the saved server with the
     same name; when several saved servers share a name, they are paired by
     non-secret content, preserving relative order only within identical public
-    signatures. The body must retain each signature's multiplicity for a masked
-    secret to have an unambiguous match. A secret is only kept when
+    signatures. The masked peers must retain each signature's multiplicity for a
+    secret to have an unambiguous match; a row that supplies its own real secret
+    does not compete for a saved one. A secret is only kept when
     the destination (``command``/``args``/``url``) is unchanged, so it never
     follows a server to a new endpoint. ``load_stored`` is called at most once,
     and only when a redacted value needs restoring. Raises ValueError when a
@@ -743,6 +773,7 @@ def _restore_conversation_mcp_secrets(
     if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
         return
     body_servers = [srv for srv in mcp["servers"] if isinstance(srv, dict)]
+    masked_ids = {id(srv) for srv in body_servers if _has_redacted_mcp_secret(srv)}
     body_name_counts: dict[str, int] = {}
     for srv in body_servers:
         name = str(srv.get("name", ""))
@@ -773,7 +804,7 @@ def _restore_conversation_mcp_secrets(
                 ):
                     raise ValueError(f"{name}: args must be a list of strings")
                 body_group = [s for s in body_servers if str(s.get("name", "")) == name]
-                saved = _match_saved_mcp_server(srv, matches, body_group)
+                saved = _match_saved_mcp_server(srv, matches, body_group, masked_ids)
                 original = getattr(saved, field_name, None) if saved else None
                 if saved is None or not original or key not in original:
                     raise ValueError(

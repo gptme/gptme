@@ -6741,3 +6741,58 @@ def test_v2_preparation_context_error_releases_session(
     assert not session.generating
     assert session.generating_since is None
     assert not session.checkpoint_needs_continuation
+
+
+def test_v2_conversation_config_patch_edit_colliding_duplicates_accepts_own_secret(
+    client: FlaskClient,
+):
+    """An edit that makes two duplicate-name servers look alike still succeeds
+    when the edited row supplies its own credential.
+
+    Only the unchanged row relies on a ``***`` placeholder, and the public
+    settings alone identify its saved entry, so rejecting the whole PATCH would
+    make a legitimate edit impossible.
+    """
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(
+        enabled=True,
+        servers=[
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "eu", "API_KEY": "eu-key"},
+            ),
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "us", "API_KEY": "us-key"},
+            ),
+        ],
+    )
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    servers.reverse()
+    # The reordered US entry now collides with the EU entry's public settings,
+    # and the client supplies a fresh credential for it instead of a placeholder.
+    servers[0]["env"]["REGION"] = "eu"
+    servers[0]["env"]["API_KEY"] = "us-new"
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [(s.env["REGION"], s.env["API_KEY"]) for s in stored.mcp.servers] == [
+        ("eu", "us-new"),
+        ("eu", "eu-key"),
+    ]
