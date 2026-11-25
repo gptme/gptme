@@ -218,8 +218,6 @@ class ClaudeCodeAgent(Agent):
         # uses relative paths for file creation inside the eval workspace.
         eval_prompt = WORKSPACE_INSTRUCTION + prompt
 
-        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
-
         cmd = [
             claude_bin,
             "-p",
@@ -235,6 +233,8 @@ class ClaudeCodeAgent(Agent):
         cmd.extend(
             claude_code_tool_args(self._claude_code_tools(), self.include_user_context)
         )
+
+        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)

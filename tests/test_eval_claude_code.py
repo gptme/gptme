@@ -476,6 +476,7 @@ def test_agent_refuses_isolated_run_under_managed_mcp(tmp_path):
     with patch("gptme.eval.agents.claude_code.MANAGED_MCP_CONFIG_PATHS", (managed,)):
         with pytest.raises(RuntimeError, match="Cannot isolate MCP servers"):
             _local_cmd(ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6"))
+        assert CostTracker.get_session_costs() is None
         with pytest.raises(RuntimeError, match="Cannot isolate MCP servers"):
             _local_cmd(
                 ClaudeCodeAgent(
@@ -507,4 +508,4 @@ def test_managed_mcp_config_path_is_platform_specific():
         expected = "/Library/Application Support/ClaudeCode/managed-mcp.json"
     else:
         expected = "/etc/claude-code/managed-mcp.json"
-    assert str(_MANAGED_MCP_CONFIG_PATH) == expected
+    assert _MANAGED_MCP_CONFIG_PATH.as_posix() == expected
