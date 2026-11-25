@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from gptme.tools.base import read_text_lf
 from gptme.tools.hashline_edit import execute_hashline_edit, store_snapshot
 from gptme.tools.morph import execute_morph_impl
@@ -77,3 +79,33 @@ def test_morph_keeps_trailing_cr(tmp_path: Path):
     _messages(execute_morph_impl("a = 1\r\nb = 2\n", f, original))
 
     assert f.read_bytes() == EXPECTED_BYTES
+
+
+@pytest.mark.parametrize(
+    ("original", "response", "expected"),
+    [
+        # interior lone CR, provider answers with CRLF
+        (b"a\rb\r\nold\r\n", "a\rb\r\nnew\r\n", b"a\rb\r\nnew\r\n"),
+        # CR before the line ending, provider answers with CRLF and keeps it
+        (ORIGINAL_BYTES, "a = 1\r\r\nb = 2\r\n", EXPECTED_BYTES),
+        # CR before the line ending, provider collapses it into its CRLF
+        (ORIGINAL_BYTES, "a = 1\r\nb = 2\r\n", EXPECTED_BYTES),
+        # CR before the line ending, provider answers with LF and drops it
+        (ORIGINAL_BYTES, "a = 1\nb = 2\n", EXPECTED_BYTES),
+        # inserted lines get no extra CR, including at the end of the file
+        (
+            ORIGINAL_BYTES,
+            "new\r\na = 1\r\r\nb = 1\r\nc = 3\r\n",
+            b"new\r\na = 1\r\r\nb = 1\r\nc = 3\r\n",
+        ),
+    ],
+)
+def test_morph_strips_only_provider_crs(
+    tmp_path: Path, original: bytes, response: str, expected: bytes
+):
+    f = tmp_path / "f.txt"
+    f.write_bytes(original)
+
+    _messages(execute_morph_impl(response, f, read_text_lf(f)))
+
+    assert f.read_bytes() == expected
