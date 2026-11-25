@@ -159,9 +159,6 @@ def test_server_recovers_before_output_and_anchors_retry(
     monkeypatch.setattr(
         session_step, "_stream", lambda messages, *a, **kw: Stream(messages)
     )
-    monkeypatch.setattr(
-        session_step, "prepare_messages", lambda messages, *a, **kw: messages
-    )
     monkeypatch.setattr(session_step, "trigger_hook", lambda *a, **kw: [])
     monkeypatch.setattr(
         session_step, "_try_auto_name_and_notify", lambda *a, **kw: None
@@ -376,9 +373,6 @@ def test_server_revoked_overflow_does_not_retry_or_publish(
         raise overflow()
 
     monkeypatch.setattr(session_step, "_chat_complete", complete)
-    monkeypatch.setattr(
-        session_step, "prepare_messages", lambda messages, *a, **kw: messages
-    )
     monkeypatch.setattr(session_step, "trigger_hook", lambda *a, **kw: [])
     monkeypatch.setattr(
         SessionManager, "add_event", lambda cid, event: events.append(event)
@@ -475,9 +469,6 @@ def test_server_revoked_during_retry_restores_only_its_own_epoch(
         raise RuntimeError("cancelled provider request")
 
     monkeypatch.setattr(session_step, "_chat_complete", complete)
-    monkeypatch.setattr(
-        session_step, "prepare_messages", lambda messages, *a, **kw: messages
-    )
     monkeypatch.setattr(session_step, "trigger_hook", lambda *a, **kw: [])
     monkeypatch.setattr(
         "gptme.tools.autocompact.recovery.compact_for_overflow",
@@ -566,9 +557,6 @@ def test_server_revoked_after_retry_does_not_commit_reply(
         return "Recovered after revocation", None
 
     monkeypatch.setattr(session_step, "_chat_complete", complete)
-    monkeypatch.setattr(
-        session_step, "prepare_messages", lambda messages, *a, **kw: messages
-    )
     monkeypatch.setattr(session_step, "trigger_hook", lambda *a, **kw: [])
     monkeypatch.setattr(
         "gptme.tools.autocompact.recovery.compact_for_overflow",

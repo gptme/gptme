@@ -1008,3 +1008,66 @@ def test_input_token_limit_tiny_window_floor(
         assert _input_token_limit(full_window_max_output) == 1_000
     finally:
         set_config(previous_cfg)
+
+
+def test_limit_log_soft_output_reserve_on_small_window(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Output reserve is a soft limit when pinned/system + request fits model.context.
+
+    Regression test (#5180): on openai/gpt-4 (8192 window, input_limit 5144),
+    a ~6300-token system prompt + short user message fits within model.context
+    but exceeds input_limit. limit_log must keep both and warn about reduced
+    output headroom rather than raising ContextLimitError, and still raise when
+    pinned/system + latest user request exceeds the full context window.
+    """
+    import logging
+
+    from gptme.llm.models import get_model
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import ContextLimitError, _input_token_limit
+
+    model = get_model("openai/gpt-4")  # 8192-token window, max_output=None
+    input_limit = _input_token_limit(model)
+    assert input_limit < model.context
+
+    token = _default_model_var.set(model)
+    try:
+        # Case 1: system prompt alone exceeds input_limit (6300 > 5144), total fits 8192.
+        log = [Message("system", "word " * 6300), Message("user", "hi")]
+        total_tokens = len_tokens(log, model.model)
+        assert input_limit < total_tokens <= model.context
+
+        with caplog.at_level(logging.WARNING, logger="gptme.util.reduce"):
+            kept = limit_log(log)
+
+        assert kept == log
+        assert len_tokens(kept, model.model) == total_tokens
+        assert any("output headroom" in rec.message for rec in caplog.records)
+
+        # Case 2: system fits input_limit, but system + latest user exceeds input_limit
+        # while still fitting model.context (rescue path softens output reserve).
+        caplog.clear()
+        log_rescue = [
+            Message("system", "word " * 4500),
+            Message("user", "word " * 1000),
+        ]
+        assert len_tokens([log_rescue[0]], model.model) < input_limit
+        assert input_limit < len_tokens(log_rescue, model.model) <= model.context
+
+        with caplog.at_level(logging.WARNING, logger="gptme.util.reduce"):
+            kept_rescue = limit_log(log_rescue)
+
+        assert kept_rescue == log_rescue
+        assert any("output headroom" in rec.message for rec in caplog.records)
+
+        # Case 3: system + latest user exceeds full model.context → still raises.
+        log_overflow = [
+            Message("system", "word " * 6300),
+            Message("user", "word " * 2500),
+        ]
+        assert len_tokens(log_overflow, model.model) > model.context
+        with pytest.raises(ContextLimitError, match="no user request fits"):
+            limit_log(log_overflow)
+    finally:
+        _default_model_var.reset(token)
