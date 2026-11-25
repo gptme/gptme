@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("flask")
 
+from gptme.logmanager import LogManager
 from gptme.server import session_step
 from gptme.server.session_models import SessionManager
 
@@ -21,7 +22,10 @@ def _capture_new_threads(seen: set[threading.Thread]) -> list[threading.Thread]:
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
-def test_step_thread_crash_releases_generating(client, tmp_path, monkeypatch):
+@pytest.mark.parametrize("persistence_fails", [False, True])
+def test_step_thread_crash_releases_generating(
+    client, tmp_path, monkeypatch, persistence_fails
+):
     name = f"test-step-crash-{uuid4().hex}"
     result = client.put(
         f"/api/v2/conversations/{name}",
@@ -40,6 +44,12 @@ def test_step_thread_crash_releases_generating(client, tmp_path, monkeypatch):
         raise ValueError("not enough values to unpack (expected 2, got 1)")
 
     monkeypatch.setattr(session_step, "step", crash)
+    if persistence_fails:
+
+        def fail_persistence(*args, **kwargs):
+            raise OSError("conversation storage unavailable")
+
+        monkeypatch.setattr(session_step, "_persist_generation_error", fail_persistence)
     woken: list[str] = []
     monkeypatch.setattr(
         SessionManager,
@@ -67,6 +77,14 @@ def test_step_thread_crash_releases_generating(client, tmp_path, monkeypatch):
         types = [e["type"] for e in events if e["type"] in ("error", "step_complete")]
         assert types == ["error", "step_complete"]
         assert woken == [name]
+        reloaded = LogManager.load(name, lock=False)
+        persisted_error = any(
+            message.role == "system"
+            and message.content
+            == "Error: not enough values to unpack (expected 2, got 1)"
+            for message in reloaded.log.messages
+        )
+        assert persisted_error is not persistence_fails
         # The conversation accepts new work again instead of answering 409.
         response = client.post(
             f"/api/v2/conversations/{name}",

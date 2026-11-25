@@ -2190,7 +2190,7 @@ def _start_step_thread(
             )
         except Exception as e:
             released = False
-            with session.step_lock:
+            with SessionManager.conversation_lock(conversation_id), session.step_lock:
                 if session.step_seq == step_seq:
                     session.finish_skill_turn("failed", error_type=type(e).__name__)
                     # step() raised before its own finally could release the
@@ -2208,6 +2208,13 @@ def _start_step_thread(
                         # failure path so both always carry a message.
                         error_message = str(e) or "Generation failed"
                         session.last_error = error_message
+                        try:
+                            manager = LogManager.load(
+                                conversation_id, branch=branch, lock=False
+                            )
+                            _persist_generation_error(manager, session, error_message)
+                        except Exception:
+                            logger.exception("Failed to persist step thread error")
                         SessionManager.add_event(
                             conversation_id, {"type": "error", "error": error_message}
                         )
