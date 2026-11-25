@@ -64,24 +64,32 @@ def _probe_headers(cmd: list[str], env: dict[str, str], deadline: float) -> str:
 
 
 def _resolve_allowlisted_redirects(
-    url: str, env: dict[str, str], deadline: float | None = None
+    url: str,
+    env: dict[str, str],
+    deadline: float | None = None,
+    cookie_args: list[str] | None = None,
 ) -> str:
     """Follow redirects with HEAD probes, allowlist-checking every hop first.
 
     lynx follows redirects to any host on its own, so with a host allowlist the
     real fetch runs with ``-noredir`` against the URL resolved here. A server
     that rejects HEAD is probed with GET, whose header block lynx prints with
-    ``-mime_header``. All probes share ``deadline``.
+    ``-mime_header``. All probes share ``deadline``. ``cookie_args`` go to every
+    probe: a server may redirect differently without them (Google sends
+    cookie-less requests to its consent page).
     """
     if deadline is None:
         deadline = time.monotonic() + _FETCH_TIMEOUT
+    extra = cookie_args or []
     for _ in range(_MAX_REDIRECT_HOPS):
         dump = _probe_headers(
-            ["lynx", "-head", "-dump", "-noredir", url], env, deadline
+            ["lynx", "-head", "-dump", "-noredir", *extra, url], env, deadline
         )
         if _status_code(dump) in _HEAD_UNSUPPORTED_STATUSES:
             dump = _probe_headers(
-                ["lynx", "-mime_header", "-source", "-noredir", url], env, deadline
+                ["lynx", "-mime_header", "-source", "-noredir", *extra, url],
+                env,
+                deadline,
             )
         target = _redirect_target(dump, url)
         if target is None:
@@ -100,15 +108,9 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     # Caller-supplied cookies belong to the requested host, not to wherever an
     # allowlisted redirect ends up.
     cookie_host = urlparse(url).hostname
-    if _get_allow_hosts() is not None:
-        # Only the first URL was checked above; lynx would otherwise follow a
-        # redirect to any host and return its content.
-        url = _resolve_allowlisted_redirects(url, env, deadline)
-        cmd = ["lynx", "--dump", "-noredir", url, "--display_charset=utf-8"]
-    else:
-        cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
 
     cookie_file = None
+    cookie_args: list[str] = []
     if cookies:
         # Create Netscape-format cookie file for lynx
         domain = cookie_host
@@ -139,9 +141,17 @@ def read_url(url: str, cookies: dict | None = None) -> str:
             Path(cookie_file).unlink(missing_ok=True)
             cookie_file = None
             raise
-        cmd.extend([f"-cookie_file={cookie_file}", "-accept_all_cookies"])
+        cookie_args = [f"-cookie_file={cookie_file}", "-accept_all_cookies"]
 
     try:
+        if _get_allow_hosts() is not None:
+            # Only the first URL was checked above; lynx would otherwise follow a
+            # redirect to any host and return its content.
+            url = _resolve_allowlisted_redirects(url, env, deadline, cookie_args)
+            cmd = ["lynx", "--dump", "-noredir", url, "--display_charset=utf-8"]
+        else:
+            cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
+        cmd.extend(cookie_args)
         p = subprocess.run(
             cmd,
             env=env,

@@ -518,3 +518,74 @@ def test_read_url_checks_get_redirect_when_head_is_rejected():
         set_session_allow_hosts(None)
         server.shutdown()
         server.server_close()
+
+
+def test_read_url_redirect_probes_send_cookies():
+    """Allow-listed redirect probes carry the caller's cookies.
+
+    Google search relies on SOCS/CONSENT cookies to avoid a consent redirect; a
+    probe without them would follow that redirect instead of the search page.
+    """
+    from subprocess import CompletedProcess
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    probe_cookies: list[str] = []
+
+    def mock_run(cmd, **kwargs):
+        if "-head" in cmd:
+            cookie_arg = next((a for a in cmd if a.startswith("-cookie_file=")), None)
+            assert cookie_arg is not None, f"probe without cookies: {cmd}"
+            assert "-accept_all_cookies" in cmd
+            with open(cookie_arg.split("=", 1)[1]) as f:
+                probe_cookies.append(f.read())
+            if not cmd[-1].endswith("/final"):
+                return CompletedProcess(
+                    cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /final\n", stderr=""
+                )
+            return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
+        assert any(a.startswith("-cookie_file=") for a in cmd)
+        return CompletedProcess(cmd, 0, stdout="page", stderr="")
+
+    try:
+        set_session_allow_hosts(["www.google.com"])
+        with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
+            assert (
+                read_url("https://www.google.com/search?q=x", cookies={"SOCS": "abc"})
+                == "page"
+            )
+    finally:
+        set_session_allow_hosts(None)
+
+    assert len(probe_cookies) == 2
+    assert all("\tSOCS\tabc" in c for c in probe_cookies)
+
+
+def test_read_url_cookie_file_removed_when_redirect_probe_fails():
+    """The cookie file is cleaned up even if redirect resolution raises."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    cookie_paths: list[str] = []
+
+    def mock_run(cmd, **kwargs):
+        cookie_paths.extend(
+            a.split("=", 1)[1] for a in cmd if a.startswith("-cookie_file=")
+        )
+        return CompletedProcess(
+            cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /loop\n", stderr=""
+        )
+
+    try:
+        set_session_allow_hosts(["example.com"])
+        with (
+            patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run),
+            pytest.raises(RuntimeError, match="Too many redirects"),
+        ):
+            read_url("https://example.com/start", cookies={"SID": "abc"})
+    finally:
+        set_session_allow_hosts(None)
+
+    assert cookie_paths
+    assert not any(os.path.exists(p) for p in cookie_paths)
