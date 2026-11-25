@@ -2025,8 +2025,16 @@ def start_tool_execution(
             start_continuation = False
             continuation_seq: int | None = None
             with SessionManager.conversation_lock(conversation_id), session.step_lock:
-                owns_reservation = not reserved or session.step_seq == my_seq
-                if session.interrupted or not owns_reservation:
+                # A worker only owns the current generation epoch while the
+                # ``step_seq`` it captured at queue time is still current.
+                # ``interrupted`` alone is not enough: an interrupt bumps
+                # ``step_seq``, but a later turn (A2A ``SendMessage`` or /step)
+                # clears ``interrupted``. Without the epoch check a tool queued
+                # before that interrupt would then elect a continuation on top
+                # of the newer turn, replaying an answer the client already saw
+                # (or resurrecting a task that was reported completed).
+                owns_epoch = session.step_seq == my_seq
+                if session.interrupted or not owns_epoch:
                     logger.debug(
                         "Skipping tool continuation: interrupted=%s, seq %d→%d",
                         session.interrupted,

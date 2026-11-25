@@ -913,7 +913,12 @@ def v2_conv(client):
 
 
 def test_a2a_step_after_interrupt_releases_reservation(v2_conv, monkeypatch):
-    """A new A2A request after an interrupt must not leave the session stuck generating."""
+    """A new A2A request after an interrupt must not leave the session stuck generating.
+
+    Exercises the real ``step()`` (only the provider call is stubbed) so the
+    assertion covers the actual release path: a fake ``step()`` that clears
+    ``generating`` itself would pass even if the worker left the session busy.
+    """
     import gptme.server.session_step as step_mod
     from gptme.server import a2a_api
     from gptme.server.session_models import SessionManager
@@ -921,15 +926,21 @@ def test_a2a_step_after_interrupt_releases_reservation(v2_conv, monkeypatch):
     session = SessionManager.get_session(v2_conv["session_id"])
     assert session is not None
     session.interrupted = True
-    seen: list[bool] = []
-    monkeypatch.setattr(step_mod, "step", _guarded_fake_step(session, seen))
+    calls: list[int] = []
+
+    def fake_chat_complete(*args, **kwargs):
+        calls.append(1)
+        return "A2A response", None
+
+    monkeypatch.setattr(step_mod, "_chat_complete", fake_chat_complete)
     monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
-    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "1")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "10")
 
     a2a_api._run_task_blocking(v2_conv["conversation_id"], session)
 
-    assert seen == [False]
+    assert calls == [1]
     assert not session.generating
+    assert not session.interrupted
 
 
 def test_tool_continuation_reservation_keeps_interrupt(v2_conv, monkeypatch):
@@ -955,3 +966,64 @@ def test_tool_continuation_reservation_keeps_interrupt(v2_conv, monkeypatch):
 
     assert seen == [True]
     assert session.interrupted
+
+
+def test_stale_tool_worker_does_not_start_continuation(v2_conv, monkeypatch):
+    """A tool queued before an interrupt must not resume after a newer turn cleared it.
+
+    The A2A turn clears ``session.interrupted``. A tool worker that was queued
+    before the interrupt still holds the old epoch, so it must not elect a
+    continuation on top of the newer turn: that would emit an unsolicited model
+    turn after the client already saw TASK_STATE_COMPLETED (and make the session
+    busy again).
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.interrupted = False  # a newer A2A turn already cleared it
+    session.generating = False
+
+    def execute(code, args, kwargs):
+        # The interrupt and the newer turn both land while this tool runs.
+        session.step_seq += 1
+        session.interrupted = False
+        return Message("system", "late tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+
+    tool_exec = ToolExecution(
+        tool_id="tool-stale", tooluse=ToolUse("test_tool", [], None)
+    )
+    session.pending_tools[tool_exec.tool_id] = tool_exec
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        tool_exec.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert continuation.call_count == 0
+    assert not session.generating
