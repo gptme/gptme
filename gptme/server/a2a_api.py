@@ -306,8 +306,12 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
 
 
 def _append_task_message(task_id: str, user_text: str) -> ConversationSession:
-    # Serialize with step error persistence and other transcript writers;
-    # loading before that writer finishes can lose this append on its rewrite.
+    # Take the conversation lock so this append does not interleave with the
+    # writers that hold it (the A2A routes and the step's state transitions).
+    # A running step still rewrites the transcript from the copy it loaded
+    # before generating, without this lock, so an append that lands
+    # mid-generation can still be dropped by that rewrite: this lock makes the
+    # append itself atomic, it does not make the transcript merge-safe.
     with SessionManager.conversation_lock(task_id):
         manager = LogManager.load(task_id, lock=False)
         msg = Message("user", user_text)
