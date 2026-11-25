@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from typing import assert_type
 
@@ -1607,7 +1608,8 @@ def test_image_failure_keeps_specific_diagnostic(tmp_path, oversized):
 
 
 @pytest.mark.parametrize(
-    "thinking_text", ["", "Example:\n<think>\nλ quoted\n</think>\n  "]
+    "thinking_text",
+    ["", "Plain λ reasoning.", "Example:\n<think>\nλ quoted\n</think>\n  "],
 )
 def test_stream_signed_thinking_length_roundtrip(thinking_text, monkeypatch):
     """The real SDK's thinking deltas retain exact framing and Unicode lengths."""
@@ -1674,3 +1676,12 @@ def test_stream_signed_thinking_length_roundtrip(thinking_text, monkeypatch):
         [(thinking_text, "stream-sig==")],
         "",
     )
+    # Releases without length framing read the first signature comment and strip
+    # every one, so logs written now must still replay there after a downgrade.
+    if "</think>" not in thinking_text:
+        old_comment = re.compile(r"\n<!-- think-sig: (.*?) -->", re.DOTALL)
+        block = answer.split("<think>", 1)[1].split("</think>", 1)[0]
+        signature = old_comment.search(block)
+        assert signature is not None
+        assert signature.group(1) == "stream-sig=="
+        assert old_comment.sub("", block).strip() == thinking_text

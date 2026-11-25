@@ -2,6 +2,7 @@
 
 import re
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -1391,11 +1392,14 @@ def test_handle_tools_signed_thinking_keeps_quoted_content(
     init_tools()
     if length_framed:
         reasoning += "\nExample:\n<think>\nquoted\n</think>\nContinue"
-        reasoning += "\n<think>\nx\n<!-- think-sig: inner\nthink-chars: 1 -->\n</think>"
+        reasoning += (
+            "\n<think>\nx\n<!-- think-sig: inner -->\n"
+            "<!-- think-sig: chars=1 -->\n</think>"
+        )
     tool_call = '@shell(real-call): {"command": "echo real"}'
-    framing = f"\nthink-chars: {len(reasoning)}" if length_framed else ""
+    framing = f"\n<!-- think-sig: chars={len(reasoning)} -->" if length_framed else ""
     content = (
-        f"{prefix}<{tag}>\n{reasoning}\n<!-- think-sig: signed=={framing} -->\n</{tag}>\n"
+        f"{prefix}<{tag}>\n{reasoning}\n<!-- think-sig: signed== -->{framing}\n</{tag}>\n"
         f"{tool_call}"
     )
     assert _extract_thinking_content(content) == (
@@ -1444,6 +1448,68 @@ def test_extract_thinking_content_many_literal_blocks() -> None:
         [("reasoning", "sig")],
         literal.strip(),
     )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("example_opener", ["<{tag}>\n", "Write <{tag}>\n"])
+@pytest.mark.parametrize("later_framed", [False, True])
+def test_extract_thinking_content_example_comment_before_call(
+    tag: str, example_opener: str, later_framed: bool
+) -> None:
+    """A quoted signature comment must not borrow a later block's closing tag."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    prose = (
+        example_opener.format(tag=tag)
+        + "<!-- think-sig: example -->\n"
+        + '@shell(real-call): {"command": "echo real"}\n'
+        + "Then: "
+    )
+    framing = "\n<!-- think-sig: chars=9 -->" if later_framed else ""
+    signed = f"<{tag}>\nreasoning\n<!-- think-sig: realSig -->{framing}\n</{tag}>"
+    # A legacy block is only told apart from a quoted opener if it starts a line.
+    separator = "" if later_framed else "\n"
+
+    assert _extract_thinking_content(prose + separator + signed) == (
+        [("reasoning", "realSig")],
+        prose.strip(),
+    )
+
+
+@pytest.mark.parametrize("chars", [3, 999])
+def test_extract_thinking_content_stale_length_keeps_signature_clean(
+    chars: int,
+) -> None:
+    """An edited block falls back to delimiters without corrupting the signature."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        "<think>\nedited reasoning\n<!-- think-sig: sig== -->\n"
+        f"<!-- think-sig: chars={chars} -->\n</think>\nDone."
+    )
+
+    assert _extract_thinking_content(content) == (
+        [("edited reasoning", "sig==")],
+        "Done.",
+    )
+
+
+@pytest.mark.parametrize(
+    "literal",
+    ["<think>literal</think> ", "Use <think> tags. "],
+)
+def test_extract_thinking_content_searches_tool_calls_once(
+    literal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Literal tags must not each rescan the rest of the reply for a tool call."""
+    from gptme.llm import llm_anthropic
+
+    spy = Mock(wraps=llm_anthropic.toolcall_re)
+    monkeypatch.setattr(llm_anthropic, "toolcall_re", spy)
+    content = "Example: " + literal * 100
+
+    assert llm_anthropic._extract_thinking_content(content) == ([], content.strip())
+    assert spy.search.call_count == 1
 
 
 def test_handle_tools_thinking_with_signature():

@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import time
+from bisect import bisect_right
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import replace
 from functools import wraps
@@ -1077,11 +1078,8 @@ def chat(
         elif block.type == "thinking":
             # Embed signature so it survives serialisation and can be passed
             # back on the next API call (Anthropic requires it for multi-turn).
-            parsed_block.append(
-                f"<think>\n{block.thinking}\n"
-                f"<!-- think-sig: {block.signature}\n"
-                f"think-chars: {len(block.thinking)} -->\n</think>"
-            )
+            footer = _thinking_footer(block.signature, len(block.thinking))
+            parsed_block.append(f"<think>\n{block.thinking}\n{footer}\n</think>")
         elif block.type == "tool_use":
             parsed_block.append(
                 f"\n@{canonical_tool_name(block.name)}({block.id}): "
@@ -1282,10 +1280,10 @@ def _stream_with_client(
                         # Embed the signature so it's preserved in message history
                         # and can be passed back to the API on subsequent turns.
                         if _current_block_signature:
-                            yield from _emit(
-                                f"\n<!-- think-sig: {_current_block_signature}\n"
-                                f"think-chars: {_current_thinking_chars} -->"
+                            footer = _thinking_footer(
+                                _current_block_signature, _current_thinking_chars
                             )
+                            yield from _emit(f"\n{footer}")
                             _current_block_signature = None
                         yield from _emit("\n</think>\n\n")
                     elif isinstance(stop_block, anthropic.types.RedactedThinkingBlock):
@@ -1346,6 +1344,15 @@ def _stream_with_client(
     )
 
 
+def _thinking_footer(signature: str, chars: int) -> str:
+    """Comments persisted inside a thinking block, just before its closing tag.
+
+    The length goes in a second ``think-sig`` comment: older releases read the
+    signature from the first one and strip both, and display code hides both.
+    """
+    return f"<!-- think-sig: {signature} -->\n<!-- think-sig: chars={chars} -->"
+
+
 def _extract_thinking_content(
     content: str | list,
 ) -> tuple[list[tuple[str, str]], str]:
@@ -1390,9 +1397,11 @@ def _extract_thinking_content(
     # examples of this very syntax. Compute their exact opening position from
     # the footer rather than interpreting anything inside the signed body.
     framed_blocks: dict[int, tuple[int, str, str]] = {}
+    # A signature may be line-wrapped, but never contains a comment delimiter.
+    signature_comment = r"<!-- think-sig: ((?:(?!<!--|-->).)*?) -->"
     footer_pattern = re.compile(
-        r"\n<!-- think-sig: ((?:(?!-->).)*?)\n"
-        r"think-chars: ([0-9]{1,12}) -->\n</(think|thinking)>",
+        rf"\n{signature_comment}\n"
+        r"<!-- think-sig: chars=([0-9]{1,12}) -->\n</(think|thinking)>",
         re.DOTALL,
     )
     for footer in footer_pattern.finditer(text_content):
@@ -1405,15 +1414,18 @@ def _extract_thinking_content(
                 text_content[body_start : footer.start()],
                 footer.group(1),
             )
+    framed_starts = sorted(framed_blocks)
 
-    # Legacy signed blocks lack a length; accept inline quoted tags and calls,
-    # but a whole-line opener remains ambiguous with a subsequent real block.
-    # A subsequent framed opener starts a new block, so legacy/literal openers
-    # cannot consume the signature belonging to that later block.
+    # Legacy signed blocks lack a length (and an edited block's length no longer
+    # matches); accept inline quoted tags and calls, but a whole-line opener
+    # remains ambiguous with a subsequent real block. Neither a whole-line nor a
+    # length-framed opener can be crossed, so legacy/literal openers cannot
+    # consume the signature belonging to a later block.
     signed_pattern = re.compile(
         r"<(think|thinking)>\n"
         r"(?:((?:(?!\n<(?:think|thinking)>\n).)*?)\n)?"
-        r"<!-- think-sig: (.*?) -->\n</\1>\s*",
+        rf"{signature_comment}"
+        r"(?:\n<!-- think-sig: chars=[0-9]+ -->)?\n</\1>\s*",
         re.DOTALL,
     )
     unsigned_pattern = re.compile(
@@ -1421,22 +1433,33 @@ def _extract_thinking_content(
         re.DOTALL,
     )
     opener_pattern = re.compile(r"<(?:think|thinking)>")
+    last_signature = text_content.rfind("<!-- think-sig: ")
     thinking_blocks: list[tuple[str, str]] = []
     kept: list[str] = []
     pos = 0
     search_from = 0
     leading = True
+
+    # Calls are searched for once each, not once per opener, so a reply full of
+    # literal tags is not rescanned for every one of them.
+    def next_call(start: int) -> tuple[int, int | None]:
+        """Start and JSON end of the next tool call, past the end if none."""
+        match = toolcall_re.search(text_content, start)
+        if not match:
+            return len(text_content), None
+        return match.start(), find_json_end(text_content, match.start(3))
+
+    call_start, call_end = next_call(0)
     while search_from < len(text_content):
         opener = opener_pattern.search(text_content, search_from)
-        call = toolcall_re.search(text_content, search_from)
-        if call and (opener is None or call.start() < opener.start()):
-            call_end = find_json_end(text_content, call.start(3))
-            if call_end is not None:
-                # Outside reasoning, complete JSON is opaque too, including
-                # literal tags and signature-looking strings in tool arguments.
-                search_from = call_end
-                leading = False
-                continue
+        if call_start < search_from:
+            call_start, call_end = next_call(search_from)
+        if call_end is not None and (opener is None or call_start < opener.start()):
+            # Outside reasoning, complete JSON is opaque too, including
+            # literal tags and signature-looking strings in tool arguments.
+            search_from = call_end
+            leading = False
+            continue
         if opener is None:
             break
         if leading and text_content[search_from : opener.start()].strip():
@@ -1450,7 +1473,18 @@ def _extract_thinking_content(
             pos = search_from = end
             thinking_blocks.append((block, signature))
             continue
-        match = signed_pattern.match(text_content, opener.start())
+        next_framed = bisect_right(framed_starts, opener.start())
+        limit = (
+            framed_starts[next_framed]
+            if next_framed < len(framed_starts)
+            else len(text_content)
+        )
+        # Without a signature further on, don't scan ahead looking for one.
+        match = (
+            signed_pattern.match(text_content, opener.start(), limit)
+            if opener.start() < last_signature
+            else None
+        )
         if match:
             # Remove only the framing newline, never strip signed whitespace.
             block, signature = match.group(2) or "", match.group(3).strip()
