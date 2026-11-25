@@ -843,6 +843,11 @@ def _scan_makefile(
         seen[key] = blob
         reads.append((path, blob))
         text = blob.decode(errors="replace")
+        # This scanner assumes tab-prefixed recipes. A different prefix can
+        # turn skipped recipe lines into live includes, even in a parent file.
+        # Decline conservatively rather than partly interpreting make state.
+        if ".RECIPEPREFIX" in text:
+            return False
         if target is None and _MAKE_TEST_TARGET.search(text):
             target = path
         for token in _make_include_tokens(text):
