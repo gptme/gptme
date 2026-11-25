@@ -1246,6 +1246,72 @@ class TestInterruptEndpoint:
         assert [free for free, _ in hook_observations] == [True, True]
         assert hook_observations[1][1] == "first hook"
 
+    def test_generation_error_is_persisted_under_conversation_lock(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """The failure path writes with the same stale manager as the reply."""
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        conversation_id = conv["conversation_id"]
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+        lock_free: list[bool] = []
+
+        def persist(*_args):
+            def probe():
+                lock = SessionManager.conversation_lock(conversation_id)
+                acquired = lock.acquire(blocking=False)
+                if acquired:
+                    lock.release()
+                lock_free.append(acquired)
+
+            thread = threading.Thread(target=probe)
+            thread.start()
+            thread.join(timeout=5)
+
+        with (
+            patch(
+                "gptme.server.session_step._stream",
+                side_effect=RuntimeError("provider failed"),
+            ),
+            patch("gptme.server.session_step._persist_generation_error", persist),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            step(
+                conversation_id=conversation_id,
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+                step_seq=1,
+            )
+
+        assert lock_free == [False]
+
     def test_post_tool_checkpoint_preserves_task_continuation(self, conv):
         from gptme.logmanager import LogManager
         from gptme.message import Message

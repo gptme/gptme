@@ -1650,7 +1650,10 @@ def step(
             error_message = str(e) or "Generation failed"
             session.last_error = error_message
             try:
-                _persist_generation_error(manager, session, error_message)
+                # Same stale manager as the reply commit: serialize with
+                # resume/A2A writers.
+                with SessionManager.conversation_lock(conversation_id):
+                    _persist_generation_error(manager, session, error_message)
             except Exception:
                 logger.exception("Failed to persist generation error message")
             SessionManager.add_event(
