@@ -50,6 +50,25 @@ def test_tool_allowlist_env_supports_cli_syntax(tmp_path, monkeypatch, value, ch
     assert check(config.chat.tools or []), config.chat.tools
 
 
+@pytest.mark.parametrize("value", [" ", ",", " , , "])
+@pytest.mark.parametrize("interactive", [True, False])
+def test_empty_tool_allowlist_does_not_enable_defaults(
+    tmp_path, monkeypatch, value, interactive
+):
+    from gptme.config import ChatConfig
+
+    monkeypatch.setenv("TOOL_ALLOWLIST", value)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    config = setup_config_from_cli(
+        workspace=workspace, logdir=logdir, interactive=interactive
+    )
+    assert config.chat is not None
+    assert config.chat.tools == ([] if interactive else ["complete"])
+    assert ChatConfig.from_logdir(logdir).tools == []
+
+
 def test_tool_allowlist_env_rejects_mixed_syntax(tmp_path, monkeypatch):
     monkeypatch.setenv("TOOL_ALLOWLIST", "-shell,save")
     workspace = tmp_path / "workspace"
