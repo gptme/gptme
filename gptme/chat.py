@@ -106,12 +106,22 @@ def _empty_reply_ends_turn(messages: list[Message]) -> bool:
         return False
     # Only this turn's tool results count: a newer user prompt (even one
     # followed by a STEP_PRE notice) is owed a real answer.
+    saw_tool_step = False
     for msg in reversed(messages):
         if msg.role == "user":
-            return False
+            # A compaction checkpoint request whose replies so far were all
+            # tool steps still owes its written checkpoint: ending here would
+            # skip applying it and resuming the interrupted task.
+            return saw_tool_step and "compaction_checkpoint_view" not in (
+                msg.metadata or {}
+            )
         if msg.role == "assistant":
-            return any(True for _ in ToolUse.iter_from_content(msg.content))
-    return False
+            if not any(True for _ in ToolUse.iter_from_content(msg.content)):
+                # The last reply has no tool call (nothing ran since), or an
+                # earlier tool-free reply already answered the last prompt.
+                return saw_tool_step
+            saw_tool_step = True
+    return saw_tool_step
 
 
 class IdleNotificationWake:

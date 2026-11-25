@@ -1817,6 +1817,10 @@ def extra_body(
     return body
 
 
+# Chat Completions finish reasons that mean the provider cut the reply off.
+_CUTOFF_FINISH_REASONS = frozenset({"length", "content_filter"})
+
+
 def _stream_responses(
     messages: list[Message],
     model: str,
@@ -2461,6 +2465,12 @@ def _stream_with_client(
                 if captured_metadata is None:
                     captured_metadata = {"model": model}
                 captured_metadata["native_finish_reason"] = native_finish
+            if stop_reason in _CUTOFF_FINISH_REASONS:
+                # Token limit or content filter: an empty reply here is a
+                # cut-off, not the model choosing to say nothing.
+                if captured_metadata is None:
+                    captured_metadata = {"model": model}
+                captured_metadata["incomplete"] = True
             if _used_relaxed_fallback:
                 _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             break  # Normal completion — no retry needed.

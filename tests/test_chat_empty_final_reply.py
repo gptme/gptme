@@ -107,6 +107,41 @@ def test_new_prompt_after_tool_turn_is_still_an_error(offline):
     assert len(calls) > 1
 
 
+def test_checkpoint_tool_steps_still_owe_the_checkpoint(offline):
+    """Autocompaction asked for a checkpoint; the model saved state with tools
+    but has not written the checkpoint, so an empty reply stays an error."""
+    chat, calls = offline
+    init_tools(allowlist=["shell"])
+    messages = AFTER_TOOL + [
+        Message(
+            "user",
+            "Write a checkpoint of your progress.",
+            metadata={"compaction_checkpoint_view": "main"},
+        ),
+        Message("assistant", "```shell\necho state > notes.md\n```\n"),
+        Message("system", "Ran command: state"),
+    ]
+
+    with pytest.raises(EmptyStreamError):
+        _run_step(chat, messages, headless=True)
+
+    assert len(calls) > 1
+
+
+def test_multi_step_tool_turn_ends_on_empty_reply(offline):
+    chat, calls = offline
+    init_tools(allowlist=["shell"])
+    messages = AFTER_TOOL + [
+        Message("assistant", "```shell\ncat pick.json\n```\n"),
+        Message("system", "Ran command: saved"),
+    ]
+
+    msgs = _run_step(chat, messages, headless=True)
+
+    assert len(calls) == 1
+    assert msgs[0].metadata == {"session_stop_outcome": "completed"}
+
+
 def test_complete_tool_loaded_keeps_replaying(offline):
     chat, calls = offline
     init_tools(allowlist=["shell", "complete"])
@@ -137,9 +172,25 @@ def test_empty_first_reply_is_still_an_error(offline):
     assert len(calls) > 1
 
 
-def test_flag_is_scoped_to_the_chat_loop():
+@pytest.mark.parametrize("interactive", [False, True])
+def test_flag_is_scoped_to_the_chat_loop(monkeypatch, interactive):
+    """The loop sets the flag for its body and resets it even when it raises."""
     chat = importlib.import_module("gptme.chat")
-    assert chat._headless_run.get() is False
+    seen: list[bool] = []
+
+    def inner(*_a, **_kw):
+        seen.append(chat._headless_run.get())
+        raise RuntimeError("loop failed")
+
+    monkeypatch.setattr(chat, "_run_chat_loop_inner", inner)
+    token = chat._headless_run.set(interactive)  # the opposite of the loop's value
+    try:
+        with pytest.raises(RuntimeError):
+            chat._run_chat_loop(Mock(), [], False, interactive=interactive)
+        assert seen == [not interactive]
+        assert chat._headless_run.get() is interactive
+    finally:
+        chat._headless_run.reset(token)
 
 
 def _mock_manager(tmp_path, messages):
@@ -161,7 +212,8 @@ def test_headless_loop_ends_on_marker_but_waits_for_background_job(
     import shlex
     import sys
 
-    from gptme.hooks import clear_hooks, current_conversation_id
+    from gptme.hooks import current_conversation_id, get_registry, set_registry
+    from gptme.hooks.registry import HookRegistry
     from gptme.logmanager import LogManager
     from gptme.tools import clear_tools, shell_background
     from gptme.tools.subagent.drain import DRAIN_TIMEOUT_ENV
@@ -170,7 +222,8 @@ def test_headless_loop_ends_on_marker_but_waits_for_background_job(
     monkeypatch.setenv("GPTME_USER_CONFIG", str(tmp_path / "no-config.toml"))
     monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
     monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.1")
-    clear_hooks()
+    previous_registry = get_registry()
+    set_registry(HookRegistry())
     clear_tools()
     init_tools(["subagent"], include_mcp=False)
     monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "false")
@@ -212,11 +265,13 @@ def test_headless_loop_ends_on_marker_but_waits_for_background_job(
     finally:
         current_conversation_id.reset(token)
         shell_background.reset_background_jobs()
+        set_registry(previous_registry)
 
     assert headless and all(headless)
     assert chat._headless_run.get() is False
     assert jobs[0].process.poll() == 0, "background job was killed"
-    assert any("654321" in m.content for m in manager.log)
+    # The completion notice repeats the command; the output is its own line.
+    assert any("654321" in m.content.splitlines() for m in manager.log)
 
 
 def test_turn_ends_once_on_the_empty_reply_marker(monkeypatch, tmp_path):
@@ -247,3 +302,129 @@ def test_turn_ends_once_on_the_empty_reply_marker(monkeypatch, tmp_path):
     assert steps == [1]
     assert interrupted is False
     assert manager.log[-1].metadata == {"session_stop_outcome": "completed"}
+
+
+def _drain(gen):
+    out = []
+    try:
+        while True:
+            out.append(next(gen))
+    except StopIteration as stop:
+        return "".join(out), stop.value
+
+
+@pytest.mark.parametrize("finish_reason", ["length", "content_filter"])
+def test_chat_completions_cutoff_is_not_a_normal_finish(monkeypatch, finish_reason):
+    from types import SimpleNamespace
+
+    from gptme.llm import llm_openai
+
+    chunk = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                finish_reason=finish_reason,
+                model_extra={},
+                delta=SimpleNamespace(
+                    reasoning_content=None, reasoning=None, content="", tool_calls=None
+                ),
+            )
+        ],
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=[chunk]))
+        )
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
+
+    text, metadata = _drain(
+        llm_openai.stream([Message("user", "hi")], "openai/gpt-4o", None)
+    )
+
+    assert text == ""
+    assert not EmptyStreamError("openai/gpt-4o", metadata).normal_finish
+
+
+def test_chat_completions_stop_is_a_normal_finish(monkeypatch):
+    from types import SimpleNamespace
+
+    from gptme.llm import llm_openai
+
+    chunk = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                finish_reason="stop",
+                model_extra={},
+                delta=SimpleNamespace(
+                    reasoning_content=None, reasoning=None, content="", tool_calls=None
+                ),
+            )
+        ],
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=Mock(return_value=[chunk]))
+        )
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
+
+    _, metadata = _drain(
+        llm_openai.stream([Message("user", "hi")], "openai/gpt-4o", None)
+    )
+
+    assert EmptyStreamError("openai/gpt-4o", metadata).normal_finish
+
+
+@pytest.mark.parametrize(
+    ("terminal", "normal"),
+    [
+        (
+            {
+                "type": "response.incomplete",
+                "response": {"incomplete_details": {"reason": "max_output_tokens"}},
+            },
+            False,
+        ),
+        ({"type": "response.completed", "response": {}}, True),
+    ],
+    ids=["incomplete", "completed"],
+)
+def test_subscription_incomplete_is_not_a_normal_finish(monkeypatch, terminal, normal):
+    import json
+
+    from gptme.llm import llm_openai_subscription as subscription
+
+    class _Response:
+        status_code = 200
+
+        def iter_lines(self):
+            yield f"data: {json.dumps(terminal)}".encode()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        subscription,
+        "get_auth",
+        lambda: subscription.SubscriptionAuth(
+            access_token="test-token",
+            refresh_token=None,
+            account_id="test-account",
+            expires_at=9_999_999_999.0,
+        ),
+    )
+    monkeypatch.setenv("GPTME_SUBSCRIPTION_STREAM_RETRIES", "0")
+    monkeypatch.setattr(
+        subscription._http_session, "post", Mock(return_value=_Response())
+    )
+
+    text, metadata = _drain(subscription.stream([Message("user", "hello")], "gpt-5.4"))
+
+    assert text == ""
+    assert EmptyStreamError("gpt-5.4", metadata).normal_finish is normal
