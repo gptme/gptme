@@ -553,6 +553,15 @@ def _adjust_thinking_budget(
     """
     if not use_thinking or _requires_adaptive_thinking(model):
         return thinking_budget, use_thinking
+    if thinking_budget < _MIN_THINKING_BUDGET:
+        logger.warning(
+            "thinking_budget=%d is below Anthropic's minimum of %d; "
+            "disabling extended thinking. Increase %s or unset it.",
+            thinking_budget,
+            _MIN_THINKING_BUDGET,
+            ENV_REASONING_BUDGET,
+        )
+        return thinking_budget, False
     if max_tokens >= thinking_budget + _MIN_RESPONSE_TOKENS:
         return thinking_budget, use_thinking
     new_budget = max_tokens - _MIN_RESPONSE_TOKENS
@@ -1377,7 +1386,12 @@ def _stream_with_client(
         )
     if native_pending:
         if stop_reason != "tool_use":
-            raise RemoteProtocolError(
+            # A known terminal reason (e.g. max_tokens or refusal) is not a
+            # transport failure: replaying with the same cap can charge for
+            # the same unfinished call repeatedly. Missing reasons remain
+            # protocol errors, eligible for the normal transport retry policy.
+            error_type = RemoteProtocolError if stop_reason is None else RuntimeError
+            raise error_type(
                 f"Anthropic tool stream ended with stop_reason={stop_reason!r}; "
                 "withholding unfinished tool calls"
             )

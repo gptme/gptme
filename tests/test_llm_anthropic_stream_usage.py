@@ -170,7 +170,9 @@ NOARG_EVENTS: list[dict[str, Any]] = [
 
 
 @pytest.mark.parametrize("partial_json", ["", "{}"])
-@pytest.mark.parametrize("stop_reason", ["tool_use", "max_tokens", "end_turn", None])
+@pytest.mark.parametrize(
+    "stop_reason", ["tool_use", "max_tokens", "end_turn", "refusal", None]
+)
 def test_streamed_tool_call_requires_tool_use_stop(
     monkeypatch, partial_json, stop_reason
 ):
@@ -178,7 +180,10 @@ def test_streamed_tool_call_requires_tool_use_stop(
     events[2]["delta"]["partial_json"] = partial_json
     events[4]["delta"]["stop_reason"] = stop_reason
 
+    requests = []
+
     def handler(request):
+        requests.append(request)
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
@@ -199,8 +204,22 @@ def test_streamed_tool_call_requires_tool_use_stop(
     )
     parts: list[str] = []
     if stop_reason != "tool_use":
-        with pytest.raises(httpx.RemoteProtocolError, match="stop_reason"):
+        if stop_reason is None:
+            # A missing terminal reason is still an incomplete protocol stream.
+            monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
+            error_type = httpx.RemoteProtocolError
+        else:
+            error_type = RuntimeError
+
+            def unexpected_backoff(*args, **kwargs):
+                pytest.fail("A terminal tool response must not be retried")
+
+            monkeypatch.setattr(llm_anthropic, "backoff_wait", unexpected_backoff)
+            monkeypatch.setattr(llm_anthropic, "get_max_retries", lambda: 3)
+            monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+        with pytest.raises(error_type, match="stop_reason"):
             parts.extend(gen)
+        assert len(requests) == 1
         assert not list(ToolUse.iter_from_content("".join(parts), "tool"))
         return
 
@@ -230,3 +249,60 @@ def test_clamped_thinking_budget_respects_api_minimum(max_tokens, expected):
     )
     param = llm_anthropic._build_thinking_param(model, use_thinking, budget)
     assert param == expected
+
+
+@pytest.mark.parametrize("thinking_budget", [0, 500, 1023, 1024])
+def test_configured_thinking_budget_respects_api_minimum(thinking_budget):
+    model = "claude-sonnet-4-5"
+    budget, use_thinking = llm_anthropic._adjust_thinking_budget(
+        64000, thinking_budget, True, model
+    )
+    param = llm_anthropic._build_thinking_param(model, use_thinking, budget)
+    expected = (
+        {"type": "enabled", "budget_tokens": 1024} if thinking_budget == 1024 else None
+    )
+    assert param == expected
+
+
+@pytest.mark.parametrize("missing_terminal", ["stop_reason", "message_stop"])
+def test_incomplete_tool_stream_still_retries(monkeypatch, missing_terminal):
+    incomplete = deepcopy(NOARG_EVENTS)
+    if missing_terminal == "stop_reason":
+        incomplete[4]["delta"]["stop_reason"] = None
+    else:
+        incomplete.pop()
+    requests = []
+    backoffs = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(incomplete if len(requests) == 1 else NOARG_EVENTS),
+        )
+
+    client = anthropic.Anthropic(
+        api_key="sk-test",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+    monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+    monkeypatch.setattr(llm_anthropic, "get_max_retries", lambda: 3)
+    monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
+    monkeypatch.setattr(
+        llm_anthropic, "backoff_wait", lambda *args: backoffs.append(args)
+    )
+    text = "".join(
+        llm_anthropic.stream(
+            [Message("system", "sys"), Message("user", "you are done")],
+            "claude-sonnet-4-6",
+            None,
+        )
+    )
+    assert len(requests) == 2
+    assert len(backoffs) == 1
+    calls = list(ToolUse.iter_from_content(text, "tool"))
+    assert [(c.tool, c.call_id, c.kwargs) for c in calls] == [
+        ("complete", "toolu_01", {})
+    ]
