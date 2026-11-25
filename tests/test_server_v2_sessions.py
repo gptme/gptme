@@ -1133,8 +1133,10 @@ class TestInterruptEndpoint:
         the transcript while the step is still generating, so the step's reply
         commit must merge that append instead of rewriting the file from its
         pre-generation copy. The append runs under the real
-        ``conversation_lock``, as the A2A route now does.
+        ``conversation_lock``, as the A2A route now does. TURN_POST hooks then
+        run outside that lock, each seeing the previous hook's appended message.
         """
+        from gptme.hooks import HookType
         from gptme.logmanager import LogManager
         from gptme.message import Message
         from gptme.server.session_step import step
@@ -1154,6 +1156,32 @@ class TestInterruptEndpoint:
             assert release.wait(timeout=10), "test did not release generation"
             yield "reply"
 
+        hook_observations: list[tuple[bool, str]] = []
+
+        def lock_is_free() -> bool:
+            result: list[bool] = []
+
+            def probe():
+                lock = SessionManager.conversation_lock(conversation_id)
+                acquired = lock.acquire(blocking=False)
+                if acquired:
+                    lock.release()
+                result.append(acquired)
+
+            thread = threading.Thread(target=probe)
+            thread.start()
+            thread.join(timeout=5)
+            return result == [True]
+
+        def hooks(hook_type, *_args, manager=None, **_kwargs):
+            if hook_type != HookType.TURN_POST:
+                return
+            for content in ("first hook", "second hook"):
+                hook_observations.append(
+                    (lock_is_free(), manager.log.messages[-1].content)
+                )
+                yield Message("system", content)
+
         def resume_append():
             assert started.wait(timeout=10)
             with SessionManager.conversation_lock(conversation_id):
@@ -1167,7 +1195,7 @@ class TestInterruptEndpoint:
             patch("gptme.server.session_step._stream", side_effect=blocking_stream),
             patch("gptme.server.session_step.require_workspace_exists"),
             patch("gptme.server.session_step.prepare_execution_environment"),
-            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch("gptme.server.session_step.trigger_hook", side_effect=hooks),
             patch(
                 "gptme.server.session_step.prepare_messages",
                 return_value=[Message("user", "test")],
@@ -1214,6 +1242,9 @@ class TestInterruptEndpoint:
         ]
         assert "resume" in contents, f"resume append was dropped: {contents}"
         assert "reply" in contents, f"step reply missing: {contents}"
+        # (lock free while the hook ran, newest message the hook saw)
+        assert [free for free, _ in hook_observations] == [True, True]
+        assert hook_observations[1][1] == "first hook"
 
     def test_post_tool_checkpoint_preserves_task_continuation(self, conv):
         from gptme.logmanager import LogManager

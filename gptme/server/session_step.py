@@ -1469,34 +1469,28 @@ def step(
                 logger.debug(f"Generation post hook yielded: {generation_post_msg}")
 
         # Trigger TURN_POST hook (turn.post - after message processing completes).
-        # Materialize it before taking the lock: trigger_hook is a generator, so
-        # hooks would otherwise run inside the lock and block interrupt/A2A
-        # requests for as long as a slow hook (e.g. pre-commit) takes.
+        # trigger_hook is a generator: advance it outside conversation_lock so a
+        # slow hook (e.g. pre-commit) does not block interrupt/A2A requests, and
+        # lock only each append. Consuming it incrementally lets later hooks see
+        # earlier hooks' output.
         checkpoint_requested = False
-        if post_msgs := list(
-            trigger_hook(
-                HookType.TURN_POST,
-                manager=manager,
-            )
-        ):
-            # Appends must serialize with resume/A2A writers like the reply
-            # above.
+        for hook_msg in trigger_hook(HookType.TURN_POST, manager=manager):
+            # Appends must serialize with resume/A2A writers like the reply above.
             with SessionManager.conversation_lock(conversation_id):
-                for hook_msg in post_msgs:
-                    _append_and_notify(manager, session, hook_msg)
-                    if hook_msg.role == "user" and "compaction_checkpoint_view" in (
-                        hook_msg.metadata or {}
-                    ):
-                        checkpoint_requested = True
-                        # Remember whether the interrupted task still owed a
-                        # response. The request message is excluded from the
-                        # compacted view, so the step that completes the
-                        # checkpoint turn reads this flag to resume the task.
-                        session.checkpoint_needs_continuation = bool(
-                            (hook_msg.metadata or {}).get(
-                                "compaction_checkpoint_needs_continuation"
-                            )
-                        )
+                _append_and_notify(manager, session, hook_msg)
+            if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                hook_msg.metadata or {}
+            ):
+                checkpoint_requested = True
+                # Remember whether the interrupted task still owed a
+                # response. The request message is excluded from the
+                # compacted view, so the step that completes the
+                # checkpoint turn reads this flag to resume the task.
+                session.checkpoint_needs_continuation = bool(
+                    (hook_msg.metadata or {}).get(
+                        "compaction_checkpoint_needs_continuation"
+                    )
+                )
 
         # Streamed tokens/message_added are provisional. Completion acknowledges
         # the transcript, including hook output, only after its barrier succeeds.
