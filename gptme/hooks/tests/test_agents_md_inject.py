@@ -194,6 +194,41 @@ class TestOnCwdChanged:
         finally:
             os.chdir(original)
 
+    def test_undecodable_file_does_not_block_later_files(
+        self, tmp_path: Path, empty_log
+    ):
+        """A file that fails to decode is skipped; later files still load."""
+        project = tmp_path / "project"
+        sub = project / "sub"
+        sub.mkdir(parents=True)
+        bad_file = project / "AGENTS.md"
+        bad_file.write_bytes(b"caf\xe9 rules\n")
+        try:
+            bad_file.read_text()
+        except UnicodeDecodeError:
+            pass
+        else:
+            pytest.skip("default encoding decodes these bytes; nothing to skip")
+        (sub / "AGENTS.md").write_text("# Sub instructions\nStill loaded.")
+
+        original = os.getcwd()
+        os.chdir(sub)
+        try:
+            msgs = list(
+                on_cwd_changed(
+                    log=empty_log,
+                    workspace=project,
+                    old_cwd=str(project),
+                    new_cwd=str(sub),
+                    tool_use=None,
+                )
+            )
+            contents = [m.content for m in msgs if isinstance(m, Message)]
+            assert any("Still loaded." in c for c in contents), contents
+            assert not any(str(bad_file) in c for c in contents), contents
+        finally:
+            os.chdir(original)
+
     def test_skips_already_loaded_files(self, tmp_path: Path, empty_log):
         """Files already in the loaded set should not be re-injected."""
         new_dir = tmp_path / "project"

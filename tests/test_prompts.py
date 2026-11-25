@@ -994,6 +994,21 @@ def test_profile_system_prompt_included_in_stats():
     )
 
 
+def _skip_unless_default_decoder_rejects(path):
+    """Skip when the host's default encoding decodes the file.
+
+    prompt_workspace() reads with the default decoder on purpose, so it hashes
+    the same text the attachment embeds. Under a cp1252 or Latin-1 default the
+    bytes decode cleanly, the crash cannot occur, and the test would pass
+    without the fix.
+    """
+    try:
+        path.read_text()
+    except UnicodeDecodeError:
+        return
+    pytest.skip("default encoding decodes these bytes; the crash cannot occur")
+
+
 def test_prompt_workspace_survives_non_utf8_agent_file(tmp_path, monkeypatch):
     """A non-UTF-8 byte in CLAUDE.md must not crash prompt assembly.
 
@@ -1013,6 +1028,7 @@ def test_prompt_workspace_survives_non_utf8_agent_file(tmp_path, monkeypatch):
     )
     agent_file = workspace / "CLAUDE.md"
     agent_file.write_bytes(b"caf\xe9 rules\n")
+    _skip_unless_default_decoder_rejects(agent_file)
 
     msgs = list(prompt_workspace(workspace, include_runtime_context=False))
     attached = [str(f) for msg in msgs for f in msg.files]
@@ -1038,6 +1054,7 @@ def test_prompt_workspace_survives_non_utf8_user_config_agent_file(
     )
     agent_file = config_dir / "AGENTS.md"
     agent_file.write_bytes(b"caf\xe9 rules\n")
+    _skip_unless_default_decoder_rejects(agent_file)
 
     msgs = list(prompt_workspace(workspace, include_runtime_context=False))
     attached = [str(f) for msg in msgs for f in msg.files]
