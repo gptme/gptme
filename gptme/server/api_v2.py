@@ -735,14 +735,13 @@ def _match_saved_mcp_server(
         return matches[0] if matches else None
     signature = _mcp_server_signature(body_server)
     same = [srv for srv in matches if _mcp_server_signature(srv) == signature]
-    # ``masked_ids`` is captured before any value is restored: an earlier row in
-    # the same request may already carry a real secret again by the time this one
-    # is matched, but it still occupies a saved entry.
-    peers = [
-        srv
-        for srv in body_group
-        if _mcp_server_signature(srv) == signature and id(srv) in masked_ids
-    ]
+    peers = [srv for srv in body_group if _mcp_server_signature(srv) == signature]
+    # An unchanged signature group retains its relative order even when one
+    # row rotates its credential. If edits changed the group's size, only
+    # masked rows need a saved entry (a newly colliding row supplies its own).
+    # Capture masked_ids before restoration so earlier restores still count.
+    if len(peers) != len(same):
+        peers = [srv for srv in peers if id(srv) in masked_ids]
     if len(same) != len(peers):
         raise ValueError(
             f"{body_server.get('name', '')}: redacted secrets cannot be matched "

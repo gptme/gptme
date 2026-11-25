@@ -6458,6 +6458,23 @@ def test_v2_conversation_config_patch_duplicate_server_names_keep_own_secrets(
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
 
 
+def test_v2_conversation_config_patch_rotate_one_duplicate_secret(
+    client: FlaskClient,
+):
+    """A supplied credential still occupies its row in an unchanged group."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["mcp"]["servers"][0]["env"]["API_KEY"] = "fresh"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["fresh", "second"]
+
+
 @pytest.mark.parametrize("toggle_both", [False, True])
 def test_v2_conversation_config_patch_toggle_duplicate_servers_keeps_secrets(
     client: FlaskClient, toggle_both
