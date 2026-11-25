@@ -709,9 +709,16 @@ def test_silent_setup_timeout_stops_kernel(backend):
 
     backend._kc = Mock()
     backend._km = Mock()
+    backend._kc.execute.return_value = "setup"
+    backend._kc.get_iopub_msg.return_value = {
+        "msg_type": "status",
+        "parent_header": {"msg_id": "setup"},
+        "content": {"execution_state": "idle"},
+    }
     with pytest.raises(RuntimeError, match="setup timed out"):
         backend._exec_silent("pass", timeout=0)
     backend._km.interrupt_kernel.assert_called_once()
+    backend._kc.get_iopub_msg.assert_called_once()
 
 
 def test_silent_setup_error_is_not_ignored(backend):

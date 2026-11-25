@@ -4,7 +4,9 @@ import os
 import queue
 import shutil
 import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -366,3 +368,88 @@ def test_failed_control_wait_reports_state_loss(monkeypatch, failure):
     finally:
         backend._kc = None
         backend._bridge.stop()
+
+
+@pytest.mark.parametrize("stage", ["channels", "kernel"])
+def test_restart_retries_interrupted_cleanup_before_replacing_manager(
+    monkeypatch, stage
+):
+    backend = KernelBackend()
+    manager, client = Mock(), Mock()
+    backend._km, backend._kc = manager, client
+    backend._started = True
+    client.get_control_msg.side_effect = RuntimeError("closed")
+    failing_cleanup = (
+        client.stop_channels if stage == "channels" else manager.shutdown_kernel
+    )
+    failing_cleanup.side_effect = KeyboardInterrupt
+    factory = Mock(side_effect=AssertionError("replacement started before cleanup"))
+    monkeypatch.setattr("jupyter_client.KernelManager", factory)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            backend._interrupt_via_control()
+        assert not backend._started
+        assert backend._km is manager
+        with pytest.raises(KeyboardInterrupt):
+            backend._ensure_started()
+        factory.assert_not_called()
+        assert backend._km is manager
+        failing_cleanup.side_effect = None
+
+        def replacement():
+            manager.shutdown_kernel.assert_called_with(now=True)
+            assert backend._km is None and backend._kc is None
+            raise RuntimeError("old kernel cleaned; ready for replacement")
+
+        factory.side_effect = replacement
+        with pytest.raises(RuntimeError, match="old kernel cleaned"):
+            backend._ensure_started()
+    finally:
+        failing_cleanup.side_effect = None
+        backend.shutdown()
+
+
+def test_reset_preserves_pending_memory_notice(monkeypatch):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._kc.get_control_msg.side_effect = RuntimeError("closed")
+    backend._memory_notice = "Existing memory warning"
+    monkeypatch.setattr(backend, "shutdown", Mock())
+    try:
+        backend._interrupt_via_control()
+        notice = backend._take_memory_notice()
+        assert notice and notice.startswith("Existing memory warning\n")
+        assert "lost" in notice
+        assert backend._take_memory_notice() is None
+    finally:
+        backend._kc = None
+        backend._bridge.stop()
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError, ValueError])
+def test_uv_enumeration_failure_retires_group(uv_backend, monkeypatch, failure):
+    """Without worker enumeration, fail closed rather than reuse a busy kernel."""
+    manager = uv_backend._km
+    pgid = manager.provisioner.pgid
+    run = subprocess.run
+
+    def no_ps(args, *a, **kw):
+        if args[0] == "ps":
+            raise failure("cannot enumerate workers")
+        return run(args, *a, **kw)
+
+    monkeypatch.setattr("gptme.tools.python_kernel.subprocess.run", no_ps)
+    result = uv_backend.execute("import os; os.system('sleep 60')", timeout=0.3)
+    assert result.error and result.error["ename"] == "ExecutionTimeout"
+    assert "lost" in result.stderr
+    # The former launch group must contain no live workers, not just a dead uv.
+    from gptme.tools.shell_memory import group_alive
+
+    deadline = time.monotonic() + 5
+    while group_alive(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not group_alive(pgid)
+    followup = uv_backend.execute("6 * 7", timeout=3)
+    assert followup.error is None, followup.error
+    assert followup.result_text == "42"
+    assert uv_backend._km is not manager

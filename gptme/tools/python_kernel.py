@@ -653,6 +653,11 @@ class KernelBackend:
             else:
                 return
 
+        # An interrupt can abort shutdown after marking the kernel unusable.
+        # Keep its handles until cleanup succeeds, before assigning a replacement.
+        if self._km is not None or self._kc is not None:
+            self.shutdown()
+
         # Restart the bridge server if it was stopped (e.g. after shutdown()).
         if self._bridge._sock is None:
             self._bridge.start()
@@ -1218,7 +1223,7 @@ class KernelBackend:
                 self._active_execute_msg_id = None
                 break
 
-    def _interrupt_uv_workers(self) -> None:
+    def _interrupt_uv_workers(self) -> bool:
         """Signal cell workers without signalling uv or the kernel twice.
 
         uv leads the launch group and forwards signals to its Python child.
@@ -1226,19 +1231,19 @@ class KernelBackend:
         the other members of the same group, preserving signal-mode coverage.
         """
         if os.name != "posix":
-            return
+            return True
         provisioner = getattr(self._km, "provisioner", None)
         pid = getattr(provisioner, "pid", None)
         pgid = getattr(provisioner, "pgid", None)
         if not pid:
-            return
+            return False
         if not pgid:
             try:
                 pgid = os.getpgid(pid)
             except OSError:
-                return
+                return False
         if pgid == os.getpgrp():
-            return
+            return False
         try:
             processes = subprocess.run(
                 ["ps", "-A", "-o", "pid=,ppid=,pgid="],
@@ -1252,13 +1257,23 @@ class KernelBackend:
             ]
         except (OSError, subprocess.SubprocessError, ValueError):
             logger.warning("Could not enumerate uv kernel workers", exc_info=True)
-            return
+            return False
         # The direct child of uv is the kernel; its interrupt arrives on the
         # control channel. Everything else in the launch group is a cell worker.
         for child, parent, group in reversed(members):
             if group == pgid and child != pid and parent != pid:
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.kill(child, signal.SIGINT)
+        return True
+
+    def _reset_after_interrupt(self, reason: str) -> None:
+        # Mark unusable before interruptible cleanup; _ensure_started retries
+        # pending cleanup before it can replace the manager/client handles.
+        self._started = False
+        notice = f"{reason} The kernel is reset; variables and imports from earlier cells are lost."
+        existing = self._memory_notice
+        self._memory_notice = notice if not existing else existing + "\n" + notice
+        self.shutdown()
 
     def interrupt(self) -> None:
         """Send SIGINT to the kernel, interrupting any blocking operation."""
@@ -1269,7 +1284,12 @@ class KernelBackend:
                 self._km.kernel_spec is not None
                 and self._km.kernel_spec.interrupt_mode == "message"
             ):
-                self._interrupt_uv_workers()
+                if not self._interrupt_uv_workers():
+                    # Without worker enumeration, a control interrupt alone can
+                    # leave os.system() busy. Kill the launch group via shutdown
+                    # rather than queue more cells behind a surviving worker.
+                    self._reset_after_interrupt("Could not interrupt kernel workers.")
+                    return
                 self._interrupt_via_control()
             else:
                 self._km.interrupt_kernel()
@@ -1304,15 +1324,9 @@ class KernelBackend:
             logger.warning("Kernel interrupt control channel failed", exc_info=True)
         finally:
             if not acknowledged:
-                # This also runs on a second Ctrl-C. Mark the kernel unusable
-                # before cleanup, which can itself be interrupted.
-                self._started = False
-                self._memory_notice = (
-                    "Kernel interrupt was not acknowledged; the kernel is reset. "
-                    "Variables and imports from earlier cells are lost."
-                )
+                # This also runs on a second Ctrl-C.
                 logger.warning("Kernel did not acknowledge interrupt; shutting it down")
-                self.shutdown()
+                self._reset_after_interrupt("Kernel interrupt was not acknowledged.")
 
 
 def _cap_kernel_text(text: str) -> str:
