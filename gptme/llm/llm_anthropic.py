@@ -1429,11 +1429,12 @@ def _extract_thinking_content(
         r"(?:\n<!-- think-sig: chars=[0-9]+ -->)?\n</\1>\s*",
         re.DOTALL,
     )
-    # Leading unsigned reasoning may mention tags and quote calls. A closer on
-    # its own line cannot sit inside tool-call JSON, so that form only stops at
-    # another block opener. Any other form stops at the next tag or tool call.
+    # Leading unsigned reasoning may mention tags and quote calls. After a block
+    # opener it ends at the first closer that ends its line, which cannot sit
+    # inside tool-call JSON. Any other form stops at the next tag or tool call.
     unsigned_block_pattern = re.compile(
-        r"<(think|thinking)>\n((?:(?!<(?:think|thinking)>\n).)*?)\n</\1>\s*",
+        r"<(think|thinking)>\n((?:(?!<(?:think|thinking)>\n).)*?)"
+        r"</\1>(?=[^\S\n]*(?:\n|\Z))\s*",
         re.DOTALL,
     )
     unsigned_inline_pattern = re.compile(

@@ -1477,6 +1477,39 @@ def test_extract_thinking_content_leading_opener_closed_in_tool_call(
     assert _extract_thinking_content(content) == ([], content)
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("opener_close", ["plan</{tag}>", "plan\n</{tag}>"])
+@pytest.mark.parametrize(
+    "later_line", ["</{tag}> is the closing tag.", "</{tag}>", "Close with </{tag}>"]
+)
+def test_handle_tools_later_closing_tag_keeps_tool_pair(
+    tag: str, opener_close: str, later_line: str
+) -> None:
+    """Leading reasoning ends at its own closer, not at one after a tool call."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    tool_call = '@shell(call-1): {"command": "echo real"}'
+    content = (
+        f"<{tag}>\n{opener_close.format(tag=tag)}\n{tool_call}\n"
+        f"{later_line.format(tag=tag)}"
+    )
+
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "real"},
+            ]
+        )
+    )
+
+    uses = [part for part in result[0]["content"] if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "call-1"
+
+
 def test_extract_thinking_content_legacy_quoted_signature_comment() -> None:
     """Without a length, a quoted comment drops the block instead of mis-signing it."""
     from gptme.llm.llm_anthropic import _extract_thinking_content
