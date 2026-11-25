@@ -4819,6 +4819,60 @@ def test_v2_same_branch_two_session_tools_coalesce_to_one_continuation(
     assert started_continuations == [(session_b.id, "main")]
 
 
+def test_drain_pending_tool_continuations_releases_reservation_on_dispatch_failure(
+    v2_conv: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failed _start_step_thread dispatch must roll back the drained session reservation."""
+    import gptme.server.session_step as step_mod
+    from gptme.server.session_models import PendingToolContinuation, SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    def queue_continuation() -> int:
+        seq = session.step_seq
+        SessionManager.queue_tool_continuation(
+            conversation_id,
+            PendingToolContinuation(
+                session=session,
+                model="openai/mock-model",
+                workspace=Path("/tmp"),
+                branch="alt",
+                step_seq=seq,
+            ),
+        )
+        return seq
+
+    def raise_on_start(*_args: object, **_kwargs: object) -> bool:
+        raise RuntimeError("step thread spawn failed")
+
+    try:
+        # 1) Exception from _start_step_thread releases reservation and re-raises.
+        seq_before = queue_continuation()
+        monkeypatch.setattr(step_mod, "_start_step_thread", raise_on_start)
+        with pytest.raises(RuntimeError, match="step thread spawn failed"):
+            step_mod._drain_pending_tool_continuations(conversation_id)
+        assert session.step_seq == seq_before + 1
+        assert session.generating is False
+        assert session.generating_since is None
+
+        # 2) False return from _start_step_thread releases reservation and returns False.
+        seq_before = queue_continuation()
+        monkeypatch.setattr(
+            step_mod, "_start_step_thread", lambda *_args, **_kwargs: False
+        )
+        assert step_mod._drain_pending_tool_continuations(conversation_id) is False
+        assert session.step_seq == seq_before + 1
+        assert session.generating is False
+        assert session.generating_since is None
+    finally:
+        with session.step_lock:
+            session.generating = False
+            session.generating_since = None
+        SessionManager.clear_pending_continuations(conversation_id)
+
+
 def test_v2_pending_tool_does_not_block_message_post(client: FlaskClient):
     """A pending (unconfirmed) tool must not trigger the executing-tool 409 guard."""
     from gptme.server.session_models import SessionManager, ToolExecution
