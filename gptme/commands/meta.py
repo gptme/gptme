@@ -94,9 +94,13 @@ def cmd_setup(ctx: CommandContext) -> None:
 @command("doctor")
 def cmd_doctor(ctx: CommandContext) -> None:
     """Run system diagnostics to check gptme health."""
-    from ..cli.doctor import main as doctor_main
+    from ..cli.doctor import doctor
 
-    doctor_main()
+    # Call the plain function, not the click command: the command would parse
+    # the chat session's own sys.argv (e.g. `gptme -n ...`) and fail on
+    # gptme's options, and its sys.exit() would end the chat. The returned
+    # exit code is the health result; Ctrl+C reaches the chat loop as usual.
+    doctor()
 
 
 @command("help")
