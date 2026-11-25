@@ -26,6 +26,8 @@ ALLOWED = Counter(
         ("tools/precommit.py", "get_precommit_runner", "os.getcwd"): 1,
         # Explicit workspace parameter, process cwd only when absent.
         ("tools/autocompact/resume.py", "_load_context_files", "Path.cwd"): 1,
+        # Match the credential writer's cwd-relative store for empty XDG_CONFIG_HOME.
+        ("tools/autocompact/resume.py", "_is_config_secret", "Path.cwd"): 1,
         ("tools/subagent/execution.py", "_enter_subagent_cwd", "os.getcwd"): 1,
         ("tools/subagent/execution.py", "_current_cwd", "Path.cwd"): 1,
         ("tools/subagent/execution.py", "_exit_subagent_cwd", "os.chdir"): 1,

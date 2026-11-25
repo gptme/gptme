@@ -235,10 +235,17 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
         return tuple(part.lower() for part in p.parts)
 
     path_parts = parts(path)
-    source_parts = parts((Path.cwd() / "gptme").resolve())
     for d in config_dirs:
         dir_parts = parts(d)
         if path_parts[: len(dir_parts)] == dir_parts:
+            # Only consider the source-tree exception for a matching store.
+            # This is deliberately process-relative, like the credential writer,
+            # not relative to the conversation's workspace.
+            try:
+                source_parts = parts((Path.cwd() / "gptme").resolve())
+            except (OSError, RuntimeError):
+                # No safe source-tree exception: protect the store in full.
+                return True
             if dir_parts != source_parts:
                 return True
             relative = path_parts[len(dir_parts) :]

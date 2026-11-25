@@ -1200,6 +1200,70 @@ def test_config_secret_containment_is_case_insensitive(
     )
 
 
+@pytest.mark.parametrize("xdg", ["cfg", ""])
+def test_load_context_files_ignores_unrelated_source_symlink_loop(
+    tmp_path, monkeypatch, xdg
+):
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / xdg) if xdg else "")
+    try:
+        (tmp_path / "gptme").symlink_to("gptme", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink not permitted")
+    (tmp_path / "notes.md").write_text("ordinary\n")
+    assert _load_context_files(["notes.md"], workspace=tmp_path) == [
+        ("notes.md", "ordinary\n")
+    ]
+
+
+@pytest.mark.parametrize(
+    "error", [OSError("symlink loop"), RuntimeError("symlink loop")]
+)
+def test_load_context_files_handles_source_resolution_error(
+    tmp_path, monkeypatch, error
+):
+    from pathlib import Path
+
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    resolve = Path.resolve
+
+    def resolve_with_loop(path, *args, **kwargs):
+        if path == tmp_path / "gptme":
+            raise error
+        return resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_with_loop)
+    (tmp_path / "notes.md").write_text("ordinary\n")
+    assert _load_context_files(["notes.md"], workspace=tmp_path) == [
+        ("notes.md", "ordinary\n")
+    ]
+
+
+def test_load_context_files_protects_process_cwd_store_from_other_workspace(
+    tmp_path, monkeypatch
+):
+    from gptme.credentials import set_stored_api_key
+    from gptme.tools.autocompact import _load_context_files
+
+    process_cwd = tmp_path / "host"
+    process_cwd.mkdir()
+    monkeypatch.chdir(process_cwd)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    credential = set_stored_api_key("openai", "synthetic-test-key")
+    assert credential.resolve() == process_cwd / "gptme" / "credentials.toml"
+    (process_cwd / "gptme" / "resume.py").write_text("# ordinary source\n")
+    # The workspace is a parent of cwd, not cwd itself. Protection must use
+    # the writer's process-relative store while preserving ordinary source.
+    assert _load_context_files(
+        ["host/gptme/credentials.toml", "host/gptme/resume.py"], workspace=tmp_path
+    ) == [("host/gptme/resume.py", "# ordinary source\n")]
+
+
 def test_load_context_files_nonexistent(tmp_path):
     """Test that nonexistent files are skipped gracefully."""
     from gptme.tools.autocompact import _load_context_files
