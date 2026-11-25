@@ -918,6 +918,9 @@ def _start_acp_step_thread(
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
             if step_seq is None:
+                # A stale in-process worker must not release this ACP step's
+                # reservation after its own step() released and re-raised.
+                session.step_seq += 1
                 step_seq = session.step_seq
     session.last_error = None
 

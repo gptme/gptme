@@ -98,13 +98,14 @@ def test_step_thread_crash_releases_generating(
         SessionManager.remove_session(session.id)
 
 
+@pytest.mark.parametrize("replacement_backend", ["inprocess", "acp"])
 def test_step_thread_raise_after_release_keeps_new_reservation(
-    client, tmp_path, monkeypatch
+    client, tmp_path, monkeypatch, replacement_backend
 ):
     """step() can release, then re-raise (STEP_PRE SessionCompleteException).
 
-    A non-reserved caller (A2A) that reserves in that gap must not have its
-    reservation cleared by the first thread's crash handler, which would
+    A non-reserved caller (in-process or ACP) that reserves in that gap must
+    not have its reservation cleared by the first thread's crash handler, which would
     report a clean stop as a failure and admit a second concurrent step.
     """
     from gptme.tools.complete import SessionCompleteException
@@ -135,9 +136,14 @@ def test_step_thread_raise_after_release_keeps_new_reservation(
                 session.generating = False
                 session.generating_since = None
                 SessionManager.add_event(name, {"type": "step_complete"})
-            # A concurrent A2A request reserves through the non-reserved
-            # path before the crash handler takes step_lock.
-            assert session_step._start_step_thread(name, session, "anthropic", tmp_path)
+            # A replacement worker reserves through either backend's
+            # non-reserved path before the crash handler takes step_lock.
+            if replacement_backend == "acp":
+                assert session_step._start_acp_step_thread(name, session, tmp_path)
+            else:
+                assert session_step._start_step_thread(
+                    name, session, "anthropic", tmp_path
+                )
             assert second_started.wait(5)
             raise SessionCompleteException("budget exhausted")
         second_started.set()
@@ -152,7 +158,11 @@ def test_step_thread_raise_after_release_keeps_new_reservation(
         if isinstance(args.exc_value, SessionCompleteException):
             handler_done.set()
 
+    async def fake_acp_step(*args, **kwargs):
+        fake_step(*args, **kwargs)
+
     monkeypatch.setattr(session_step, "step", fake_step)
+    monkeypatch.setattr(session_step, "_acp_step", fake_acp_step)
     monkeypatch.setattr(threading, "excepthook", excepthook)
     monkeypatch.setattr(
         SessionManager,
