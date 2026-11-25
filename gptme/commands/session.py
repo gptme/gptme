@@ -130,6 +130,7 @@ def cmd_delete(ctx: CommandContext) -> None:
         /delete           - List recent conversations with their IDs
         /delete <id>      - Delete the conversation with the given ID
         /delete --force <id> - Delete without confirmation
+        /delete <id> --force - Same, with the flag after the id
     """
     from ..logmanager import delete_conversation, list_conversations  # fmt: skip
 
@@ -146,7 +147,18 @@ def cmd_delete(ctx: CommandContext) -> None:
         if raw.startswith(flag) and raw[len(flag)] in " \t":
             force, raw = True, raw[len(flag) :].lstrip(" \t")
             break
-    conv_id = raw.rstrip(" \t")
+    raw = raw.rstrip(" \t")
+    # Also accept the flag after the id (``/delete old-chat --force``), which
+    # earlier versions accepted. Only the edges are parsed, so a name that
+    # contains the flag keeps it.
+    for flag in ("--force", "-f"):
+        if raw.endswith(flag) and (
+            len(raw) == len(flag) or raw[-len(flag) - 1] in " \t"
+        ):
+            force = True
+            raw = raw[: -len(flag)].rstrip(" \t")
+            break
+    conv_id = raw
 
     if not conv_id:
         # List conversations to help user find the ID

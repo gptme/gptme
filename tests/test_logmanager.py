@@ -1920,6 +1920,44 @@ def test_delete_preserves_exact_separators_in_conversation_id(
     assert (logs / "two spaces").exists()
 
 
+def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
+    """A trailing --force still skips confirmation, as earlier versions did.
+
+    Regression: parsing the raw remainder only consumed a *leading* flag, so
+    ``/delete old-chat --force`` treated ``--force`` as part of the id,
+    prompted, and then reported the chat as missing.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("old-chat", "draft --force notes"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    # A flag at the end is a flag, not part of the name, and needs no prompt.
+    cmd = Message("user", "/delete old-chat --force", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: old-chat" in out
+    assert not (logs / "old-chat").exists()
+
+    # A flag inside the name is still part of it.
+    cmd = Message("user", "/delete --force draft --force notes", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft --force notes" in out
+    assert not (logs / "draft --force notes").exists()
+
+
 def test_unicode_space_after_command_name_still_separates(
     tmp_path: Path, monkeypatch, capsys
 ):
