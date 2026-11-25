@@ -108,10 +108,10 @@ def _find_grok_cli_key(data: dict) -> str | None:
     Loading and write-back must use the same lookup: otherwise a refresh spends
     the refresh token from a variant key but never writes the new one back.
     """
-    if GROK_AUTH_KEY in data:
+    if isinstance(data.get(GROK_AUTH_KEY), dict):
         return GROK_AUTH_KEY
-    for key in data:
-        if OAUTH_CLIENT_ID in key:
+    for key, value in data.items():
+        if OAUTH_CLIENT_ID in key and isinstance(value, dict):
             logger.debug("Using alternate grok auth key %r", key)
             return key
     return None
