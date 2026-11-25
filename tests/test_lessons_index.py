@@ -804,6 +804,21 @@ class TestLessonDeduplication:
             assert index.search("Test Lesson")
             assert index.get_by_category("tools") == index.lessons
 
+    def test_markdown_divider_lesson_does_not_warn(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A valid thematic break must not produce warnings on cold or cached scans."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        (lesson_dir / "divider.md").write_text("---\n\n# Divider Lesson\n\nBody.\n")
+
+        for _ in range(2):
+            caplog.clear()
+            index = LessonIndex([lesson_dir])
+            assert [lesson.title for lesson in index.lessons] == ["Divider Lesson"]
+            assert not caplog.records
+
     def test_first_default_metadata_copy_is_fallback(self, tmp_path: Path):
         """Fallbacks still deduplicate, and a valid inactive copy still suppresses them."""
         clear_cache()

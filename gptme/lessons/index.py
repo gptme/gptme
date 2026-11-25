@@ -661,7 +661,9 @@ class LessonIndex:
                 # malformed skills still require usable frontmatter as before.
                 if lesson_file.name.upper() != "SKILL.MD":
                     fallback_lessons.append((directory, lesson))
-                logger.warning("Malformed lesson frontmatter: %s", lesson_file)
+                    logger.debug("Using default lesson metadata: %s", lesson_file)
+                else:
+                    logger.warning("Malformed lesson frontmatter: %s", lesson_file)
                 continue
 
             # Skills are identified by their declared name, not by file path:
