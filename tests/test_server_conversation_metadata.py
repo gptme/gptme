@@ -37,6 +37,25 @@ class TestMetadata:
             "pinned_order": None,
         }
 
+    def test_list_schema_preserves_metadata(self, client: FlaskClient):
+        from gptme.server.openapi_docs import ConversationListItem
+
+        cid = _create_conv(client)
+        metadata = {
+            "starred": True,
+            "description": "project notes",
+            "tags": ["work"],
+            "pinned_order": 2,
+        }
+        assert (
+            client.patch(
+                f"/api/v2/conversations/{cid}/metadata", json=metadata
+            ).status_code
+            == 200
+        )
+        item = ConversationListItem.model_validate(_list_item(client, cid)).model_dump()
+        assert {key: item.get(key) for key in metadata} == metadata
+
     def test_non_ascii_text_round_trips_and_lone_surrogates_are_400(
         self, client: FlaskClient
     ):

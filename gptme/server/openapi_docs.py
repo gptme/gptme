@@ -77,6 +77,10 @@ class ConversationListItem(BaseModel):
     last_message_preview: str | None = Field(
         None, description="Preview of the last message"
     )
+    starred: bool = Field(False, description="Whether the conversation is starred")
+    description: str | None = Field(None, description="Conversation description")
+    tags: list[str] = Field(default_factory=list, description="Conversation tags")
+    pinned_order: int | None = Field(None, description="Pinned sort order")
 
 
 class Message(BaseModel):
