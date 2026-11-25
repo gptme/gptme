@@ -644,6 +644,9 @@ def test_bash_argparse_completion_word_breaks(
         ("--results-dir", "run", ":", "cur"),
         # The same path after the --opt=value form Bash splits at "=" too.
         ("--results-dir", "=", "run", ":", "cur"),
+        # Completing immediately after the colon has an empty fragment.
+        ("--results-dir", "run", ":"),
+        ("--results-dir", "=", "run", ":"),
     ],
 )
 def test_bash_argparse_completion_rejoins_a_path_split_at_a_colon(tmp_path, words):

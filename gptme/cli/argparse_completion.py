@@ -177,8 +177,11 @@ def _bash(prog: str, scope: _Scope) -> str:
     # so the owning option stays visible and compgen sees the whole path;
     # readline replaces only the last fragment, so strip the rebuilt prefix
     # from each candidate again.
-    if [[ "$cur" == "=" ]]; then
+    if [[ "$cur" == ":" || "$cur" == "=" ]]; then
+        # Completing right after the delimiter: the fragment is empty and the
+        # delimiter itself is the word to consume.
         cur=""
+        cw=$((cw+1))
     fi
     while (( cw >= 2 )) && [[ "${{COMP_WORDS[cw-1]}}" == ":" || "${{COMP_WORDS[cw-1]}}" == "=" ]] \\
         && [[ "${{COMP_WORDS[cw-2]}}" != -* ]]; do
