@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -631,6 +631,34 @@ def test_a2a_step_complete_on_first_read_returns_completed(
     )
     monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
 
+    # SendMessage must consume the step_complete on its first read. If it
+    # ignored it, the idle path would still return a completed task, so count
+    # the reads instead of trusting the returned state.
+    reads: list[int] = []
+    original_get_sessions = a2a_api_module.SessionManager.get_sessions_for_conversation
+    wrapped: list[bool] = []
+
+    def counting_get_sessions(conversation_id):
+        sessions = original_get_sessions(conversation_id)
+        for session in sessions:
+            if wrapped:
+                break
+            real_read_events = session.read_events
+            wrapped.append(True)
+
+            def read_events(abs_index, _real=real_read_events):
+                reads.append(abs_index)
+                return _real(abs_index)
+
+            cast(Any, session).read_events = read_events
+        return sessions
+
+    monkeypatch.setattr(
+        a2a_api_module.SessionManager,
+        "get_sessions_for_conversation",
+        counting_get_sessions,
+    )
+
     response = client.post("/api/a2a", json=_send_message_request("first read"))
 
     assert response.status_code == 200
@@ -639,10 +667,11 @@ def test_a2a_step_complete_on_first_read_returns_completed(
     task = data["result"]["task"]
     assert task["status"]["state"] == "TASK_STATE_COMPLETED"
     assert task["artifacts"][0]["parts"][0]["text"] == "first-read response"
+    assert len(reads) == 1, reads
 
 
 def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
-    client, monkeypatch, tmp_path
+    client, monkeypatch, tmp_path, caplog
 ):
     """A step_complete posted while a stalled holder owns step_lock completes."""
     import threading
@@ -718,3 +747,6 @@ def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
     task = data["result"]["task"]
     assert task["status"]["state"] == "TASK_STATE_COMPLETED"
     assert task["artifacts"][0]["parts"][0]["text"] == "late response"
+    # A completed task must not also log the blocking timeout: if the final
+    # read ignored step_complete the loop would fall through to it.
+    assert "A2A SendMessage timed out" not in caplog.text
