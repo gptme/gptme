@@ -852,6 +852,15 @@ def _scan_makefile(
         # line belongs to. Without evaluating make expressions, its role is
         # ambiguous; do not silently omit a possible live include.
         lines = _MAKE_CONTINUATION.sub(r"\1 ", text).split("\n")
+        # Expansion can erase a colon-bearing line entirely (e.g. $(info x:)),
+        # so its raw colon cannot establish recipe context for later includes.
+        if any(
+            not line.startswith("\t")
+            and "$" in line.split(";", 1)[0]
+            and _is_make_rule(line)
+            for line in lines
+        ):
+            return False
         if any(_MAKE_CONDITIONAL.match(line) for line in lines) and any(
             line.startswith("\t") and _MAKE_INCLUDE.fullmatch(line) for line in lines
         ):
