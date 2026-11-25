@@ -306,9 +306,12 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
 
 
 def _append_task_message(task_id: str, user_text: str) -> ConversationSession:
-    manager = LogManager.load(task_id, lock=False)
-    msg = Message("user", user_text)
-    manager.append(msg)
+    # Serialize with step error persistence and other transcript writers;
+    # loading before that writer finishes can lose this append on its rewrite.
+    with SessionManager.conversation_lock(task_id):
+        manager = LogManager.load(task_id, lock=False)
+        msg = Message("user", user_text)
+        manager.append(msg)
 
     sessions = SessionManager.get_sessions_for_conversation(task_id)
     session = max(sessions, key=lambda item: item.last_activity, default=None)

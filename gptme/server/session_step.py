@@ -2208,13 +2208,9 @@ def _start_step_thread(
                         # failure path so both always carry a message.
                         error_message = str(e) or "Generation failed"
                         session.last_error = error_message
-                        try:
-                            manager = LogManager.load(
-                                conversation_id, branch=branch, lock=False
-                            )
-                            _persist_generation_error(manager, session, error_message)
-                        except Exception:
-                            logger.exception("Failed to persist step thread error")
+                        # Publish terminal events before best-effort disk I/O:
+                        # A2A must observe the failure even if persistence stalls
+                        # beyond its remaining blocking timeout.
                         SessionManager.add_event(
                             conversation_id, {"type": "error", "error": error_message}
                         )
@@ -2222,6 +2218,13 @@ def _start_step_thread(
                             conversation_id, {"type": "step_complete"}
                         )
                         released = True
+                        try:
+                            manager = LogManager.load(
+                                conversation_id, branch=branch, lock=False
+                            )
+                            _persist_generation_error(manager, session, error_message)
+                        except Exception:
+                            logger.exception("Failed to persist step thread error")
             if released:
                 SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise

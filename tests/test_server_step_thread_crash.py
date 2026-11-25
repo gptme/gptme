@@ -250,3 +250,50 @@ def test_step_thread_crash_empty_error_reports_failed(client, tmp_path, monkeypa
             worker.join(5)
             assert not worker.is_alive()
         SessionManager.remove_session(session.id)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_crash_publishes_terminal_events_before_persistence(
+    client, tmp_path, monkeypatch
+):
+    """Slow transcript storage must not hide the failure past an A2A deadline."""
+    name = f"test-crash-slow-storage-{uuid4().hex}"
+    result = client.put(
+        f"/api/v2/conversations/{name}",
+        json={"prompt": "test", "config": {"chat": {"workspace": str(tmp_path)}}},
+    )
+    session = SessionManager.get_session(result.get_json()["session_id"])
+    assert session is not None
+    persisting = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def crash(*args, **kwargs):
+        raise ValueError("setup failed")
+
+    def slow_persist(*args, **kwargs):
+        persisting.set()
+        assert release.wait(5)
+
+    monkeypatch.setattr(session_step, "step", crash)
+    monkeypatch.setattr(session_step, "_persist_generation_error", slow_persist)
+    monkeypatch.setattr(threading, "excepthook", lambda args: finished.set())
+    first_event = session.events_count
+    seen = set(threading.enumerate())
+    workers: list[threading.Thread] = []
+    try:
+        assert session_step._start_step_thread(name, session, "anthropic", tmp_path)
+        assert persisting.wait(5)
+        workers.extend(_capture_new_threads(seen))
+        events, _ = session.read_events(first_event)
+        assert [
+            e["type"] for e in events if e["type"] in ("error", "step_complete")
+        ] == ["error", "step_complete"]
+        assert not session.generating
+    finally:
+        release.set()
+        assert finished.wait(5)
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
+        SessionManager.remove_session(session.id)

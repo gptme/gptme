@@ -750,3 +750,118 @@ def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
     # A completed task must not also log the blocking timeout: if the final
     # read ignored step_complete the loop would fall through to it.
     assert "A2A SendMessage timed out" not in caplog.text
+
+
+def test_a2a_resume_serializes_with_error_persistence(client, monkeypatch, tmp_path):
+    """A resume cannot be overwritten by a crash handler's older log copy."""
+    import threading
+    from uuid import uuid4
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    name = f"test-resume-lock-{uuid4().hex}"
+    result = client.put(
+        f"/api/v2/conversations/{name}",
+        json={"prompt": "test", "config": {"chat": {"workspace": str(tmp_path)}}},
+    )
+    session = SessionManager.get_session(result.get_json()["session_id"])
+    assert session is not None
+    started = threading.Event()
+    loaded = threading.Event()
+    errors: list[BaseException] = []
+    real_load = LogManager.load
+
+    def observed_load(*args, **kwargs):
+        loaded.set()
+        return real_load(*args, **kwargs)
+
+    def resume():
+        started.set()
+        try:
+            a2a_api._append_task_message(name, "follow-up must survive")
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=resume)
+    try:
+        with SessionManager.conversation_lock(name):
+            # Simulate the crash handler's load/persist critical section.
+            old = real_load(name, lock=False)
+            monkeypatch.setattr(LogManager, "load", observed_load)
+            worker.start()
+            assert started.wait(5)
+            loaded_while_locked = loaded.wait(0.2)
+            old.append(Message("system", "Error: setup failed"))
+            old.write()
+        worker.join(5)
+        assert not worker.is_alive()
+        assert not errors
+        messages = real_load(name, lock=False).log.messages
+        assert any(m.content == "follow-up must survive" for m in messages)
+        assert not loaded_while_locked, (
+            "resume loaded a stale log without conversation_lock"
+        )
+    finally:
+        worker.join(5)
+        SessionManager.remove_session(session.id)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a2a_crash_failure_survives_gc_while_transcript_write_stalls(
+    client, monkeypatch, tmp_path
+):
+    import threading
+
+    from gptme.message import Message
+    from gptme.server import a2a_api, session_step
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.2")
+    monkeypatch.setattr(a2a_api, "get_prompt", lambda **kw: [Message("system", "test")])
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda config: "anthropic")
+    persisting = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    workers: list[threading.Thread] = []
+    real_start = a2a_api._start_step_thread
+
+    def crash(*args, **kwargs):
+        raise ValueError("setup failed")
+
+    def slow_persist(*args, **kwargs):
+        persisting.set()
+        assert release.wait(5)
+
+    def start_and_wait(*args, **kwargs):
+        seen = set(threading.enumerate())
+        result = real_start(*args, **kwargs)
+        assert persisting.wait(5)
+        workers.extend(t for t in threading.enumerate() if t not in seen)
+        return result
+
+    monkeypatch.setattr(session_step, "step", crash)
+    monkeypatch.setattr(session_step, "_persist_generation_error", slow_persist)
+    monkeypatch.setattr(a2a_api, "_start_step_thread", start_and_wait)
+    monkeypatch.setattr(threading, "excepthook", lambda args: finished.set())
+    try:
+        response = client.post("/api/a2a", json=_send_message_request("crash"))
+        error = response.get_json()["error"]
+        assert error["data"][0]["reason"] == "TASK_FAILED"
+        task_id = error["data"][0]["metadata"]["taskId"]
+        assert (tmp_path / task_id / "a2a_failed.json").exists()
+        monkeypatch.setattr(
+            a2a_api.SessionManager,
+            "get_sessions_for_conversation",
+            staticmethod(lambda conversation_id: []),
+        )
+        task = a2a_api._task_from_conversation(task_id)
+        assert task["status"]["state"] == "TASK_STATE_FAILED"
+    finally:
+        release.set()
+        assert finished.wait(5)
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
