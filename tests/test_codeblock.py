@@ -3621,3 +3621,38 @@ def test_joined_fence_not_mistaken_for_opener_by_later_wide_block() -> None:
         ("shell", "echo hi"),
         ("save b.md", "# B\n```python\nx = 1\n```"),
     ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_six_backtick_save_keeps_wider_bare_content_line(streaming: bool) -> None:
+    """A bare seven-backtick line inside a six-backtick save is content, not a
+    reason to split the opener into two triple fences and drop the rest."""
+    text = "``````save f.md\nline1\n```````\nline2\n``````\n\n```shell\nls\n```\n"
+    blocks = _extract_codeblocks(text, streaming=streaming)
+    assert [(b.lang, b.content) for b in blocks] == [
+        ("save f.md", "line1\n```````\nline2"),
+        ("shell", "ls"),
+    ]
+
+
+def test_joined_fence_not_mistaken_for_opener_by_six_inside_later_block() -> None:
+    """A bare six-backtick content line inside a later tagged triple block must
+    not make an earlier glued closer+opener read as a genuine six-wide opener."""
+    text = (
+        "``````shell\necho hi\n```\n\nThen run:\n```shell\nsome code\n``````\nmore\n```"
+    )
+    blocks = Codeblock.iter_from_markdown(text)
+    assert [(b.lang, b.content) for b in blocks] == [
+        ("shell", "echo hi"),
+        ("shell", "some code\n``````\nmore"),
+    ]
+
+
+def test_six_backtick_opener_ends_at_next_tagged_six() -> None:
+    """A tagged six-backtick line below is a separate opener, not a closer."""
+    text = "``````shell\necho a\n```\n\n``````shell\necho b\n```\n"
+    blocks = Codeblock.iter_from_markdown(text)
+    assert [(b.lang, b.content) for b in blocks] == [
+        ("shell", "echo a"),
+        ("shell", "echo b"),
+    ]

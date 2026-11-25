@@ -416,18 +416,41 @@ def _closes_outer_fence(
 
 
 def _six_backtick_closer_after(lines: list[str]) -> list[bool]:
-    """Per line, whether the next fence of six or more backticks below it is a
-    bare six-backtick fence (one that can close a six-backtick block opened there).
+    """Per line, whether a six-backtick opener there would have a closer below.
 
-    Only the nearest such fence counts: a later six-backtick block's own closer
-    must not make an earlier glued closer+opener look like a genuine opener.
+    Only computed for lines that look like a glued closer+opener (six backticks
+    plus a tag); every other entry is False. Scanning forward from such a line:
+
+    - a bare fence of exactly six backticks closes it, unless it sits inside a
+      tagged triple-fence block opened after the line (then it is that block's
+      literal content, e.g. a later ```` ```shell ```` block printing a fence);
+    - a bare fence wider than six is literal content of the six-wide block;
+    - a tagged fence of six or more is a separate opener, so there is no closer.
+
+    Inside the scan, a tagged fence of three to five backticks opens an inner
+    block and a bare one closes the innermost open one; a bare fence with no
+    inner block open is literal content.
     """
     result = [False] * len(lines)
-    nearest_is_bare = False
-    for i in range(len(lines) - 1, -1, -1):
-        result[i] = nearest_is_bare
-        if lines[i].startswith("``````"):
-            nearest_is_bare = re.match(r"^`{6}\s*$", lines[i]) is not None
+    for i, line in enumerate(lines):
+        if not re.match(r"^`{6}[^`\s]", line):
+            continue
+        inner = 0
+        for nxt in lines[i + 1 :]:
+            wide = re.match(r"^(`{6,})(.*)$", nxt)
+            if wide:
+                if wide.group(2).strip():
+                    break
+                if len(wide.group(1)) == 6 and inner == 0:
+                    result[i] = True
+                    break
+                continue
+            narrow = re.match(r"^`{3,5}(.*)$", nxt)
+            if narrow:
+                if narrow.group(1).strip():
+                    inner += 1
+                elif inner:
+                    inner -= 1
     return result
 
 

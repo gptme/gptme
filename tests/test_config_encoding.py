@@ -683,3 +683,40 @@ def test_failed_backup_aborts_a_chat_config_save_too(tmp_path: Path):
             config.save()
 
     assert chat_config_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("occupant", ["broken_symlink", "directory"])
+def test_non_file_at_backup_path_aborts_the_rewrite(
+    tmp_path: Path, monkeypatch, occupant: str
+):
+    """Something at `.orig` that is not a file holds no copy of the bytes.
+
+    A broken symlink reads as absent to `exists()` but still makes the
+    no-clobber link fail with `FileExistsError`; a directory reads as present.
+    Either way the save must refuse rather than rewrite without a backup.
+    """
+    if occupant == "broken_symlink" and not hasattr(os, "symlink"):
+        pytest.skip("no symlinks")
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    backup = Path(str(config_file) + ".orig")
+    if occupant == "broken_symlink":
+        try:
+            backup.symlink_to(tmp_path / "missing")
+        except OSError:
+            pytest.skip("cannot create symlinks here")
+    else:
+        backup.mkdir()
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with (
+        legacy_locale_codec("cp1252"),
+        legacy_default_encoding("cp1252"),
+        pytest.raises(OSError, match="Refusing to rewrite"),
+    ):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    assert config_file.read_bytes() == original
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []

@@ -121,7 +121,7 @@ def _back_up_before_reencoding(path: str | Path) -> None:
     if resolved not in _encoding_unverified:
         return
     backup = Path(f"{path}.orig")
-    if backup.exists():
+    if backup.is_file():
         # Already preserved by an earlier save; this file is safe to rewrite.
         _encoding_unverified.discard(resolved)
         return
@@ -142,11 +142,14 @@ def _back_up_before_reencoding(path: str | Path) -> None:
             # concurrent save copied the same original bytes.
             os.link(staged, backup)
         except FileExistsError:
-            pass
+            # A concurrent save published it first. Anything else at that path
+            # (a broken symlink, a directory) holds no copy of the bytes.
+            if not backup.is_file():
+                raise
         except OSError:
             # Filesystem without hard links: fall back to rename unless a
             # concurrent save has already published the backup.
-            if not backup.exists():
+            if not backup.is_file():
                 staged.replace(backup)
         staged.unlink(missing_ok=True)
     except OSError as e:
