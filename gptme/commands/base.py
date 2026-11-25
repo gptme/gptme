@@ -284,15 +284,14 @@ def handle_cmd(
     # is_message_command but carries no command name. Fall back to an empty
     # name so it lands in the unknown-command path below instead of crashing
     # on empty-list unpacking.
-    # Split on ASCII whitespace only. ``\s`` also matches Unicode whitespace
-    # such as the non-breaking space, which is a legal character in a
-    # conversation name; splitting on it would truncate the id for commands
-    # like ``/delete draft\xa0notes`` and could act on a different chat.
-    name, *args = [s for s in re.split(ASCII_WS, cmd) if s] or [""]
-    # Split args off at the same ASCII whitespace that ended the name (incl.
-    # newline), keeping the remainder verbatim.
-    name_and_args = re.split(ASCII_WS, cmd.lstrip(" \t\n\r\f\v"), maxsplit=1)
-    full_args = name_and_args[1] if len(name_and_args) > 1 else ""
+    # The command name ends at the first whitespace run; Unicode whitespace is a
+    # valid separator after the name (``/undo\xa01``). Arguments are then split
+    # on ASCII whitespace only, because Unicode spaces are legal characters
+    # inside values such as conversation names.
+    name_parts = re.split(r"\s+", cmd.strip(), maxsplit=1)
+    name = name_parts[0]
+    full_args = name_parts[1] if len(name_parts) > 1 else ""
+    args = [s for s in re.split(ASCII_WS, full_args) if s]
 
     # Check if command is registered
     if name in _command_registry:

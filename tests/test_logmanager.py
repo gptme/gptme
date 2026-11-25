@@ -1889,3 +1889,58 @@ def test_delete_keeps_whitespace_in_conversation_id(
     assert not (logs / "my chat").exists()
 
 
+def test_delete_preserves_exact_separators_in_conversation_id(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A forced delete must not collapse repeated spaces in the id.
+
+    Regression: joining whitespace-split tokens with single spaces made
+    ``two  spaces`` indistinguishable from ``two spaces`` and could delete the
+    wrong chat.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("two spaces", "two  spaces"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    cmd = Message("user", "/delete --force two  spaces", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert not (logs / "two  spaces").exists()
+    assert (logs / "two spaces").exists()
+
+
+def test_unicode_space_after_command_name_still_separates(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """/undo<NBSP>1 parses as undo, not as an unknown command.
+
+    Regression: splitting the whole command on ASCII whitespace made the count
+    part of the command name when the separator was a Unicode space.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "conv", create=True, lock=False)
+    manager.append(Message("user", "first", quiet=True))
+    manager.append(Message("user", "second", quiet=True))
+
+    cmd = Message("user", "/undo\u00a01", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    out = capsys.readouterr().out
+    assert "Unknown command" not in out
+
+

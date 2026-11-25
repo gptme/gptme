@@ -133,11 +133,22 @@ def cmd_delete(ctx: CommandContext) -> None:
     """
     from ..logmanager import delete_conversation, list_conversations  # fmt: skip
 
-    # Check for --force flag
-    force = "--force" in ctx.args or "-f" in ctx.args
-    args = [a for a in ctx.args if a not in ("--force", "-f")]
+    # ``ctx.args`` is whitespace-split, so it loses the exact separators inside
+    # a conversation name. Parse the raw remainder instead: consume at most one
+    # leading ``--force``/``-f`` token, then keep the rest verbatim as the id.
+    # A chat whose name merely contains or starts with a flag stays intact.
+    force = False
+    raw = ctx.full_args.lstrip(" \t")
+    for flag in ("--force", "-f"):
+        if raw == flag:
+            force, raw = True, ""
+            break
+        if raw.startswith(flag) and raw[len(flag)] in " \t":
+            force, raw = True, raw[len(flag) :].lstrip(" \t")
+            break
+    conv_id = raw.rstrip(" \t")
 
-    if not args:
+    if not conv_id:
         # List conversations to help user find the ID
         conversations = list_conversations(limit=10)
         if not conversations:
@@ -152,11 +163,6 @@ def cmd_delete(ctx: CommandContext) -> None:
             print(f"  {i}. {conv.name} [id: {conv.id}]{marker}")
         print("\nNote: Cannot delete the current conversation.")
         return
-
-    # Reconstruct the id from every positional token: a conversation name may
-    # contain whitespace (regular or non-breaking), and taking only args[0]
-    # would look up -- and with --force delete -- a different conversation.
-    conv_id = " ".join(args)
 
     # Prevent deleting current conversation
     if _is_current_conversation(ctx.manager.logdir, conv_id):
