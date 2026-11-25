@@ -280,7 +280,10 @@ class ChildView(Vertical):
             # read_child_messages admits only roles with a message widget.
             dropped = len(self._messages) - overlap
             for dropped_widget in list(chat.children)[:dropped]:
-                await dropped_widget.remove()
+                # Textual cancels this widget's timers before pruning children.
+                # AwaitRemove gathers the removed widget's message-pump task:
+                # don't let cancellation of this tick cancel that teardown too.
+                await asyncio.shield(dropped_widget.remove())
                 if not self.is_attached or not self.app.is_running:
                     return
             self._messages = self._messages[-overlap:] if overlap else []

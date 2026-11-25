@@ -270,6 +270,56 @@ async def test_refresh_stops_if_shutdown_starts_during_widget_operation(
 
 
 @pytest.mark.asyncio
+async def test_stopping_refresh_timer_does_not_cancel_widget_teardown(
+    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, children = child_app
+    initial = [Message("user", f"message {i}") for i in range(3)]
+    monkeypatch.setattr(
+        "gptme.tui.child_view.read_child_messages", lambda _: (initial, None)
+    )
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        app.open_child(children[0])
+        await pilot.pause()
+        view = app.query_one(ChildView)
+        assert view._refresh_timer is not None
+        view._refresh_timer.pause()
+        while view._refreshing:
+            await pilot.pause()
+        chat = view.query_one("#child-chat", ChatScroll)
+        oldest = list(chat.children)[0]
+        removal_started = asyncio.Event()
+        release_removal = asyncio.Event()
+        original_exit = oldest._message_loop_exit
+
+        async def delayed_exit() -> None:
+            removal_started.set()
+            await release_removal.wait()
+            await original_exit()
+
+        monkeypatch.setattr(oldest, "_message_loop_exit", delayed_exit)
+        monkeypatch.setattr(
+            "gptme.tui.child_view.read_child_messages", lambda _: (initial[1:], None)
+        )
+        view._refresh_timer.resume()
+        await asyncio.wait_for(removal_started.wait(), timeout=5)
+        removal_task = oldest._task
+        assert removal_task is not None
+        try:
+            # Textual stops widget timers before pruning their children. A tick
+            # awaiting removal must not pass that cancellation to the DOM task.
+            view._refresh_timer.stop()
+            while view._refreshing:
+                await asyncio.sleep(0)
+        finally:
+            release_removal.set()
+        await asyncio.gather(removal_task, return_exceptions=True)
+        assert not removal_task.cancelled()
+        assert not oldest.is_attached
+
+
+@pytest.mark.asyncio
 async def test_select_continued_run_with_same_logdir(child_app: ChildApp) -> None:
     manager, children = child_app
     app = GptmeApp(manager)
