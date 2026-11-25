@@ -1,5 +1,8 @@
 :audience: power-user
 
+gptme CLI
+=========
+
 .. click:: gptme.cli.main:main
    :prog: gptme
    :nested: full
