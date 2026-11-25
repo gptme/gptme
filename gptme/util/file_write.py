@@ -45,13 +45,14 @@ def _rewrite_in_place(path: Path, info: os.stat_result, data: bytes) -> None:
     """Overwrite the existing inode, keeping ACLs, xattrs and security descriptors.
 
     The content is already encoded, so an encoding error cannot truncate the
-    original. The original bytes are kept in memory: if writing or resizing fails
-    partway (disk full, file size limit, I/O error), they are written back as a
-    best effort before the error is re-raised. Hard links stay shared because the
-    inode itself is updated.
+    original. The original bytes are kept in memory as chunks, without a second
+    full copy: if writing or resizing fails partway (disk full, file size limit,
+    I/O error), they are written back as a best effort before the error is
+    re-raised. Hard links stay shared because the inode itself is updated.
     """
     flags = os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags)
+    failure: BaseException | None = None
     try:
         opened = os.fstat(fd)
         # Refuse if the name was swapped for another file after it was inspected.
@@ -63,28 +64,42 @@ def _rewrite_in_place(path: Path, info: os.stat_result, data: bytes) -> None:
         chunks = []
         while chunk := os.read(fd, 1 << 20):
             chunks.append(chunk)
-        original = b"".join(chunks)
+        original_size = sum(len(chunk) for chunk in chunks)
+        # Position before the try: a failed seek has written nothing to restore.
+        os.lseek(fd, 0, os.SEEK_SET)
         try:
-            os.lseek(fd, 0, os.SEEK_SET)
             _write_all(fd, data)
             os.ftruncate(fd, len(data))
         except BaseException as exc:
+            failure = exc
             try:
                 os.lseek(fd, 0, os.SEEK_SET)
-                _write_all(fd, original)
-                os.ftruncate(fd, len(original))
+                for chunk in chunks:
+                    _write_all(fd, chunk)
+                os.ftruncate(fd, original_size)
             except OSError as restore_exc:
                 warning = (
                     f"Restoring the original contents of `{path}` also failed "
                     f"({restore_exc}); the file may be damaged"
                 )
-                if isinstance(exc, OSError):
-                    # Tools surface only str(error): put the warning in it.
-                    raise OSError(exc.errno, f"{exc}; {warning}") from exc
-                exc.add_note(warning)
+                if not isinstance(exc, OSError):
+                    exc.add_note(warning)
+                    raise
+                # Tools surface only str(error): put the warning in it while
+                # keeping a single errno prefix and the filename attribute.
+                message = f"{exc.strerror or exc}; {warning}"
+                if exc.errno is None:
+                    raise OSError(message) from exc
+                raise OSError(exc.errno, message, exc.filename) from exc
             raise
     finally:
-        os.close(fd)
+        # A close failure must not replace an error that is already propagating:
+        # on the damage path that error carries the only warning the user sees.
+        try:
+            os.close(fd)
+        except OSError:
+            if failure is None:
+                raise
 
 
 def write_text_preserving_original(path: Path, content: str, *, newline: str) -> None:

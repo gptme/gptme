@@ -20,11 +20,12 @@ inode instead of being replaced: Python's permission-bit APIs cannot preserve a
 Windows security descriptor (and staging under the parent's inherited DACL could
 expose restricted contents), and macOS ACLs are not reliably visible through
 ``listxattr()``. Writing in place keeps the security descriptor, ACLs, extended
-attributes and hard-link aliases. The content is encoded before the file is
-opened, so an encoding error cannot truncate it; if writing fails partway (for
-example a full disk), the original bytes are written back before the error is
-reported. That restore is best effort: a failure that also prevents it can leave
-the file damaged. New files are staged and published as on other platforms.
+attributes and hard-link aliases, and requires both read and write access because
+the original bytes are read before writing. The content is encoded before the
+file is opened, so an encoding error cannot truncate it; if writing fails partway
+(for example a full disk), the original bytes are written back before the error
+is reported. That restore is best effort: a failure that also prevents it can
+leave the file damaged. New files are staged and published as on other platforms.
 On Linux, a filesystem reporting unsupported extended attributes is treated as
 having none; permission and I/O errors during inspection still fail closed.
 Platforms without an extended-attribute inspection API refuse existing-file

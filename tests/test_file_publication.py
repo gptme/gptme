@@ -245,6 +245,91 @@ def test_in_place_restore_failure_is_reported(
     # Tools report str(error), so the damage warning must be in the message.
     assert "Restoring the original" in str(exc.value)
     assert "may be damaged" in str(exc.value)
+    # An errno-less OSError must not gain a bogus `[Errno None]` prefix.
+    assert "[Errno None]" not in str(exc.value)
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_restore_failure_keeps_errno_and_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    import errno
+
+    def write(fd, data):
+        raise OSError(errno.ENOSPC, "No space left on device", "/some/file")
+
+    file_write = _simulate_platform(monkeypatch, platform, write=write)
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    with pytest.raises(OSError, match="No space left on device") as exc:
+        file_write.write_text_preserving_original(target, "R\n", newline="")
+    message = str(exc.value)
+    # The errno prefix must not be duplicated, and the path attribute survives.
+    assert message.startswith("[Errno 28] No space left on device;")
+    assert "[Errno 28] [Errno 28]" not in message
+    assert "may be damaged" in message
+    assert exc.value.errno == errno.ENOSPC
+    assert exc.value.filename == "/some/file"
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_failed_positioning_is_not_reported_as_damage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    def lseek(fd, offset, whence):
+        raise OSError("injected seek failure")
+
+    file_write = _simulate_platform(monkeypatch, platform, lseek=lseek)
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    with pytest.raises(OSError, match="injected seek failure") as exc:
+        file_write.write_text_preserving_original(target, "R\n", newline="")
+    # Nothing was written yet, so this is not a possible-damage situation.
+    assert "may be damaged" not in str(exc.value)
+    assert target.read_bytes() == b"ORIGINAL\n"
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_close_failure_does_not_hide_damage_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    def write(fd, data):
+        raise OSError("injected write failure")
+
+    def close(fd):
+        raise OSError("injected close failure")
+
+    file_write = _simulate_platform(monkeypatch, platform, write=write, close=close)
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    with pytest.raises(OSError, match="injected write failure") as exc:
+        file_write.write_text_preserving_original(target, "R\n", newline="")
+    message = str(exc.value)
+    assert "may be damaged" in message
+    assert "injected close failure" not in message
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+def test_in_place_restore_writes_back_every_chunk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    # Larger than the 1 MiB read size, so the restore has several chunks to replay.
+    original = bytes(range(256)) * (3 * 4096)
+    calls = []
+
+    def write(fd, data):
+        calls.append(len(data))
+        if len(calls) == 1:
+            raise OSError("injected write failure")
+        return os.write(fd, data)
+
+    file_write = _simulate_platform(monkeypatch, platform, write=write)
+    target = tmp_path / "target"
+    target.write_bytes(original)
+    with pytest.raises(OSError, match="injected write failure"):
+        file_write.write_text_preserving_original(target, "R\n", newline="")
+    assert target.read_bytes() == original
+    assert len(calls) > 2
 
 
 @pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
