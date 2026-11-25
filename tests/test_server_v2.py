@@ -6458,6 +6458,34 @@ def test_v2_conversation_config_patch_duplicate_server_names_keep_own_secrets(
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
 
 
+@pytest.mark.parametrize("toggle_both", [False, True])
+def test_v2_conversation_config_patch_toggle_duplicate_servers_keeps_secrets(
+    client: FlaskClient, toggle_both
+):
+    """Enabled flags must not select a different duplicate's credential."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+    config = ChatConfig.from_logdir(logdir)
+    assert config.mcp is not None
+    config.mcp.servers[1].enabled = False
+    config.save()
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    servers[1]["enabled"] = True
+    if toggle_both:
+        servers[0]["enabled"] = False
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [(s.enabled, s.env["API_KEY"]) for s in stored.mcp.servers] == [
+        (not toggle_both, "first"),
+        (True, "second"),
+    ]
+
+
 @pytest.mark.parametrize("credential_field", ["env", "headers"])
 @pytest.mark.parametrize("other_key", [None, "OTHER_TOKEN"])
 def test_v2_conversation_config_patch_duplicate_credential_keys_allow_rename(

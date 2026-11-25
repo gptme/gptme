@@ -663,12 +663,11 @@ def _mcp_config_response(mcp: MCPConfig) -> dict:
 
 
 def _mcp_server_signature(server: dict | object) -> tuple:
-    """Content identity of an MCP server, ignoring secret env/header values.
+    """Content identity of an MCP server, ignoring enabled and secret values.
 
-    Servers that share a signature differ only in their secret-looking
-    ``env``/``headers`` values, so a redacted body carries nothing that tells
-    them apart. Used to pair duplicate-name servers by content instead of by
-    list position.
+    Secret key names are retained, but not their values. The enabled flag is
+    mutable without changing the credential destination, so it must not select
+    a different saved server. Otherwise-identical entries keep relative order.
     """
 
     def get(field_name: str, default):
@@ -693,7 +692,6 @@ def _mcp_server_signature(server: dict | object) -> tuple:
 
     args = get("args", [])
     return (
-        get("enabled", True),
         get("command", "") or "",
         tuple(args) if isinstance(args, list) else (),
         get("url", "") or "",
@@ -769,8 +767,9 @@ def _restore_conversation_mcp_secrets(
     secret to have an unambiguous match; a row that supplies its own real secret
     does not compete for a saved one. A secret is only kept when command, args,
     url, transport and public env/header settings are unchanged: these can all
-    configure the destination. Toggling enabled is allowed. ``load_stored`` is called at most once,
-    and only when a redacted value needs restoring. Raises ValueError when a
+    configure the destination. Toggling enabled is allowed. ``load_stored`` is
+    called at most once, and only when a redacted value needs restoring.
+    Raises ValueError when a
     redacted secret has no unambiguous stored value to keep.
     """
     mcp = body.get("mcp")
@@ -815,9 +814,9 @@ def _restore_conversation_mcp_secrets(
                         f"{name}: {field_name}.{key} is redacted but has no "
                         "saved value to keep; send the real value"
                     )
-                # Skip only ``enabled``: env/header settings can redirect a
-                # stdio server just as changing an HTTP URL can.
-                if _mcp_server_signature(srv)[1:] != _mcp_server_signature(saved)[1:]:
+                # Env/header settings can redirect a stdio server just as
+                # changing an HTTP URL can.
+                if _mcp_server_signature(srv) != _mcp_server_signature(saved):
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but the server's "
                         "command, args, url, transport or env/headers changed; "
