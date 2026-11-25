@@ -2,6 +2,7 @@
 
 import threading
 import time
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -10,6 +11,13 @@ pytest.importorskip("flask")
 
 from gptme.server import session_step
 from gptme.server.session_models import SessionManager
+
+
+def _capture_new_threads(seen: set[threading.Thread]) -> list[threading.Thread]:
+    """Return (and remember) the worker threads spawned since ``seen``."""
+    new = [t for t in threading.enumerate() if t not in seen]
+    seen.update(new)
+    return new
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
@@ -40,8 +48,11 @@ def test_step_thread_crash_releases_generating(client, tmp_path, monkeypatch):
     )
     session.checkpoint_needs_continuation = True
     first_event = session.events_count
+    seen = set(threading.enumerate())
+    workers: list[threading.Thread] = []
     try:
         assert session_step._start_step_thread(name, session, "anthropic", tmp_path)
+        workers.extend(_capture_new_threads(seen))
         deadline = time.monotonic() + 5
         while not woken and time.monotonic() < deadline:
             time.sleep(0.02)
@@ -63,6 +74,9 @@ def test_step_thread_crash_releases_generating(client, tmp_path, monkeypatch):
         )
         assert response.status_code == 200
     finally:
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
         SessionManager.remove_session(session.id)
 
 
@@ -128,9 +142,15 @@ def test_step_thread_raise_after_release_keeps_new_reservation(
         classmethod(lambda cls, conv_id: None),
     )
     first_event = session.events_count
+    seen = set(threading.enumerate())
+    workers: list[threading.Thread] = []
     try:
         assert session_step._start_step_thread(name, session, "anthropic", tmp_path)
+        workers.extend(_capture_new_threads(seen))
         assert handler_done.wait(5)
+        # The second worker (spawned by the first, from inside fake_step) is
+        # still running: it blocks on finish_second.
+        workers.extend(_capture_new_threads(seen))
 
         with session.step_lock:
             # The second step's reservation survives the first thread's crash.
@@ -143,4 +163,72 @@ def test_step_thread_raise_after_release_keeps_new_reservation(
         assert len(calls) == 2 and calls[0] != calls[1]
     finally:
         finish_second.set()
+        # remove_session() does not join the workers; GPTME_STRICT_THREAD_LEAKS=1
+        # would otherwise fail the test after its assertions.
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
+        SessionManager.remove_session(session.id)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_step_thread_crash_empty_error_reports_failed(client, tmp_path, monkeypatch):
+    """A bare ``RuntimeError()`` stringifies to "".
+
+    The release path must fall back to a non-empty message so ``last_error``
+    stays truthy (A2A reports FAILED, not COMPLETED/SUBMITTED) and webui SSE
+    clients receive a non-empty error event.
+    """
+    from gptme.server import a2a_api
+
+    name = f"test-step-crash-empty-{uuid4().hex}"
+    result = client.put(
+        f"/api/v2/conversations/{name}",
+        json={
+            "prompt": "Be helpful.",
+            "config": {"chat": {"workspace": str(tmp_path)}},
+        },
+    )
+    assert result.status_code == 200
+    session = SessionManager.get_session(result.get_json()["session_id"])
+    assert session is not None
+
+    def crash(*args, **kwargs):
+        raise RuntimeError  # bare: str(exc) == ""
+
+    monkeypatch.setattr(session_step, "step", crash)
+    woken: list[str] = []
+    monkeypatch.setattr(
+        SessionManager,
+        "retry_deferred_watch_wakes",
+        classmethod(lambda cls, conv_id: woken.append(conv_id)),
+    )
+    # Mark the conversation as A2A-created so _task_from_conversation can read it.
+    a2a_api._write_origin_marker(name)
+    first_event = session.events_count
+    seen = set(threading.enumerate())
+    workers: list[threading.Thread] = []
+    try:
+        assert session_step._start_step_thread(name, session, "anthropic", tmp_path)
+        workers.extend(_capture_new_threads(seen))
+        deadline = time.monotonic() + 5
+        while not woken and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+        with session.step_lock:
+            assert not session.generating
+            assert session.last_error == "Generation failed"
+            events, _ = session.read_events(first_event)
+        error_events = [e for e in events if e.get("type") == "error"]
+        assert error_events
+        # read_events() is typed as a union of event TypedDicts; the error
+        # event's payload is not expressible in that union.
+        assert cast("dict[str, Any]", error_events[-1])["error"] == "Generation failed"
+
+        task = a2a_api._task_from_conversation(name)
+        assert task["status"]["state"] == "TASK_STATE_FAILED"
+    finally:
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
         SessionManager.remove_session(session.id)

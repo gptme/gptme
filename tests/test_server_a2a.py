@@ -593,3 +593,128 @@ def test_a2a_rpc_requires_auth_on_network_binding(monkeypatch):
     assert missing.status_code == 401
     assert ok.status_code == 200
     assert ok.get_json()["error"]["code"] == -32601
+
+
+def test_a2a_step_complete_on_first_read_returns_completed(
+    client, monkeypatch, tmp_path
+):
+    """A step_complete seen on the initial read returns before the idle check."""
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.append(Message("assistant", "first-read response"))
+        session_step_module.SessionManager.add_event(
+            conversation_id, cast(EventType, {"type": "step_complete"})
+        )
+        session.generating = False
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("first read"))
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "error" not in data
+    task = data["result"]["task"]
+    assert task["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert task["artifacts"][0]["parts"][0]["text"] == "first-read response"
+
+
+def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
+    client, monkeypatch, tmp_path
+):
+    """A step_complete posted while a stalled holder owns step_lock completes."""
+    import threading
+
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.5")
+    holder_has_lock = threading.Event()
+    release_holder = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.append(Message("assistant", "late response"))
+        session.generating = False
+        real_read_events = session.read_events
+        posted: list[bool] = []
+
+        def read_then_post_complete(abs_index):
+            events, next_index = real_read_events(abs_index)
+            if not posted:
+                # step_complete lands just after the first (empty) read, while
+                # a deferred wake still holds step_lock.
+                posted.append(True)
+                session_step_module.SessionManager.add_event(
+                    conversation_id, cast(EventType, {"type": "step_complete"})
+                )
+            return events, next_index
+
+        session.read_events = read_then_post_complete
+
+        def stalled_holder():
+            with session.step_lock:
+                holder_has_lock.set()
+                release_holder.wait(5)
+
+        holder = threading.Thread(target=stalled_holder)
+        holders.append(holder)
+        holder.start()
+        assert holder_has_lock.wait(5)
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    try:
+        response = client.post("/api/a2a", json=_send_message_request("stall"))
+    finally:
+        release_holder.set()
+        for holder in holders:
+            holder.join(5)
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "error" not in data
+    task = data["result"]["task"]
+    assert task["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert task["artifacts"][0]["parts"][0]["text"] == "late response"

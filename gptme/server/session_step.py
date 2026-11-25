@@ -2202,9 +2202,14 @@ def _start_step_thread(
                         session.checkpoint_needs_continuation = False
                         session.generating = False
                         session.generating_since = None
-                        session.last_error = str(e)
+                        # Some exceptions stringify to "", which would make
+                        # last_error falsy (task reports COMPLETED/SUBMITTED)
+                        # and emit an empty webui error. Mirror step()'s own
+                        # failure path so both always carry a message.
+                        error_message = str(e) or "Generation failed"
+                        session.last_error = error_message
                         SessionManager.add_event(
-                            conversation_id, {"type": "error", "error": str(e)}
+                            conversation_id, {"type": "error", "error": error_message}
                         )
                         SessionManager.add_event(
                             conversation_id, {"type": "step_complete"}
