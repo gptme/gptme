@@ -984,22 +984,6 @@ def _try_3way_merge(
                     pass  # best-effort cleanup; never let cleanup suppress the real result
 
 
-def _strip_editor_crs(edited: str, preview: str) -> str:
-    """Remove CRLF line endings that an editor added to ``preview``.
-
-    ``preview`` is LF-only apart from preserved lone CRs, which show up as
-    ``"\\r\\n"``. If it has any, ``edited`` is only treated as CRLF-encoded when
-    all its line endings are CRLF and not all of the preview's were. Otherwise
-    its carriage returns are the user's, including ones the user removed.
-    """
-    if "\r\n" not in preview or (
-        edited.count("\r\n") == edited.count("\n")
-        and preview.count("\r\n") != preview.count("\n")
-    ):
-        return edited.replace("\r\n", "\n")
-    return edited
-
-
 def execute_hashline_edit(
     code: str | None,
     args: list[str] | None,
@@ -1121,7 +1105,12 @@ def execute_hashline_edit(
         confirm_result.action == ConfirmAction.EDIT
         and confirm_result.edited_content is not None
     ):
-        updated = _strip_editor_crs(confirm_result.edited_content, updated)
+        edited = confirm_result.edited_content
+        # A preview without preserved CRs is LF-only, so any CRLF is the
+        # editor's. Otherwise the two can't be told apart: keep the text as is.
+        if "\r\n" not in updated:
+            edited = edited.replace("\r\n", "\n")
+        updated = edited
 
     # Re-read before every write: ordinary and merge-recovered targets can both
     # change while confirmation is open, including when the user edits the preview.

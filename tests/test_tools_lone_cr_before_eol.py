@@ -171,9 +171,10 @@ def test_patch_keeps_trailing_cr_in_context(
         (b"a = 1\r\nb = 1\r\n", "a = 1\r\nb = 3\r\n", b"a = 1\r\nb = 3\r\n"),
         # LF file, same editor
         (b"a = 1\nb = 1\n", "a = 1\r\nb = 3\r\n", b"a = 1\nb = 3\n"),
-        # a preserved CR survives both editor styles
-        (ORIGINAL_BYTES, "a = 1\r\r\nb = 3\r\n", b"a = 1\r\r\nb = 3\r\n"),
+        # with a preserved CR the edited text is taken as is
         (ORIGINAL_BYTES, "a = 1\r\nb = 3\n", b"a = 1\r\r\nb = 3\r\n"),
+        # the user removes the only LF line
+        (ORIGINAL_BYTES, "a = 1\r\n", b"a = 1\r\r\n"),
         # the user removes the preserved CR
         (ORIGINAL_BYTES, "a = 1\nb = 3\n", b"a = 1\r\nb = 3\r\n"),
     ],
