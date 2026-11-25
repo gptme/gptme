@@ -133,6 +133,19 @@
   max-height: min(60vh, 32rem);
 }
 
+/* A remote image in model output is not fetched until the user clicks: it
+   renders as this placeholder instead of an <img>, so a prompt-injected URL
+   cannot beacon conversation content (gptme/gptme#5223). */
+.remote-image-placeholder {
+  @apply my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-dashed border-border bg-muted px-2.5 py-1.5 text-left text-xs text-foreground/70;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.remote-image-placeholder:hover {
+  @apply border-solid text-foreground;
+}
+
 .chat-message pre {
   @apply overflow-x-auto text-white;
   background-color: hsl(var(--code-background));
