@@ -828,7 +828,83 @@ def test_bash_registers_filename_fallback_without_compopt(tmp_path, has_compopt)
         check=True,
         timeout=15,
     )
-    assert ("-o filenames" in result.stdout) is not has_compopt
+    assert "-o filenames" not in result.stdout
+    assert ("-o default" in result.stdout) is not has_compopt
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("gptme-convert con\t", ["convert"]),
+        (
+            "gptme-convert convert --quality m\t",
+            ["convert", "--quality", "medium"],
+        ),
+        (
+            "gptme-convert convert --input in\tfi\t",
+            ["convert", "--input", "input dir/file.json"],
+        ),
+    ],
+)
+def test_legacy_bash_readline_keeps_choices_plain_and_quotes_paths(
+    tmp_path, command, expected
+):
+    # Exercise readline itself: calling the function cannot reveal an added '/'.
+    pty = pytest.importorskip("pty")
+    import select
+    import time
+
+    parser = load_parser("gptme-convert")
+    assert parser is not None
+    source = tmp_path / "completion"
+    source.write_text(generate_argparse_completion("bash", "gptme-convert", parser))
+    (tmp_path / "convert").mkdir()
+    (tmp_path / "medium").mkdir()
+    (tmp_path / "input dir").mkdir()
+    (tmp_path / "input dir/file.json").touch()
+    captured = tmp_path / "args"
+    prompt = b"GPTME_TEST> "
+    master, slave = pty.openpty()
+    process = subprocess.Popen(
+        ["bash", "--noprofile", "--norc", "-i"],
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        cwd=tmp_path,
+        env={
+            **_isolated_shell_env(tmp_path, tmp_path / "bin"),
+            "PS1": prompt.decode(),
+            "TERM": "dumb",
+        },
+    )
+    os.close(slave)
+
+    def wait_prompt():
+        output = b""
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if select.select([master], [], [], 0.1)[0]:
+                output += os.read(master, 65536)
+                if output.endswith(prompt):
+                    return
+        pytest.fail(f"Bash did not reach its prompt: {output!r}")
+
+    try:
+        wait_prompt()
+        # Disabling compopt selects the Bash 3.2 path on modern CI shells.
+        setup = (
+            f"enable -n compopt 2>/dev/null || :; source {shlex.quote(str(source))}; "
+            f"gptme-convert() {{ printf '%s\\n' \"$@\" > {shlex.quote(str(captured))}; }}\n"
+        )
+        os.write(master, setup.encode())
+        wait_prompt()
+        os.write(master, (command + "\n").encode())
+        wait_prompt()
+        assert captured.read_text().splitlines() == expected
+    finally:
+        process.kill()
+        process.wait(timeout=5)
+        os.close(master)
 
 
 def test_zsh_completion_autoloads_from_installed_filename(tmp_path):

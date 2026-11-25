@@ -147,9 +147,10 @@ def _bash(prog: str, scope: _Scope) -> str:
     reply = 'COMPREPLY=($(compgen -W "%s" -- "$cur"))'
     # One candidate per line, so a path with spaces stays one completion.
     files = (
+        "if type compopt >/dev/null 2>&1; then "
         "compopt -o filenames 2>/dev/null || :; "
         'COMPREPLY=(); while IFS= read -r candidate; do COMPREPLY+=("$candidate"); '
-        'done < <(compgen -f -- "$cur")'
+        'done < <(compgen -f -- "$cur"); fi'
     )
 
     def options(_name, sc):
@@ -191,11 +192,12 @@ def _bash(prog: str, scope: _Scope) -> str:
         {nl.join(_scope_cases(scope, positionals))}
     esac
 }}
-# Bash 3.2 has no compopt: register filename quoting as a fallback.
+# Bash 3.2 delegates empty path replies to readline, which handles quoting
+# and directory slashes without treating subcommands or choices as files.
 if type compopt >/dev/null 2>&1; then
     complete -F {func} {prog}
 else
-    complete -o filenames -F {func} {prog}
+    complete -o default -F {func} {prog}
 fi
 """
 
