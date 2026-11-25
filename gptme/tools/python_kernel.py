@@ -889,6 +889,7 @@ class KernelBackend:
         self._kc = None
         self._km = None
         self._last_cwd = None
+        self._active_execute_msg_id = None
         # _registered_stubs intentionally kept so they are re-pushed on the next start.
 
     # ------------------------------------------------------------------
@@ -919,6 +920,7 @@ class KernelBackend:
             remaining = deadline - _monotonic()
             if remaining <= 0:
                 self.interrupt()
+                self._drain_until_idle()
                 raise RuntimeError("Kernel setup timed out; cell was not executed")
             try:
                 msg = self._kc.get_shell_msg(timeout=min(remaining, 1.0))
@@ -1268,7 +1270,40 @@ class KernelBackend:
                 and self._km.kernel_spec.interrupt_mode == "message"
             ):
                 self._interrupt_uv_workers()
-            self._km.interrupt_kernel()
+                self._interrupt_via_control()
+            else:
+                self._km.interrupt_kernel()
+
+    def _interrupt_via_control(self) -> None:
+        """Do not reuse a kernel with an unacknowledged interrupt queued.
+
+        Worker cancellation can make execute-idle arrive before the control
+        request is handled. Send through the client's control channel so we
+        know the request ID (KernelManager.interrupt_kernel does not return it).
+        """
+        deadline = _monotonic() + 5.0
+        try:
+            request = self._kc.session.msg("interrupt_request", content={})
+            self._kc.control_channel.send(request)
+            while (remaining := deadline - _monotonic()) > 0:
+                try:
+                    reply = self._kc.get_control_msg(timeout=min(remaining, 0.5))
+                except queue.Empty:
+                    continue
+                if (
+                    reply.get("msg_type") == "interrupt_reply"
+                    and reply.get("parent_header", {}).get("msg_id")
+                    == request["header"]["msg_id"]
+                ):
+                    if reply.get("content", {}).get("status") == "ok":
+                        return
+                    break
+        except Exception:
+            logger.warning("Kernel interrupt control channel failed", exc_info=True)
+        # A missing/error reply leaves interrupt ordering unknown. A fresh
+        # kernel is safer than letting this interrupt cancel the next cell.
+        logger.warning("Kernel did not acknowledge interrupt; shutting it down")
+        self.shutdown()
 
 
 def _cap_kernel_text(text: str) -> str:
