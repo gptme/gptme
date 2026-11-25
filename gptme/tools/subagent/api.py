@@ -1016,6 +1016,18 @@ def subagent(
             # Fallback to logdir's parent if cwd doesn't exist
             workspace = logdir.parent
 
+    # Validate backend restrictions and tool selection before isolation allocation.
+    parent_tool_allowlist = get_session_allowlist()
+    if use_acp and parent_tool_allowlist is not None:
+        raise ValueError(
+            "ACP cannot enforce the parent tool allowlist; use thread or subprocess mode."
+        )
+    tools_arg = (
+        _exec._capture_subprocess_tools(profile, parent_tool_allowlist)
+        if use_subprocess and not use_acp
+        else None
+    )
+
     # Preserve the pre-isolation workspace so clarification replies can recreate
     # isolation even when the original workspace was not a Git repository.
     base_workdir = workspace
@@ -1308,12 +1320,7 @@ def subagent(
             elif hasattr(output_schema, "__annotations__"):
                 output_schema_dict = {"type": "object"}
 
-        # Capture the operator allowlist in the parent's context: the child
-        # starts with an empty one and would otherwise load the full default
-        # toolset (#3974, #5192).
-        parent_tool_allowlist = get_session_allowlist()
-        tools_arg = _exec._capture_subprocess_tools(profile, parent_tool_allowlist)
-
+        # Tool selection was captured before allocating isolation above.
         def _launch_subprocess():
             _sem = get_slot_sem()
             _sem.acquire()
@@ -1446,11 +1453,7 @@ def subagent(
         # concurrent run (gptme/gptme#4990).
         _own_run: list[Subagent] = []
 
-        # Capture the operator allowlist in the parent's context: the child
-        # starts with an empty one and would otherwise load the full default
-        # toolset (#3974, #5192).
-        parent_tool_allowlist = get_session_allowlist()
-
+        # The operator boundary was captured before allocating isolation above.
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -2141,6 +2144,20 @@ def subagent_continue(
     except FileNotFoundError:
         workspace = sa.logdir.parent
 
+    parent_tool_allowlist = _exec._intersect_tool_allowlists(
+        sa.parent_tool_allowlist, get_session_allowlist()
+    )
+    if sa.use_acp and parent_tool_allowlist is not None:
+        raise ValueError(
+            "ACP cannot enforce the parent tool allowlist; use thread or subprocess mode."
+        )
+    # Tool selection may raise; do it before taking ownership of the writer lease.
+    tools_arg = (
+        _exec._capture_subprocess_tools(sa.profile, parent_tool_allowlist)
+        if sa.execution_mode == "subprocess"
+        else None
+    )
+
     # Take the cross-process writer lease BEFORE publishing the new attempt, so a
     # rejected parent never overwrites the active writer's durable metadata or
     # outcome. The worker owns it from here and hands it to the child.
@@ -2169,13 +2186,6 @@ def subagent_continue(
     # Populated with `continued` after it is created; run_continuation reads it
     # after start_gate fires so the reference is always present by then.
     _continued_ref: list[Subagent] = []
-
-    parent_tool_allowlist = sa.parent_tool_allowlist
-    tools_arg = (
-        _exec._capture_subprocess_tools(sa.profile, parent_tool_allowlist)
-        if sa.execution_mode == "subprocess"
-        else None
-    )
 
     def run_continuation() -> None:
         bind_thread_generation()
@@ -2466,7 +2476,9 @@ def subagent_reply(agent_id: str, reply: str) -> None:
     # On failure, restore the old state so the caller can retry.
     caller_allowlist = get_session_allowlist()
     try:
-        set_session_allowlist(sa.parent_tool_allowlist)
+        set_session_allowlist(
+            _exec._intersect_tool_allowlists(sa.parent_tool_allowlist, caller_allowlist)
+        )
         subagent(
             agent_id=agent_id,
             prompt=augmented_prompt,

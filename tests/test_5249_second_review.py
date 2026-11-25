@@ -254,7 +254,7 @@ def test_clarification_respawn_keeps_boundary_and_restores_caller(
     set_session_allowlist(["shell"])
     try:
         api.subagent_reply("restricted-reply", "this one")
-        assert seen == [["ipython"]]
+        assert seen == [[]]
         assert get_session_allowlist() == ["shell"]
     finally:
         set_session_allowlist(before)

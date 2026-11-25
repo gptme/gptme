@@ -116,6 +116,60 @@ def _capture_subprocess_tools(
     )
 
 
+def _intersect_tool_allowlists(
+    saved: list[str] | None, current: list[str] | None
+) -> list[str] | None:
+    """Freeze both operator boundaries in the caller's tool/config context.
+
+    None means unrestricted, including on legacy records. Tool-file grants must
+    remain whole files: reject a partial intersection rather than re-importing
+    excluded exports in the child.
+    """
+    if saved is None:
+        return list(current) if current is not None else None
+    if current is None or saved == current:
+        return list(saved)
+
+    from ..base import load_from_file
+
+    candidates = {tool.name: tool for tool in get_available_tools()}
+    file_tools: dict[str, list[ToolSpec]] = {}
+    for item in dict.fromkeys([*saved, *current]):
+        if _is_tool_file_entry(item):
+            file_tools[item] = load_from_file(Path(item))
+            for tool in file_tools[item]:
+                if tool.name in candidates:
+                    raise ValueError(
+                        f"Ambiguous tool-file export {tool.name}: cannot intersect limits"
+                    )
+                candidates[tool.name] = tool
+    for item in [*saved, *current]:
+        if not _is_tool_file_entry(item) and not allowlist_contains_glob([item]):
+            candidates.setdefault(item, ToolSpec(name=item, desc=""))
+
+    def permits(tool: ToolSpec, boundary: list[str]) -> bool:
+        return tool_matches_allowlist(tool.name, boundary, tool.hints) or any(
+            item in boundary and tool.name in {export.name for export in exports}
+            for item, exports in file_tools.items()
+        )
+
+    allowed = {
+        name
+        for name, tool in candidates.items()
+        if permits(tool, saved) and permits(tool, current)
+    }
+    result: list[str] = []
+    for item, exports in file_tools.items():
+        names = {tool.name for tool in exports}
+        if names & allowed:
+            if not names <= allowed:
+                raise ValueError(f"Tool limits permit only part of tool file {item}")
+            result.append(item)
+            allowed -= names
+    result.extend(sorted(allowed))
+    return result
+
+
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress", "yield")
 _SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
@@ -1907,6 +1961,13 @@ def _run_planner(
         # workspace so clarification replies can recreate isolation after cleanup.
         base_workdir = workspace
 
+        # Reject tool selection before allocating a disposable workspace.
+        tools_arg = (
+            _capture_subprocess_tools(resolved_profile, parent_tool_allowlist)
+            if resolved_use_subprocess
+            else None
+        )
+
         # Set up worktree isolation if the resolved role requires it
         worktree_path: Path | None = None
         repo_path: Path | None = None
@@ -1947,9 +2008,6 @@ def _run_planner(
                     f"Planner executor {executor_id}: 'redact_secrets=True' has no effect "
                     "in subprocess mode (only thread-mode subagents inherit workspace context)"
                 )
-            tools_arg = _capture_subprocess_tools(
-                resolved_profile, parent_tool_allowlist
-            )
             sa = Subagent(
                 executor_id,
                 executor_prompt,
