@@ -58,6 +58,7 @@ MCP_INITIALIZE_OAUTH_TIMEOUT_S = DEFAULT_FLOW_TIMEOUT_S + 30.0
 # EOF that arrived while the loop was stopped closes the stream first. A pending
 # EOF needs a few passes (fd readiness, StreamReader wakeup, writer close).
 _PRE_SEND_DRAIN_STEPS = 20
+_MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS = 1_000
 
 
 def _initialize_timeout(auth: httpx.Auth | None) -> float:
@@ -803,9 +804,15 @@ class MCPClient:
                     # The SDK may fail a pending request before the EOF watcher
                     # runs. Once sent, even a completed transport failure cannot
                     # prove whether the tool ran; never retry that operation.
+                    diagnostic = str(error) or type(error).__name__
+                    if len(diagnostic) > _MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS:
+                        diagnostic = (
+                            diagnostic[:_MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS]
+                            + " [truncated]"
+                        )
                     raise MCPUnknownOutcomeError(
                         "MCP server failed during the call; its result is unknown "
-                        f"and it was not retried: {str(error) or type(error).__name__}"
+                        f"and it was not retried: {diagnostic}"
                     ) from error
                 raise
         finally:

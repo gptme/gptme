@@ -259,6 +259,7 @@ def test_completed_transport_failure_is_not_retryable(
     with pytest.raises(RuntimeError, match="result is unknown") as info:
         anyio.run(_bare_client(stream)._unless_transport_closed, request())
     assert not _is_connection_error(info.value)
+    assert info.value.__cause__ is error
 
 
 def test_completed_response_before_eof_is_returned() -> None:
@@ -358,13 +359,18 @@ def test_http_connection_ignores_old_stdio_stream(use_sse: bool) -> None:
         client.close()
 
 
-def test_server_connection_error_detail_reaches_tool_message_without_retry() -> None:
+@pytest.mark.parametrize("diagnostic_size", [0, 200_000])
+def test_server_connection_error_detail_reaches_tool_message_without_retry(
+    diagnostic_size: int,
+) -> None:
     """The adapter renders str(error), so chaining alone hides server diagnostics."""
     client = MCPClient()
     client._read_stream = _FakeStream(1)
     session = AsyncMock()
     session.call_tool.side_effect = McpError(
-        types.ErrorData(code=-32000, message="database connection closed")
+        types.ErrorData(
+            code=-32000, message="database connection closed" + "x" * diagnostic_size
+        )
     )
     client.session = session
     execute = create_mcp_execute_function(
@@ -389,6 +395,10 @@ def test_server_connection_error_detail_reaches_tool_message_without_retry() -> 
             "database connection closed" in message.content for message in messages
         )
         assert any("result is unknown" in message.content for message in messages)
+        assert any("it was not retried" in message.content for message in messages)
+        assert all(len(message.content) < 1_200 for message in messages)
+        if diagnostic_size:
+            assert any("[truncated]" in message.content for message in messages)
         replacement.assert_not_called()
         session.call_tool.assert_awaited_once_with("update", {})
     finally:
