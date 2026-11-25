@@ -848,6 +848,14 @@ def _scan_makefile(
         # Decline conservatively rather than partly interpreting make state.
         if ".RECIPEPREFIX" in text:
             return False
+        # Inactive conditional branches can change which rule a later tab-led
+        # line belongs to. Without evaluating make expressions, its role is
+        # ambiguous; do not silently omit a possible live include.
+        lines = _MAKE_CONTINUATION.sub(r"\1 ", text).split("\n")
+        if any(_MAKE_CONDITIONAL.match(line) for line in lines) and any(
+            line.startswith("\t") and _MAKE_INCLUDE.fullmatch(line) for line in lines
+        ):
+            return False
         if target is None and _MAKE_TEST_TARGET.search(text):
             target = path
         for token in _make_include_tokens(text):

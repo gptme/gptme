@@ -908,3 +908,13 @@ def test_make_custom_recipe_prefix_fails_closed(
     (tmp_path / "config.mk").write_text("CMD := approved\n")
 
     assert discover_verification_command(tmp_path) is None
+
+
+def test_make_inactive_rule_cannot_hide_tab_include(tmp_path: Path) -> None:
+    """An inactive rule must not make discovery skip an active live include."""
+    (tmp_path / "GNUmakefile").write_text(
+        "X := 1\nifeq (0,1)\nunused:\nendif\n"
+        "\tinclude config.mk\ntest: ; @echo $(CMD)\n"
+    )
+    (tmp_path / "config.mk").write_text("CMD := approved\n")
+    assert discover_verification_command(tmp_path) is None
