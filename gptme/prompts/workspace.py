@@ -302,8 +302,8 @@ def _is_loadable_agent_file(agent_file: Path, vouching_dir: Path | None = None) 
     - Only regular files load, so a FIFO or device under an agent-file name
       cannot block startup on ``read_text()``.
     - On POSIX, files owned by another (non-root) user are skipped unless that
-      user also owns ``vouching_dir`` (the directory gptme was pointed at, never
-      an ancestor the walk passes through). Outside home
+      user also owns ``vouching_dir`` (the directory gptme was pointed at, or a
+      directory between it and its git checkout root; never a shared ancestor). Outside home
       the walk reaches shared directories such as ``/tmp``, where any local
       user can plant an ``AGENTS.md``. Both the symlink itself and its target
       must be ours or root's: another user's link to one of our files is their
@@ -386,11 +386,23 @@ def find_agent_files_in_tree(
     # but users should be aware they may contain instructions not intended for gptme.
     _cross_tool_files = frozenset({".cursorrules", ".windsurfrules"})
 
+    # Directories whose owner may vouch for another owner's agent files: the
+    # target and, inside a git checkout, everything up to the checkout root.
+    # Shared ancestors above the checkout keep the current-user-or-root rule.
+    vouching_dirs = {target}
+    for dir_path in reversed(dirs_to_check):
+        vouching_dirs.add(dir_path)
+        if (dir_path / ".git").exists():
+            break
+    else:
+        vouching_dirs = {target}
+
     for dir_path in dirs_to_check:
         for filename in AGENT_FILES:
             agent_file = dir_path / filename
             if agent_file.exists() and _is_loadable_agent_file(
-                agent_file, vouching_dir=target if dir_path == target else None
+                agent_file,
+                vouching_dir=dir_path if dir_path in vouching_dirs else None,
             ):
                 resolved = str(agent_file.resolve())
                 if resolved not in _exclude:

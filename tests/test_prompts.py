@@ -1058,6 +1058,40 @@ def test_nested_agent_file_in_shared_ancestor_cannot_vouch_for_itself(
     assert own in found
 
 
+def test_checkout_root_agent_file_loads_from_a_subdirectory_as_root(
+    tmp_path: Path, monkeypatch
+):
+    """Running as root in a bind-mounted checkout owned by uid 1000, starting in
+    a subdirectory must still load the checkout root's AGENTS.md; a file in the
+    root-owned directory above the checkout must not."""
+    from gptme.prompts import workspace
+
+    if not hasattr(os, "getuid"):
+        pytest.skip("POSIX ownership only")
+    shared = tmp_path / "shared"
+    checkout = shared / "workspace"
+    sub = checkout / "src"
+    sub.mkdir(parents=True)
+    (checkout / ".git").mkdir()
+    planted = shared / "AGENTS.md"
+    planted.write_text("planted by uid 1000 in a root-owned dir")
+    root_rules = checkout / "AGENTS.md"
+    root_rules.write_text("checkout rules")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "elsewhere-home")
+    monkeypatch.setattr(os, "getuid", lambda: 0)
+
+    def owner(p: Path, *, follow_symlinks: bool = True) -> int:
+        r = p.resolve()
+        if r in (checkout.resolve(), sub.resolve(), root_rules.resolve()):
+            return 1000
+        return 1000 if r == planted.resolve() else 0
+
+    monkeypatch.setattr(workspace, "_file_owner_uid", owner)
+    found = workspace.find_agent_files_in_tree(sub)
+    assert root_rules in found
+    assert planted not in found
+
+
 def test_agent_file_symlink_owned_by_another_user_is_not_loaded(
     tmp_path: Path, monkeypatch, requires_symlinks
 ):
