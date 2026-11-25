@@ -150,6 +150,16 @@ def _history_for(monkeypatch, messages):
             )
         ),
     )
+    # prompt_chat_history swallows errors at debug level and yields nothing, so an
+    # empty result alone cannot tell "skipped on purpose" from "crashed". Fail on
+    # any swallowed error instead.
+    import gptme.prompts.chat_history as chat_history
+
+    def _no_swallowed_errors(msg, *args, **kwargs):
+        if str(msg).startswith("Failed"):
+            raise AssertionError(f"prompt_chat_history swallowed an error: {msg}")
+
+    monkeypatch.setattr(chat_history.logger, "debug", _no_swallowed_errors)
     return list(prompt_chat_history())
 
 
