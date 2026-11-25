@@ -1762,3 +1762,33 @@ def test_delete_refuses_alias_of_current_conversation(
     assert (logs / "alias").exists()
 
 
+def test_is_current_conversation_matches_names_and_refuses_unknown_ids(
+    tmp_path: Path, monkeypatch
+):
+    """The /delete guard answers on the name, then on the directory, then gives up."""
+    from gptme.commands.session import _is_current_conversation
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    logdir = logs / "current-conv"
+    logdir.mkdir(parents=True)
+
+    # Same name: no directory lookup needed.
+    assert _is_current_conversation(logdir, "current-conv") is True
+    # Invalid id: rejected before touching a path that does not name a child.
+    assert _is_current_conversation(logdir, "../evil") is False
+    # Valid but unknown id: samefile() fails, so it is not this conversation.
+    assert _is_current_conversation(logdir, "missing-conv") is False
+
+
+def test_conversation_dir_rejects_invalid_ids():
+    """A path-like id returns None rather than a joined path outside the logs dir."""
+    from pathlib import PurePosixPath
+
+    from gptme.logmanager.conversations import _conversation_dir
+
+    logs = PurePosixPath("/logs")
+    assert _conversation_dir(logs, "../evil") is None
+    assert _conversation_dir(logs, "conv") == logs / "conv"
+
+
