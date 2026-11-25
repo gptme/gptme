@@ -1949,6 +1949,19 @@ def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     assert "Deleted conversation: old-chat" in out
     assert not (logs / "old-chat").exists()
 
+    # A Unicode space separates the flag from the id too.
+    conv_dir = logs / "nbsp-flag"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+    cmd = Message("user", "/delete --force\u00a0nbsp-flag", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: nbsp-flag" in out
+    assert not (logs / "nbsp-flag").exists()
+
     # A newline is a separator too: the flag still applies.
     conv_dir = logs / "multi-line"
     conv_dir.mkdir()
