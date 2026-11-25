@@ -1096,24 +1096,26 @@ def test_bare_model_name_prefers_vendor_api(bare, expected_provider):
     assert get_model(bare).provider == expected_provider
 
 
-def test_every_shared_bare_name_resolves_to_a_vendor():
-    """A name listed by a vendor and a reseller never resolves to the reseller."""
+def test_every_shared_bare_name_resolves_to_a_vendor() -> None:
+    """A shared name or alias resolves to a vendor that actually supports it."""
     from gptme.llm.models import MODELS, get_model
     from gptme.llm.models.resolution import _RESELLER_PROVIDERS
 
-    vendor_names = {
-        name
-        for provider, models in MODELS.items()
-        if provider not in _RESELLER_PROVIDERS
-        for name in models
-    }
-    shared = {
-        name
-        for provider, models in MODELS.items()
-        if provider in _RESELLER_PROVIDERS
-        for name in models
-        if name in vendor_names
-    }
+    vendors_by_name: dict[str, set[str]] = {}
+    reseller_names: set[str] = set()
+    for provider, models in MODELS.items():
+        names = set(models) | {
+            alias
+            for alias, target in MODEL_ALIASES.get(provider, {}).items()
+            if target in models
+        }
+        if provider in _RESELLER_PROVIDERS:
+            reseller_names.update(names)
+        else:
+            for name in names:
+                vendors_by_name.setdefault(name, set()).add(provider)
+
+    shared = reseller_names.intersection(vendors_by_name)
     assert shared  # the guard is vacuous if no names overlap
     for name in sorted(shared):
-        assert get_model(name).provider not in _RESELLER_PROVIDERS, name
+        assert get_model(name).provider in vendors_by_name[name], name
