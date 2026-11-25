@@ -141,6 +141,34 @@ def _run_script_hook(
             process.wait()
             logger.warning("Script hook %s failed: %s", hook.event, exc)
             return
+        except BaseException:
+            # Ctrl-C: the hook runs in its own session, so SIGINT never reached
+            # it. Stop it before the interrupt propagates, or it keeps running
+            # unwatched after trigger_hook swallows the KeyboardInterrupt.
+            try:
+                _terminate_process_tree(process)
+            except Exception:
+                # e.g. taskkill missing or failing on Windows. Do not let that
+                # replace the interrupt: kill the tracked shell directly.
+                logger.exception(
+                    "Failed to terminate script hook process tree %d after interrupt",
+                    process.pid,
+                )
+                try:
+                    process.kill()
+                except OSError:
+                    logger.exception(
+                        "Failed to kill script hook process %d after interrupt",
+                        process.pid,
+                    )
+            try:
+                process.wait(timeout=_PROCESS_REAP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                logger.error(
+                    "Script hook process %d did not exit after interrupt",
+                    process.pid,
+                )
+            raise
 
         if process.returncode != 0:
             output.seek(0)
