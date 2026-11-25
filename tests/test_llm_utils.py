@@ -1386,22 +1386,24 @@ def test_handle_tools_signed_thinking_keeps_quoted_content(
     tag: str, reasoning: str, prefix: str, length_framed: bool
 ) -> None:
     """Replay the provider's exact signed text, not tags/calls quoted inside it."""
-    from gptme.llm.llm_anthropic import _extract_thinking_content, _handle_tools
+    from gptme.llm.llm_anthropic import (
+        _extract_thinking_content,
+        _handle_tools,
+        _thinking_footer,
+    )
     from gptme.tools import init_tools
 
     init_tools()
     if length_framed:
         reasoning += "\nExample:\n<think>\nquoted\n</think>\nContinue"
-        reasoning += (
-            "\n<think>\nx\n<!-- think-sig: inner -->\n"
-            "<!-- think-sig: chars=1 -->\n</think>"
-        )
+        reasoning += f"\n<think>\nx\n{_thinking_footer('inner', 'x')}\n</think>"
     tool_call = '@shell(real-call): {"command": "echo real"}'
-    framing = f"\n<!-- think-sig: chars={len(reasoning)} -->" if length_framed else ""
-    content = (
-        f"{prefix}<{tag}>\n{reasoning}\n<!-- think-sig: signed== -->{framing}\n</{tag}>\n"
-        f"{tool_call}"
+    footer = (
+        _thinking_footer("signed==", reasoning)
+        if length_framed
+        else "<!-- think-sig: signed== -->"
     )
+    content = f"{prefix}<{tag}>\n{reasoning}\n{footer}\n</{tag}>\n{tool_call}"
     assert _extract_thinking_content(content) == (
         [(reasoning, "signed==")],
         f"{prefix}{tool_call}",
@@ -1440,16 +1442,22 @@ def test_extract_thinking_content_unsigned_before_signed() -> None:
 
 
 @pytest.mark.parametrize("tag", ["think", "thinking"])
-def test_handle_tools_unsigned_reasoning_mentioning_tags(tag: str) -> None:
+@pytest.mark.parametrize(
+    "reasoning",
+    [
+        "Use <{tag}> as a marker, closed by </{tag}> later.",
+        'Consider this:\n@shell(quoted): {{"command": "echo example"}}',
+    ],
+)
+def test_handle_tools_unsigned_reasoning_mentioning_tags(
+    tag: str, reasoning: str
+) -> None:
     """History from another provider keeps leading reasoning out of the answer."""
     from gptme.llm.llm_anthropic import _handle_tools
     from gptme.tools import init_tools
 
     init_tools()
-    reasoning = (
-        f"Use <{tag}> as a marker, closed by </{tag}> later.\n"
-        '@shell(quoted): {"command": "echo example"}'
-    )
+    reasoning = reasoning.format(tag=tag)
     tool_call = '@shell(call-1): {"command": "echo real"}'
     content = f"<{tag}>\n{reasoning}\n</{tag}>\n\nAnswer.\n{tool_call}"
 
@@ -1542,7 +1550,7 @@ def test_extract_thinking_content_example_comment_before_call(
     tag: str, example_opener: str, later_framed: bool, gap: str
 ) -> None:
     """A quoted signature comment must not borrow a later block's closing tag."""
-    from gptme.llm.llm_anthropic import _extract_thinking_content
+    from gptme.llm.llm_anthropic import _extract_thinking_content, _thinking_footer
 
     prose = (
         example_opener.format(tag=tag)
@@ -1550,8 +1558,12 @@ def test_extract_thinking_content_example_comment_before_call(
         + '@shell(real-call): {"command": "echo real"}'
         + gap
     )
-    framing = "\n<!-- think-sig: chars=9 -->" if later_framed else ""
-    signed = f"<{tag}>\nreasoning\n<!-- think-sig: realSig -->{framing}\n</{tag}>"
+    footer = (
+        _thinking_footer("realSig", "reasoning")
+        if later_framed
+        else "<!-- think-sig: realSig -->"
+    )
+    signed = f"<{tag}>\nreasoning\n{footer}\n</{tag}>"
 
     # Streamed history can open the later block directly after the call's JSON.
     assert _extract_thinking_content(prose + signed) == (
@@ -1569,12 +1581,93 @@ def test_extract_thinking_content_stale_length_keeps_signature_clean(
 
     content = (
         "<think>\nedited reasoning\n<!-- think-sig: sig== -->\n"
-        f"<!-- think-sig: chars={chars} -->\n</think>\nDone."
+        f"<!-- think-sig: chars={chars} crc32=00000000 -->\n</think>\nDone."
     )
 
     assert _extract_thinking_content(content) == (
         [("edited reasoning", "sig==")],
         "Done.",
+    )
+
+
+@pytest.mark.parametrize("opener", ["<think>\n", "Write <think>\n"])
+def test_handle_tools_stale_length_aimed_at_earlier_opener(opener: str) -> None:
+    """A stale length that lands on an earlier opener must not swallow a call."""
+    from gptme.llm.llm_anthropic import _handle_tools, _thinking_footer
+    from gptme.tools import init_tools
+
+    init_tools()
+    head = f'{opener}first\n</think>\n@shell(call-1): {{"command": "echo real"}}\n'
+    signed = "<think>\nedited"
+    # The length reaches back to just after the first opener.
+    stale = len(head + signed) - len(opener)
+    footer = _thinking_footer("sig==", "x" * stale)
+    content = f"{head}{signed}\n{footer}\n</think>"
+
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "real"},
+            ]
+        )
+    )
+
+    parts = result[0]["content"]
+    assert [p["id"] for p in parts if p["type"] == "tool_use"] == ["call-1"]
+    assert [p["thinking"] for p in parts if p["type"] == "thinking"] == ["edited"]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("opener_close", ["plan</{tag}>", "plan\n</{tag}>"])
+@pytest.mark.parametrize(
+    "later_line", ["</{tag}>", "Close with </{tag}>", "Close with </{tag}>\nDone."]
+)
+def test_handle_tools_mid_line_closer_keeps_tool_pair(
+    tag: str, opener_close: str, later_line: str
+) -> None:
+    """Text after the closer on its line must not push the block past a call."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    tool_call = '@shell(call-1): {"command": "echo real"}'
+    content = (
+        f"<{tag}>\n{opener_close.format(tag=tag)}Answer.\n{tool_call}\n"
+        f"{later_line.format(tag=tag)}"
+    )
+
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "real"},
+            ]
+        )
+    )
+
+    parts = result[0]["content"]
+    assert parts[0]["type"] == "text"
+    assert parts[0]["text"].startswith("Answer.")
+    uses = [part for part in parts if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "call-1"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_extract_thinking_content_mention_then_quoted_call(tag: str) -> None:
+    """Known limit: a mentioned closer before a quoted call ends the reasoning.
+
+    It cannot be told apart from a real mid-line closer followed by a real call.
+    """
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    quoted = '@shell(quoted): {"command": "echo example"}'
+    content = f"<{tag}>\nClose with </{tag}> later.\n{quoted}\n</{tag}>\n\nAnswer."
+
+    assert _extract_thinking_content(content) == (
+        [("Close with", "")],
+        f"later.\n{quoted}\n</{tag}>\n\nAnswer.",
     )
 
 

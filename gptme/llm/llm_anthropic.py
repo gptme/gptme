@@ -3,6 +3,7 @@ import logging
 import os
 import threading
 import time
+import zlib
 from bisect import bisect_right
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import replace
@@ -1078,7 +1079,7 @@ def chat(
         elif block.type == "thinking":
             # Embed signature so it survives serialisation and can be passed
             # back on the next API call (Anthropic requires it for multi-turn).
-            footer = _thinking_footer(block.signature, len(block.thinking))
+            footer = _thinking_footer(block.signature, block.thinking)
             parsed_block.append(f"<think>\n{block.thinking}\n{footer}\n</think>")
         elif block.type == "tool_use":
             parsed_block.append(
@@ -1150,7 +1151,7 @@ def _stream_with_client(
     # Track the signature for the current thinking block so it can be embedded
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
-    _current_thinking_chars = 0
+    _current_thinking: list[str] = []
 
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools, model=model
@@ -1232,7 +1233,7 @@ def _stream_with_client(
                             f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
                         )
                     elif isinstance(block, anthropic.types.ThinkingBlock):
-                        _current_thinking_chars = 0
+                        _current_thinking = []
                         yield from _emit("<think>\n")
                     elif isinstance(block, anthropic.types.RedactedThinkingBlock):
                         yield from _emit("<think redacted>\n")
@@ -1251,7 +1252,7 @@ def _stream_with_client(
                             yield from _emit(delta.text)
                     elif isinstance(delta, anthropic.types.ThinkingDelta):
                         if delta.thinking is not None:
-                            _current_thinking_chars += len(delta.thinking)
+                            _current_thinking.append(delta.thinking)
                             yield from _emit(delta.thinking)
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
                         if delta.partial_json is not None:
@@ -1281,7 +1282,7 @@ def _stream_with_client(
                         # and can be passed back to the API on subsequent turns.
                         if _current_block_signature:
                             footer = _thinking_footer(
-                                _current_block_signature, _current_thinking_chars
+                                _current_block_signature, "".join(_current_thinking)
                             )
                             yield from _emit(f"\n{footer}")
                             _current_block_signature = None
@@ -1344,13 +1345,21 @@ def _stream_with_client(
     )
 
 
-def _thinking_footer(signature: str, chars: int) -> str:
+def _thinking_checksum(thinking: str) -> str:
+    return f"{zlib.crc32(thinking.encode(errors='surrogatepass')):08x}"
+
+
+def _thinking_footer(signature: str, thinking: str) -> str:
     """Comments persisted inside a thinking block, just before its closing tag.
 
-    The length goes in a second ``think-sig`` comment: older releases read the
-    signature from the first one and strip both, and display code hides both.
+    The length and checksum go in a second ``think-sig`` comment: older releases
+    read the signature from the first one and strip both, and display code hides
+    both. The checksum keeps a stale length from framing some other span.
     """
-    return f"<!-- think-sig: {signature} -->\n<!-- think-sig: chars={chars} -->"
+    return (
+        f"<!-- think-sig: {signature} -->\n<!-- think-sig: "
+        f"chars={len(thinking)} crc32={_thinking_checksum(thinking)} -->"
+    )
 
 
 def _extract_thinking_content(
@@ -1401,37 +1410,37 @@ def _extract_thinking_content(
     signature_comment = r"<!-- think-sig: ((?:(?!<!--|-->).)*?) -->"
     footer_pattern = re.compile(
         rf"\n{signature_comment}\n"
-        r"<!-- think-sig: chars=([0-9]{1,12}) -->\n</(think|thinking)>",
+        r"<!-- think-sig: chars=([0-9]{1,12}) crc32=([0-9a-f]{8}) -->\n"
+        r"</(think|thinking)>",
         re.DOTALL,
     )
     for footer in footer_pattern.finditer(text_content):
         body_start = footer.start() - int(footer.group(2))
-        opening = f"<{footer.group(3)}>\n"
+        opening = f"<{footer.group(4)}>\n"
         start = body_start - len(opening)
         if start >= 0 and text_content[start:body_start] == opening:
-            framed_blocks[start] = (
-                footer.end(),
-                text_content[body_start : footer.start()],
-                footer.group(1),
-            )
+            body = text_content[body_start : footer.start()]
+            if _thinking_checksum(body) == footer.group(3):
+                framed_blocks[start] = (footer.end(), body, footer.group(1))
     framed_starts = sorted(framed_blocks)
 
-    # Legacy signed blocks lack a length (and an edited block's length no longer
-    # matches); accept inline quoted tags and calls, but a whole-line opener
-    # remains ambiguous with a subsequent real block. The first signature comment
-    # must be the footer: neither it, a whole-line opener, nor a length-framed
-    # opener can be crossed, so legacy/literal openers cannot consume the
-    # signature belonging to a later block.
+    # Legacy signed blocks lack a length (and an edited block no longer matches
+    # its length and checksum); accept inline quoted tags and calls, but a
+    # whole-line opener remains ambiguous with a subsequent real block. The first
+    # signature comment must be the footer: neither it, a whole-line opener, nor a
+    # length-framed opener can be crossed, so legacy/literal openers cannot
+    # consume the signature belonging to a later block.
     signed_pattern = re.compile(
         r"<(think|thinking)>\n"
         r"(?:((?:(?!<!-- think-sig: |\n<(?:think|thinking)>\n).)*?)\n)?"
         rf"{signature_comment}"
-        r"(?:\n<!-- think-sig: chars=[0-9]+ -->)?\n</\1>\s*",
+        r"(?:\n<!-- think-sig: chars=[0-9]+ crc32=[0-9a-f]{8} -->)?\n</\1>\s*",
         re.DOTALL,
     )
     # Leading unsigned reasoning may mention tags and quote calls. After a block
     # opener it ends at the first closer that ends its line, which cannot sit
-    # inside tool-call JSON. Any other form stops at the next tag or tool call.
+    # inside tool-call JSON, unless a call follows an earlier closer. Any other
+    # form stops at the next tag or tool call.
     unsigned_block_pattern = re.compile(
         r"<(think|thinking)>\n((?:(?!<(?:think|thinking)>\n).)*?)"
         r"</\1>(?=[^\S\n]*(?:\n|\Z))\s*",
@@ -1441,6 +1450,7 @@ def _extract_thinking_content(
         r"<(think|thinking)>((?:(?!<(?:think|thinking)>).)*?)</\1>\s*",
         re.DOTALL,
     )
+    first_closer_pattern = re.compile(r"<(think|thinking)>(.*?)</\1>\s*", re.DOTALL)
     opener_pattern = re.compile(r"<(?:think|thinking)>")
     last_signature = text_content.rfind("<!-- think-sig: ")
     thinking_blocks: list[tuple[str, str]] = []
@@ -1457,6 +1467,18 @@ def _extract_thinking_content(
         if not match:
             return len(text_content), None
         return match.start(), find_json_end(text_content, match.start(3))
+
+    def unsigned_block(start: int) -> re.Match[str] | None:
+        """The leading unsigned reasoning block opening at ``start``, if any."""
+        block = unsigned_block_pattern.match(text_content, start)
+        if not block:
+            return unsigned_inline_pattern.match(text_content, start, call_start)
+        first = first_closer_pattern.match(text_content, start)
+        # A call after an earlier closer may be real. Dropping it would orphan its
+        # tool_result, so end the reasoning at that closer instead.
+        if first and toolcall_re.search(text_content, first.end(2), block.end(2)):
+            return first
+        return block
 
     call_start, call_end = next_call(0)
     while search_from < len(text_content):
@@ -1497,10 +1519,7 @@ def _extract_thinking_content(
         if match:
             # Remove only the framing newline, never strip signed whitespace.
             block, signature = match.group(2) or "", match.group(3).strip()
-        elif leading and (
-            match := unsigned_block_pattern.match(text_content, opener.start())
-            or unsigned_inline_pattern.match(text_content, opener.start(), call_start)
-        ):
+        elif leading and (match := unsigned_block(opener.start())):
             block, signature = match.group(2).strip(), ""
         else:
             search_from = opener.end()
