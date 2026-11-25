@@ -84,7 +84,7 @@ def _rewrite_in_place(path: Path, info: os.stat_result, data: bytes) -> None:
                 )
                 if not isinstance(exc, OSError):
                     exc.add_note(warning)
-                    raise
+                    raise exc from restore_exc
                 # Tools surface only str(error): put the warning in it while
                 # keeping a single errno prefix and the filename attribute.
                 message = f"{exc.strerror or exc}; {warning}"

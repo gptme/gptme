@@ -250,6 +250,37 @@ def test_in_place_restore_failure_is_reported(
 
 
 @pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
+@pytest.mark.parametrize("exception_type", [KeyboardInterrupt, MemoryError])
+def test_in_place_restore_failure_preserves_primary_exception(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    exception_type: type[BaseException],
+) -> None:
+    primary = exception_type("injected primary failure")
+    restore = OSError("injected restore failure")
+    calls = 0
+
+    def write(fd, data):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            os.write(fd, bytes(data[:1]))
+            raise primary
+        raise restore
+
+    file_write = _simulate_platform(monkeypatch, platform, write=write)
+    target = tmp_path / "target"
+    target.write_bytes(b"ORIGINAL\n")
+    with pytest.raises(exception_type) as exc:
+        file_write.write_text_preserving_original(target, "REPLACEMENT\n", newline="")
+    assert exc.value is primary
+    assert exc.value.__cause__ is restore
+    assert any("may be damaged" in note for note in exc.value.__notes__)
+    assert target.read_bytes() == b"RRIGINAL\n"
+
+
+@pytest.mark.parametrize("platform", IN_PLACE_PLATFORMS)
 def test_in_place_restore_failure_keeps_errno_and_filename(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
 ) -> None:
