@@ -203,7 +203,7 @@ def _is_secret_bearing_path(path: Path) -> bool:
 _CONFIG_SECRET_FILES = frozenset(
     {"credentials.toml", "config.toml", "config.local.toml"}
 )
-_CONFIG_SECRET_DIRS = frozenset({"oauth", "mcp-oauth"})
+_CONFIG_SECRET_DIRS = frozenset({"auth", "oauth", "mcp-oauth"})
 
 
 def _gptme_config_dirs() -> list[Path]:
@@ -223,19 +223,53 @@ def _gptme_config_dirs() -> list[Path]:
 
 
 def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
-    """True for gptme's own secret files under a resolved config dir.
+    """Protect dedicated stores in full, and known secrets in cwd's source tree.
 
-    Only the known secret holders are matched, not the whole directory: with an
-    empty ``XDG_CONFIG_HOME`` that directory is ``./gptme``, which in gptme's
-    own repository is the source tree.
+    Empty XDG_CONFIG_HOME makes the credential writer use ``./gptme``. Do not
+    suppress that entire source tree, but include config backups and cloud auth
+    alongside provider/OAuth credentials. Compare components case-insensitively
+    (conservatively even on Linux), and protect secret symlinks' backing paths.
     """
+
+    def parts(p: Path) -> tuple[str, ...]:
+        return tuple(part.lower() for part in p.parts)
+
+    path_parts = parts(path)
+    source_parts = parts((Path.cwd() / "gptme").resolve())
     for d in config_dirs:
-        if not path.is_relative_to(d):
-            continue
-        parts = path.relative_to(d).parts
-        if len(parts) == 1 and parts[0].lower() in _CONFIG_SECRET_FILES:
-            return True
-        if len(parts) > 1 and parts[0].lower() in _CONFIG_SECRET_DIRS:
+        dir_parts = parts(d)
+        if path_parts[: len(dir_parts)] == dir_parts:
+            if dir_parts != source_parts:
+                return True
+            relative = path_parts[len(dir_parts) :]
+            if relative and relative[0] in _CONFIG_SECRET_DIRS:
+                return True
+            if len(relative) == 1 and any(
+                relative[0] == name or relative[0].startswith(name + ".")
+                for name in _CONFIG_SECRET_FILES
+            ):
+                return True
+
+        # A credential writer follows symlinks. Reject a direct suggestion of
+        # the target too, even if it lives outside the config directory.
+        try:
+            secret_paths = [d / name for name in _CONFIG_SECRET_FILES]
+            secret_paths.extend(
+                p
+                for p in d.glob("*.toml.*")
+                if any(
+                    p.name.lower().startswith(name + ".")
+                    for name in _CONFIG_SECRET_FILES
+                )
+            )
+            if any(path_parts == parts(p.resolve()) for p in secret_paths):
+                return True
+            for name in _CONFIG_SECRET_DIRS:
+                target_parts = parts((d / name).resolve())
+                if path_parts[: len(target_parts)] == target_parts:
+                    return True
+        except (OSError, RuntimeError):
+            # An unreadable or looping store cannot be classified safely.
             return True
     return False
 
@@ -294,6 +328,7 @@ def _load_context_files(
         if (
             _is_secret_bearing_path(candidate)
             or _is_secret_bearing_path(full_path)
+            or _is_config_secret(candidate, config_dirs)
             or _is_config_secret(full_path, config_dirs)
         ):
             logger.warning("Skipping credential-bearing context file: %s", file_path)

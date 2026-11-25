@@ -1128,6 +1128,78 @@ def test_load_context_files_rejects_credential_symlinks(
     assert loaded == [(template.name, "TOKEN=\n")]
 
 
+@pytest.mark.parametrize("xdg", ["cfg", ""])
+@pytest.mark.parametrize(
+    "secret_name",
+    ["auth/gptme-cloud-example.json", "config.toml.20261125.bak", "config.toml.orig"],
+)
+def test_load_context_files_skips_config_tokens_and_backups(
+    tmp_path, monkeypatch, xdg, secret_name
+):
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / xdg) if xdg else "")
+    store = tmp_path / xdg / "gptme"
+    secret = store / secret_name
+    secret.parent.mkdir(parents=True)
+    secret.write_text("private token\n")
+    (tmp_path / "notes.md").write_text("ordinary\n")
+    assert _load_context_files([str(secret), "notes.md"], workspace=tmp_path) == [
+        ("notes.md", "ordinary\n")
+    ]
+
+
+@pytest.mark.parametrize("xdg", ["cfg", ""])
+@pytest.mark.parametrize("credential_is_link", [True, False])
+def test_load_context_files_skips_relocated_config_symlinks(
+    tmp_path, monkeypatch, xdg, credential_is_link
+):
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / xdg) if xdg else "")
+    store = tmp_path / xdg / "gptme"
+    store.mkdir(parents=True)
+    credential = store / "credentials.toml"
+    ordinary = tmp_path / "ordinary.txt"
+    link, target = (
+        (credential, ordinary) if credential_is_link else (ordinary, credential)
+    )
+    target.write_text("private token\n")
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink not permitted")
+    # Both a suggestion of the credential name and a direct suggestion of the
+    # differently named backing file must be rejected.
+    assert _load_context_files([str(link), str(target)], workspace=tmp_path) == []
+
+
+def test_load_context_files_blocks_dedicated_config_dir(tmp_path, monkeypatch):
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    store = tmp_path / "cfg" / "gptme"
+    store.mkdir(parents=True)
+    secret = store / "arbitrary-token.txt"
+    secret.write_text("private\n")
+    assert _load_context_files([str(secret)], workspace=tmp_path) == []
+
+
+@pytest.mark.parametrize("config_subdir", ["cfg/gptme", "gptme"])
+def test_config_secret_containment_is_case_insensitive(
+    tmp_path, monkeypatch, config_subdir
+):
+    from gptme.tools.autocompact.resume import _is_config_secret
+
+    monkeypatch.chdir(tmp_path)
+    assert _is_config_secret(
+        tmp_path / config_subdir.upper() / "CREDENTIALS.TOML",
+        [tmp_path / config_subdir],
+    )
+
+
 def test_load_context_files_nonexistent(tmp_path):
     """Test that nonexistent files are skipped gracefully."""
     from gptme.tools.autocompact import _load_context_files
