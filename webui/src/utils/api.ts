@@ -182,6 +182,10 @@ export function mergeReconnectSnapshot(
     /** Prompts that were still unsaved when the request started: the snapshot
      *  may predate their save even if they are marked `sent` by now. */
     pendingAtStart?: Message[];
+    /** The local rows (by identity) when the request started. A row not among
+     *  them was added or replaced while the request was in flight (e.g. a
+     *  reply completed by generation_complete), so the snapshot may predate it. */
+    startRows?: Message[];
   }
 ): { log: Message[]; window?: { logOffset: number; hasMoreBefore: boolean } } {
   const isIncomplete = (entry: Message) => 'isComplete' in entry && entry.isComplete === false;
@@ -215,12 +219,16 @@ export function mergeReconnectSnapshot(
     const previous =
       local.find((candidate) => matches(candidate, entry)) ?? folded.get(snapshotIndex);
     if (!previous) return entry;
-    // Keep the local identity spelling and client-only status fields.
+    // Start from the server row (a field it omits, e.g. `files` after the
+    // last attachment was removed, is gone) and keep only the local identity
+    // spelling and the client-only `_` fields.
+    const clientFields = Object.fromEntries(
+      Object.entries(previous).filter(([key]) => key.startsWith('_'))
+    );
     return {
-      ...previous,
       ...entry,
+      ...clientFields,
       timestamp: previous.timestamp ?? entry.timestamp,
-      ...(previous._status ? { _status: previous._status } : {}),
       ...(options.generating && isIncomplete(previous)
         ? { content: previous.content, isComplete: false }
         : {}),
@@ -234,6 +242,10 @@ export function mergeReconnectSnapshot(
   // client; keeping it would resurrect it at a fabricated position, and the
   // positional edit/delete guard does not cover persisted rows.
   const arrivedFrom = local.length - Math.max(0, options.arrivedCount);
+  const startRows = options.startRows ? new Set(options.startRows) : undefined;
+  // Rows before the first surviving start row were prepended ("Load older
+  // messages"), not written during the request.
+  const startFloor = startRows ? local.findIndex((entry) => startRows.has(entry)) : -1;
   const survives = (entry: Message, index: number) =>
     !inSnapshot(entry) &&
     (options.generating || !isIncomplete(entry)) &&
@@ -241,6 +253,7 @@ export function mergeReconnectSnapshot(
       entry._status === 'failed' ||
       entry._synthetic === true ||
       pendingAtStart.some((prompt) => matches(entry, prompt)) ||
+      (startRows !== undefined && index > startFloor && !startRows.has(entry)) ||
       index >= arrivedFrom ||
       isIncomplete(entry));
   if (anchor >= 0 && options.localOffset + anchor === snapshotStart) {
@@ -1837,7 +1850,8 @@ export class ApiClient {
 
   async getConversation(
     logfile: string,
-    params?: { limit?: number; before?: number }
+    params?: { limit?: number; before?: number },
+    options?: { detached?: boolean }
   ): Promise<ConversationResponse> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
@@ -1850,8 +1864,10 @@ export class ApiClient {
         if (params.before !== undefined) qs.set('before', String(params.before));
         url = `${url}?${qs.toString()}`;
       }
+      // A detached request (the reconnect resync) must not share the last
+      // step()'s controller: the next step() aborts it first thing.
       const response = await this.fetchJson<ConversationResponse>(url, {
-        signal: this.controller?.signal,
+        signal: options?.detached ? undefined : this.controller?.signal,
       });
       return response;
     } catch (error) {
@@ -2034,12 +2050,17 @@ export class ApiClient {
     if (!state?.peek() || state.currentBranch.peek() !== 'main') return;
     const revision = currentLogRevision(conversationId);
     const epoch = entry.epoch;
-    const logAtStart = state.data.log.peek() as Message[];
+    // Copy: legend-state replaces rows inside the live array in place.
+    const logAtStart = [...(state.data.log.peek() as Message[])];
     const lastAtStart = logAtStart[logAtStart.length - 1];
     const lengthAtStart = logAtStart.length;
     const pendingAtStart = logAtStart.filter((message) => message._status === 'pending');
     const offsetAtStart = state.logOffset.peek();
-    const data = await this.getConversation(conversationId, { limit: RECONNECT_RESYNC_LIMIT });
+    const data = await this.getConversation(
+      conversationId,
+      { limit: RECONNECT_RESYNC_LIMIT },
+      { detached: true }
+    );
     if (
       entry.epoch !== epoch ||
       !state.peek() ||
@@ -2066,6 +2087,7 @@ export class ApiClient {
       snapshotHasMore: data.has_more ?? false,
       arrivedCount,
       pendingAtStart,
+      startRows: logAtStart,
     });
     const logOffset = window ? window.logOffset : state.logOffset.peek();
     const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();

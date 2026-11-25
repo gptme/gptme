@@ -59,7 +59,7 @@ describe('resyncLogAfterReconnect (#5145)', () => {
 
     await client.resyncLogAfterReconnect(ID);
 
-    expect(get).toHaveBeenCalledWith(ID, { limit: 50 });
+    expect(get).toHaveBeenCalledWith(ID, { limit: 50 }, { detached: true });
     expect(state().data.log.get()).toEqual([user, reply, toolOutput]);
   });
 
@@ -366,5 +366,76 @@ describe('mergeReconnectSnapshot', () => {
     // peer deleted `victim`, so it must not be appended as if it arrived live.
     const { log } = mergeReconnectSnapshot([user, victim, reply], [user, reply], opts);
     expect(log).toEqual([user, reply]);
+  });
+});
+
+describe('resyncLogAfterReconnect in-flight races (#5145)', () => {
+  let client: ApiClient;
+  const state = () => conversations$.get(ID)!;
+
+  beforeEach(() => {
+    conversations$.set(new Map());
+    initConversation(ID);
+    updateConversationData(ID, response([user]));
+    client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+  });
+
+  it('is not aborted by the next step() cancelling the step controller', async () => {
+    replaceLog(ID, [user]);
+    const stepController = new AbortController();
+    (client as unknown as { controller: AbortController | null }).controller = stepController;
+    let release!: () => void;
+    jest
+      .spyOn(client as unknown as { fetchJson: () => Promise<unknown> }, 'fetchJson')
+      .mockImplementation(
+        (...args: unknown[]) =>
+          new Promise((resolve, reject) => {
+            const signal = (args[1] as RequestInit | undefined)?.signal;
+            signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError'))
+            );
+            release = () => resolve(response([user, reply]));
+          })
+      );
+
+    const resync = client.resyncLogAfterReconnect(ID);
+    stepController.abort(); // what the next step() does first
+    release();
+    await resync;
+
+    expect(state().data.log.get()).toEqual([user, reply]);
+  });
+
+  it('keeps a reply completed by generation_complete while the GET is in flight', async () => {
+    replaceLog(ID, [user, streaming]);
+    setGenerating(ID, true);
+    let release!: () => void;
+    jest.spyOn(client, 'getConversation').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(response([user]));
+        })
+    );
+
+    const resync = client.resyncLogAfterReconnect(ID);
+    // onMessageComplete: full content, server timestamp, isComplete (no revision bump).
+    const completed = { ...reply, isComplete: true } as Message;
+    state().data.log[1].set(completed);
+    setGenerating(ID, false);
+    release();
+    await resync;
+
+    expect(state().data.log.get()).toEqual([user, completed]);
+  });
+
+  it('drops an attachment removed while the stream was down', async () => {
+    const withFile: Message = { ...user, files: ['a.png'] };
+    replaceLog(ID, [withFile, reply]);
+    jest.spyOn(client, 'getConversation').mockResolvedValue(response([user, reply]));
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()[0]).toEqual(user);
   });
 });
