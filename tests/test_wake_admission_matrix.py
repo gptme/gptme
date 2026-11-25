@@ -419,8 +419,15 @@ def test_kill_during_failed_wake_keeps_the_completion(
         job = _run_job(cid)  # no server session yet: stays queued
         assert _queued(job)
 
+        killed = False
+
         def kill_then_refuse(*args, **kwargs) -> bool:
-            sb._record_kill_reason(job, "Processes left over were killed.")
+            nonlocal killed
+            # The guard kills once. Recording the notice rings a second wake;
+            # that retry must not simulate another kill recursively.
+            if not killed:
+                killed = True
+                sb._record_kill_reason(job, "Processes left over were killed.")
             return False
 
         monkeypatch.setattr(SessionManager, "request_watch_wake", kill_then_refuse)

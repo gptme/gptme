@@ -204,22 +204,14 @@ Current mechanisms — they share primitives but **not one transport**:
 | Shell background job completion | `shell_background._completion_queue` + condition | no | yes, via `request_watch_wake` (fixed after this audit, below); retried at step end |
 | Progress | in-process queue, drained into the next wake | no | rides along; never wakes by itself |
 
-**Audit finding — shell-background completion has no idle wake.** `_notify_completion`
-(`tools/shell_background.py:1585`) enqueues to `_completion_queue` and notifies a
-condition; it neither calls `notification_ready.signal` nor `request_watch_wake`, and
-`shell_background.py` references no `SessionManager`. `retry_deferred_watch_wakes`
-drains only watch events and subagent completions. So an idle server conversation is not
-woken by a finished `run_in_background` job; the result is picked up by the
-LOOP_CONTINUE hook only when some other event starts a step (and
-`background_job_wait_hook` subscribes to `notification_ready` for *child* wakeups, not
-for job exit). This is a parity gap versus subagent completion, independent of worker
-processes, and is the cheapest concrete consolidation: make job completion call the
-same `request_watch_wake` path (event-specific message, same busy/autowake policy).
-**Verified** (follow-up pass): `tests/test_wake_admission_matrix.py::test_shell_background_completion_has_no_idle_wake`
-starts a real `printf` job through `start_background_job`; on exit the job is queued
-(`_completion_notified`, present in `_completion_queue`) but `request_watch_wake` and
-`notification_ready.signal` are never called. This is a unit-level reproduction against
-the real module, not a live-server run.
+**Historical audit finding — shell-background completion had no idle wake.** Before
+this fix, `_notify_completion` only queued the completion and notified a condition;
+`retry_deferred_watch_wakes` drained watch events and subagent completions, not shell
+jobs. An idle server conversation therefore waited for an unrelated step to receive
+a finished job's result. The original characterization test reproduced that gap with
+a real `printf` job; it has been replaced by
+`tests/test_wake_admission_matrix.py::test_shell_background_completion_wakes_idle_conversation`,
+which verifies the corrected behaviour below.
 
 **Fixed** (third pass): `_notify_completion` now rings the same doorbell as subagent
 completion. `wake_server_for_completed_jobs` claims the conversation's queued
