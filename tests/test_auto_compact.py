@@ -362,6 +362,26 @@ def test_strip_reasoning_fence_closers(fence: str):
     assert stripped == fence + "after done"
 
 
+@pytest.mark.parametrize("ticks", ["`", "``", "```", "````"])
+def test_strip_reasoning_inline_code_is_not_a_fence(ticks: str):
+    from gptme.context.compress import remove_reasoning
+
+    code = f"{ticks}<think>literal{ticks}"
+    content = code + "\n<think>private</think>Answer"
+    assert remove_reasoning(content) == code + "\nAnswer"
+    assert remove_reasoning(content, drop_unclosed=True) == code + "\nAnswer"
+
+
+def test_strip_reasoning_inline_mention_before_fenced_example():
+    from gptme.context.compress import remove_reasoning
+
+    content = (
+        "The `<think>` tag wraps reasoning:\n```xml\n<think>example</think>\n```\nDone"
+    )
+    assert remove_reasoning(content) == content
+    assert remove_reasoning(content, drop_unclosed=True) == content
+
+
 def test_strip_reasoning_marker_shaped_text_is_literal():
     """Text that looks like an internal placeholder is never rewritten."""
     from gptme.context import strip_reasoning

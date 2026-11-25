@@ -32,14 +32,9 @@ def _prose(content: str) -> str:
     if re.search(r"<think(?:ing)?>", content):
         from ..context.compress import remove_reasoning
 
-        # The shared utility strips edges too. Retain separators around native
-        # calls so removing reasoning cannot glue prose to an @call header.
-        leading = content[: len(content) - len(content.lstrip())]
-        trailing = content[len(content.rstrip()) :]
-        # An interrupted reasoning block is not replayable visible text either;
-        # fenced code keeps its tag-like text in both cases.
-        content = remove_reasoning(content, drop_unclosed=True)
-        content = leading + content + trailing
+        # Retain separators around native calls without duplicating whitespace
+        # already preserved inside code. Interrupted reasoning is not replayable.
+        content = remove_reasoning(content, drop_unclosed=True, preserve_edges=True)
     return _strip_think_sig(content)
 
 
@@ -225,8 +220,19 @@ class ResponsesPhaseCapture:
             stripped = "".join(
                 text + (raw_calls[i] if i < len(raw_calls) else "")
                 for i, text in enumerate(normalized)
-            ).strip()
-            output["reasoning_stripped_digest"] = _digest(stripped)
+            )
+            from ..context.compress import _reasoning_segments
+
+            # Match autocompact's fence-aware edge rules, but do not run another
+            # reasoning-removal pass over the assembled native argument JSON.
+            segments = _reasoning_segments(stripped)
+            if segments and segments[0][0] == "text":
+                segments[0] = ("text", segments[0][1].lstrip())
+            if segments and segments[-1][0] == "text":
+                segments[-1] = ("text", segments[-1][1].rstrip())
+            output["reasoning_stripped_digest"] = _digest(
+                "".join(text for _, text in segments)
+            )
         if replay_responses_output(content, output) is None:
             return metadata
         return {**(metadata or {}), "responses_output": output}

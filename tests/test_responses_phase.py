@@ -262,6 +262,26 @@ def test_prose_keeps_fenced_reasoning_example() -> None:
     assert _prose(code + "\nDone <think>cut off") == code + "\nDone"
 
 
+@pytest.mark.parametrize("indent", ["", "  "])
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\n  "])
+def test_fenced_phase_whitespace_roundtrip(indent: str, ending: str) -> None:
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    text = indent + "```xml\n<think>example</think>\n```" + ending
+    content = "<think>private</think>\n" + text
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(text, "final_answer"))
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    output = metadata["responses_output"]
+    expected = [{"role": "assistant", "content": text, "phase": "final_answer"}]
+    assert replay_responses_output(content, output) == expected
+    stripped, _ = strip_reasoning(content)
+    assert replay_responses_output(stripped, output) == expected
+    assert replay_responses_output(stripped + "edited", output) is None
+
+
 def test_adjacent_phased_messages_survive_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

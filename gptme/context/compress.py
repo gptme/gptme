@@ -240,7 +240,8 @@ def analyze_incremental_compression(
     return trajectory
 
 
-_FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}|~{3,})")
+_FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
+_INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
 
@@ -287,7 +288,15 @@ def _reasoning_segments(
                 pos = end
                 continue
         line_end = _line_end(content, pos)
+        # Matched inline code spans are literal too. An unmatched backtick
+        # must not hide a real reasoning block later on the line.
+        inline = _INLINE_CODE_RE.search(content, pos, line_end)
         opener = _REASONING_OPEN_RE.search(content, pos, line_end)
+        if inline and (not opener or inline.start() <= opener.start()):
+            segments.append(("text", content[pos : inline.start()]))
+            segments.append(("code", inline.group(0)))
+            pos, line_start = inline.end(), False
+            continue
         if not opener:
             segments.append(("text", content[pos:line_end]))
             pos, line_start = line_end, True
@@ -309,31 +318,46 @@ def _reasoning_segments(
     return segments
 
 
-def remove_reasoning(content: str, drop_unclosed: bool = False) -> str:
+def remove_reasoning(
+    content: str, drop_unclosed: bool = False, preserve_edges: bool = False
+) -> str:
     """Remove reasoning blocks, leaving fenced code byte-for-byte intact.
 
     Blank-line runs are collapsed and edges stripped outside fences only.
     With ``drop_unclosed``, an opener without a closer drops the rest of the
-    content (an interrupted reasoning block).
+    content (an interrupted reasoning block). ``preserve_edges`` retains the
+    original outside whitespace for replay without adding it to code twice.
     """
-    chunks: list[tuple[bool, str]] = []  # (is_code, text)
-    for kind, text in _reasoning_segments(content, drop_unclosed):
+    segments = _reasoning_segments(content, drop_unclosed)
+    # Only restore edge whitespace owned by text, not the closing fence's
+    # newline or an inline code span. This also makes repeated replay stable.
+    leading = trailing = ""
+    if preserve_edges and segments:
+        if segments[0][0] == "text":
+            text = segments[0][1]
+            leading = text[: len(text) - len(text.lstrip())]
+        if segments[-1][0] == "text":
+            text = segments[-1][1]
+            trailing = text[len(text.rstrip()) :]
+    chunks: list[tuple[bool, list[str]]] = []  # (is_code, pieces)
+    for kind, text in segments:
         if kind == "reasoning" or not text:
             continue
         is_code = kind == "code"
         if chunks and not is_code and not chunks[-1][0]:
-            chunks[-1] = (False, chunks[-1][1] + text)
+            chunks[-1][1].append(text)
         else:
-            chunks.append((is_code, text))
-    chunks = [
+            chunks.append((is_code, [text]))
+    joined = [(is_code, "".join(pieces)) for is_code, pieces in chunks]
+    joined = [
         (is_code, text if is_code else re.sub(r"\n\n\n+", "\n\n", text))
-        for is_code, text in chunks
+        for is_code, text in joined
     ]
-    if chunks and not chunks[0][0]:
-        chunks[0] = (False, chunks[0][1].lstrip())
-    if chunks and not chunks[-1][0]:
-        chunks[-1] = (False, chunks[-1][1].rstrip())
-    return "".join(text for _, text in chunks)
+    if joined and not joined[0][0]:
+        joined[0] = (False, leading + joined[0][1].lstrip())
+    if joined and not joined[-1][0]:
+        joined[-1] = (False, joined[-1][1].rstrip() + trailing)
+    return "".join(text for _, text in joined)
 
 
 def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
