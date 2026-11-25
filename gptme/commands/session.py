@@ -143,23 +143,35 @@ def cmd_delete(ctx: CommandContext) -> None:
     # ``/delete --force\xa0old-chat`` and a multi-line trailing flag both work.
     force = False
     raw = ctx.full_args.lstrip()
-    for flag in ("--force", "-f"):
-        if raw == flag:
-            force, raw = True, ""
+    # Every leading flag token is consumed (``/delete --force -f <id>`` kept
+    # working while ctx.args still carried the flags), then the id is verbatim.
+    while True:
+        for flag in ("--force", "-f"):
+            if raw == flag:
+                force, raw = True, ""
+                break
+            if raw.startswith(flag) and raw[len(flag)].isspace():
+                force, raw = True, raw[len(flag) :].lstrip()
+                break
+        else:
             break
-        if raw.startswith(flag) and raw[len(flag)].isspace():
-            force, raw = True, raw[len(flag) :].lstrip()
+        if not raw:
             break
     raw = raw.rstrip()
-    # Also accept the flag after the id (``/delete old-chat --force``), which
+    # Also accept flags after the id (``/delete old-chat --force``), which
     # earlier versions accepted. Only the edges are parsed, so a name that
-    # contains the flag keeps it.
-    for flag in ("--force", "-f"):
-        if raw.endswith(flag) and (
-            len(raw) == len(flag) or raw[-len(flag) - 1].isspace()
-        ):
-            force = True
-            raw = raw[: -len(flag)].rstrip()
+    # contains a flag keeps it.
+    while True:
+        for flag in ("--force", "-f"):
+            if raw.endswith(flag) and (
+                len(raw) == len(flag) or raw[-len(flag) - 1].isspace()
+            ):
+                force = True
+                raw = raw[: -len(flag)].rstrip()
+                break
+        else:
+            break
+        if not raw:
             break
     conv_id = raw
 

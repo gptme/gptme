@@ -1949,6 +1949,19 @@ def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     assert "Deleted conversation: old-chat" in out
     assert not (logs / "old-chat").exists()
 
+    # Several flag tokens are consumed, as they were when args carried them.
+    conv_dir = logs / "keep-flags"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+    cmd = Message("user", "/delete --force -f keep-flags", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: keep-flags" in out
+    assert not (logs / "keep-flags").exists()
+
     # A Unicode space separates the flag from the id too.
     conv_dir = logs / "nbsp-flag"
     conv_dir.mkdir()
@@ -2002,13 +2015,20 @@ def test_tool_payload_keeps_trailing_whitespace(tmp_path: Path, monkeypatch, cap
 
     try:
         manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
-        cmd = Message("user", "/test-capture-full-args echo hi\n", quiet=True)
-        manager.append(cmd)
-        execute_cmd(cmd, manager)
+        for line in (
+            "/test-capture-full-args echo hi\n",
+            "/test-capture-full-args \tprintf hello",
+        ):
+            cmd = Message("user", line, quiet=True)
+            manager.append(cmd)
+            execute_cmd(cmd, manager)
     finally:
         _command_registry.pop("test-capture-full-args", None)
 
-    assert seen == ["echo hi\n"]
+    # The trailing newline survives; whitespace after the single name
+    # separator is payload, not a delimiter. (A newline cannot be used for the
+    # second case: a multi-line message is not classified as a command.)
+    assert seen == ["echo hi\n", "\tprintf hello"]
 
 
 def test_arguments_still_split_on_unicode_whitespace(tmp_path: Path):
