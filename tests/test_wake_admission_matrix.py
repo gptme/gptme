@@ -376,6 +376,36 @@ def test_cli_step_pre_claims_every_branch(logs_dir, monkeypatch) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
+def test_late_kill_notice_wakes_idle_conversation(logs_dir, armed) -> None:
+    """A kill after completion delivery is a new event, not an idle queue leak."""
+    from gptme.tools import shell_background as sb
+
+    manager, started = armed
+    cid = "matrix-shell-late-kill"
+    session = SessionManager.create_session(cid)
+    job = None
+    try:
+        job = _run_job(cid)
+        started.assert_called_once()
+        assert not _queued(job)
+        # The completion's step finished before the memory guard killed leftovers.
+        session.generating = False
+        manager.append.reset_mock()
+        started.reset_mock()
+
+        sb._record_kill_reason(job, "Processes left over were killed.")
+
+        started.assert_called_once()
+        (message,) = [call.args[0] for call in manager.append.call_args_list]
+        assert "Processes left over were killed." in message.content
+        assert not _queued(job)
+        assert session.generating is True
+    finally:
+        SessionManager.remove_session(session.id)
+        _cleanup_job(cid, job)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
 def test_kill_during_failed_wake_keeps_the_completion(
     logs_dir, monkeypatch: pytest.MonkeyPatch
 ) -> None:

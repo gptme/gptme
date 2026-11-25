@@ -1724,6 +1724,16 @@ def _record_kill_reason(job: BackgroundJob, reason: str) -> None:
             return
         job._late_kill_notice = reason
         _completion_queue.put(job)
+    # The original completion may already have woken and finished a step.
+    # Ring again for this new notice, outside the job lock like _notify_completion.
+    try:
+        wake_server_for_completed_jobs(job.conversation_id)
+    except Exception:
+        logger.debug(
+            "Could not wake server for background job #%s kill notice",
+            job.id,
+            exc_info=True,
+        )
 
 
 def _jobs_for(conversation_id: str | None) -> dict[int, BackgroundJob]:

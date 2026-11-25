@@ -486,6 +486,55 @@ def test_start_tool_execution_uses_branch_for_reload_and_continuation(
     )
 
 
+def test_server_tool_worker_binds_shell_job_branch(v2_conv, monkeypatch) -> None:
+    """The real server worker binds a matching LogManager before shell execution."""
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools import ToolUse
+    from gptme.tools import shell_background as sb
+
+    cid = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    # Create the branch on disk; do not mock LogManager.load or its context binding.
+    manager = LogManager.load(cid, branch="feature", create=True, lock=False)
+    manager.write()
+    session.pending_tools["branch-job"] = ToolExecution(
+        tool_id="branch-job", tooluse=ToolUse("shell", [], "printf done")
+    )
+    observed = []
+
+    def execute(self, **kwargs):
+        job = sb.register_background_job("printf done", unittest.mock.Mock())
+        observed.append((job.conversation_id, job.branch))
+        yield Message("system", "registered")
+
+    monkeypatch.setattr(ToolUse, "execute", execute)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._start_step_thread", unittest.mock.Mock()
+    )
+    try:
+        thread = start_tool_execution(
+            cid,
+            session,
+            "branch-job",
+            None,
+            "openai/mock-model",
+            ChatConfig(),
+            branch="feature",
+        )
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert observed == [(cid, "feature")]
+    finally:
+        sb.reset_background_jobs(cid, all_conversations=False)
+
+
 def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
     """provider_configured reflects whether get_default_model() returns a model."""
     from gptme.llm.models.types import ModelMeta
