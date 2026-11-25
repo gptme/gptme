@@ -193,3 +193,27 @@ class TestConfigPatchModelValidation:
             f"/api/v2/conversations/{cid}/config", json={"chat": {"model": model}}
         )
         assert resp.status_code == 200, resp.get_json()
+
+    def test_echoing_a_stored_unknown_model_is_accepted(self, client: FlaskClient):
+        """A settings save that echoes the stored model must not 400 because
+        that model has since become unknown; only a change is validated."""
+        import tomlkit
+
+        from gptme.dirs import get_logs_dir
+
+        cid = _create_conv(client)
+        config_path = get_logs_dir() / cid / "config.toml"
+        doc = tomlkit.parse(config_path.read_text())
+        doc.setdefault("chat", tomlkit.table())["model"] = "retired-provider/old"
+        config_path.write_text(tomlkit.dumps(doc))
+
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": "retired-provider/old", "stream": False}},
+        )
+        assert resp.status_code == 200, resp.get_json()
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": "other-retired/zzz"}},
+        )
+        assert resp.status_code == 400

@@ -231,11 +231,10 @@ CHILD = textwrap.dedent(
 
             # Interrupt a running tool in b, then keep using the session.
             send("b", "slow b")
-            # The conversation reuses its shell across steps (gptme/gptme#5187),
-            # so the ``cd sub`` from the first turn still holds here.
-            started = ROOT / "b" / "sub" / "tool-started"
-            release = ROOT / "b" / "sub" / "tool-release"
-            finished = ROOT / "b" / "sub" / "tool-finished"
+            # A new step starts its shell at the configured workspace root.
+            started = ROOT / "b" / "tool-started"
+            release = ROOT / "b" / "tool-release"
+            finished = ROOT / "b" / "tool-finished"
             try:
                 deadline = time.monotonic() + 30
                 while not started.exists():

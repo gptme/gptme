@@ -77,7 +77,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -662,16 +662,10 @@ class ShellSession:
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
-        # The workspace this shell was started in. A server conversation only
-        # reuses its registered shell while its workspace is unchanged.
-        self._seed_cwd = cwd
         self._memory_limit = _get_memory_limit()
         self._restart_notice = None
         self._restarting = False
         self._closed = False
-        # Held by one tool call at a time; see _claim_shell().
-        self._call_lock = threading.Lock()
-        self._detached = False
         # Serialize process replacement with external close, not command execution.
         self._lifecycle_lock = threading.RLock()
         self._active_output = None
@@ -1279,7 +1273,6 @@ class ShellSession:
         # The in-flight worker still calls _set_cwd when the command finishes.
         # Freeze process-wide chdir so a later `cd` cannot jump the CLI cwd
         # after a replacement shell has already taken over.
-        self._detached = True
         self._skip_os_chdir = True
         atexit.unregister(self.close)
 
@@ -2482,8 +2475,6 @@ def get_shell() -> ShellSession:
     the shell in a conversation-level registry for cleanup via SESSION_END hooks.
     """
     shell = _shell_var.get()
-    if shell is None and (shell := _adopt_conversation_shell()) is not None:
-        _shell_var.set(shell)
     if shell is None:
         # Prefer the promotion seed over the server skip-chdir flag.
         workspace = _promoted_next_cwd.get() or _workspace_cwd.get()
@@ -2492,39 +2483,6 @@ def get_shell() -> ShellSession:
         _shell_var.set(shell)
         # Register for conversation-level cleanup if in a server context
         _register_conversation_shell(shell)
-    return shell
-
-
-def _adopt_conversation_shell() -> ShellSession | None:
-    """Return the server conversation's live shell, if one can be reused.
-
-    The server runs every tool call in a fresh thread, so ``_shell_var`` starts
-    empty each turn. Without reuse, each call built a new shell in the
-    workspace root: a ``cd`` (and any ``export``) from an earlier turn was lost,
-    although that turn's output had reported the directory change
-    (gptme/gptme#5187). The CLI keeps one shell in its main context, so this
-    makes the server match it.
-
-    Only shells from a server session (``_workspace_cwd`` set) are reused, and
-    only while the conversation's workspace still matches the shell's seed. A
-    pending promotion seed wins, since it carries newer state.
-    """
-    workspace = _workspace_cwd.get()
-    if workspace is None or _promoted_next_cwd.get() is not None:
-        return None
-    try:
-        from ..hooks import current_conversation_id
-    except ImportError:
-        return None
-    conv_id = current_conversation_id.get()
-    if conv_id is None:
-        return None
-    with _conv_shell_lock:
-        shell = _conversation_shells.get(conv_id)
-    if shell is None or getattr(shell, "_closed", False):
-        return None
-    if getattr(shell, "_seed_cwd", None) != workspace:
-        return None
     return shell
 
 
@@ -3194,56 +3152,11 @@ def _format_shell_output(
     return msg
 
 
-def _claim_shell() -> ShellSession:
-    """Return this context's shell, held for one tool call.
-
-    A server conversation reuses one shell across tool calls (gptme/gptme#5187),
-    and two approved calls can run in parallel threads. Bash cannot interleave
-    two commands, so a second call waits until the first finishes or hands the
-    shell off to a background job. A shell that was promoted or closed while we
-    waited is no longer this context's shell, so resolve again.
-
-    If resolving hands back the same stale shell (``get_shell`` is overridden,
-    e.g. mocked), return it rather than spin forever.
-    """
-    stale: ShellSession | None = None
-    while True:
-        shell = get_shell()
-        shell._call_lock.acquire()
-        if shell is stale or not (shell._closed or shell._detached):
-            return shell
-        shell._call_lock.release()
-        stale = shell
-        if _shell_var.get() is shell:
-            _shell_var.set(None)
-
-
 def execute_shell_impl(
     cmd: str, logdir: Path | None, timeout: float | None = None
 ) -> Generator[Message, None, None]:
     """Execute shell command and format output."""
-    shell = _claim_shell()
-    held = True
-
-    def release_shell() -> None:
-        nonlocal held
-        if held:
-            held = False
-            shell._call_lock.release()
-
-    try:
-        yield from _execute_shell_call(shell, cmd, logdir, timeout, release_shell)
-    finally:
-        release_shell()
-
-
-def _execute_shell_call(
-    shell: ShellSession,
-    cmd: str,
-    logdir: Path | None,
-    timeout: float | None,
-    release_shell: Callable[[], None],
-) -> Generator[Message, None, None]:
+    shell = get_shell()
     allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
@@ -3354,8 +3267,6 @@ def _execute_shell_call(
                 # the job keeps the RAM-only callback path.
                 adopted = adopt_foreground_capture(job, shell.capture_segments())
                 _replace_promoted_shell(shell)
-                # The job owns this shell now; a waiting call gets a new one.
-                release_shell()
 
                 def publish() -> None:
                     worker.join()

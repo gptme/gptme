@@ -341,6 +341,18 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
+def _saved_conversation_model(conversation_id: str) -> str | None:
+    """The model stored in a conversation's config, or None if it has none."""
+    logdir = get_logs_dir() / conversation_id
+    if not (logdir / "config.toml").is_file():
+        return None
+    try:
+        model = ChatConfig.from_logdir(logdir, create_workspace=False).model
+    except Exception:
+        return None
+    return model.strip() if isinstance(model, str) else None
+
+
 def _validate_conversation_model(model: str) -> None:
     """Reject a conversation model the next step could not run.
 
@@ -3210,10 +3222,13 @@ def api_conversation_config_patch(conversation_id: str):
             # here like /step does (gptme/gptme#5187).
             # Save the same trimmed value that passed the check.
             chat_patch["model"] = chat_patch["model"].strip()
-            try:
-                _validate_conversation_model(chat_patch["model"])
-            except ValueError as exc:
-                return flask.jsonify({"error": str(exc)}), 400
+            # Only a model change is checked: a settings save that echoes the
+            # stored model must not 400 because that model is no longer known.
+            if chat_patch["model"] != _saved_conversation_model(conversation_id):
+                try:
+                    _validate_conversation_model(chat_patch["model"])
+                except ValueError as exc:
+                    return flask.jsonify({"error": str(exc)}), 400
 
     normalized_tools, forbidden = _resolve_requested_tools(tool_allowlist)
     if forbidden:
