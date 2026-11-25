@@ -668,3 +668,57 @@ def test_read_url_cookie_file_removed_when_redirect_probe_fails(mock_probe_via_r
 
     assert cookie_paths
     assert not any(os.path.exists(p) for p in cookie_paths)
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_allowlisted_redirect_hops_carry_session_cookie():
+    """A session cookie set on one hop must reach the next hop and the fetch.
+
+    With an allowlist every hop is its own lynx process, so the cookie only
+    survives if the harness writes it to the shared jar (gptme#5133 follow-up).
+    """
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/start"):
+                self.send_response(302)
+                self.send_header("Set-Cookie", "sid=abc123; Path=/")
+                self.send_header("Location", "/check")
+                self.end_headers()
+            elif "sid=abc123" in self.headers.get("Cookie", ""):
+                body = b"<p>WELCOME</p>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                # No cookie: bounce back, like a login wall does.
+                self.send_response(302)
+                self.send_header("Location", "/start")
+                self.end_headers()
+
+        do_HEAD = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/start"
+    try:
+        # One lynx process follows the chain in-process, so cookies survive.
+        assert "WELCOME" in read_url(url)
+
+        # Per-hop probes under an allowlist only work if hops share a jar.
+        set_session_allow_hosts(["127.0.0.1"])
+        assert "WELCOME" in read_url(url)
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
