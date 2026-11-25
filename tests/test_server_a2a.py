@@ -1156,6 +1156,7 @@ def test_tool_chain_does_not_steal_a_newer_epoch_tool(v2_conv, monkeypatch):
     thread.join(timeout=5)
     assert not thread.is_alive()
 
+    assert session.step_seq == 6  # the fake tool really ran
     assert new_tool.tool_id in session.pending_tools
     assert session.pending_tools[new_tool.tool_id].step_seq == 6
     assert continuation.call_count == 0
