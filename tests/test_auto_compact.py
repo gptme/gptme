@@ -3871,7 +3871,7 @@ def test_hook_rejects_view_below_min_savings(monkeypatch):
         # the ambient environment (with no default model the gate fails open).
         patch(
             "gptme.tools.autocompact.hook.get_default_model",
-            return_value=get_model("gpt-4"),
+            return_value=get_model("openai/gpt-4o-mini"),
         ),
         # The rejection must fall back to the LLM summarizer instead of leaving
         # the over-budget log uncompacted until a provider overflow.
