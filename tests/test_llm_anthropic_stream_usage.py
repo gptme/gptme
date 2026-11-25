@@ -209,7 +209,7 @@ def test_streamed_tool_call_requires_tool_use_stop(
             monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
             error_type = httpx.RemoteProtocolError
         else:
-            error_type = RuntimeError
+            error_type = anthropic.APIError
 
             def unexpected_backoff(*args, **kwargs):
                 pytest.fail("A terminal tool response must not be retried")
@@ -217,8 +217,20 @@ def test_streamed_tool_call_requires_tool_use_stop(
             monkeypatch.setattr(llm_anthropic, "backoff_wait", unexpected_backoff)
             monkeypatch.setattr(llm_anthropic, "get_max_retries", lambda: 3)
             monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
-        with pytest.raises(error_type, match="stop_reason"):
+        with pytest.raises(error_type, match="stop_reason") as exc:
             parts.extend(gen)
+        if stop_reason is not None:
+            from gptme.llm import (
+                is_llm_reply_error,
+                is_provider_error,
+                mark_llm_reply_origin,
+            )
+            from gptme.llm.recovery import is_transient_provider_error
+
+            mark_llm_reply_origin(exc.value)
+            assert is_provider_error(exc.value)
+            assert is_llm_reply_error(exc.value)
+            assert not is_transient_provider_error(exc.value)
         assert len(requests) == 1
         assert not list(ToolUse.iter_from_content("".join(parts), "tool"))
         return

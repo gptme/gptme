@@ -1390,11 +1390,15 @@ def _stream_with_client(
             # transport failure: replaying with the same cap can charge for
             # the same unfinished call repeatedly. Missing reasons remain
             # protocol errors, eligible for the normal transport retry policy.
-            error_type = RemoteProtocolError if stop_reason is None else RuntimeError
-            raise error_type(
+            message = (
                 f"Anthropic tool stream ended with stop_reason={stop_reason!r}; "
                 "withholding unfinished tool calls"
             )
+            if stop_reason is None:
+                raise RemoteProtocolError(message)
+            from anthropic import APIError  # fmt: skip
+
+            raise APIError(message, request=stream.response.request, body=None)
         yield "".join(native_pending)
 
     # Return the captured metadata (accessible via StopIteration.value)
