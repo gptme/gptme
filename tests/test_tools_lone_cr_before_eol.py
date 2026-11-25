@@ -19,6 +19,7 @@ from gptme.tools.hashline_edit import execute_hashline_edit, store_snapshot
 from gptme.tools.morph import execute_morph_impl
 from gptme.tools.patch import execute_patch
 from gptme.tools.patch_many import execute_patch_many
+from gptme.util.useredit import edit_text_with_editor
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -118,6 +119,25 @@ def test_morph_strips_only_provider_crs(
 
 
 @pytest.mark.parametrize(
+    "response",
+    [
+        # only drops the preserved CR, which is restored from the source
+        "a = 1\nb = 1\n",
+        # only differs by provider line endings
+        "a = 1\r\nb = 1\r\n",
+    ],
+)
+def test_morph_reports_no_change_when_nothing_is_written(tmp_path: Path, response: str):
+    f = tmp_path / "f.txt"
+    f.write_bytes(ORIGINAL_BYTES)
+
+    msgs = _messages(execute_morph_impl(response, f, read_text_lf(f)))
+
+    assert "no changes" in msgs[0].lower(), msgs
+    assert f.read_bytes() == ORIGINAL_BYTES
+
+
+@pytest.mark.parametrize(
     ("patch", "expected"),
     [
         # the line with the CR is repeated as context
@@ -154,6 +174,8 @@ def test_patch_keeps_trailing_cr_in_context(
         # a preserved CR survives both editor styles
         (ORIGINAL_BYTES, "a = 1\r\r\nb = 3\r\n", b"a = 1\r\r\nb = 3\r\n"),
         (ORIGINAL_BYTES, "a = 1\r\nb = 3\n", b"a = 1\r\r\nb = 3\r\n"),
+        # the user removes the preserved CR
+        (ORIGINAL_BYTES, "a = 1\nb = 3\n", b"a = 1\r\nb = 3\r\n"),
     ],
 )
 def test_hashline_normalizes_edited_preview(
@@ -176,3 +198,12 @@ def test_hashline_normalizes_edited_preview(
 
     assert "applied" in msgs[0].lower(), msgs
     assert f.read_bytes() == expected
+
+
+@pytest.mark.parametrize("text", ["a = 1\r\nb = 1\n", "a\rb\nc\n", "a\nlast\r"])
+def test_editor_returns_untouched_text_with_crs_verbatim(
+    monkeypatch: pytest.MonkeyPatch, text: str
+):
+    monkeypatch.setenv("EDITOR", "true")
+
+    assert edit_text_with_editor(text) == text

@@ -24,7 +24,6 @@ from .base import (
     file_newline,
     get_path,
     read_text_lf,
-    strip_added_crs,
 )
 
 # Prompt from Morph Fast Apply v2 documentation
@@ -189,6 +188,36 @@ def execute_morph(
     )
 
 
+def _strip_provider_crs(response: str, source: str) -> str:
+    """Remove CRLF line endings added by the provider from ``response``.
+
+    ``source`` is the :func:`read_text_lf` model of the file, where a ``"\\r\\n"``
+    means a line whose content ends in a lone carriage return. Without such a
+    line every CRLF in the response is noise. Otherwise the response counts as
+    CRLF-encoded only if all its line endings are CRLF, and each line then loses
+    one carriage return; in LF or mixed responses the carriage returns are
+    content. Lines differing from the source only by trailing carriage returns
+    are taken from the source. The text after the last newline has no line ending
+    and is never altered.
+    """
+    if "\r\n" not in source:
+        return response.replace("\r\n", "\n")
+
+    *source_lines, _ = source.split("\n")
+    *lines, last = response.split("\n")
+    if all(line.endswith("\r") for line in lines):
+        lines = [line[:-1] for line in lines]
+    matcher = difflib.SequenceMatcher(
+        None,
+        [line.rstrip("\r") for line in source_lines],
+        [line.rstrip("\r") for line in lines],
+        autojunk=False,
+    )
+    for src, dst, size in matcher.get_matching_blocks():
+        lines[dst : dst + size] = source_lines[src : src + size]
+    return "\n".join([*lines, last])
+
+
 def execute_morph_impl(
     content: str,
     path: Path | None,
@@ -217,8 +246,12 @@ def execute_morph_impl(
             )
             return
 
+        # Drop line-ending noise from the provider, but not the lone carriage
+        # returns kept as content by ``read_text_lf``.
+        text = _strip_provider_crs(content, current_content)
+
         # Check if content actually changed
-        if content == current_content:
+        if text == current_content:
             yield Message(
                 "system", f"Warning: Morph edit resulted in no changes to `{path}`"
             )
@@ -228,7 +261,7 @@ def execute_morph_impl(
         diff_lines = list(
             difflib.unified_diff(
                 current_content.splitlines(),
-                content.splitlines(),
+                text.splitlines(),
                 fromfile=str(path),
                 tofile=str(path),
                 lineterm="",
@@ -237,11 +270,8 @@ def execute_morph_impl(
 
         # Write the edited content back to file, keeping its line endings
         newline = file_newline(path)
-        # Drop line-ending noise from the provider, but not the lone carriage
-        # returns kept as content by ``read_text_lf``. Python's newline= then
-        # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
-        # for LF).
-        text = strip_added_crs(content, current_content)
+        # Python's newline= applies the target ending exactly once (\n→\r\n for
+        # CRLF files, no-op for LF).
         # Validate UTF-8 before touching the file, then replace it atomically so an
         # encode error or a full disk cannot leave the target truncated.
         text.encode("utf-8")

@@ -33,8 +33,13 @@ def _split_editor(editor: str) -> list[str]:
 def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
     """Edit some text in a temporary file using the user's $EDITOR."""
     suffix = f".{ext}" if ext else ""
+    # Universal newlines would turn carriage returns into line breaks, so pass
+    # text that contains them through verbatim.
+    newline = "" if "\r" in initial_text else None
     # Keep cleanup active while writing and closing the initial file too.
-    initial_file = tempfile.NamedTemporaryFile(suffix=suffix, mode="w", delete=False)
+    initial_file = tempfile.NamedTemporaryFile(
+        suffix=suffix, mode="w", newline=newline, delete=False
+    )
     temp_filename = initial_file.name
     try:
         with initial_file:
@@ -54,7 +59,7 @@ def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
             raise RuntimeError(f"Editor exited with non-zero exit code: {p.returncode}")
 
         # Read the edited text back in.
-        with open(temp_filename) as f:
+        with open(temp_filename, newline=newline) as f:
             edited_text = f.read()
 
         # Check that the user actually edited the file.
