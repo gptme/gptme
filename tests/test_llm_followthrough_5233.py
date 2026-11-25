@@ -41,6 +41,40 @@ def test_responses_instructions_keep_trailing_system_guidance(monkeypatch, as_di
     assert instructions.endswith("WORKSPACE-RULES" * 5)
 
 
+@pytest.mark.parametrize("as_dicts", [False, True])
+def test_responses_instructions_keep_rules_merged_by_prepare_messages(
+    monkeypatch, as_dicts
+):
+    from gptme.llm import openai_responses
+    from gptme.logmanager import prepare_messages
+
+    original = openai_responses.clamp_responses_instructions
+    monkeypatch.setattr(
+        openai_responses,
+        "clamp_responses_instructions",
+        lambda text: original(text, limit=300),
+    )
+    context = "CONTEXT-START " + "context " * 100
+    rules = "WORKSPACE-RULES" * 5
+    messages = prepare_messages(
+        [Message("system", context), Message("system", rules), Message("user", "hi")]
+    )
+    # The upstream merge leaves the converter a single system message.
+    assert [m.role for m in messages] == ["system", "user"]
+
+    if as_dicts:
+        instructions, _ = openai_responses._messages_dicts_to_responses_input(
+            [{"role": m.role, "content": m.content} for m in messages]
+        )
+    else:
+        instructions, _ = openai_responses._messages_to_responses_input(messages)
+    assert instructions is not None
+    assert len(instructions) == 300
+    assert instructions.startswith("CONTEXT-START")
+    assert instructions.endswith(rules)
+    assert "truncated to fit" in instructions
+
+
 def test_clamp_responses_instructions_falls_back_to_both_ends():
     from gptme.llm.openai_responses import clamp_responses_instructions
 

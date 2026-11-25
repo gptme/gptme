@@ -36,11 +36,12 @@ def clamp_responses_instructions(
 
     Pass separate system messages to preserve their boundaries. A pre-joined
     string uses paragraphs as a best-effort fallback for direct callers.
-    When possible, remove only the overflow from the end of the largest message;
-    this preserves every smaller instruction (including trailing guidance) and
-    avoids sacrificing roughly half the prompt for a small overflow. If no single
-    message can absorb the excess, fall back to retaining both ends of the
-    joined text.
+    When possible, cut only the middle of the largest message; this preserves
+    every smaller instruction and avoids sacrificing roughly half the prompt for
+    a small overflow. The largest message keeps both ends because
+    `prepare_messages` merges adjacent system messages, so trailing guidance may
+    sit at its tail. If no single message can absorb the excess, fall back to
+    retaining both ends of the joined text.
     """
     parts = list(text) if isinstance(text, list) else text.split("\n\n")
     text = "\n\n".join(parts)
@@ -49,8 +50,12 @@ def clamp_responses_instructions(
 
     overflow = len(text) - limit
     largest_index = max(range(len(parts)), key=lambda index: len(parts[index]))
-    if len(parts[largest_index]) > overflow:
-        parts[largest_index] = parts[largest_index][:-overflow]
+    largest = parts[largest_index]
+    keep = len(largest) - overflow - len(marker)
+    if keep > 0:
+        head_len = keep // 2
+        tail_start = len(largest) - (keep - head_len)
+        parts[largest_index] = largest[:head_len] + marker + largest[tail_start:]
         clamped = "\n\n".join(parts)
     else:
         head_len = (limit - len(marker)) // 2
