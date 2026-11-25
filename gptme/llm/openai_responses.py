@@ -599,7 +599,10 @@ def _stream_responses_events(
         terminal=terminal,
         calls=calls,
     ):
-        emitted = emitted or bool(chunk)
+        # A whitespace-only chunk is not the answer: some backends stream a
+        # newline and carry the real text only in the terminal response, so the
+        # fallback below must still apply.
+        emitted = emitted or bool(chunk.strip())
         yield chunk
 
     response_obj = terminal.get("response")

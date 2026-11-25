@@ -196,6 +196,31 @@ def test_responses_clean_eof_never_reconciles_native_arguments(
     assert "@shell" not in "".join(emitted)
 
 
+def test_responses_terminal_text_is_used_when_only_whitespace_streamed() -> None:
+    """A newline-only delta must not suppress the terminal response's text.
+
+    Some backends stream just a newline and carry the answer in
+    ``response.completed``. Treating the newline as emitted output skipped the
+    terminal fallback, so the caller saw a blank reply instead of the answer.
+    """
+    events = [
+        {"type": "response.output_text.delta", "delta": "\n"},
+        {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "the answer"}],
+                    }
+                ]
+            },
+        },
+    ]
+
+    assert "the answer" in "".join(_stream_responses_events(events))
+
+
 @pytest.mark.parametrize("terminal", ["response.completed", "response.done"])
 def test_responses_terminal_allows_native_reconciliation(terminal: str) -> None:
     output = "".join(
