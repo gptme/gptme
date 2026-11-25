@@ -233,31 +233,18 @@ class TestApplyOperations:
         ops = [HashlineOp(kind="replace", start=1, end=1, text='bar = "c')]
         assert _apply_operations(content, ops) == 'bar = "c\rb"\n'
 
-    def test_blank_replacement_keeps_the_blank_line_after_a_bare_cr(self):
-        """A CR followed by an empty line's LF must not merge into one CRLF.
+    def test_blank_replacement_leaves_untouched_separators_alone(self):
+        """Replacing a line with a blank one must not rewrite other lines' breaks.
 
-        ``"A\r" + "" + "\n"`` reads back as a single line break, dropping the
-        blank line the edit created.
-        """
-        content = "a\rb\nc\n"
-        ops = [
-            HashlineOp(kind="replace", start=1, end=1, text="A"),
-            HashlineOp(kind="replace", start=2, end=2, text=None, text_lines=[""]),
-        ]
-        result = _apply_operations(content, ops)
-        assert result.splitlines() == ["A", "", "c"]
-
-    def test_blank_replacement_does_not_rewrite_a_run_of_untouched_blank_lines(self):
-        """Only as many breaks as the edit created change; line count is kept.
-
-        ``a\rb\n\nc\n`` has four lines. Replacing ``b`` with a blank line must
-        still save four lines (``a``, ``, ``, ``c``), not three.
+        Converting separators to bare CRs would keep ``splitlines()`` happy but
+        makes git (which counts ``\n``) see fewer lines. Only the replaced
+        line's own content may change.
         """
         content = "a\rb\n\nc\n"
         ops = [HashlineOp(kind="replace", start=2, end=2, text=None, text_lines=[""])]
         result = _apply_operations(content, ops)
-        assert result == "a\r\r\rc\n"
-        assert result.splitlines() == ["a", "", "", "c"]
+        assert result == "a\r\n\nc\n"
+        assert result.count("\n") == content.count("\n")
 
     def test_insert_before(self):
         content = "alpha\nbeta\n"

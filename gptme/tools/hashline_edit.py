@@ -661,7 +661,12 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             # this, replacing the last of a CR/FF-terminated run would substitute
             # "\n" at join time and silently change the file's physical structure
             # (e.g. turning a lone "\r" inside a string literal into "\n").
-            if new_lines and new_endings[-1] is None and replaced_endings:
+            if (
+                new_lines
+                and new_lines[-1] != ""
+                and new_endings[-1] is None
+                and replaced_endings
+            ):
                 endings[s + len(new_lines) - 1] = replaced_endings[-1]
         elif op.kind == "insert_before":
             file_lines[s:s] = new_lines
@@ -674,7 +679,6 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
         return "\n" if had_trailing_newline else ""
     parts: list[str] = []
     last = len(file_lines) - 1
-    prev_bare_cr = False
     for idx, (line, ending) in enumerate(zip(file_lines, endings, strict=True)):
         if idx == last:
             # An originally unterminated file stays unterminated. Otherwise a
@@ -683,15 +687,8 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             parts.append(line + (ending or final_ending if final_ending else ""))
         else:
             # New lines, and an unterminated last line that is no longer last,
-            # get "\n". A bare CR followed by an empty line's "\n" reads back as
-            # a single CRLF, so keep the two breaks distinct by giving the empty
-            # line the same bare terminator; the run propagates until a
-            # non-empty line ends it.
-            sep = ending or "\n"
-            if prev_bare_cr and line == "" and sep == "\n":
-                sep = "\r"
-            parts.append(line + sep)
-            prev_bare_cr = sep == "\r"
+            # get "\n".
+            parts.append(line + (ending or "\n"))
     return "".join(parts)
 
 
