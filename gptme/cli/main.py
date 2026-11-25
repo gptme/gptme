@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from datetime import datetime, timezone
 from difflib import get_close_matches
@@ -1838,24 +1839,79 @@ def _write_terminal_error_to_log(
         pass  # best-effort — don't mask the original failure
 
 
-def _read_stdin() -> str:
-    # In automation, stdin is often an open pipe with no bytes pending yet.
-    # Wait briefly for readability so we don't block forever on read-until-EOF,
-    # while still giving moderately slow pipeline producers time to write.
+def _read_first_chunk_with_timeout(
+    fd: int, timeout: float
+) -> tuple[bool, bytes | None]:
+    """Read an initial chunk from ``fd`` with a bounded wait.
+
+    Used when ``select.select`` is unsupported on ``fd`` (e.g. Windows pipes,
+    or POSIX fds above ``FD_SETSIZE``) so an open idle pipe still returns
+    promptly instead of blocking forever in ``os.read``.
+
+    Returns ``(timed_out, chunk)``. When ``timed_out`` is False, ``chunk`` is
+    the bytes read (``b""`` on EOF) or ``None`` if reading failed.
+    """
+    import threading
+
     try:
-        readable, _, _ = select.select(
-            [sys.stdin.fileno()], [], [], _STDIN_PIPE_GRACE_PERIOD
-        )
-    except (AttributeError, OSError, ValueError):
-        readable = [True]
+        probe_fd = os.dup(fd)
+    except (OSError, ValueError):
+        return False, None
 
-    if not readable:
-        return ""
+    result: list[bytes | None] = []
+    done = threading.Event()
+    deadline = time.monotonic() + timeout
 
-    # stdin is readable (data available or EOF). Read raw bytes until EOF and
-    # decode incrementally so multibyte UTF-8 characters split across 4096-byte
-    # read boundaries are preserved and producers pausing between chunks are
-    # not truncated.
+    def _probe() -> None:
+        try:
+            while True:
+                try:
+                    result.append(os.read(probe_fd, 4096))
+                    return
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return
+                    time.sleep(min(0.01, remaining))
+        except (OSError, ValueError):
+            result.append(None)
+        finally:
+            try:
+                os.close(probe_fd)
+            except OSError:
+                pass
+            done.set()
+
+    thread = threading.Thread(target=_probe, daemon=True)
+    thread.start()
+    if not done.wait(timeout) or not result:
+        return True, None
+    return False, result[0]
+
+
+def _wait_for_fd_readable(fd: int, timeout: float | None) -> bool:
+    """Wait until ``fd`` is readable (data or EOF) or ``timeout`` expires.
+
+    Returns True if the caller should retry ``os.read``, False if ``timeout``
+    expired without readability.
+    """
+    try:
+        readable, _, _ = select.select([fd], [], [], timeout)
+        return bool(readable)
+    except TimeoutError:
+        raise
+    except (OSError, ValueError):
+        # select() unsupported on this fd; sleep briefly before retrying os.read.
+        if timeout is not None:
+            if timeout <= 0:
+                return False
+            time.sleep(min(0.01, timeout))
+        else:
+            time.sleep(0.01)
+        return True
+
+
+def _read_stdin() -> str:
     try:
         fd = sys.stdin.fileno()
     except (OSError, ValueError, AttributeError):
@@ -1863,15 +1919,60 @@ def _read_stdin() -> str:
         # Use blocking read — safe because non-pipe fds return immediately.
         return sys.stdin.read()
 
+    # In automation, stdin is often an open pipe with no bytes pending yet.
+    # Wait briefly for readability so we don't block forever on read-until-EOF,
+    # while still giving moderately slow pipeline producers time to write.
+    initial_deadline = time.monotonic() + _STDIN_PIPE_GRACE_PERIOD
+    initial_chunk: bytes | None = None
+    try:
+        readable, _, _ = select.select([fd], [], [], _STDIN_PIPE_GRACE_PERIOD)
+    except TimeoutError:
+        raise
+    except (OSError, ValueError):
+        # select() does not support pipe/file fds on some platforms (e.g. Windows)
+        # or fds >= FD_SETSIZE on POSIX. Fall back to a bounded initial read so
+        # an idle open pipe still returns "" promptly instead of blocking.
+        timed_out, initial_chunk = _read_first_chunk_with_timeout(
+            fd, _STDIN_PIPE_GRACE_PERIOD
+        )
+        if timed_out or not initial_chunk:
+            return ""
+    else:
+        if not readable:
+            return ""
+
+    # stdin is readable (data available or EOF). Read raw bytes until EOF and
+    # decode incrementally so multibyte UTF-8 characters split across 4096-byte
+    # read boundaries are preserved and producers pausing between chunks are
+    # not truncated.
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
     parts: list[str] = []
+    saw_data = False
+
+    if initial_chunk is not None:
+        parts.append(decoder.decode(initial_chunk))
+        saw_data = True
 
     try:
         while True:
-            chunk = os.read(fd, 4096)
+            try:
+                chunk = os.read(fd, 4096)
+            except BlockingIOError:
+                # Non-blocking fd with no data ready yet (producer paused).
+                # Wait for more data or EOF without finalizing the decoder.
+                if not saw_data:
+                    remaining = initial_deadline - time.monotonic()
+                    if remaining <= 0 or not _wait_for_fd_readable(fd, remaining):
+                        break
+                else:
+                    _wait_for_fd_readable(fd, None)
+                continue
             if not chunk:
                 break  # EOF
+            saw_data = True
             parts.append(decoder.decode(chunk))
+    except TimeoutError:
+        raise
     except (OSError, ValueError):
         pass
 

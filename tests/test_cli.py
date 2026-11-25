@@ -463,6 +463,111 @@ def test_read_stdin_reads_until_eof_across_long_pause(monkeypatch):
         read_file.close()
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "set_blocking"), reason="os.set_blocking is POSIX-only"
+)
+def test_read_stdin_nonblocking_pipe_preserves_delayed_chunks(monkeypatch):
+    """Non-blocking stdin hitting EAGAIN between chunks must wait and keep decoder state."""
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(read_fd, False)
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    emoji_bytes = "🚀".encode()
+    os.write(write_fd, b"part1\n" + emoji_bytes[:2])
+
+    def _writer():
+        time.sleep(0.04)
+        os.write(write_fd, emoji_bytes[2:] + b"part2\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == "part1\n🚀part2\n"
+        assert "\ufffd" not in result
+    finally:
+        writer.join()
+        read_file.close()
+
+
+def test_read_stdin_select_fallback_idle_pipe_returns_empty(monkeypatch):
+    """When select() is unsupported on pipes (e.g. Windows), an idle pipe must still time out."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.05)
+
+    def _unsupported_select(*_args, **_kwargs):
+        raise OSError("select on pipe not supported")
+
+    monkeypatch.setattr(cli.select, "select", _unsupported_select)
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    watchdog_fired = False
+    write_closed = False
+    close_lock = threading.Lock()
+
+    def _close_write_end():
+        nonlocal write_closed
+        with close_lock:
+            if not write_closed:
+                write_closed = True
+                os.close(write_fd)
+
+    def _watchdog():
+        nonlocal watchdog_fired
+        watchdog_fired = True
+        _close_write_end()
+
+    timer = threading.Timer(0.5, _watchdog)
+    timer.start()
+    start = time.monotonic()
+    try:
+        result = cli._read_stdin()
+        elapsed = time.monotonic() - start
+        assert not watchdog_fired, "stdin read blocked past watchdog on idle pipe"
+        assert result == ""
+        assert elapsed < 0.4
+    finally:
+        timer.cancel()
+        _close_write_end()
+        read_file.close()
+
+
+def test_read_stdin_select_fallback_reads_piped_data(monkeypatch):
+    """When select() is unsupported on pipes, real piped input is still read until EOF."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.2)
+
+    def _unsupported_select(*_args, **_kwargs):
+        raise OSError("select on pipe not supported")
+
+    monkeypatch.setattr(cli.select, "select", _unsupported_select)
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    emoji_bytes = "🚀".encode()
+    os.write(write_fd, b"hello " + emoji_bytes[:2])
+
+    def _writer():
+        time.sleep(0.03)
+        os.write(write_fd, emoji_bytes[2:] + b" world\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == "hello 🚀 world\n"
+        assert "\ufffd" not in result
+    finally:
+        writer.join()
+        read_file.close()
+
+
 @pytest.mark.parametrize("bad_name", ["../bad-name", ".", "..", "foo/bar", "foo\\bar"])
 def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
     result = runner.invoke(
