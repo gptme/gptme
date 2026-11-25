@@ -147,12 +147,13 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
         # Invoke bash explicitly for that exception: sh may be another shell.
         if shell == "zsh" and name != "export":
             # Zsh prints existing named parameters without -p, and -m lists
-            # pattern matches. Assignments do not print the previous value.
+            # pattern matches. Assignments do not print the previous value;
+            # named -x only sets the export attribute (unlike -p or -m).
             flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
             if any(
                 not arg.startswith(("-", "+"))
                 and not _ASSIGNMENT.match(arg)
-                and ("m" in flags or _SECRET_NAME.search(arg))
+                and ("m" in flags or (flags != "x" and _SECRET_NAME.search(arg)))
                 for arg in args
             ):
                 return _REASON
