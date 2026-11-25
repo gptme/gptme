@@ -437,6 +437,11 @@ def reply(
         )
     )
 
+    from .recovery import check_generation_gate, recover_generation
+
+    # Hooks can be slow: let the caller abort (e.g. on Stop) before any request.
+    check_generation_gate()
+
     # Add context messages for generation (don't modify original messages)
     generation_msgs = list(messages)  # Create a copy
     if context_msgs:
@@ -454,8 +459,6 @@ def reply(
         tools=tools,
         output_schema=output_schema,
     )
-
-    from .recovery import recover_generation
 
     # The strict request allowance surrounds all attempts, not each replay.
     # Hooks above run once; only provider work below is replayed.

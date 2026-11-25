@@ -88,6 +88,29 @@ _replay_enabled: ContextVar[bool] = ContextVar("llm_replay_enabled", default=Tru
 _notification: ContextVar[Callable[[RetryNotice], None] | None] = ContextVar(
     "llm_recovery_notification", default=None
 )
+_generation_gate: ContextVar[Callable[[], None] | None] = ContextVar(
+    "llm_generation_gate", default=None
+)
+
+
+@contextmanager
+def generation_gate(check: Callable[[], None]) -> Iterator[None]:
+    """Run ``check`` in ``reply()`` after GENERATION_PRE hooks, before the request.
+
+    ``check`` raises to abort the generation. Unlike a hook, it cannot be
+    skipped by another hook that stops propagation.
+    """
+    token = _generation_gate.set(check)
+    try:
+        yield
+    finally:
+        _generation_gate.reset(token)
+
+
+def check_generation_gate() -> None:
+    """Run the bound generation gate, if any."""
+    if check := _generation_gate.get():
+        check()
 
 
 @contextmanager

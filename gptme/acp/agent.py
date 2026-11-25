@@ -50,7 +50,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine, Generator
+    from collections.abc import Awaitable, Callable, Coroutine
 
     from ..message import Message
 
@@ -84,6 +84,11 @@ class _AcpTurn:
         if self.cancel_waiter is not None and not self.cancel_waiter.done():
             self.cancel_waiter.set_result(None)
 
+    def raise_if_cancelled(self) -> None:
+        """Worker-thread checkpoint: abort the turn once Stop has arrived."""
+        if self.cancelled.is_set():
+            raise _TurnCancelled
+
     async def send_unless_cancelled(self, send: Callable[[], Awaitable[Any]]) -> Any:
         """Start a queued client send, unless Stop arrived first.
 
@@ -107,26 +112,16 @@ class _TurnCancelled(BaseException):
 # checkpoint and hand back its partial output before answering "cancelled".
 _CANCEL_GRACE_S = 1.0
 
+# How long an update still being written when Stop arrives keeps its session
+# from being reopened. A client that stopped reading may never finish the write.
+_CANCELLED_SEND_DRAIN_S = 5.0
+
 
 # Set for the duration of an ACP prompt turn; the hook registry is
 # process-global, so this is how a confirmation finds its session.
 _acp_turn: contextvars.ContextVar[_AcpTurn | None] = contextvars.ContextVar(
     "acp_turn", default=None
 )
-
-
-def _acp_generation_hook(
-    messages: list[Message], **kwargs: Any
-) -> Generator[Message, None, None]:
-    """GENERATION_PRE hook, run last: no provider request once Stop has arrived.
-
-    reply() runs these hooks after the turn's own step checkpoint, and a slow
-    one (e.g. reading workspace files) can outlast session/cancel.
-    """
-    turn = _acp_turn.get()
-    if turn is not None and turn.cancelled.is_set():
-        raise _TurnCancelled
-    yield from ()
 
 
 def _acp_confirm_hook(
@@ -926,12 +921,6 @@ class GptmeAgent:
                 _acp_confirm_hook,
                 priority=100,
             )
-            register_hook(
-                "acp_cancel",
-                HookType.GENERATION_PRE,
-                _acp_generation_hook,
-                priority=-1000,  # after every hook that might be slow
-            )
             self._hook_registry = get_registry()
             # Capture the resolved model (from config/env/auto-detect)
             # so subsequent handlers use the same model
@@ -1540,7 +1529,7 @@ class GptmeAgent:
             # Import chat step and lifecycle-hook helpers
             from ..chat import step as chat_step
             from ..hooks.registry import HookType, trigger_hook
-            from ..llm.recovery import recovery_disabled
+            from ..llm.recovery import generation_gate, recovery_disabled
             from ..message import Message as _RuntimeMessage
 
             # Run gptme chat step in executor to not block event loop
@@ -1793,7 +1782,12 @@ class GptmeAgent:
                     # ACP has no preview-reset protocol: replay would concatenate
                     # failed output with the replacement response. Bind in this
                     # worker and cover iterator consumption, not just creation.
-                    with recovery_disabled():
+                    # The gate re-checks for Stop after reply()'s own
+                    # GENERATION_PRE hooks, right before the provider request.
+                    with (
+                        recovery_disabled(),
+                        generation_gate(turn.raise_if_cancelled),
+                    ):
                         step_msgs: list[Message] = []
                         for step_msg in chat_step(
                             log=step_log,
@@ -1984,7 +1978,9 @@ class GptmeAgent:
 
         Nothing new is sent for a cancelled turn. A write already started is
         not cancelled mid-message: it is left to finish in the background, and
-        its failure no longer matters. Without a turn there is nothing to stop.
+        its failure no longer matters. It keeps the session from being reopened
+        for at most ``_CANCELLED_SEND_DRAIN_S``. Without a turn there is nothing
+        to stop.
         """
         if turn is None or turn.cancel_waiter is None:
             await send()
@@ -2008,11 +2004,23 @@ class GptmeAgent:
                 task.result()
             return
         # A terminal tool update may still mutate per-session state. Keep
-        # replacement sessions out until that send has finished.
+        # replacement sessions out until that send finishes, within a bound.
         self._draining_sessions.add(turn.session_id)
+        held = True
+
+        def release() -> None:
+            # Once only: a write finishing after the bound must not release a
+            # drain that a later turn of this session holds.
+            nonlocal held
+            if held:
+                held = False
+                self._draining_sessions.discard(turn.session_id)
+
+        expiry = turn.loop.call_later(_CANCELLED_SEND_DRAIN_S, release)
 
         def sent(done: asyncio.Task[None]) -> None:
-            self._draining_sessions.discard(turn.session_id)
+            expiry.cancel()
+            release()
             log_failure(done)
 
         task.add_done_callback(sent)
