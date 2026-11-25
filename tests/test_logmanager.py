@@ -1512,12 +1512,11 @@ def test_write_jsonl_retry_does_not_duplicate_own_saved_messages(tmp_path: Path)
     """
     jsonl_file = tmp_path / "conversation.jsonl"
     stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
-    stale = stale.append(Message("assistant", "reply"))
+    reply = Message("assistant", "reply", metadata={"model": "mock/model", "cost": 0.1})
+    stale = stale.append(reply)
 
     # Simulate the write having landed while the caller's cursor stayed stale.
-    Log([Message("user", "prompt"), Message("assistant", "reply")]).write_jsonl(
-        jsonl_file, append=True
-    )
+    Log.read_jsonl(jsonl_file).append(reply).write_jsonl(jsonl_file, append=True)
 
     stale = stale.write_jsonl(jsonl_file, append=True)
 
@@ -1535,30 +1534,45 @@ def test_write_jsonl_retry_does_not_duplicate_own_saved_messages(tmp_path: Path)
     ]
 
 
-def test_append_event_records_the_appended_message_after_a_merge(tmp_path: Path):
-    """The event log must not record a merged concurrent tail as our append."""
-    from gptme.logmanager.eventlog import EVENT_LOG_NAME
+def test_write_jsonl_keeps_matching_message_from_another_writer(tmp_path: Path):
+    """Same role and content from two writers are still two messages."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("notes")
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
 
-    manager = LogManager([Message("user", "prompt")], logdir=tmp_path, lock=False)
-    manager.write()
+    other = Message("user", "continue", files=[attachment])
+    Log.read_jsonl(jsonl_file).append(other).write_jsonl(jsonl_file, append=True)
+
+    stale = stale.append(Message("user", "continue"))
+    stale.write_jsonl(jsonl_file, append=True)
+
+    saved = Log.read_jsonl(jsonl_file).messages
+    assert [m.content for m in saved] == ["prompt", "continue", "continue"]
+    assert saved[-1].files == [attachment.resolve()]
+    assert saved[-1].timestamp == other.timestamp
+
+
+def _recovered_contents(logdir: Path) -> list[str]:
+    from gptme.logmanager.eventlog import recover_messages
+
+    recovered = recover_messages(logdir)
+    assert recovered is not None
+    return [message["content"] for message in recovered]
+
+
+def test_event_replay_matches_transcript_after_a_merged_append(tmp_path: Path):
+    """Recovery must reproduce the order a concurrent-tail merge wrote."""
+    manager = LogManager(logdir=tmp_path, lock=False)
+    manager.append(Message("user", "prompt"))
 
     # A resume/A2A-style writer appends while this manager holds its snapshot.
     LogManager.load(tmp_path, lock=False).append(Message("user", "resume"))
 
     manager.append(Message("assistant", "reply"))
+    manager.append(Message("system", "after"))
 
-    # The merge must not lose the concurrent append.
-    assert [m.content for m in Log.read_jsonl(tmp_path / "conversation.jsonl")] == [
-        "prompt",
-        "reply",
-        "resume",
-    ]
-    # The append event must describe the message this manager appended.
-    events = [
-        json.loads(line)
-        for line in (tmp_path / EVENT_LOG_NAME).read_text().splitlines()
-        if line.strip()
-    ]
-    appends = [event for event in events if event["type"] == "message_append"]
-    assert appends, "expected message_append events"
-    assert appends[-1]["payload"]["message"]["content"] == "reply"
+    expected = ["prompt", "reply", "resume", "after"]
+    transcript = Log.read_jsonl(tmp_path / "conversation.jsonl")
+    assert [m.content for m in transcript] == expected
+    assert _recovered_contents(tmp_path) == expected

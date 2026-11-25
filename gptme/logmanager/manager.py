@@ -244,12 +244,16 @@ class Log:
         # an error, or a rewrite whose ``os.replace`` succeeded before
         # ``sync_directory`` failed. Skip that leading run so a retry does not
         # merge our own messages back as somebody else's tail.
+        # Compare what each message serializes to, not ``Message.__eq__`` (role
+        # and content only): another writer's identical "continue" differs by
+        # timestamp or attachments and must survive.
         own_new = self.messages[len(self.persisted) :]
         skipped = 0
         while (
             skipped < len(tail)
             and skipped < len(own_new)
-            and tail[skipped] == own_new[skipped]
+            and tail[skipped].to_dict()
+            == json.loads(json.dumps(own_new[skipped].to_dict()))
         ):
             skipped += 1
         return tuple(tail[skipped:])
@@ -756,7 +760,10 @@ class LogManager:
                 return eventlog.build_message_append_event(seq, message)
 
         elif event_type == eventlog.EVENT_MESSAGE_EDIT:
-            messages = list(self.log.messages)
+            snapshot = extra.get("messages")
+            messages = list(
+                snapshot if isinstance(snapshot, list) else self.log.messages
+            )
 
             def build_event(seq: int) -> dict[str, object]:
                 return eventlog.build_message_edit_event(seq, messages)
@@ -780,6 +787,17 @@ class LogManager:
                 event_dir,
                 [m.to_dict() for m in self.log.messages],
             )
+
+    def _record_merged_transcript(self) -> None:
+        """Record the whole branch transcript after a concurrent-tail merge.
+
+        The other writer's append event already precedes ours, so replaying an
+        incremental append would not reproduce the order now on disk.
+        """
+        self._write_event_log(
+            eventlog.EVENT_MESSAGE_EDIT,
+            messages=self._branches[self.current_branch].messages,
+        )
 
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message.
@@ -818,7 +836,10 @@ class LogManager:
                 )
 
         self.write()
-        self._write_event_log(eventlog.EVENT_MESSAGE_APPEND, message=msg)
+        if self._branches[self.current_branch].messages[-1] is msg:
+            self._write_event_log(eventlog.EVENT_MESSAGE_APPEND, message=msg)
+        else:
+            self._record_merged_transcript()
         if not msg.quiet:
             print_msg(msg, oneline=False)
 
