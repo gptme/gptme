@@ -4,6 +4,7 @@ Shared utilities for LLM implementations.
 
 import base64
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from ..tools import ToolUse
@@ -14,6 +15,8 @@ from ..util.uri import is_uri
 def extract_tool_uses_from_assistant_message(
     message_content: str | list[dict[str, str]],
     tool_format_override: ToolFormat | None = None,
+    *,
+    tool_use_to_content: Callable[[ToolUse], dict] | None = None,
 ) -> tuple[list[dict], list[ToolUse]]:
     """Extract tool uses from assistant message content.
 
@@ -24,6 +27,8 @@ def extract_tool_uses_from_assistant_message(
     Args:
         message_content: The message content (string or list of content parts)
         tool_format_override: Override the global tool format for parsing
+        tool_use_to_content: If set, insert formatted tool blocks into
+            content_parts in their original order relative to text and images.
 
     Returns:
         tuple: (content_parts, tool_uses) where:
@@ -90,6 +95,8 @@ def extract_tool_uses_from_assistant_message(
                     content_parts.append({"type": "text", "text": before_tool})
 
                 tool_uses.append(tooluse)
+                if tool_use_to_content is not None:
+                    content_parts.append(tool_use_to_content(tooluse))
                 # Streamed text can follow the closing brace on the same
                 # line. Put back in the buffer it would start a line and
                 # could parse as another call, so carry it unparsed and

@@ -1599,7 +1599,14 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
             # Parse tool uses from the cleaned content (without thinking tags)
             content_parts, tool_uses = extract_tool_uses_from_assistant_message(
-                cleaned_content, tool_format_override="tool"
+                cleaned_content,
+                tool_format_override="tool",
+                tool_use_to_content=lambda tooluse: {
+                    "type": "tool_use",
+                    "id": tooluse.call_id or "",
+                    "name": native_tool_name(tooluse.tool),
+                    "input": tooluse.kwargs or {},
+                },
             )
 
             # Unsigned thinking is dropped below, so with no signed block and
@@ -1619,7 +1626,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                     else [{"type": "text", "text": cleaned_content}]
                 )
 
-            # Build content array in proper order: thinking first, then text, then tools
+            # Thinking comes first; text, images and tool calls retain their order.
             final_content: list[dict] = []
 
             # Add thinking blocks (must come first in Anthropic format).
@@ -1644,23 +1651,12 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                         "Skipping thinking block in history: no signature available"
                     )
 
-            # Add text content parts
+            # Add content parts, including tool uses in Anthropic format.
             for part in content_parts:
                 if isinstance(part, str) and part.strip():
                     final_content.append({"type": "text", "text": part})
                 elif isinstance(part, dict):
                     final_content.append(part)
-
-            # Add tool uses in Anthropic format
-            final_content.extend(
-                {
-                    "type": "tool_use",
-                    "id": tooluse.call_id or "",
-                    "name": native_tool_name(tooluse.tool),
-                    "input": tooluse.kwargs or {},
-                }
-                for tooluse in tool_uses
-            )
 
             if final_content:
                 modified_message["content"] = final_content

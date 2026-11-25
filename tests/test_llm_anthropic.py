@@ -418,6 +418,78 @@ def test_text_around_an_image_keeps_its_order():
     assert parts[2]["text"].strip() == "After"
 
 
+@pytest.mark.parametrize("separator", ["", "\n"])
+def test_native_calls_keep_their_order_relative_to_text_and_images(
+    tmp_path: Path, separator: str
+) -> None:
+    from PIL import Image
+
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save is not None
+    image = tmp_path / "chart.png"
+    Image.new("RGB", (2, 2)).save(image)
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Save both files"),
+        Message(
+            role="assistant",
+            content=(
+                'Before saving.\n@save(call_1): {"path":"a.txt","content":"x"}'
+                f"{separator}First saved.\n"
+                '@save(call_2): {"path":"b.txt","content":"y"}\nBoth saved.'
+            ),
+            files=[image],
+        ),
+        Message(role="system", content="Saved a.txt", call_id="call_1"),
+        Message(role="system", content="Saved b.txt", call_id="call_2"),
+    ]
+    converted, _, _ = _prepare_messages_for_api(messages, [tool_save])
+    assistant = next(m for m in converted if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    order = []
+    for part in parts:
+        if part["type"] == "tool_use":
+            order.append(part["id"])
+        elif part["type"] == "image":
+            order.append("image")
+        elif part["type"] == "text":
+            order.extend(
+                text
+                for text in ("Before saving.", "First saved.", "Both saved.")
+                if text in part["text"]
+            )
+    assert order == [
+        "Before saving.",
+        "call_1",
+        "First saved.",
+        "call_2",
+        "Both saved.",
+        "image",
+    ], parts
+
+
+def test_native_calls_stay_on_both_sides_of_an_image() -> None:
+    init_tools(allowlist=["save"])
+    image = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+    }
+    content = [
+        {"type": "text", "text": '@save(call_1): {"path":"a.txt","content":"x"}'},
+        image,
+        {"type": "text", "text": '@save(call_2): {"path":"b.txt","content":"y"}'},
+    ]
+    converted = list(
+        llm_anthropic._handle_tools([{"role": "assistant", "content": content}])
+    )
+    parts = converted[0]["content"]
+    assert [part["type"] for part in parts] == ["tool_use", "image", "tool_use"]
+    assert parts[0]["id"] == "call_1"
+    assert parts[1] == image
+    assert parts[2]["id"] == "call_2"
+
+
 def test_message_conversion_with_tools():
     init_tools(allowlist=["save"])
 
