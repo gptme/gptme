@@ -13,7 +13,7 @@ import pytest
 from gptme import llm
 from gptme.llm import EmptyStreamError, recovery
 from gptme.logmanager import Log
-from gptme.message import Message
+from gptme.message import Message, MessageMetadata
 from gptme.tools import init_tools
 
 AFTER_TOOL = [
@@ -432,3 +432,25 @@ def test_subscription_incomplete_is_not_a_normal_finish(monkeypatch, terminal, n
 
     assert text == ""
     assert EmptyStreamError("gpt-5.4", metadata).normal_finish is normal
+
+
+@pytest.mark.parametrize(
+    ("usage", "normal"),
+    [
+        # gpt-5.6 zero-chunk glitch (tests/test_llm_empty_stream.py): billed
+        # visible output that never streamed must be replayed, not end the turn.
+        ({"output_tokens": 166}, False),
+        ({"output_tokens": 800, "reasoning_tokens": 200}, False),
+        # Reasoning-only output with no message is the model saying nothing.
+        ({"output_tokens": 300, "reasoning_tokens": 300}, True),
+        ({"output_tokens": 0}, True),
+        ({"input_tokens": 50}, True),
+        (None, True),
+    ],
+    ids=["unsplit", "visible", "reasoning-only", "zero", "no-output", "no-usage"],
+)
+def test_billed_visible_output_is_not_a_normal_finish(usage, normal):
+    metadata: MessageMetadata = (
+        {"model": "gpt-5.6"} if usage is None else {"usage": usage}
+    )
+    assert EmptyStreamError("gpt-5.6", metadata).normal_finish is normal

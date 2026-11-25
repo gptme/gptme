@@ -312,6 +312,13 @@ class EmptyStreamError(httpx.RemoteProtocolError):
         # Responses API `response.incomplete`: the provider cut the reply off.
         self.incomplete = bool((metadata or {}).get("incomplete"))
         usage = (metadata or {}).get("usage")
+        # The provider billed visible (non-reasoning) output that never reached
+        # the stream: the zero-chunk glitch, not the model choosing silence.
+        output_tokens = (usage or {}).get("output_tokens")
+        reasoning_tokens = (usage or {}).get("reasoning_tokens") or 0
+        self.lost_output = (
+            isinstance(output_tokens, int) and output_tokens - reasoning_tokens > 0
+        )
         detail = f" (usage: {usage})" if usage else ""
         if self.native_finish_reason:
             detail += (
@@ -325,7 +332,11 @@ class EmptyStreamError(httpx.RemoteProtocolError):
     @property
     def normal_finish(self) -> bool:
         """Whether the provider finished normally (the model chose to say nothing)."""
-        return not self.native_finish_reason and not self.incomplete
+        return (
+            not self.native_finish_reason
+            and not self.incomplete
+            and not self.lost_output
+        )
 
 
 _CONTEXT_LENGTH_ERROR_CODES = frozenset(
