@@ -6461,6 +6461,59 @@ def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
 
 
+def test_v2_conversation_config_patch_reordered_duplicates_keep_own_secrets(
+    client: FlaskClient,
+):
+    """Reordering same-name servers pairs each secret with its own entry.
+
+    Two entries can share a name and destination yet differ in non-secret env
+    (here ``REGION``) and in their secret. Pairing by list position would hand
+    the runtime's first entry the other entry's credential when a client sends
+    them in a different order.
+    """
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(
+        enabled=True,
+        servers=[
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "eu", "API_KEY": "eu-key"},
+            ),
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "us", "API_KEY": "us-key"},
+            ),
+        ],
+    )
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    assert [s["env"]["REGION"] for s in servers] == ["eu", "us"]
+    assert all(s["env"]["API_KEY"] == "***" for s in servers)
+    servers.reverse()
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [(s.env["REGION"], s.env["API_KEY"]) for s in stored.mcp.servers] == [
+        ("us", "us-key"),
+        ("eu", "eu-key"),
+    ]
+
+
 @pytest.mark.parametrize("args", [1, "mcp-search", [1]])
 def test_v2_conversation_config_patch_rejects_invalid_args_with_kept_secret(
     client: FlaskClient, mcp_conv_config_file, args

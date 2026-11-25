@@ -662,6 +662,62 @@ def _mcp_config_response(mcp: MCPConfig) -> dict:
     }
 
 
+def _mcp_server_signature(server: dict | object) -> tuple:
+    """Content identity of an MCP server, ignoring secret env/header values.
+
+    Servers that share a signature differ only in their secret-looking
+    ``env``/``headers`` values, so a redacted body carries nothing that tells
+    them apart. Used to pair duplicate-name servers by content instead of by
+    list position.
+    """
+
+    def get(field_name: str, default):
+        if isinstance(server, dict):
+            return server.get(field_name, default)
+        return getattr(server, field_name, default)
+
+    def public_values(values) -> tuple:
+        if not isinstance(values, dict):
+            return ()
+        return tuple(
+            sorted(
+                (str(key), str(value))
+                for key, value in values.items()
+                if not _MCP_SECRET_KEY_RE.search(str(key))
+            )
+        )
+
+    args = get("args", [])
+    return (
+        get("enabled", True),
+        get("command", "") or "",
+        tuple(args) if isinstance(args, list) else (),
+        get("url", "") or "",
+        get("transport", "") or "",
+        public_values(get("env", {})),
+        public_values(get("headers", {})),
+    )
+
+
+def _match_saved_mcp_server(body_server: dict, matches: list, occurrence: int):
+    """Pick the saved server a redacted body entry belongs to.
+
+    Duplicate names are paired by non-secret content first, so reordering two
+    same-name entries with different settings keeps each one's own secret
+    rather than handing the runtime the other entry's credential. Entries that
+    are indistinguishable apart from their secrets can only be paired by
+    position, which is correct for an order-preserving echo (the webui always
+    echoes in the order it received).
+    """
+    if len(matches) <= 1:
+        return matches[0] if matches else None
+    signature = _mcp_server_signature(body_server)
+    same = [srv for srv in matches if _mcp_server_signature(srv) == signature]
+    if len(same) == 1:
+        return same[0]
+    return matches[occurrence] if occurrence < len(matches) else None
+
+
 def _restore_conversation_mcp_secrets(
     body: dict, load_stored: Callable[[], MCPConfig | None]
 ) -> None:
@@ -669,13 +725,14 @@ def _restore_conversation_mcp_secrets(
 
     Clients echo the redacted config back on save; writing the sentinel would
     replace the real secret. A body server matches the saved server with the
-    same name; when several saved servers share a name, the n-th body entry with
-    that name matches the n-th saved one, but only if the body has exactly as
-    many entries with that name (otherwise the match is ambiguous). A secret is
-    only kept when the destination (``command``/``args``/``url``) is unchanged,
-    so it never follows a server to a new endpoint. ``load_stored`` is called
-    at most once, and only when a redacted value needs restoring. Raises
-    ValueError when a redacted secret has no unambiguous stored value to keep.
+    same name; when several saved servers share a name, they are paired by
+    non-secret content (falling back to position for entries that differ only
+    in their secrets), but only if the body has exactly as many entries with
+    that name (otherwise the match is ambiguous). A secret is only kept when
+    the destination (``command``/``args``/``url``) is unchanged, so it never
+    follows a server to a new endpoint. ``load_stored`` is called at most once,
+    and only when a redacted value needs restoring. Raises ValueError when a
+    redacted secret has no unambiguous stored value to keep.
     """
     mcp = body.get("mcp")
     if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
@@ -708,18 +765,18 @@ def _restore_conversation_mcp_secrets(
                         "MCP servers share this name and the request changes how "
                         "many there are; send the real value"
                     )
-                saved = matches[occurrence] if occurrence < len(matches) else None
+                args = srv.get("args", [])
+                if not isinstance(args, list) or not all(
+                    isinstance(a, str) for a in args
+                ):
+                    raise ValueError(f"{name}: args must be a list of strings")
+                saved = _match_saved_mcp_server(srv, matches, occurrence)
                 original = getattr(saved, field_name, None) if saved else None
                 if saved is None or not original or key not in original:
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but has no "
                         "saved value to keep; send the real value"
                     )
-                args = srv.get("args", [])
-                if not isinstance(args, list) or not all(
-                    isinstance(a, str) for a in args
-                ):
-                    raise ValueError(f"{name}: args must be a list of strings")
                 if (
                     srv.get("command", "") != saved.command
                     or args != list(saved.args)
