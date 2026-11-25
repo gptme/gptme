@@ -379,13 +379,23 @@ export function useConversation(conversationId: string, serverId?: string) {
         let streamingTimestamp: string | undefined;
         const streamingMessage = () => {
           const messages = conversation$?.data.log.get() ?? [];
-          const index = streamingTimestamp
-            ? messages.findIndex(
-                (message) =>
-                  message.role === 'assistant' && message.timestamp === streamingTimestamp
-              )
-            : messages.length - 1;
-          return index >= 0 ? conversation$?.data.log[index] : undefined;
+          if (!streamingTimestamp) {
+            return messages.length > 0 ? conversation$?.data.log[messages.length - 1] : undefined;
+          }
+          const index = messages.findIndex(
+            (message) => message.role === 'assistant' && message.timestamp === streamingTimestamp
+          );
+          if (index >= 0) return conversation$?.data.log[index];
+          // A reconnect merge can drop or replace the partial: its saved copy
+          // was already finished, or it was folded into a row that kept the
+          // server timestamp. That later generation's `generation_started` was
+          // never replayed, so rebind to the last assistant row instead of
+          // dropping every following token and completion.
+          const lastAssistant = messages.map((message) => message.role).lastIndexOf('assistant');
+          if (lastAssistant < 0) return undefined;
+          const rebound = conversation$?.data.log[lastAssistant];
+          streamingTimestamp = rebound?.timestamp.get();
+          return rebound;
         };
 
         // Connect to event stream. Record the client generation that owns the

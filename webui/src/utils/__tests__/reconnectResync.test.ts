@@ -372,6 +372,54 @@ describe('mergeReconnectSnapshot', () => {
     expect(log).toEqual([user, reply, notice]);
   });
 
+  it('keeps a reply that started while the fetch was in flight', () => {
+    // The new reply's empty placeholder is a prefix of the older saved reply,
+    // so the supersede heuristic would drop it and strand every later token.
+    const savedReply: Message = {
+      role: 'assistant',
+      content: 'Hello world',
+      timestamp: '2026-11-24T10:00:02Z',
+    };
+    const started = {
+      role: 'assistant' as const,
+      content: '',
+      timestamp: '2026-11-24T10:00:09.000Z',
+      isComplete: false,
+    };
+    const { log } = mergeReconnectSnapshot([user, started], [user, savedReply, toolOutput], {
+      ...opts,
+      generating: true,
+      startRows: [user],
+    });
+    expect(log).toEqual([user, savedReply, toolOutput, started]);
+  });
+
+  it('drops a failed send the server persisted and a peer deleted', () => {
+    // Persistence 'saved' makes it a server row: keeping it after a peer
+    // deleted it resurrects it at a fabricated position.
+    const failedSaved: Message = {
+      role: 'user',
+      content: 'q2',
+      timestamp: '2026-11-24T10:00:05Z',
+      _status: 'failed',
+      _retry: { persistence: 'saved', options: {} },
+    };
+    const { log } = mergeReconnectSnapshot([failedSaved, reply], [reply], opts);
+    expect(log).toEqual([reply]);
+  });
+
+  it('keeps a failed send the server never persisted', () => {
+    const failedDraft: Message = {
+      role: 'user',
+      content: 'q2',
+      timestamp: '2026-11-24T10:00:05Z',
+      _status: 'failed',
+      _retry: { persistence: 'unknown', options: {} },
+    };
+    const { log } = mergeReconnectSnapshot([failedDraft, reply], [reply], opts);
+    expect(log).toEqual([reply, failedDraft]);
+  });
+
   it('drops a row a peer deleted during the outage instead of resurrecting it', () => {
     const victim: Message = {
       role: 'assistant',
@@ -483,6 +531,47 @@ describe('resyncLogAfterReconnect in-flight races (#5145)', () => {
     }
 
     expect(get).toHaveBeenCalledTimes(2);
+    expect(state().data.log.get()).toEqual([user, reply]);
+  });
+
+  it('refreshes the branch arrays so a recovered reply survives a branch switch', async () => {
+    replaceLog(ID, [user]);
+    setGenerating(ID, false);
+    jest
+      .spyOn(client, 'getConversation')
+      .mockResolvedValue(response([user, reply], { branches: { main: [user, reply] } }));
+
+    await client.resyncLogAfterReconnect(ID);
+
+    // Switching away and back replaces the window with `branches[branch]`; a
+    // stale array would hide the recovered reply and mark the gap hydrated.
+    expect(state().data.branches.get().main).toEqual([user, reply]);
+  });
+
+  it('retries a timed-out history request instead of losing the recovery', async () => {
+    replaceLog(ID, [user, streaming]);
+    setGenerating(ID, false);
+    let calls = 0;
+    jest.spyOn(client, 'getConversation').mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((_resolve, reject) => {
+          setTimeout(() => reject(new DOMException('timed out', 'AbortError')), 10_000);
+        });
+      }
+      return Promise.resolve(response([user, reply]));
+    });
+
+    jest.useFakeTimers();
+    try {
+      const resync = client.resyncLogAfterReconnect(ID);
+      await jest.advanceTimersByTimeAsync(10_500);
+      await resync;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(calls).toBe(2);
     expect(state().data.log.get()).toEqual([user, reply]);
   });
 

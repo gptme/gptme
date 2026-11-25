@@ -31,6 +31,7 @@ import {
   replaceLogWindow,
   removeMessage,
   addMessage,
+  updateBranches,
   conversations$,
 } from '@/stores/conversations';
 
@@ -145,6 +146,8 @@ interface LogResync {
   rerun: boolean;
   epoch: number;
   running: Promise<void>;
+  /** Timeouts already retried by this resync loop (bounded). */
+  timeouts: number;
 }
 
 /** Window size for the reconnect resync; matches the initial conversation load. */
@@ -156,6 +159,13 @@ const RECONNECT_RESYNC_LIMIT = 50;
  * it) open indefinitely; the next reconnect retries the resync.
  */
 const RECONNECT_RESYNC_TIMEOUT_MS = 10_000;
+
+/**
+ * A timed-out resync is retried this many times before the recovery gives up
+ * until the next reconnect: the history fetch is the only way events persisted
+ * during the outage come back, so a slow server must not silently lose them.
+ */
+const RECONNECT_RESYNC_MAX_TIMEOUT_RETRIES = 2;
 
 /**
  * Merge a fresh server window into the local log after an event-stream
@@ -211,6 +221,7 @@ export function mergeReconnectSnapshot(
   // tool ran (or a later turn was written) after it, so the local copy is a
   // stale prefix and keeping it would show the reply twice.
   const superseded = new Set<Message>();
+  const startRows = options.startRows ? new Set(options.startRows) : undefined;
   if (options.generating) {
     const lastAssistant = snapshot.map((entry) => entry.role).lastIndexOf('assistant');
     // Only the tail can be the reply the server is still writing. Anything
@@ -221,6 +232,10 @@ export function mergeReconnectSnapshot(
     const isTail = lastAssistant === snapshot.length - 1;
     local.forEach((entry, index) => {
       if (lastAssistant < 0 || entry.role !== 'assistant' || !isIncomplete(entry)) return;
+      // A reply that started while the fetch was in flight is new: it can only
+      // look like an older saved reply (empty placeholder, shared opening text)
+      // by accident, so folding or dropping it would strand its later tokens.
+      if (startRows && !startRows.has(entry)) return;
       if (snapshot.some((saved) => matches(entry, saved))) return;
       const saved = snapshot[lastAssistant];
       if (folded.has(lastAssistant) || !saved.content.startsWith(entry.content)) return;
@@ -267,7 +282,6 @@ export function mergeReconnectSnapshot(
   // client; keeping it would resurrect it at a fabricated position, and the
   // positional edit/delete guard does not cover persisted rows.
   const arrivedFrom = local.length - Math.max(0, options.arrivedCount);
-  const startRows = options.startRows ? new Set(options.startRows) : undefined;
   // Rows before the first surviving start row were prepended ("Load older
   // messages"), not written during the request.
   const startFloor = startRows ? local.findIndex((entry) => startRows.has(entry)) : -1;
@@ -276,7 +290,10 @@ export function mergeReconnectSnapshot(
     !superseded.has(entry) &&
     (options.generating || !isIncomplete(entry)) &&
     (entry._status === 'pending' ||
-      entry._status === 'failed' ||
+      // A failed send the server never persisted is a local draft. One it did
+      // persist is a server row: if the snapshot no longer has it, a peer
+      // deleted it and keeping it would resurrect it at a fabricated position.
+      (entry._status === 'failed' && entry._retry?.persistence !== 'saved') ||
       entry._synthetic === true ||
       pendingAtStart.some((prompt) => matches(entry, prompt)) ||
       (startRows !== undefined && index > startFloor && !startRows.has(entry)) ||
@@ -789,13 +806,19 @@ export class ApiClient {
     const dead = this.deadStreamRetries.get(conversationId);
     if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
     console.log(`[ApiClient] Re-opening event stream for ${conversationId}`);
-    // A revived stream is never the first attempt: the handshake must tell the
-    // consumer that events may have been lost meanwhile.
-    this.subscribeToEvents(conversationId, callbacks, Math.max(1, dead?.attempt ?? 1)).catch(
-      (err) => {
-        console.error('[ApiClient] Re-opening event stream failed:', err);
-      }
-    );
+    // A revived stream starts a fresh fast-retry budget: the slow counter that
+    // gave up says how long the outage lasted, not how many fast attempts this
+    // new connection gets. It is reported separately so the handshake can still
+    // tell the consumer that events may have been lost meanwhile.
+    this.subscribeToEvents(
+      conversationId,
+      callbacks,
+      0,
+      false,
+      Math.max(1, dead?.attempt ?? 1)
+    ).catch((err) => {
+      console.error('[ApiClient] Re-opening event stream failed:', err);
+    });
     return true;
   }
 
@@ -1330,7 +1353,11 @@ export class ApiClient {
     // downgrading the pooled client (this.sseToken is never cleared — just bypassed
     // for the current reconnect cycle so the token remains available for future
     // subscriptions if the failure was transient).
-    skipSseToken = false
+    skipSseToken = false,
+    // Attempts that already failed *before* this subscription existed (a revived
+    // dead stream). Reported to the consumer as the lost-events hint without
+    // consuming this connection's fast retries.
+    resumeAttempt = 0
   ): Promise<void> {
     const maxReconnects = 5;
 
@@ -1381,10 +1408,12 @@ export class ApiClient {
       this.teardownEventStream(conversationId);
       // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
       this.resetAuthCookie();
-      this.subscribeToEvents(conversationId, callbacks, attempt, skipSse).catch((err) => {
-        console.error('[ApiClient] Reconnect failed:', err);
-        callbacks.onError?.(String(err));
-      });
+      this.subscribeToEvents(conversationId, callbacks, attempt, skipSse, resumeAttempt).catch(
+        (err) => {
+          console.error('[ApiClient] Reconnect failed:', err);
+          callbacks.onError?.(String(err));
+        }
+      );
     };
 
     // Create a timeout that will reconnect if we don't get a session ID after 5 seconds
@@ -1608,7 +1637,7 @@ export class ApiClient {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
                 latestUserTimestamp: data.latest_user_timestamp ?? undefined,
-                reconnectAttempt,
+                reconnectAttempt: Math.max(reconnectAttempt, resumeAttempt),
                 pendingTools: data.pending_tools ?? [],
                 // Absent on servers that predate the replay: leave state alone.
                 pendingElicitations: Array.isArray(data.pending_elicitations)
@@ -2065,7 +2094,7 @@ export class ApiClient {
       active.rerun = true;
       return active.running;
     }
-    const entry: LogResync = { rerun: false, epoch: 0, running: Promise.resolve() };
+    const entry: LogResync = { rerun: false, epoch: 0, running: Promise.resolve(), timeouts: 0 };
     this.logResyncs.set(conversationId, entry);
     entry.running = (async () => {
       try {
@@ -2103,7 +2132,11 @@ export class ApiClient {
     // on this promise) and keep its result applied after the stream closed.
     const abort = new AbortController();
     this.logResyncAborts.set(conversationId, abort);
-    const timeout = setTimeout(() => abort.abort(), RECONNECT_RESYNC_TIMEOUT_MS);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, RECONNECT_RESYNC_TIMEOUT_MS);
     let data: ConversationResponse;
     try {
       data = await this.getConversation(
@@ -2112,8 +2145,17 @@ export class ApiClient {
         { detached: true, signal: abort.signal }
       );
     } catch (error) {
-      // A cancelled attempt recovers nothing; the next reconnect retries it.
-      if (abort.signal.aborted) return;
+      // A cancelled attempt (stream closed, log edited) recovers nothing; the
+      // next reconnect retries it. A timeout is not a decision to stop: the
+      // history fetch is the only way lost events come back, so retry it a
+      // bounded number of times instead of silently leaving the gap.
+      if (abort.signal.aborted) {
+        if (timedOut && entry.timeouts < RECONNECT_RESYNC_MAX_TIMEOUT_RETRIES) {
+          entry.timeouts += 1;
+          entry.rerun = true;
+        }
+        return;
+      }
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -2159,6 +2201,12 @@ export class ApiClient {
       return;
     }
     replaceLogWindow(conversationId, log, logOffset, hasMoreBefore);
+    // The window is not the only copy of the log: switching branches replaces
+    // it with `branches[branch]`. Leaving the pre-outage arrays in place made a
+    // recovered reply vanish on the next switch to another branch and back,
+    // and marked that stale window hydrated so the gap was never refetched.
+    // `main` takes the merged log (it holds rows the server has not saved yet).
+    updateBranches(conversationId, { ...(data.branches ?? {}), main: log });
   }
 
   /**
