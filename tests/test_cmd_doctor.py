@@ -7,6 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 import gptme.cli.doctor as doctor_mod
+from gptme.cli.doctor import CheckResult, CheckStatus
 from gptme.commands.base import CommandContext
 from gptme.commands.meta import cmd_doctor
 
@@ -63,3 +64,59 @@ def test_doctor_lets_ctrl_c_reach_chat(monkeypatch: pytest.MonkeyPatch) -> None:
         cmd_doctor(_ctx())
 
     run.assert_called_once()
+
+
+def test_doctor_returns_2_when_config_repair_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        doctor_mod, "_repair_config_corruption", lambda: ([], ["broken config"])
+    )
+
+    assert doctor_mod.doctor(fix=True) == 2
+
+
+def _patch_interactive_repair(monkeypatch: pytest.MonkeyPatch, confirm) -> None:
+    """Set up ``doctor(fix=True)`` in a terminal with a repairable provider."""
+    results = [
+        CheckResult("Model: Default", CheckStatus.ERROR, "Provider not configured")
+    ]
+    monkeypatch.setattr(
+        doctor_mod, "_repair_config_corruption", lambda: (["fixed config"], [])
+    )
+    monkeypatch.setattr(
+        doctor_mod,
+        "run_diagnostics",
+        lambda verbose: (results, doctor_mod._summarize_results(results)),
+    )
+    monkeypatch.setattr(doctor_mod, "_is_interactive_terminal", lambda: True)
+    monkeypatch.setattr(doctor_mod, "_validate_oauth_for_repair", lambda results: None)
+    monkeypatch.setattr(doctor_mod, "print_results", lambda *a, **kw: 1)
+    monkeypatch.setattr(doctor_mod, "_model_override_blocking_repair", lambda: None)
+    monkeypatch.setattr(
+        doctor_mod,
+        "_subscription_default_candidate",
+        lambda results: "openai-subscription",
+    )
+    monkeypatch.setattr(doctor_mod.click, "confirm", confirm)
+
+
+def test_doctor_keeps_health_code_when_subscription_switch_declined(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_interactive_repair(monkeypatch, confirm=lambda *a, **kw: False)
+
+    assert doctor_mod.doctor(fix=True) == 1
+
+
+def test_doctor_keeps_health_code_when_provider_repair_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import click
+
+    def _abort(*args, **kwargs):
+        raise click.Abort
+
+    _patch_interactive_repair(monkeypatch, confirm=_abort)
+
+    assert doctor_mod.doctor(fix=True) == 1
