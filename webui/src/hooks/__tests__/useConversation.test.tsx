@@ -6,6 +6,7 @@ import { getClientForServer } from '@/stores/serverClients';
 import {
   conversations$,
   initConversation,
+  replaceLog,
   setConnectionStatus,
   type PendingElicitation,
 } from '@/stores/conversations';
@@ -68,6 +69,8 @@ describe('useConversation', () => {
           pendingElicitations?: { id: string; type: string; prompt: string; options?: string[] }[];
         }) => void;
         onMessageStart?: () => void;
+        onToken?: (token: string) => void;
+        onMessageComplete?: (message: Message) => void;
         onMessageAdded?: (message: Message) => void;
         onStepComplete?: () => void;
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
@@ -509,6 +512,34 @@ describe('useConversation', () => {
     );
     expect(resync).toHaveBeenCalledTimes(1);
     expect(resync).toHaveBeenCalledWith('chat-placeholder');
+  });
+
+  it('rebinds streaming to the surviving reply when a merge drops the partial (#5158)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onMessageStart!());
+    const conversation = conversations$.get('chat-placeholder')!;
+    const withPlaceholder = conversation.data.log.get();
+    expect(withPlaceholder.at(-1)?.role).toBe('assistant');
+
+    // A reconnect merge dropped or replaced the partial (its saved copy had
+    // already finished), so the tracked timestamp is gone from the log. Later
+    // tokens still belong to the reply being written.
+    act(() => {
+      replaceLog('chat-placeholder', [
+        withPlaceholder[0],
+        {
+          role: 'assistant',
+          content: 'Hello',
+          timestamp: '2026-11-25T00:00:05Z',
+          isComplete: false,
+        },
+      ]);
+    });
+    act(() => eventHandlers!.onToken!(' world'));
+
+    const log = conversations$.get('chat-placeholder')!.data.log.get();
+    expect(log.at(-1)?.content).toBe('Hello world');
   });
 
   it('keeps synthetic notices that share a timestamp but differ in content (#5158)', async () => {
