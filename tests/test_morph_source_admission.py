@@ -105,6 +105,9 @@ def test_metadata_permission_denied_retains_error(
     assert target.read_text(encoding="utf-8") == "old"
 
 
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"), reason="atomic writer refuses ACL platforms"
+)
 @pytest.mark.parametrize("symlink", [False, True])
 def test_regular_file_and_symlink_still_work(tmp_path: Path, symlink: bool):
     file = tmp_path / "file"
