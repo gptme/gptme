@@ -38,11 +38,12 @@ WORKSPACE_INSTRUCTION = (
 # gptme tool names -> Claude Code built-in tool names. ``read`` includes the
 # read-only discovery tools (Glob, Grep) Claude Code uses in place of shelling
 # out to ls/grep; ``append`` needs Edit for existing files and Write otherwise.
-# Claude Code refuses to Edit a file it has not Read, so edit tools carry Read.
+# Claude Code refuses to Edit or overwrite a file it has not Read, so the
+# writing tools carry Read.
 GPTME_TO_CLAUDE_CODE_TOOLS: dict[str, tuple[str, ...]] = {
     "shell": ("Bash",),
     "read": ("Read", "Glob", "Grep"),
-    "save": ("Write",),
+    "save": ("Read", "Write"),
     "append": ("Read", "Edit", "Write"),
     "patch": ("Read", "Edit"),
     "morph": ("Read", "Edit"),
@@ -77,9 +78,10 @@ def map_tools_to_claude_code(tools: list[str]) -> list[str]:
     return mapped
 
 
-# Pre-approved when the eval sets no tool list. A ``-p`` run cannot answer
-# permission prompts, and with ``--setting-sources ""`` no host allowlist
-# applies, so without this an unrestricted run could not write or run anything.
+# Pre-approved when the eval sets no tool list and isolates host settings. A
+# ``-p`` run cannot answer permission prompts, and with ``--setting-sources ""``
+# no host allowlist applies, so without this an unrestricted run could not write
+# or run anything. With user context the host's own permission settings decide.
 UNRESTRICTED_ALLOWED_TOOLS: tuple[str, ...] = tuple(
     dict.fromkeys(n for names in GPTME_TO_CLAUDE_CODE_TOOLS.values() for n in names)
 )
@@ -101,6 +103,8 @@ def claude_code_tool_args(
         # tool-limited eval loads none even when it keeps user settings.
         args.append("--strict-mcp-config")
     if tools is None:
+        if include_user_context:
+            return args
         args.extend(["--allowedTools", ",".join(UNRESTRICTED_ALLOWED_TOOLS)])
     else:
         # --tools restricts the built-in set; --allowedTools pre-approves it.

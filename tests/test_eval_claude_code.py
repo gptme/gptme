@@ -372,6 +372,8 @@ def test_map_tools_to_claude_code():
         "Grep",
         "Write",
     ]
+    # Claude Code refuses to overwrite an unread file, so save carries Read
+    assert map_tools_to_claude_code(["save"]) == ["Read", "Write"]
     # Claude Code names pass through; duplicates collapse, order is kept
     assert map_tools_to_claude_code(["patch", "Edit", "Bash", "shell"]) == [
         "Read",
@@ -397,7 +399,7 @@ def test_agent_explicit_empty_tools_disables_all_tools():
 
 def test_map_tools_drops_unknown_with_warning(caplog):
     with caplog.at_level("WARNING", logger="gptme.eval.agents.claude_code"):
-        assert map_tools_to_claude_code(["save", "ipython"]) == ["Write"]
+        assert map_tools_to_claude_code(["save", "ipython"]) == ["Read", "Write"]
     assert "ipython" in caplog.text
 
 
@@ -453,3 +455,5 @@ def test_agent_include_user_context_keeps_user_settings():
     )
     assert "--setting-sources" not in cmd
     assert "--strict-mcp-config" not in cmd
+    # The host's own permission settings decide; nothing is pre-approved.
+    assert "--allowedTools" not in cmd
