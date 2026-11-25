@@ -316,9 +316,7 @@ def format_diff(diffs: dict) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="gptme-eval-trends", description="Track eval result trends over time"
-    )
+    parser = argparse.ArgumentParser(description="Track eval result trends over time")
     parser.add_argument(
         "--results-dir",
         type=Path,

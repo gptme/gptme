@@ -91,7 +91,13 @@ def complete_prompt(
                 n for n in ["search", *UTIL_SUBCOMMANDS] if n.startswith(incomplete)
             ]
             if names and incomplete:
-                return [CompletionItem(n) for n in names]
+                # The first word may also be a context file (`gptme main.py`),
+                # so offer paths too. File comes first: Click's Bash script
+                # resets COMPREPLY on a file item, so Bash keeps the names.
+                return [
+                    CompletionItem(incomplete, type="file"),
+                    *(CompletionItem(n) for n in names),
+                ]
         elif prompts[0] in UTIL_SUBCOMMANDS:
             from .util import main as util_main
 

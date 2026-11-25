@@ -15,6 +15,9 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import PurePath
 
+# Every generated script contains this, so setup can recognize its own files.
+ARGPARSE_MARKER = "generated from its argparse parser"
+
 # Console scripts built on argparse, mapped to a side-effect-free parser factory.
 ARGPARSE_PARSERS = {
     "gptme-convert": "gptme.tools.convert:build_parser",
@@ -112,6 +115,28 @@ def _value_cases(scope: _Scope, files_action: str, choices_action: str) -> list[
     return arms
 
 
+def _scan(scope: _Scope, words: str, start: int, end: str) -> str:
+    """Shell loop finding the subcommand word and a standalone ``--``.
+
+    A word is skipped as the subcommand when it is the value of a top-level
+    option (``--quality convert``), including the ``--opt=value`` form that
+    Bash splits into ``--opt = value``. After ``--`` every word is positional.
+    """
+    value_flags = [f for o in scope.options if o.choices is not None for f in o.flags]
+    skip = "|".join(shlex.quote(f) for f in ["=", *value_flags])
+    find_sub = ""
+    if scope.subcommands:
+        sub_pattern = "|".join(shlex.quote(n) for n in scope.subcommands)
+        find_sub = f"""
+        [[ -n "$sub" ]] && continue
+        case "${{{words}[i-1]}}" in {skip}) continue;; esac
+        case "${{{words}[i]}}" in {sub_pattern}) sub="${{{words}[i]}}";; esac"""
+    return f"""    for ((i={start}; i<{end}; i++)); do
+        [[ "${{{words}[i]}}" == "--" ]] && {{ dd=1; break; }}{find_sub}
+    done
+"""
+
+
 def _scope_cases(scope: _Scope, render) -> list[str]:
     scopes = [("", scope)] + [(n, s) for n, (_, s) in scope.subcommands.items()]
     return [f"{shlex.quote(name)}) {render(name, sc)};;" for name, sc in scopes]
@@ -120,7 +145,11 @@ def _scope_cases(scope: _Scope, render) -> list[str]:
 def _bash(prog: str, scope: _Scope) -> str:
     func = f"_{_identifier(prog)}_completion"
     reply = 'COMPREPLY=($(compgen -W "%s" -- "$cur"))'
-    files = 'COMPREPLY=($(compgen -f -- "$cur"))'
+    # One candidate per line, so a path with spaces stays one completion.
+    files = (
+        'COMPREPLY=(); while IFS= read -r candidate; do COMPREPLY+=("$candidate"); '
+        'done < <(compgen -f -- "$cur")'
+    )
 
     def options(_name, sc):
         return reply % " ".join(f for o in sc.options for f in o.flags)
@@ -130,28 +159,29 @@ def _bash(prog: str, scope: _Scope) -> str:
             return reply % " ".join(sc.subcommands)
         return files if sc.positional_files else ":"
 
-    sub_pattern = "|".join(shlex.quote(n) for n in scope.subcommands)
-    find_sub = (
-        f"""    for ((i=1; i<COMP_CWORD; i++)); do
-        case "${{COMP_WORDS[i]}}" in {sub_pattern}) sub="${{COMP_WORDS[i]}}"; break;; esac
-    done
-"""
-        if scope.subcommands
-        else ""
-    )
     nl = "\n        "
+    nl2 = "\n            "
     return f"""# bash completion for {prog}, generated from its argparse parser.
 # Static: completing never runs {prog}.
 {func}() {{
-    local cur="${{COMP_WORDS[COMP_CWORD]}}" prev="${{COMP_WORDS[COMP_CWORD-1]}}" sub="" i
-{find_sub}    case "$sub:$prev" in
-        {nl.join(_value_cases(scope, files, reply)) or ":) ;;"}
-    esac
-    if [[ "$cur" == -* ]]; then
-        case "$sub" in
-        {nl.join(_scope_cases(scope, options))}
+    local cur="${{COMP_WORDS[COMP_CWORD]}}" prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    local sub="" dd="" i candidate
+    # COMP_WORDBREAKS splits --opt=value into "--opt" "=" "value".
+    if [[ "$cur" == "=" ]]; then
+        cur=""
+    elif [[ "$prev" == "=" ]]; then
+        prev="${{COMP_WORDS[COMP_CWORD-2]}}"
+    fi
+{_scan(scope, "COMP_WORDS", 1, "COMP_CWORD")}    if [[ -z "$dd" ]]; then
+        case "$sub:$prev" in
+            {nl2.join(_value_cases(scope, files, reply)) or ":) ;;"}
         esac
-        return
+        if [[ "$cur" == -* ]]; then
+            case "$sub" in
+            {nl2.join(_scope_cases(scope, options))}
+            esac
+            return
+        fi
     fi
     case "$sub" in
         {nl.join(_scope_cases(scope, positionals))}
@@ -172,29 +202,29 @@ def _zsh(prog: str, scope: _Scope) -> str:
             return "compadd -- " + _words(list(sc.subcommands))
         return "_files" if sc.positional_files else ":"
 
-    sub_pattern = "|".join(shlex.quote(n) for n in scope.subcommands)
-    find_sub = (
-        f"""    for ((i=2; i<CURRENT; i++)); do
-        case "${{words[i]}}" in {sub_pattern}) sub="${{words[i]}}"; break;; esac
-    done
-"""
-        if scope.subcommands
-        else ""
-    )
     nl = "\n        "
+    nl2 = "\n            "
     return f"""#compdef {prog}
 # zsh completion for {prog}, generated from its argparse parser.
 # Static: completing never runs {prog}.
 {func}() {{
-    local cur="${{words[CURRENT]}}" prev="${{words[CURRENT-1]}}" sub="" i
-{find_sub}    case "$sub:$prev" in
-        {nl.join(_value_cases(scope, "_files", "compadd -- %s")) or ":) ;;"}
-    esac
-    if [[ "$cur" == -* ]]; then
-        case "$sub" in
-        {nl.join(_scope_cases(scope, options))}
+    local cur="${{words[CURRENT]}}" prev="${{words[CURRENT-1]}}" sub="" dd="" i
+    # --opt=value: complete the value, keeping "--opt=" as an ignored prefix.
+    if [[ "$cur" == --*=* ]]; then
+        prev="${{cur%%=*}}"
+        cur="${{cur#*=}}"
+        compset -P '*='
+    fi
+{_scan(scope, "words", 2, "CURRENT")}    if [[ -z "$dd" ]]; then
+        case "$sub:$prev" in
+            {nl2.join(_value_cases(scope, "_files", "compadd -- %s")) or ":) ;;"}
         esac
-        return
+        if [[ "$cur" == -* ]]; then
+            case "$sub" in
+            {nl2.join(_scope_cases(scope, options))}
+            esac
+            return
+        fi
     fi
     case "$sub" in
         {nl.join(_scope_cases(scope, positionals))}

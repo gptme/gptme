@@ -126,18 +126,27 @@ def _install_click_completions(shell: str) -> None:
     # ACP is a stdio transport with no CLI options. Argparse CLIs get static
     # scripts generated from their parsers: a Click script would run them on Tab.
     from .argparse_completion import (
+        ARGPARSE_MARKER,
         ARGPARSE_PARSERS,
         generate_argparse_completion,
         load_parser,
     )
 
+    def destination_for(name: str) -> Path:
+        if shell == "zsh":
+            return directory / f"_{name}"
+        return directory / (name + (".fish" if shell == "fish" else ""))
+
     scripts: dict[str, str | None] = {}
+    skipped: list[str] = []
     for ep in importlib.metadata.distribution("gptme").entry_points:
         if ep.group != "console_scripts" or ep.name == "gptme-acp":
             continue
         if ep.name in ARGPARSE_PARSERS:
             parser = load_parser(ep.name)
-            if parser is not None:
+            if parser is None:
+                skipped.append(ep.name)
+            else:
                 scripts[ep.name] = generate_argparse_completion(shell, ep.name, parser)
         else:
             scripts[ep.name] = _generate_click_completion(shell, ep.name)
@@ -146,19 +155,23 @@ def _install_click_completions(shell: str) -> None:
         if script is None:
             console.print(f"[red]❌ Unsupported completion shell: {shell}[/red]")
             return
-        filename = (
-            f"_{name}"
-            if shell == "zsh"
-            else name + (".fish" if shell == "fish" else "")
-        )
-        destination = directory / filename
+        destination = destination_for(name)
         if not destination.exists() or destination.read_text() != script:
             updates[destination] = script
-    if updates:
+    # A script this installer generated earlier would keep completing a CLI
+    # whose parser can no longer be loaded. Files it did not write stay.
+    stale = [
+        path
+        for path in map(destination_for, skipped)
+        if path.is_file() and ARGPARSE_MARKER in path.read_text()
+    ]
+    if updates or stale:
         if not Confirm.ask(
             f"Install/update {shell} completions for all gptme CLIs?", default=True
         ):
             return
+        for path in stale:
+            path.unlink()
         directory.mkdir(parents=True, exist_ok=True)
         for destination, script in updates.items():
             # Old Fish installs symlink into a source checkout. Never write
@@ -169,6 +182,10 @@ def _install_click_completions(shell: str) -> None:
     console.print(
         f"[green]✅ {shell.capitalize()} completions up to date[/green] [dim]({path_with_tilde(directory)})[/dim]"
     )
+    if skipped:
+        console.print(
+            f"   [yellow]Skipped {', '.join(sorted(skipped))}: optional dependencies not installed[/yellow]"
+        )
     if shell == "zsh":
         console.print(
             "   Add this to ~/.zshrc before compinit, if not already present:"

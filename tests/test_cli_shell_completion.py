@@ -580,3 +580,91 @@ def test_prompt_words_fall_back_to_paths(args, partial):
     result = CliRunner().invoke(gptme_main, [], prog_name="gptme", env=env)
     assert result.exit_code == 0, result.output
     assert result.output.split() == [f"file,{partial}"]
+
+
+@pytest.mark.parametrize(
+    ("prog", "words", "expected", "unexpected"),
+    [
+        # A path with a space is one candidate, not two.
+        ("gptme-convert", ["convert", "--input", "in"], {"in put.txt"}, {"in"}),
+        # Bash splits --opt=value at "=" (COMP_WORDBREAKS).
+        ("gptme-convert", ["convert", "--quality", "=", "m"], {"medium"}, set()),
+        ("gptme-convert", ["convert", "--quality", "="], {"low", "high"}, set()),
+        ("gptme-eval-trends", ["--format", "=", "j"], {"json"}, set()),
+        # After "--" words go to gptme, not to the wrapper's options.
+        ("gptme-wut", ["--", "--l"], set(), {"--lines"}),
+    ],
+)
+def test_bash_argparse_completion_word_breaks(
+    tmp_path, prog, words, expected, unexpected
+):
+    if not shutil.which("bash"):
+        pytest.skip("bash is not installed")
+    parser = load_parser(prog)
+    assert parser is not None
+    script = generate_argparse_completion("bash", prog, parser)
+    assert script is not None
+    source = tmp_path / "completion"
+    source.write_text(script)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    (cwd / "in put.txt").write_text("")
+    func = "_" + prog.replace("-", "_") + "_completion"
+    quoted = " ".join(f"'{w}'" for w in [prog, *words])
+    code = (
+        f"source {source}; COMP_WORDS=({quoted}); COMP_CWORD={len(words)}; "
+        f'{func}; printf "%s\\n" "${{COMPREPLY[@]}}"'
+    )
+    result = subprocess.run(
+        ["bash", "-c", code],
+        check=False,
+        text=True,
+        capture_output=True,
+        cwd=cwd,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    candidates = set(result.stdout.splitlines())
+    assert expected <= candidates, result.stdout
+    assert not unexpected & candidates, result.stdout
+
+
+def test_first_prompt_word_offers_paths_with_subcommands():
+    # `gptme m<Tab>` may name a context file such as main.py, not only `models`.
+    from gptme.cli.main import main as gptme_main
+
+    env = {
+        "_GPTME_COMPLETE": "zsh_complete",
+        "COMP_WORDS": "gptme mo",
+        "COMP_CWORD": "1",
+    }
+    result = CliRunner().invoke(gptme_main, [], prog_name="gptme", env=env)
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert "file" in lines and "models" in lines, lines
+    # Click's Bash script resets COMPREPLY on a file item: it must come first.
+    assert lines.index("file") < lines.index("models"), lines
+
+
+def test_setup_removes_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
+    from gptme.cli import argparse_completion
+    from gptme.cli.setup import _install_click_completions
+
+    load = argparse_completion.load_parser
+    monkeypatch.setattr(
+        argparse_completion,
+        "load_parser",
+        lambda prog: None if prog == "gptme-convert" else load(prog),
+    )
+    directory = tmp_path / "data/bash-completion/completions"
+    directory.mkdir(parents=True)
+    stale = directory / "gptme-convert"
+    stale.write_text(f"# bash completion, {argparse_completion.ARGPARSE_MARKER}\n")
+    foreign = directory / "gptme-eval-trends"
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr("gptme.cli.setup.console.width", 1000)
+    monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
+    _install_click_completions("bash")
+    assert not stale.exists()
+    assert foreign.exists()  # regenerated: its parser still loads
+    assert "Skipped gptme-convert" in capsys.readouterr().out

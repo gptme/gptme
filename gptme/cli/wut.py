@@ -35,7 +35,7 @@ def get_tmux_content(lines: int | None = None):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="gptme-wut", description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "-l", "--lines", type=int, help="Number of lines to capture from the end"
     )
