@@ -721,16 +721,26 @@ class TestLessonDeduplication:
             # The active copy from dir2 must NOT be loaded (dir1 wins)
             assert len(index.lessons) == 0
 
-    def test_malformed_lesson_does_not_block_valid_copy(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "bad_content",
+        [
+            "---\nmatch: {keywords: [shell\n---\n# Bad\n",
+            "---\nmatch:\n  keywords: [shell]\n# Bad\n",
+            "\ufeff--- # header\nmatch:\n  keywords: [shell]\n# Bad\n",
+            "---",
+        ],
+        ids=["invalid-yaml", "unclosed", "bom-comment-unclosed", "fence-only"],
+    )
+    def test_malformed_lesson_does_not_block_valid_copy(
+        self, tmp_path: Path, bad_content: str
+    ):
         """A copy that fails to parse must not claim its relative-path slot."""
         clear_cache()
         dir1 = tmp_path / "a" / "lessons"
         dir2 = tmp_path / "b" / "lessons"
         (dir1 / "tools").mkdir(parents=True)
         (dir2 / "tools").mkdir(parents=True)
-        (dir1 / "tools" / "shell.md").write_text(
-            "---\nmatch: {keywords: [shell\n---\n# Bad\n"
-        )
+        (dir1 / "tools" / "shell.md").write_text(bad_content)
         (dir2 / "tools" / "shell.md").write_text(
             "---\nmatch:\n  keywords: [shell]\n---\n# Shell\n\nx\n"
         )

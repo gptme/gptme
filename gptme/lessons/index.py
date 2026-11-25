@@ -640,7 +640,7 @@ class LessonIndex:
                 # Its metadata is defaults, not what the file declared. Skip it
                 # without reserving the path, so a later valid copy is indexed.
                 logger.warning(
-                    f"Skipping lesson whose frontmatter is not a mapping: {lesson_file}"
+                    f"Skipping lesson with malformed frontmatter: {lesson_file}"
                 )
                 continue
 

@@ -80,7 +80,7 @@ class Lesson:
     category: str
     body: str
     is_stub: bool = False
-    # A frontmatter block is present but is not a mapping (e.g. a YAML list):
+    # A frontmatter block is unclosed or is not a mapping (e.g. a YAML list):
     # the body is kept, but the metadata is defaults, not what the file meant.
     malformed_frontmatter: bool = False
 
@@ -360,6 +360,7 @@ def parse_lesson(path: Path) -> Lesson:
 
         # Fences must be whole lines: a "---" inside a YAML value is not a fence.
         fence = _FRONTMATTER_RE.match(content)
+        malformed_frontmatter = fence is None and has_frontmatter_fence(content)
         if fence:
             frontmatter_str = fence.group(1)
             body = fence.group(2).strip()

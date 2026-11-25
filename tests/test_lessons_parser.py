@@ -537,9 +537,23 @@ class TestFrontmatterFences:
 
     def test_unclosed_frontmatter_yields_no_metadata(self, tmp_path: Path):
         lesson_file = tmp_path / "lesson.md"
-        lesson_file.write_text("---\nmatch:\n  keywords: [patch]\n# Title\n")
+        content = "---\nmatch:\n  keywords: [patch]\n# Title\n"
+        lesson_file.write_text(content)
         lesson = parse_lesson(lesson_file)
         assert lesson.metadata.keywords == []
+        assert lesson.malformed_frontmatter
+        assert lesson.body == content
+
+    @pytest.mark.parametrize("divider", ["----", "---x"])
+    def test_markdown_divider_is_not_malformed_frontmatter(
+        self, tmp_path: Path, divider: str
+    ):
+        lesson_file = tmp_path / "lesson.md"
+        content = f"{divider}\n# Title\n\nBody\n"
+        lesson_file.write_text(content)
+        lesson = parse_lesson(lesson_file)
+        assert not lesson.malformed_frontmatter
+        assert lesson.body == content
 
 
 class TestLessonDataclasses:
