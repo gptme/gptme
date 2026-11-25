@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { iconForLangtag } from '@/utils/codeBlockIcons';
 import * as smd from '@/utils/smd';
 import { customRenderer } from '@/utils/markdownRenderer';
+import { htmlPreviewSrcDoc } from '@/utils/remoteImages';
 
 /**
  * Props for the TabbedCodeBlock component
@@ -100,11 +101,15 @@ export const TabbedCodeBlock: React.FC<TabbedCodeBlockProps> = ({ language, code
             activeTab === 'code' || language === 'html' || renderError ? '!hidden' : ''
           }`}
         ></div>
-        {language === 'html' && (
+        {/* Mount only on the Preview tab: a mounted iframe parses its srcDoc
+            (and fetches any remote image) even while CSS keeps it hidden. The
+            injected CSP blocks remote images once the preview is shown, since
+            the HTML is model output too (gptme/gptme#5223). */}
+        {language === 'html' && activeTab === 'preview' && !renderError && (
           <iframe
             sandbox="allow-scripts"
-            srcDoc={codeText}
-            className={`min-h-[450px] w-full border-0 ${activeTab === 'code' || renderError ? '!hidden' : ''}`}
+            srcDoc={htmlPreviewSrcDoc(codeText)}
+            className="min-h-[450px] w-full border-0"
             title="HTML Preview"
           ></iframe>
         )}
