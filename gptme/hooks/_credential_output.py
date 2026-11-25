@@ -39,10 +39,10 @@ def _words(node: "Node") -> list[str]:
 
 
 def _unwrap(words: list[str]) -> list[str]:
-    """Unwrap simple command/exec/sudo/env prefixes, not arbitrary option syntax."""
+    """Unwrap simple command/builtin/exec/sudo/env prefixes, not option syntax."""
     while words:
         name, args = PurePosixPath(words[0]).name, words[1:]
-        if name in {"command", "exec", "sudo"}:
+        if name in {"command", "builtin", "exec", "sudo"}:
             if args and args[0] == "--":
                 args = args[1:]
             if not args or args[0].startswith("-"):
@@ -138,7 +138,11 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
     if name == "set" and not args:
         return _REASON
     if name in {"export", "declare", "typeset"}:
-        if not args or any(arg.startswith("-") and "p" in arg[1:] for arg in args):
+        # An end-of-options marker names nothing: `export --` dumps like
+        # `export`. Zsh also accepts a lone `-` as that marker.
+        if all(arg in {"-", "--"} for arg in args) or any(
+            arg.startswith("-") and "p" in arg[1:] for arg in args
+        ):
             return _REASON
         # `declare -x` / `typeset -x` with no names list every exported
         # variable with its value, like `export -p`. In bash `-F` lists

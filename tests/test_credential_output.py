@@ -103,6 +103,20 @@ from gptme.tools.base import ToolUse
         "zsh -c \"typeset -m '*TOKEN*'\"",
         "zsh <<'EOF'\ntypeset OPENAI_API_KEY\nEOF",
         "sh -c 'declare -Fx'",
+        # An end-of-options marker names nothing, so these still dump.
+        "export --",
+        "declare --",
+        "typeset --",
+        "zsh -c 'typeset --'",
+        "zsh -c 'typeset -'",
+        "zsh -c 'export -'",
+        # `builtin NAME` runs the builtin with identical output.
+        "builtin declare -x",
+        "builtin typeset -x",
+        "builtin -- export",
+        "command builtin set",
+        "builtin shopt -os xtrace",
+        'builtin echo "$API_KEY"',
     ],
 )
 def test_credential_output_is_blocked(command, monkeypatch):
@@ -157,6 +171,11 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "typeset -F -x",
         "bash -c 'declare -Fx'",
         "declare -x FOO=bar",
+        "declare -- FOO=bar",
+        "export -- FOO=bar",
+        "set --",
+        "builtin shopt -s nullglob",
+        "builtin cd /tmp",
         "zsh -c 'typeset OPENAI_API_KEY=synthetic'",
         # `+m` alone prints nothing; with -x it is a full export dump.
         "zsh -c 'typeset +m'",
