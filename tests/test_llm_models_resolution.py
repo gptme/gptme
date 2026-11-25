@@ -317,7 +317,10 @@ class TestDateSuffixStripping:
         """OpenAI snapshots use -YYYY-MM-DD; they must resolve to the base model,
         not fall through to the family match (gptme/gptme#5218 item 2)."""
         model = get_model("openai/gpt-4o-2024-11-20")
+        base_model = get_model("openai/gpt-4o")
         assert model.context == 128_000
+        assert model.price_input == base_model.price_input > 0
+        assert model.price_output == base_model.price_output > 0
         assert model.supports_reasoning is False
         assert model.supports_responses_api is False
         assert model.full == "openai/gpt-4o-2024-11-20"
