@@ -89,7 +89,7 @@ class TestInit:
 
         mock_dotenv.assert_called_once()
         mock_init_model.assert_called_once_with("anthropic/claude-sonnet-4-6", True)
-        mock_init_tools.assert_called_once_with(None)
+        mock_init_tools.assert_called_once_with(None, interactive=True)
         mock_init_hooks.assert_called_once_with(
             interactive=True, no_confirm=False, server=False
         )
@@ -157,7 +157,7 @@ class TestInit:
             tool_allowlist=allowlist,
             tool_format="markdown",
         )
-        mock_init_tools.assert_called_once_with(allowlist)
+        mock_init_tools.assert_called_once_with(allowlist, interactive=False)
 
     @patch("gptme.init.init_commands")
     @patch("gptme.init.init_hooks")
