@@ -20,6 +20,7 @@ from time import sleep
 from ..constants import DECLINED_CONTENT
 from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
+from ..sandbox import SandboxConfig
 from ..util.context import md_codeblock
 from ..util.output_storage import save_large_output
 from ..util.workspace import current_workspace
@@ -161,8 +162,17 @@ def _truncate_output(
 #   pane: gptme_0:0.0
 
 
+def _require_unsandboxed() -> None:
+    """Host tmux sessions and their server environment are not sandboxed."""
+    if SandboxConfig.from_env().enabled:
+        raise RuntimeError(
+            "tmux is disabled while GPTME_SANDBOX is enabled; use the shell tool instead."
+        )
+
+
 def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a tmux command with consistent logging and error handling."""
+    _require_unsandboxed()
     print(" ".join(cmd))
     result = subprocess.run(
         cmd,
@@ -194,6 +204,7 @@ def _run_tmux_command_with_retry(
 
 
 def get_sessions() -> list[str]:
+    _require_unsandboxed()
     try:
         output = subprocess.run(
             ["tmux", "has"],
@@ -228,6 +239,7 @@ def get_sessions() -> list[str]:
 
 def _capture_pane(pane_id: str) -> str:
     """Capture the content of a tmux pane including scrollback history."""
+    _require_unsandboxed()
     try:
         result = subprocess.run(
             # -p: print to stdout
@@ -373,6 +385,7 @@ def get_tmux_pane_cwd(pane_id: str) -> Path | None:
     Match ``send_keys`` shorthand and restrict native IDs to our namespace.
     A disappearing pane or unavailable server has no observable directory.
     """
+    _require_unsandboxed()
     if not (
         pane_id.startswith("%") and pane_id[1:].isdigit()
     ) and not pane_id.startswith("gptme_"):
@@ -402,6 +415,7 @@ def get_tmux_pane_cwd(pane_id: str) -> Path | None:
 
 
 def send_keys(pane_id: str, keys: str) -> Message:
+    _require_unsandboxed()
     if pane_id.startswith("%") and pane_id[1:].isdigit():
         # Native pane IDs cannot be prefixed. Check ownership before accepting
         # them so this shorthand does not grant access to unrelated sessions.
@@ -489,6 +503,7 @@ def inspect_pane(pane_id: str, logdir: Path | None = None) -> Message:
 
 
 def kill_session(session_id: str) -> Message:
+    _require_unsandboxed()
     if not session_id.startswith("gptme_"):
         session_id = f"gptme_{session_id}"
     try:
@@ -835,6 +850,11 @@ def execute_tmux(
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
     """Executes a command in tmux and returns the output."""
+    try:
+        _require_unsandboxed()
+    except RuntimeError as exc:
+        yield Message("system", f"Error: {exc}")
+        return
     if code is not None and args is not None:
         assert not args
     cmd = _tmux_call_text(code, args, kwargs)
@@ -1020,7 +1040,10 @@ tool = ToolSpec(
     examples=examples,
     execute=execute_tmux,
     block_types=["tmux"],
-    available=shutil.which("tmux") is not None,
+    available=lambda: (
+        shutil.which("tmux") is not None and not SandboxConfig.from_env().enabled
+    ),
+    available_hint="tmux requires tmux installed and GPTME_SANDBOX disabled.",
     parameters=[
         Parameter(
             name="command",

@@ -398,3 +398,59 @@ def test_get_tmux_key_text(keys, text):
     from gptme.tools.tmux import get_tmux_key_text
 
     assert get_tmux_key_text(keys) == text
+
+
+@pytest.mark.parametrize("backend", ["bwrap", "firejail", "docker", "wasmtime"])
+@pytest.mark.parametrize(
+    ("operation", "args"),
+    [
+        ("new_session", ("echo host-command",)),
+        ("send_keys", ("gptme_1", "echo host-command Enter")),
+        ("send_keys", ("%1", "echo host-command Enter")),
+        ("get_sessions", ()),
+        ("inspect_pane", ("gptme_1",)),
+        ("kill_session", ("gptme_1",)),
+        ("wait_for_output", ("gptme_1",)),
+        ("get_tmux_pane_cwd", ("gptme_1",)),
+    ],
+)
+def test_sandbox_blocks_tmux_before_host_access(monkeypatch, backend, operation, args):
+    """Direct calls must not reach new or pre-existing host tmux sessions."""
+    from unittest.mock import Mock
+
+    from gptme.tools import tmux
+
+    # Restore the environment before the module's real-session cleanup runs.
+    with monkeypatch.context() as patch:
+        patch.setenv("GPTME_SANDBOX", backend)
+        run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        patch.setattr(tmux.subprocess, "run", run)
+        patch.setattr(tmux, "sleep", lambda _: None)
+        with pytest.raises(RuntimeError, match="tmux is disabled.*GPTME_SANDBOX"):
+            getattr(tmux, operation)(*args)
+        run.assert_not_called()
+
+
+@pytest.mark.parametrize("backend", ["bwrap", "firejail", "docker", "wasmtime"])
+def test_sandbox_disables_tmux_tool_and_cached_execution(monkeypatch, backend):
+    """Availability is dynamic; a previously loaded tool also refuses execution."""
+    from unittest.mock import Mock
+
+    from gptme.tools import tmux
+
+    with monkeypatch.context() as patch:
+        patch.setattr(tmux.shutil, "which", lambda _: "/usr/bin/tmux")
+        patch.setenv("GPTME_SANDBOX", "none")
+        assert tmux.tool.is_available
+        patch.setenv("GPTME_SANDBOX", backend)
+        assert not tmux.tool.is_available
+        run = Mock()
+        patch.setattr(tmux.subprocess, "run", run)
+        messages = list(
+            tmux.execute_tmux("new-session echo host-command", args=[], kwargs=None)
+        )
+        assert len(messages) == 1
+        assert "tmux is disabled" in messages[0].content
+        run.assert_not_called()
+        patch.delenv("GPTME_SANDBOX")
+        assert tmux.tool.is_available
