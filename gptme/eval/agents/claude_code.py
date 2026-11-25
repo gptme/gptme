@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 from ...util.cost_tracker import CostEntry, CostTracker
 from ..execenv import DockerClaudeCodeEnv
@@ -87,20 +88,40 @@ UNRESTRICTED_ALLOWED_TOOLS: tuple[str, ...] = tuple(
 )
 
 
+# Admin-managed MCP config locations. When one exists Claude Code takes
+# exclusive MCP control and rejects --strict-mcp-config at startup.
+MANAGED_MCP_CONFIG_PATHS: tuple[Path, ...] = (
+    Path("/etc/claude-code/managed-mcp.json"),
+    Path("/Library/Application Support/ClaudeCode/managed-mcp.json"),
+    Path("C:/Program Files/ClaudeCode/managed-mcp.json"),
+)
+
+
+def _managed_mcp_config_present() -> bool:
+    return any(path.is_file() for path in MANAGED_MCP_CONFIG_PATHS)
+
+
 def claude_code_tool_args(
-    tools: list[str] | None, include_user_context: bool
+    tools: list[str] | None,
+    include_user_context: bool,
+    managed_mcp: bool | None = None,
 ) -> list[str]:
     """Isolation and tool flags shared by the local and Docker runs.
 
     ``tools`` are Claude Code tool names (None: unrestricted, []: none).
+    ``managed_mcp``: whether an admin-managed MCP config applies to the run
+    (None: check this host; the Docker run passes False for its container).
     """
+    if managed_mcp is None:
+        managed_mcp = _managed_mcp_config_present()
     args: list[str] = []
     if not include_user_context:
         # Keep the host's hooks and permission allowlists out of the eval.
         args.extend(["--setting-sources", ""])
-    if not include_user_context or tools is not None:
+    if (not include_user_context or tools is not None) and not managed_mcp:
         # --tools limits only built-in tools; MCP servers add their own, so a
-        # tool-limited eval loads none even when it keeps user settings.
+        # tool-limited eval loads none even when it keeps user settings. Under
+        # managed MCP the flag is rejected, and user servers are excluded anyway.
         args.append("--strict-mcp-config")
     if tools is None:
         if include_user_context:

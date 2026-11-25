@@ -1001,7 +1001,10 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
 
         cmd_parts.extend(
             shlex.quote(arg)
-            for arg in claude_code_tool_args(tools, include_user_context)
+            # The container has no host managed-MCP config.
+            for arg in claude_code_tool_args(
+                tools, include_user_context, managed_mcp=False
+            )
         )
 
         command = " ".join(cmd_parts)
