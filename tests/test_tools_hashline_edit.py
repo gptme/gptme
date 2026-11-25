@@ -233,6 +233,20 @@ class TestApplyOperations:
         ops = [HashlineOp(kind="replace", start=1, end=1, text='bar = "c')]
         assert _apply_operations(content, ops) == 'bar = "c\rb"\n'
 
+    def test_blank_replacement_keeps_the_blank_line_after_a_bare_cr(self):
+        """A CR followed by an empty line's LF must not merge into one CRLF.
+
+        ``"A\r" + "" + "\n"`` reads back as a single line break, dropping the
+        blank line the edit created.
+        """
+        content = "a\rb\nc\n"
+        ops = [
+            HashlineOp(kind="replace", start=1, end=1, text="A"),
+            HashlineOp(kind="replace", start=2, end=2, text=None, text_lines=[""]),
+        ]
+        result = _apply_operations(content, ops)
+        assert result.splitlines() == ["A", "", "c"]
+
     def test_insert_before(self):
         content = "alpha\nbeta\n"
         ops = [HashlineOp(kind="insert_before", start=1, end=1, text="zero")]
@@ -1785,7 +1799,16 @@ class TestLineFidelity:
         f.write_text(original)
         tag = store_snapshot(str(f.resolve()), f.read_text())
         block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
-        monkeypatch.setattr(sys, "platform", "darwin")
+        # Patch the writer's module globals: flipping the real sys.platform
+        # would also make pathlib build a WindowsPath on a Windows runner.
+        from types import SimpleNamespace
+
+        from gptme.util import file_write
+
+        monkeypatch.setattr(file_write, "sys", SimpleNamespace(platform="darwin"))
+        monkeypatch.setattr(
+            file_write, "os", SimpleNamespace(**(vars(os) | {"name": "posix"}))
+        )
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
         assert any("Cannot safely preserve macOS ACL" in m for m in msgs), msgs
         assert f.read_text() == original

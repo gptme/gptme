@@ -670,6 +670,13 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             file_lines[e:e] = new_lines
             endings[e:e] = new_endings
 
+    # A bare CR immediately before an empty line's "\n" reads back as a single
+    # CRLF, which silently drops the blank line. Give the empty line the same
+    # bare terminator so the two breaks stay distinct.
+    for idx in range(1, len(endings)):
+        if file_lines[idx] == "" and endings[idx] == "\n" and endings[idx - 1] == "\r":
+            endings[idx] = "\r"
+
     if not file_lines:
         return "\n" if had_trailing_newline else ""
     parts: list[str] = []

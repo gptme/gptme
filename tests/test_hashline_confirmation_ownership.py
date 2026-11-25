@@ -17,11 +17,9 @@ from gptme.tools.hashline_edit import execute_hashline_edit
 
 # The hashline writer now goes through write_text_preserving_original, which
 # refuses to replace an existing file on macOS (ACLs) and Windows (security
-# descriptors), like save/patch/morph (#4622). Every test here replaces a file.
-pytestmark = pytest.mark.skipif(
-    sys.platform in ("win32", "darwin"),
-    reason="atomic writer refuses ACL platforms",
-)
+# descriptors), like save/patch/morph (#4622). Only the cases that actually
+# replace a file are skipped there; cancellation and changed-file paths still run.
+ACL_PLATFORM = sys.platform in ("win32", "darwin")
 
 
 @pytest.mark.parametrize(
@@ -30,6 +28,8 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.parametrize("action", ["confirm", "edit", "skip"])
 @pytest.mark.parametrize("change", ["unchanged", "text", "deleted", "invalid-utf8"])
 def test_confirmation_preserves_target_ownership(tmp_path, recovered, action, change):
+    if ACL_PLATFORM and change == "unchanged" and action != "skip":
+        pytest.skip("atomic writer refuses ACL platforms")
     clear()
     target = tmp_path / "target.txt"
     original = "alpha\nbeta\ngamma\ndelta\n"
