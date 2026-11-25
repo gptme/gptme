@@ -33,6 +33,10 @@ async function mockServer(page: Page) {
     streamDown: true,
     streamAttempts: 0,
     stepBodies: [] as { session_id?: string }[],
+    log: [
+      { role: 'user', content: 'first message', timestamp: '2026-09-30T08:00:00Z' },
+      { role: 'assistant', content: 'first reply', timestamp: '2026-09-30T08:00:01Z' },
+    ],
   };
 
   await page.route(/127\.0\.0\.1:5700\//, (route) =>
@@ -67,7 +71,9 @@ async function mockServer(page: Page) {
         return route.fulfill({ status: 204, headers: cors(route) });
       }
       if (route.request().method() === 'POST') {
-        // sendMessage
+        // Persist acknowledged sends so a reconnect GET reflects server history.
+        const { role, content, timestamp } = route.request().postDataJSON();
+        state.log.push({ role, content, timestamp });
         return route.fulfill({ headers: cors(route), json: { status: 'ok' } });
       }
       return route.fulfill({
@@ -75,10 +81,7 @@ async function mockServer(page: Page) {
         json: {
           id: CONV_ID,
           name: CONV_ID,
-          log: [
-            { role: 'user', content: 'first message', timestamp: '2026-09-30T08:00:00Z' },
-            { role: 'assistant', content: 'first reply', timestamp: '2026-09-30T08:00:01Z' },
-          ],
+          log: state.log,
           logfile: CONV_ID,
           branches: {},
           workspace: '.',

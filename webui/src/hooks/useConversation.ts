@@ -379,12 +379,12 @@ export function useConversation(conversationId: string, serverId?: string) {
         let streamingTimestamp: string | undefined;
         const streamingMessage = () => {
           const messages = conversation$?.data.log.get() ?? [];
-          if (!streamingTimestamp) {
-            return messages.length > 0 ? conversation$?.data.log[messages.length - 1] : undefined;
-          }
-          const index = messages.findIndex(
-            (message) => message.role === 'assistant' && message.timestamp === streamingTimestamp
-          );
+          const index = streamingTimestamp
+            ? messages.findIndex(
+                (message) =>
+                  message.role === 'assistant' && message.timestamp === streamingTimestamp
+              )
+            : -1;
           if (index >= 0) return conversation$?.data.log[index];
           // Only an incomplete row can own the ongoing generation. A saved
           // reply followed by tool output belongs to an earlier generation;

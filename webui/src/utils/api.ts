@@ -209,9 +209,26 @@ export function mergeReconnectSnapshot(
   }
 ): { log: Message[]; window?: { logOffset: number; hasMoreBefore: boolean } } {
   const isIncomplete = (entry: Message) => 'isComplete' in entry && entry.isComplete === false;
-  const matches = (entry: Message, saved: Message) =>
-    sameLogMessage(entry, saved) ||
-    (!entry.timestamp && entry.role === saved.role && entry.content === saved.content);
+  const matches = (entry: Message, saved: Message) => {
+    const unsavedPrompt =
+      entry.role === 'user' &&
+      (entry._status === 'pending' ||
+        (entry._status === 'failed' && entry._retry?.persistence !== 'saved') ||
+        options.pendingAtStart?.some((prompt) => prompt === entry));
+    // A timestamp is not a server identity for a local unsaved prompt. A
+    // colliding peer prompt must not inherit its Retry state or swallow it.
+    if (
+      unsavedPrompt &&
+      (entry.content !== saved.content ||
+        JSON.stringify(entry.files ?? []) !== JSON.stringify(saved.files ?? []))
+    ) {
+      return false;
+    }
+    return (
+      sameLogMessage(entry, saved) ||
+      (!entry.timestamp && entry.role === saved.role && entry.content === saved.content)
+    );
+  };
   // While generating, the snapshot may already hold the saved copy of the
   // reply the stream is still filling (generation_complete not yet received).
   // Pair the partial with that row so it keeps the stream's identity instead

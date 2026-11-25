@@ -51,6 +51,46 @@ describe('resyncLogAfterReconnect (#5145)', () => {
     client.setConnected(true);
   });
 
+  it.each(['pending', 'failed'] as const)(
+    'keeps a colliding unsaved %s prompt separate from the saved prompt',
+    async (status) => {
+      const draft: Message = {
+        ...user,
+        content: 'unsaved draft',
+        _status: status,
+      };
+      replaceLog(ID, [draft]);
+      jest.spyOn(client, 'getConversation').mockResolvedValue(response([user]));
+
+      await client.resyncLogAfterReconnect(ID);
+
+      expect(state().data.log.get()).toEqual([user, draft]);
+    }
+  );
+
+  it('does not match a newly acknowledged prompt to a colliding peer prompt', async () => {
+    const draft: Message = { ...user, content: 'unsaved draft', _status: 'pending' };
+    replaceLog(ID, [draft]);
+    jest.spyOn(client, 'getConversation').mockImplementation(async () => {
+      state().data.log[0]._status.set('sent');
+      return response([user]);
+    });
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([user, { ...draft, _status: 'sent' }]);
+  });
+
+  it('keeps an unsaved attachment prompt separate from a colliding text-only prompt', async () => {
+    const draft: Message = { ...user, files: ['draft.txt'], _status: 'pending' };
+    replaceLog(ID, [draft]);
+    jest.spyOn(client, 'getConversation').mockResolvedValue(response([user]));
+
+    await client.resyncLogAfterReconnect(ID);
+
+    expect(state().data.log.get()).toEqual([user, draft]);
+  });
+
   it('recovers a reply and tool output persisted while the stream was down', async () => {
     replaceLog(ID, [user, streaming]);
     setGenerating(ID, false);

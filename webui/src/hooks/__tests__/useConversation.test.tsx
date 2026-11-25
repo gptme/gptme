@@ -542,46 +542,49 @@ describe('useConversation', () => {
     expect(log.at(-1)?.content).toBe('Hello world');
   });
 
-  it('starts a new stream row instead of overwriting a saved reply after reconnect (#5158)', async () => {
-    renderHook(() => useConversation('chat-placeholder'));
-    await waitFor(() => expect(eventHandlers).toBeDefined());
-    act(() => eventHandlers!.onMessageStart!());
-    const conversation = conversations$.get('chat-placeholder')!;
-    const prompt = conversation.data.log.get()[0];
-    const saved: Message = {
-      role: 'assistant',
-      content: 'Hello world',
-      timestamp: '2026-11-25T00:00:05Z',
-    };
-    const output: Message = {
-      role: 'system',
-      content: 'tool output',
-      timestamp: '2026-11-25T00:00:06Z',
-    };
-    // The old partial was superseded; the next generation_started was lost
-    // during the outage. Neither tokens nor completion may mutate saved.
-    act(() => replaceLog('chat-placeholder', [prompt, saved, output]));
-    act(() => eventHandlers!.onToken!('Next reply'));
-    expect(conversation.data.log.get().map((row) => row.content)).toEqual([
-      prompt.content,
-      saved.content,
-      output.content,
-      'Next reply',
-    ]);
-    act(() =>
-      eventHandlers!.onMessageComplete!({
+  it.each([true, false])(
+    'recovers a stream row with a prior start event=%s (#5158)',
+    async (sawStart) => {
+      renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      if (sawStart) act(() => eventHandlers!.onMessageStart!());
+      const conversation = conversations$.get('chat-placeholder')!;
+      const prompt = conversation.data.log.get()[0];
+      const saved: Message = {
         role: 'assistant',
-        content: 'Next reply complete',
-        timestamp: '2026-11-25T00:00:07Z',
-      })
-    );
-    expect(conversation.data.log.get().map((row) => row.content)).toEqual([
-      prompt.content,
-      saved.content,
-      output.content,
-      'Next reply complete',
-    ]);
-  });
+        content: 'Hello world',
+        timestamp: '2026-11-25T00:00:05Z',
+      };
+      const output: Message = {
+        role: 'system',
+        content: 'tool output',
+        timestamp: '2026-11-25T00:00:06Z',
+      };
+      // The old partial was superseded; the next generation_started was lost
+      // during the outage. Neither tokens nor completion may mutate saved.
+      act(() => replaceLog('chat-placeholder', [prompt, saved, output]));
+      act(() => eventHandlers!.onToken!('Next reply'));
+      expect(conversation.data.log.get().map((row) => row.content)).toEqual([
+        prompt.content,
+        saved.content,
+        output.content,
+        'Next reply',
+      ]);
+      act(() =>
+        eventHandlers!.onMessageComplete!({
+          role: 'assistant',
+          content: 'Next reply complete',
+          timestamp: '2026-11-25T00:00:07Z',
+        })
+      );
+      expect(conversation.data.log.get().map((row) => row.content)).toEqual([
+        prompt.content,
+        saved.content,
+        output.content,
+        'Next reply complete',
+      ]);
+    }
+  );
 
   it('keeps distinct saved prompts sharing a timestamp and dedupes their replay (#5158)', async () => {
     renderHook(() => useConversation('chat-placeholder'));
