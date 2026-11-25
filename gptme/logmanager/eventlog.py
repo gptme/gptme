@@ -237,13 +237,21 @@ def _parse_event(line: str) -> dict[str, Any] | None:
     seq = event.get("seq")
     if not isinstance(seq, int) or isinstance(seq, bool):
         return None
-    if not _payload_shape_ok(event.get("type"), event.get("payload")):
+    if not _payload_shape_ok(event.get("type"), event.get("payload", _MISSING)):
         return None
     return event
 
 
+_MISSING = object()
+
+
 def _payload_shape_ok(event_type: Any, payload: Any) -> bool:
-    """Check the payload fields recovery and compaction index, per event type."""
+    """Check the payload fields recovery and compaction index, per event type.
+
+    *payload* is ``_MISSING`` when the row has no ``payload`` key, which differs
+    from an explicit ``null``: consumers default a missing payload but call
+    ``.get`` on a present one.
+    """
     if event_type == EVENT_MESSAGE_APPEND:
         return isinstance(payload, dict) and isinstance(payload.get("message"), dict)
     if event_type in (EVENT_CHECKPOINT, EVENT_MESSAGE_EDIT):
@@ -252,7 +260,7 @@ def _payload_shape_ok(event_type: Any, payload: Any) -> bool:
         messages = payload.get("messages")
         return isinstance(messages, list) and all(isinstance(m, dict) for m in messages)
     if event_type == EVENT_UNDO:
-        if payload is None:
+        if payload is _MISSING:
             return True
         if not isinstance(payload, dict):
             return False

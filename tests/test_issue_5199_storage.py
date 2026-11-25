@@ -49,6 +49,8 @@ if TYPE_CHECKING:
         '{"seq": 2, "type": "checkpoint"}',
         '{"seq": 2, "type": "message_edit", "payload": []}',
         '{"seq": 2, "type": "undo", "payload": []}',
+        # explicit null differs from a missing payload: recovery calls .get on it
+        '{"seq": 2, "type": "undo", "payload": null}',
     ],
 )
 def test_wrong_shape_event_rows_are_skipped(tmp_path: Path, bad_row: str) -> None:
@@ -68,6 +70,18 @@ def test_wrong_shape_event_rows_are_skipped(tmp_path: Path, bad_row: str) -> Non
     assert [m["content"] for m in recovered] == ["hello", "hello"]
     checkpoint = write_checkpoint(tmp_path, recovered)
     assert checkpoint["seq"] == 3
+
+
+def test_undo_without_payload_key_still_undoes_one(tmp_path: Path) -> None:
+    a, b = Message("user", "a"), Message("user", "b")
+    append_next_event(tmp_path, lambda seq: build_message_append_event(seq, a))
+    append_next_event(tmp_path, lambda seq: build_message_append_event(seq, b))
+    with open(tmp_path / EVENT_LOG_NAME, "a", encoding="utf-8") as f:
+        f.write('{"seq": 3, "type": "undo"}\n')
+
+    recovered = recover_messages(tmp_path)
+    assert recovered is not None
+    assert [m["content"] for m in recovered] == ["a"]
 
 
 def test_checkpoint_due_append_survives_seqless_row(tmp_path: Path) -> None:
