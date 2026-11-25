@@ -439,6 +439,7 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
         # is deferred to a subsequent A2A phase.
         auto_confirm=False,
         stream=False,
+        new_user_turn=True,
     )
 
     timeout = float(os.environ.get("GPTME_A2A_BLOCKING_TIMEOUT", "120"))

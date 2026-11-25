@@ -1,3 +1,5 @@
+import time
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -65,6 +67,7 @@ def test_a2a_send_message_and_get_task(client, monkeypatch, tmp_path):
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         msg = Message("assistant", "A2A response")
@@ -142,6 +145,7 @@ def test_a2a_failed_task_persists_after_session_gc(client, monkeypatch, tmp_path
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         # Simulate a step-thread crash: emit an error event, then stop.
         session_step_module.SessionManager.add_event(
@@ -529,6 +533,7 @@ def test_a2a_send_message_writes_origin_marker(client, monkeypatch, tmp_path):
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         manager.append(Message("assistant", "A2A response"))
@@ -880,3 +885,73 @@ def test_a2a_crash_failure_survives_gc_while_transcript_write_stalls(
         for worker in workers:
             worker.join(5)
             assert not worker.is_alive()
+def _guarded_fake_step(session, seen: list[bool]):
+    """Mirror step()'s entry guard: an interrupted step returns without releasing."""
+
+    def fake_step(*args, **kwargs):
+        seen.append(session.interrupted)
+        with session.step_lock:
+            if session.interrupted:
+                return
+            session.generating = False
+
+    return fake_step
+
+
+@pytest.fixture
+def v2_conv(client):
+    convname = f"test-a2a-interrupt-{time.monotonic_ns()}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"prompt": "You are an AI assistant for testing."},
+    )
+    assert response.status_code == 200
+    return {
+        "conversation_id": convname,
+        "session_id": response.get_json()["session_id"],
+    }
+
+
+def test_a2a_step_after_interrupt_releases_reservation(v2_conv, monkeypatch):
+    """A new A2A request after an interrupt must not leave the session stuck generating."""
+    import gptme.server.session_step as step_mod
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.interrupted = True
+    seen: list[bool] = []
+    monkeypatch.setattr(step_mod, "step", _guarded_fake_step(session, seen))
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "1")
+
+    a2a_api._run_task_blocking(v2_conv["conversation_id"], session)
+
+    assert seen == [False]
+    assert not session.generating
+
+
+def test_tool_continuation_reservation_keeps_interrupt(v2_conv, monkeypatch):
+    """Only a new user turn clears an interrupt; a continuation must still stop."""
+    import gptme.server.session_step as step_mod
+    from gptme.server.session_models import SessionManager
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.interrupted = True
+    seen: list[bool] = []
+    monkeypatch.setattr(step_mod, "step", _guarded_fake_step(session, seen))
+
+    assert step_mod._start_step_thread(
+        conversation_id=v2_conv["conversation_id"],
+        session=session,
+        model="openai/mock-model",
+        workspace=Path.cwd(),
+    )
+    deadline = time.monotonic() + 5
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert seen == [True]
+    assert session.interrupted

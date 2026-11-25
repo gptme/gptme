@@ -2162,6 +2162,7 @@ def _start_step_thread(
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
+    new_user_turn: bool = False,
 ) -> bool:
     """Start a step unless another operation has already reserved it.
 
@@ -2170,6 +2171,12 @@ def _start_step_thread(
     route). It is passed into ``step()`` so the finally block's compare-and-clear
     uses the epoch sampled under the lock rather than inside the spawned thread
     (where a delay could cause it to see a later epoch).
+
+    ``new_user_turn`` marks a fresh user request (A2A ``SendMessage``). Like the
+    /step route, it clears a previous interrupt when it reserves; otherwise
+    ``step()`` would see the stale flag, return before releasing, and leave the
+    session stuck generating. Tool continuations leave it False so an
+    interrupt still stops them.
     """
 
     # Direct callers (tool continuations and A2A) share /step's atomic
@@ -2188,6 +2195,11 @@ def _start_step_thread(
             # path. Reusing the previous epoch would let a worker that already
             # released it (e.g. step()'s release-then-re-raise paths) mistake
             # this reservation for its own and clear it.
+            if new_user_turn:
+                session.interrupted = False
+            # Capture the epoch under the lock so step() doesn't need to sample
+            # session.step_seq inside the thread (where a delay could give it
+            # a stale or replacement epoch).
             if step_seq is None:
                 session.step_seq += 1
                 step_seq = claimed_seq = session.step_seq
