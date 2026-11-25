@@ -381,7 +381,7 @@ export function ApiProvider({
 
   // Auto-connect with retry logic
   const autoConnect = useCallback(
-    async (isInitialAttempt: boolean = false) => {
+    async (isInitialAttempt: boolean = false, isManualRetry: boolean = false) => {
       const client = getPrimaryClient();
       const generation = ++autoConnectGeneration;
 
@@ -438,10 +438,23 @@ export function ApiProvider({
       // the session. The user has a manual "Retry connection" button; spamming
       // 10 attempts just clutters the console with the same error.
       const lastResult = client.lastConnectionResult$.get();
+      // Only a user-triggered retry needs immediate failure feedback. Keep the
+      // scheduled retries silent, and report before classifying permanent errors
+      // so every manual failure produces exactly one toast.
+      if (isManualRetry) {
+        let message = 'Could not connect to gptme instance.';
+        if (lastResult && !lastResult.ok) {
+          message += ` Tried ${lastResult.url}. ${lastResult.message}`;
+          if (lastResult.reason === 'parse_error') {
+            message += ' — is this URL really a gptme server?';
+          }
+        }
+        toast.error(message);
+      }
       if (lastResult && !lastResult.ok && lastResult.reason === 'cors') {
         console.log('[ApiContext] CORS/PNA failure — stopping auto-connect (use manual reconnect)');
         stopAutoConnect();
-        if (!isInitialAttempt) {
+        if (!isInitialAttempt && !isManualRetry) {
           toast.error('Server blocked the connection (CORS) — check server config');
         }
         return;
@@ -451,7 +464,7 @@ export function ApiProvider({
       if (lastResult && !lastResult.ok && lastResult.status === 401) {
         console.log('[ApiContext] 401 — stopping auto-connect (token required)');
         stopAutoConnect();
-        if (!isInitialAttempt) {
+        if (!isInitialAttempt && !isManualRetry) {
           toast.error(
             lastResult.message ||
               'Server is running but requires a bearer token. Paste it in settings.'
@@ -486,7 +499,7 @@ export function ApiProvider({
       clearTimeout(autoConnectTimer);
       autoConnectTimer = null;
     }
-    await autoConnect(false);
+    await autoConnect(false, true);
   }, [autoConnect, connect]);
 
   // Handle auth code exchange on mount

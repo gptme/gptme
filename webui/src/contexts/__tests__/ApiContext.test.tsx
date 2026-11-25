@@ -722,6 +722,58 @@ describe('ApiProvider mobile auto-connect', () => {
     expect(autoConnecting$.get()).toBe(false);
   });
 
+  it.each([
+    { reason: 'network', message: 'Could not reach server' },
+    { reason: 'timeout', message: 'Connection timed out' },
+    { reason: 'http_error', status: 403, message: '403 Forbidden' },
+    { reason: 'parse_error', message: 'Invalid JSON response' },
+    { reason: 'cors', message: 'CORS/PNA error' },
+    { reason: 'http_error', status: 401, message: 'Bearer token required' },
+  ] as const)('reports a manual retry failure once: $message', async (failure) => {
+    setActiveServerBaseUrl('https://bob.example.com');
+    // Start a transient auto-connect loop silently, then fail the user's retry
+    // with each structured failure. Permanent failures must not double-toast.
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'https://bob.example.com/api/v2/conversations?limit=1',
+        reason: 'network',
+        message: 'Could not reach server',
+      });
+      return false;
+    });
+    let retryFromProbe!: () => Promise<void>;
+    function RetryProbe() {
+      retryFromProbe = useApi().retryConnection;
+      return null;
+    }
+    render(
+      <ApiProvider queryClient={new QueryClient()}>
+        <RetryProbe />
+      </ApiProvider>
+    );
+    await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(1));
+    expect(mockToastError).not.toHaveBeenCalled();
+
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'https://bob.example.com/api/v2/conversations?limit=1',
+        ...failure,
+      });
+      return false;
+    });
+    await act(async () => {
+      await retryFromProbe();
+    });
+    expect(mockCheckConnection).toHaveBeenCalledTimes(2);
+    expect(mockToastError).toHaveBeenCalledTimes(1);
+    expect(mockToastError).toHaveBeenCalledWith(
+      expect.stringContaining('https://bob.example.com/api/v2/conversations?limit=1')
+    );
+    expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining(failure.message));
+  });
+
   it('manual retry after the automatic budget is spent still checks the server', async () => {
     setActiveServerBaseUrl('https://bob.example.com');
     mockCheckConnection.mockImplementation(async () => {

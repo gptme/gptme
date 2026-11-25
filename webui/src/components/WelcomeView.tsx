@@ -211,9 +211,9 @@ export const WelcomeView = () => {
     setIsRetryingConnection(true);
     try {
       await retryConnection();
-      // connect() shows toast.success on real connection and returns silently on no-op
+      // retryConnection() reports success/failure and returns silently on no-op
     } catch {
-      // connect() already shows toast.error on failure; swallow to avoid double-toast
+      // The direct-connect fallback already shows toast.error; avoid double-toast
     } finally {
       setIsRetryingConnection(false);
     }
