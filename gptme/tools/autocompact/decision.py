@@ -10,7 +10,10 @@ from typing import Literal
 from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
-from ...util.context_measurement import measure_context_tokens
+from ...util.context_measurement import (
+    measure_context_tokens,
+    measure_provider_overhead,
+)
 from ...util.reduce import message_contains_tool_use
 from .engine import _has_reasoning_block
 
@@ -77,8 +80,21 @@ def estimate_compaction_savings(
             model_context_budget=model.context_budget,
         )
 
+    # Convert the request-token budget into stored-text units by subtracting
+    # non-reclaimable provider overhead (tool schemas, chat template, etc.),
+    # so this gate uses the same units as should_auto_compact's provider-anchored
+    # trigger.
+    has_ui_only = any(m.ui_only for m in log)
+    visible_tokens = (
+        len_tokens([m for m in log if not m.ui_only], model.model)
+        if has_ui_only
+        else total_tokens
+    )
+    provider_overhead = measure_provider_overhead(log, model.full)
+    effective_limit = limit - provider_overhead
+
     # The configured budget is the sole compaction trigger.
-    would_remove_tool_results = total_tokens >= limit
+    would_remove_tool_results = visible_tokens >= effective_limit
 
     # Phase 0 runs first in auto_compact_log; estimate it on the original log
     # and run later-phase estimates on the stubbed log so we don't double-count
@@ -97,7 +113,12 @@ def estimate_compaction_savings(
         # Engine rechecks the budget after Phase 0 and skips Phase 2/3 when
         # stubbing already brought the log under limit. Match that here so we
         # don't count Phase 2 savings the engine would never take.
-        would_remove_tool_results = len_tokens(work_log, model.model) >= limit
+        work_visible_tokens = (
+            len_tokens([m for m in work_log if not m.ui_only], model.model)
+            if has_ui_only
+            else len_tokens(work_log, model.model)
+        )
+        would_remove_tool_results = work_visible_tokens >= effective_limit
 
     log_length = len(work_log)
     estimated_tool_result_savings = 0
@@ -206,6 +227,20 @@ def should_auto_compact(
             f"Skipping rule-based auto-compact: estimated savings {savings_ratio:.1%} "
             f"({estimated_savings} tokens) below threshold {MIN_SAVINGS_RATIO:.0%}. "
             f"Will use LLM-powered summarization instead."
+        )
+        return "summarize"
+
+    # Non-reclaimable provider overhead (tool schemas, chat template, etc.) is
+    # untouched by rule-based trimming. When provider overhead is present and
+    # even all estimated trim savings still leave the provider-measured context
+    # at or above budget, fall back to LLM summarization instead of picking a
+    # trim that cannot satisfy the budget.
+    provider_overhead = measure_provider_overhead(log, model.full)
+    if provider_overhead > 0 and total_tokens - estimated_savings >= limit:
+        logger.info(
+            f"Skipping rule-based auto-compact: estimated savings ({estimated_savings} tokens) "
+            f"leave provider-measured context at {total_tokens - estimated_savings} tokens "
+            f"(>= budget {limit}). Will use LLM-powered summarization instead."
         )
         return "summarize"
 

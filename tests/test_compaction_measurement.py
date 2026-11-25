@@ -294,3 +294,197 @@ def test_anchor_survives_log_reload(tmp_path):
     manager.append(response)
     loaded = LogManager.load(manager.logdir, lock=False)
     assert measure_context_tokens(loaded.log.messages, "openai/gpt-4") >= 1000
+
+
+def test_provider_measured_over_budget_with_big_stale_tool_output_picks_rule_based():
+    from gptme.llm.models import get_default_model, get_model
+    from gptme.tools.autocompact import auto_compact_log
+    from gptme.tools.autocompact.decision import estimate_compaction_savings
+    from gptme.util.context_measurement import measure_context_tokens, prefix_digests
+
+    model = get_default_model() or get_model("gpt-4")
+    big = "\n".join(
+        f"entry_{i} size={i * 13} checksum={i * 7919 % 10007}" for i in range(1500)
+    )
+    log = [
+        Message("system", "You are a helpful assistant."),
+        Message("user", "list things"),
+        Message("assistant", "Running a listing."),
+        Message("system", big, call_id="call_1"),
+        Message("user", "now something else"),
+        Message("assistant", "Sure, done."),
+        Message("user", "and another thing"),
+    ]
+    anchor_idx = 5
+    digests = prefix_digests(log)
+    stored = len_tokens(log, model.model)
+    # provider-reported input includes tool schemas etc. (~20k overhead)
+    log[anchor_idx] = log[anchor_idx].replace(
+        metadata={
+            "usage": {"input_tokens": stored + 20_000},
+            "input_log_messages": anchor_idx,
+            "input_log_digest": digests[anchor_idx],
+            "input_log_model": model.full,
+        }
+    )
+    measured = measure_context_tokens(log, model.full)
+    assert measured > stored + 19_000
+    budget = stored + 5_000  # measured is over budget; stored text is under it
+    assert measured >= budget > stored
+
+    _, savings, _ = estimate_compaction_savings(log, limit=budget)
+    assert savings > 0, "expected positive savings for reclaimable stale tool output"
+
+    action = should_auto_compact(log, limit=budget)
+    out = [m for m in auto_compact_log(log, limit=budget) if isinstance(m, Message)]
+    trimmed = len_tokens(out, model.model)
+    assert action == "rule_based", (
+        f"got {action!r}: estimate saw 0 savings because it re-gated on stored-text tokens"
+    )
+    overhead = measured - stored
+    assert trimmed < stored
+    assert trimmed + overhead < budget
+
+
+def test_provider_measured_over_budget_non_reclaimable_overhead_picks_summarize():
+    """Even with a big stale tool output, summarize when overhead alone exceeds budget."""
+    from gptme.llm.models import get_default_model, get_model
+    from gptme.tools.autocompact.decision import (
+        MIN_SAVINGS_RATIO,
+        estimate_compaction_savings,
+    )
+    from gptme.util.context_measurement import measure_context_tokens, prefix_digests
+
+    model = get_default_model() or get_model("gpt-4")
+    big = "\n".join(
+        f"entry_{i} size={i * 13} checksum={i * 7919 % 10007}" for i in range(1500)
+    )
+    log = [
+        Message("system", "You are a helpful assistant."),
+        Message("user", "list things"),
+        Message("assistant", "Running a listing."),
+        Message("system", big, call_id="call_1"),
+        Message("user", "now something else"),
+        Message("assistant", "Sure, done."),
+        Message("user", "and another thing"),
+    ]
+    anchor_idx = 5
+    digests = prefix_digests(log)
+    stored = len_tokens(log, model.model)
+    # Overhead (~30k) alone exceeds the ~23k budget; trimming stored text cannot fit.
+    log[anchor_idx] = log[anchor_idx].replace(
+        metadata={
+            "usage": {"input_tokens": stored + 30_000},
+            "input_log_messages": anchor_idx,
+            "input_log_digest": digests[anchor_idx],
+            "input_log_model": model.full,
+        }
+    )
+    measured = measure_context_tokens(log, model.full)
+    budget = stored + 5_000
+    assert measured >= budget > stored
+
+    total, savings, _ = estimate_compaction_savings(log, limit=budget)
+    assert savings / total >= MIN_SAVINGS_RATIO
+    assert measured - savings >= budget
+    assert should_auto_compact(log, limit=budget) == "summarize"
+
+
+def test_provider_measured_over_budget_insufficient_trim_picks_summarize():
+    """When trimming frees >10% of stored text but still leaves measured >= budget, summarize."""
+    from gptme.llm.models import get_default_model, get_model
+    from gptme.tools.autocompact.decision import (
+        MIN_SAVINGS_RATIO,
+        estimate_compaction_savings,
+    )
+    from gptme.util.context_measurement import measure_context_tokens, prefix_digests
+
+    model = get_default_model() or get_model("gpt-4")
+    stale = "\n".join(f"item_{i} val={i * 7}" for i in range(400))
+    # Non-trimmable user turns dominate stored text; overhead alone is below budget,
+    # so summarization can satisfy the budget even though trimming cannot.
+    non_trimmable = [
+        Message("user", f"turn {i}: " + "alpha beta gamma delta " * 80)
+        for i in range(12)
+    ]
+    log = [
+        Message("system", "You are a helpful assistant."),
+        Message("user", "list things"),
+        Message("assistant", "Running a listing."),
+        Message("system", stale, call_id="call_1"),
+        *non_trimmable,
+        Message("assistant", "Sure, done."),
+        Message("user", "and another thing"),
+    ]
+    anchor_idx = len(log) - 2
+    digests = prefix_digests(log)
+    stored = len_tokens(log, model.model)
+    overhead = 8_000
+    log[anchor_idx] = log[anchor_idx].replace(
+        metadata={
+            "usage": {"input_tokens": stored + overhead},
+            "input_log_messages": anchor_idx,
+            "input_log_digest": digests[anchor_idx],
+            "input_log_model": model.full,
+        }
+    )
+    measured = measure_context_tokens(log, model.full)
+    budget = stored + 4_000
+    assert overhead < budget
+    assert measured >= budget > stored
+
+    total, savings, _ = estimate_compaction_savings(log, limit=budget)
+    assert savings / total >= MIN_SAVINGS_RATIO
+    assert measured - savings >= budget
+    assert should_auto_compact(log, limit=budget) == "summarize"
+
+
+def test_provider_measured_over_budget_phase2_non_stale_tool_output_trims():
+    """Phase 2 truncation also respects provider overhead when Phase 0 does not prune."""
+    from gptme.llm.models import get_default_model, get_model
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO, auto_compact_log
+    from gptme.tools.autocompact.decision import estimate_compaction_savings
+    from gptme.util.context_measurement import measure_context_tokens, prefix_digests
+
+    model = get_default_model() or get_model("gpt-4")
+    big = "\n".join(
+        f"entry_{i} size={i * 13} checksum={i * 7919 % 10007}" for i in range(1500)
+    )
+    # Recent non-call_id system output (after assistant without tool call):
+    # Phase 0 skips it, Phase 2 truncates it.
+    log = [
+        Message("system", "You are a helpful assistant."),
+        Message("user", "list things"),
+        Message("assistant", "Sure, done."),
+        Message("system", big),
+    ]
+    anchor_idx = 2
+    digests = prefix_digests(log)
+    stored = len_tokens(log, model.model)
+    log[anchor_idx] = log[anchor_idx].replace(
+        metadata={
+            "usage": {
+                "input_tokens": len_tokens(log[:anchor_idx], model.model) + 20_000
+            },
+            "input_log_messages": anchor_idx,
+            "input_log_digest": digests[anchor_idx],
+            "input_log_model": model.full,
+        }
+    )
+    measured = measure_context_tokens(log, model.full)
+    budget = stored + 5_000
+    assert measured >= budget > stored
+
+    _, savings, _ = estimate_compaction_savings(log, limit=budget)
+    assert savings > 0
+    assert should_auto_compact(log, limit=budget) == "rule_based"
+
+    out = [
+        m
+        for m in auto_compact_log(log, limit=budget, target_ratio=TRIM_TARGET_RATIO)
+        if isinstance(m, Message)
+    ]
+    trimmed = len_tokens(out, model.model)
+    overhead = measured - stored
+    assert trimmed < stored
+    assert trimmed + overhead < budget
