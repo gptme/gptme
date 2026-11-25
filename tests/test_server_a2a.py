@@ -968,6 +968,68 @@ def test_tool_continuation_reservation_keeps_interrupt(v2_conv, monkeypatch):
     assert session.interrupted
 
 
+def test_step_interrupted_before_registration_leaves_no_approvals(
+    v2_conv, client, monkeypatch
+):
+    """An interrupt during auto-naming must not be followed by tool registration.
+
+    Registering canceled calls would leave approvals under a revoked epoch, and
+    the pending-batch guard would then reject every later /step and rerun.
+    """
+    import threading
+
+    import gptme.server.session_step as step_mod
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    url = f"/api/v2/conversations/{v2_conv['conversation_id']}/interrupt"
+    interrupts: list[int] = []
+
+    def interrupt_during_naming(*args, **kwargs):
+        # A real interrupt arrives on another request thread.
+        request = threading.Thread(
+            target=lambda: interrupts.append(
+                client.application.test_client()
+                .post(url, json={"session_id": session.id})
+                .status_code
+            )
+        )
+        request.start()
+        request.join(timeout=5)
+
+    worker_done = threading.Event()
+    real_step = step_mod.step
+
+    def tracked_step(*args, **kwargs):
+        try:
+            real_step(*args, **kwargs)
+        finally:
+            worker_done.set()
+
+    monkeypatch.setattr(step_mod, "step", tracked_step)
+    monkeypatch.setattr(step_mod, "_try_auto_name_and_notify", interrupt_during_naming)
+    monkeypatch.setattr(
+        step_mod,
+        "_chat_complete",
+        lambda *args, **kwargs: ("```shell\npwd\n```", None),
+    )
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "10")
+    cursor = session.events_count
+
+    a2a_api._run_task_blocking(v2_conv["conversation_id"], session)
+
+    # The caller returns on the interrupt; the revoked worker is still unwinding.
+    assert worker_done.wait(timeout=5)
+    assert interrupts == [200]
+    assert not session.pending_tools
+    events, _ = session.read_events(cursor)
+    assert "tool_pending" not in [event["type"] for event in events]
+    assert not session.generating
+
+
 def test_stale_tool_worker_does_not_start_continuation(v2_conv, monkeypatch):
     """A tool queued before an interrupt must not resume after a newer turn cleared it.
 

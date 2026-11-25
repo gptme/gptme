@@ -1511,39 +1511,46 @@ def step(
         # With break_on_tooluse=False, a single assistant message may contain
         # multiple tool uses that must execute serially.
         first_auto_id: str | None = None
-        for tooluse in tooluses:
-            # Create a tool execution record
-            tool_id = str(uuid.uuid4())
+        # An interrupt can land after the reply commits (auto-naming above makes
+        # an LLM call). It revokes this epoch and clears pending_tools, so check
+        # and register under one lock hold: approvals registered afterwards would
+        # block every later /step and rerun.
+        with session.step_lock:
+            if session.step_seq != my_step_seq or session.interrupted:
+                return
+            for tooluse in tooluses:
+                # Create a tool execution record
+                tool_id = str(uuid.uuid4())
 
-            tool_exec = ToolExecution(
-                tool_id=tool_id,
-                tooluse=tooluse,
-                workspace=workspace,
-                auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
-                branch=branch,
-                assistant_msg_timestamp=msg.timestamp,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                step_seq=my_step_seq,
-            )
-            session.pending_tools[tool_id] = tool_exec
+                tool_exec = ToolExecution(
+                    tool_id=tool_id,
+                    tooluse=tooluse,
+                    workspace=workspace,
+                    auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
+                    branch=branch,
+                    assistant_msg_timestamp=msg.timestamp,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    step_seq=my_step_seq,
+                )
+                session.pending_tools[tool_id] = tool_exec
 
-            # Notify about pending tool
-            SessionManager.add_event(
-                conversation_id,
-                {
-                    "type": "tool_pending",
-                    **tool_exec.to_pending_dict(),
-                },
-            )
+                # Notify about pending tool
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "tool_pending",
+                        **tool_exec.to_pending_dict(),
+                    },
+                )
 
-            # Track the first auto-confirm tool; decrement counter for all
-            if tool_exec.auto_confirm:
-                if session.auto_confirm_count > 0:
-                    session.auto_confirm_count -= 1
-                if first_auto_id is None:
-                    first_auto_id = tool_id
+                # Track the first auto-confirm tool; decrement counter for all
+                if tool_exec.auto_confirm:
+                    if session.auto_confirm_count > 0:
+                        session.auto_confirm_count -= 1
+                    if first_auto_id is None:
+                        first_auto_id = tool_id
 
         # A tool-free response ends the invocation only after prior tools have
         # drained. TURN_POST and generation_complete happen before this boundary.
