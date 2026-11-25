@@ -20,6 +20,7 @@ from gptme.tools._hashline_snapshot import (
     lookup_snapshot,
     store_snapshot,
 )
+from gptme.tools.base import ToolUse
 from gptme.tools.hashline_edit import (
     HashlineOp,
     OperationKind,
@@ -125,7 +126,7 @@ class TestParser:
         assert ops[0].kind == "replace"
         assert ops[0].start == 1
         assert ops[0].end == 3
-        assert ops[0].text == "new line"
+        assert ops[0].text == "new line\n"
 
     def test_insert_before(self):
         block = "[f.py#A1B2C3D4]\nPUT <5:\n+inserted\n"
@@ -157,7 +158,7 @@ class TestParser:
     def test_multiline_content(self):
         block = "[f.py#A1B2C3D4]\nPUT 1.=2:\n+line a\n+line b\n+line c\n"
         _, _, ops = _parse_operations(block)
-        assert ops[0].text == "line a\nline b\nline c"
+        assert ops[0].text == "line a\nline b\nline c\n"
 
     def test_empty_block_raises(self):
         with pytest.raises(ParseError):
@@ -946,6 +947,34 @@ class TestReadIntegration:
         result = f.read_text()
         assert "Hi" in result
         assert "msg" not in result
+
+    @pytest.mark.parametrize(
+        ("edit", "expected"),
+        [
+            pytest.param("PUT 2.=2:\n+", b"a\n\nc\n", id="blank-replacement"),
+            pytest.param("PUT 2.=2:", b"a\nc\n", id="empty-replacement"),
+            pytest.param("PUT 2.=2:\n+B", b"a\nB\nc\n", id="plain-replacement"),
+            pytest.param("PUT <2:\n+B\n+\n+", b"a\nB\n\n\nb\nc\n", id="insert-before"),
+            pytest.param("PUT >2:\n+\n+B\n+", b"a\nb\n\nB\n\nc\n", id="insert-after"),
+            pytest.param("PUT 2*:\n+B\n+", b"a\nB\n\nc\n", id="block-replacement"),
+        ],
+    )
+    def test_read_then_edit_preserves_explicit_blank_lines(
+        self, tmp_path: Path, edit: str, expected: bytes
+    ) -> None:
+        f = tmp_path / "f.txt"
+        f.write_bytes(b"a\nb\nc\n")
+        read_msgs = _msgs(execute_read(None, [str(f)], None))
+        header = next(
+            line for line in read_msgs[0].splitlines() if line.startswith("[")
+        )
+
+        (call,) = ToolUse.iter_from_content(
+            f"```hashline_edit {f}\n{header}\n{edit}\n```",
+            tool_format_override="markdown",
+        )
+        assert any("hashline_edit applied" in msg for msg in _msgs(call.execute()))
+        assert f.read_bytes() == expected
 
     def test_second_read_updates_snapshot(self, tmp_path: Path):
         f = tmp_path / "f.txt"
