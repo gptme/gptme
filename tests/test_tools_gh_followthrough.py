@@ -348,3 +348,22 @@ def test_native_run_view_deleted_workspace(explicit, tmp_path) -> None:
     ):
         messages = invoke("run view 123" + (" --repo o/r" if explicit else ""), "body")
     assert ("No job data available" if explicit else "Error:") in messages[0].content
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_bare_issue_view_uses_selected_session_repo(form, tmp_path) -> None:
+    from gptme.util.workspace import workspace_scope
+
+    with (
+        workspace_scope(tmp_path),
+        patch(
+            "gptme.tools.gh.subprocess.run",
+            return_value=SimpleNamespace(stdout="https://github.com/session/repo"),
+        ),
+        patch(
+            "gptme.tools.gh.get_github_issue_content", return_value="synthetic issue"
+        ) as issue,
+    ):
+        messages = invoke("issue view 42", form)
+    issue.assert_called_once_with("session", "repo", "42")
+    assert messages[0].content == "synthetic issue"

@@ -1032,7 +1032,7 @@ def execute_gh(
             )
 
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
-        info, err = _resolve_ref(args, kwargs, "issue", "issue reference")
+        info, err = _resolve_ref(args, kwargs, "issues", "issue reference")
         if err:
             yield err
             return
