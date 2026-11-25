@@ -106,18 +106,19 @@ def conversation_name_error(value: str) -> str | None:
 
 
 def _unchanged_since_persisted(log: "Log", path: Path) -> bool:
-    """Whether *log* holds exactly what it last read from or wrote to *path*.
+    """Whether *log* is locally unchanged since loading or writing *path*.
 
     Such a log has nothing of ours to persist. Another manager may have
     appended to the file since, and a full rewrite triggered by the disk-size
     drift in :py:meth:`Log._can_append` would silently drop those messages.
     """
+    baseline = log.loaded if log.loaded is not None else log.persisted
     return (
         log.persisted_path is not None
         and path.exists()
         and log.persisted_path == path.resolve()
-        and len(log.persisted) == len(log)
-        and all(old is new for old, new in zip(log.persisted, log))
+        and len(baseline) == len(log)
+        and all(old is new for old, new in zip(baseline, log))
     )
 
 
@@ -133,6 +134,9 @@ class Log:
     persisted: tuple[Message, ...] = field(default=(), compare=False, repr=False)
     persisted_path: Path | None = field(default=None, compare=False, repr=False)
     persisted_size: int | None = field(default=None, compare=False, repr=False)
+    # In-memory baseline after load-time attachment snapshotting. Unlike
+    # persisted, these objects may contain hashes not yet present on disk.
+    loaded: tuple[Message, ...] | None = field(default=None, compare=False, repr=False)
 
     def __getitem__(self, key):
         return self.messages[key]
@@ -251,6 +255,7 @@ class Log:
                 if temp_path is not None:
                     temp_path.unlink(missing_ok=True)
         return self.replace(
+            loaded=None,
             persisted=tuple(self.messages),
             persisted_path=output.resolve(),
             persisted_size=output.stat().st_size,
@@ -791,7 +796,7 @@ class LogManager:
         """
         log = Log.read_jsonl(path)
         messages = self.snapshot_message_files(log.messages)
-        return log.replace(messages=messages, persisted=tuple(messages))
+        return log.replace(messages=messages, loaded=tuple(messages))
 
     def snapshot_message_files(self, msgs: list[Message]) -> list[Message]:
         """Snapshot message attachments while preserving valid existing hashes."""
@@ -830,11 +835,16 @@ class LogManager:
             # manager may have appended since load. Disk-size drift must not turn
             # this no-op into a stale full rewrite via Log._can_append(). An
             # unchanged legacy snapshot must also defer to a migrated archive.
+            baseline = (
+                archive.loaded
+                if branch != self.current_branch and archive.loaded is not None
+                else archive.persisted
+            )
             if (
                 archive.persisted_path is not None
                 and archive_path.exists()
-                and len(archive.persisted) == len(archive)
-                and all(old is new for old, new in zip(archive.persisted, archive))
+                and len(baseline) == len(archive)
+                and all(old is new for old, new in zip(baseline, archive))
             ):
                 continue
             archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -885,7 +895,9 @@ class LogManager:
                 for view_name, log in self._views.items():
                     view_path = views_dir / f"{view_name}.jsonl"
                     paths.add(view_path)
-                    if not _unchanged_since_persisted(log, view_path):
+                    if view_name == self.current_view or not _unchanged_since_persisted(
+                        log, view_path
+                    ):
                         self._views[view_name] = log.write_jsonl(view_path, append=True)
 
         # Persist model selection trace alongside the conversation
@@ -1225,6 +1237,7 @@ class LogManager:
             # to manager.log — that may already be a restored compacted view.
             branch_log = manager._branches[manager.current_branch]
             manager._branches[manager.current_branch] = branch_log.replace(
+                loaded=tuple(branch_log.messages),
                 persisted=log.persisted,
                 persisted_path=log.persisted_path,
                 persisted_size=log.persisted_size,

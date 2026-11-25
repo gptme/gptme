@@ -336,3 +336,52 @@ def test_branch_append_does_not_rewrite_main_with_unsnapshotted_attachment(
 
     assert _contents(logdir / "conversation.jsonl") == ["m1", "m2"]
     assert _contents(logdir / "branches" / "dev.jsonl") == ["m1", "d1", "d2"]
+
+
+@pytest.mark.parametrize("transcript", ["branch", "view"])
+@pytest.mark.parametrize("source_change", ["edit", "delete"])
+def test_activated_legacy_transcript_persists_attachment_snapshot(
+    tmp_path: Path, transcript: str, source_change: str
+) -> None:
+    from gptme.logmanager import Log
+    from gptme.util.file_storage import get_stored_path
+
+    logdir = tmp_path / "conv"
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("original bytes")
+    setup = LogManager(logdir=logdir, lock=False)
+    setup.append(Message("user", "main"))
+    if transcript == "branch":
+        directory, name = "branches", "dev"
+    else:
+        directory, name = "views", "compacted-001"
+    path = logdir / directory / f"{name}.jsonl"
+    path.parent.mkdir(exist_ok=True)
+    Log([Message("user", "legacy", files=[attachment])]).write_jsonl(path)
+    original = path.read_bytes()
+
+    manager = LogManager.load(logdir, lock=False)
+    # Unrelated writes must not migrate an inactive transcript from a stale copy.
+    manager.append(Message("user", "another main message"))
+    assert path.read_bytes() == original
+    if transcript == "branch":
+        manager.branch(name)
+    else:
+        manager.switch_view(name)
+    manager.append(Message("user", "active append"))
+    snapshot_hash = manager.log.messages[0].file_hashes[str(attachment)]
+    assert json.loads(path.read_text().splitlines()[0])["file_hashes"] == {
+        str(attachment): snapshot_hash
+    }
+
+    if source_change == "edit":
+        attachment.write_text("different bytes")
+    else:
+        attachment.unlink()
+    reloaded = LogManager.load(
+        logdir, branch=name if transcript == "branch" else "main", lock=False
+    )
+    assert reloaded.log.messages[0].file_hashes[str(attachment)] == snapshot_hash
+    stored = get_stored_path(logdir, snapshot_hash, ".txt")
+    assert stored is not None
+    assert stored.read_text() == "original bytes"
