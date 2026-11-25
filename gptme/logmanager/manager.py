@@ -213,6 +213,24 @@ class Log:
 
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
+        if append and self.persisted_path == output.resolve() and output.exists():
+            # No disk work is needed when even the attachment hashes are saved.
+            # In particular, size drift must not rewrite a concurrent append.
+            if len(self.persisted) == len(self) and all(
+                old is new for old, new in zip(self.persisted, self)
+            ):
+                return self
+            # Snapshotting legacy attachments requires rewriting old rows. Do
+            # not migrate a stale copy over a newer transcript; let the caller
+            # reload rather than silently lose either messages or saved hashes.
+            if (
+                self.loaded is not None
+                and any(old is not new for old, new in zip(self.persisted, self.loaded))
+                and output.stat().st_size != self.persisted_size
+            ):
+                raise ValueError(
+                    f"Transcript changed on disk; reload before saving: {output}"
+                )
         append_safe = append and self._can_append(output)
         start = len(self.persisted) if append_safe else 0
         lines = (json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:])
@@ -819,9 +837,12 @@ class LogManager:
         # A failed archive write must leave the on-disk conversation unchanged.
         if self._lossless_log is not None and self.logdir:
             lossless_path = self.logdir / "lossless.jsonl"
-            self._lossless_log = self._lossless_log.write_jsonl(
-                lossless_path, append=True
-            )
+            if self.current_branch == "main" or not _unchanged_since_persisted(
+                self._lossless_log, lossless_path
+            ):
+                self._lossless_log = self._lossless_log.write_jsonl(
+                    lossless_path, append=True
+                )
             paths.add(lossless_path)
 
         for branch, archive in self._branch_lossless_logs.items():
@@ -984,9 +1005,11 @@ class LogManager:
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
         name = f"{branch_prefix}{n}"
-        self._branches[name] = self.log.replace(persisted=())
+        self._branches[name] = self.log.replace(persisted=(), loaded=None)
         if self.full_log is not self.log:
-            self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
+            self._branch_lossless_logs[name] = self.full_log.replace(
+                persisted=(), loaded=None
+            )
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -1274,9 +1297,11 @@ class LogManager:
             return
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
-            self._branches[name] = self.log.replace(persisted=())
+            self._branches[name] = self.log.replace(persisted=(), loaded=None)
             if self.full_log is not self.log:
-                self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
+                self._branch_lossless_logs[name] = self.full_log.replace(
+                    persisted=(), loaded=None
+                )
         self.current_branch = name
         self.current_view = None
         if name == "main":

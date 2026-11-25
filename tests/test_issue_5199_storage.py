@@ -385,3 +385,85 @@ def test_activated_legacy_transcript_persists_attachment_snapshot(
     stored = get_stored_path(logdir, snapshot_hash, ".txt")
     assert stored is not None
     assert stored.read_text() == "original bytes"
+
+
+@pytest.mark.parametrize("legacy_attachment", [False, True])
+def test_noop_active_view_preserves_concurrent_append(
+    tmp_path: Path, legacy_attachment: bool
+) -> None:
+    from gptme.logmanager import Log
+
+    setup = LogManager(logdir=tmp_path, lock=False)
+    setup.append(Message("user", "main"))
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("original bytes")
+    setup.create_view(
+        "compacted-001",
+        [Message("user", "summary", files=[attachment] if legacy_attachment else [])],
+    )
+    setup.switch_view("compacted-001")
+    # create_view writes raw rows, without load-time attachment snapshotting.
+    a = LogManager.load(tmp_path, lock=False)
+    b = LogManager.load(tmp_path, lock=False)
+    a.append(Message("user", "concurrent"))
+    path = tmp_path / "views" / "compacted-001.jsonl"
+    saved = path.read_bytes()
+    if legacy_attachment:
+        with pytest.raises(ValueError, match="changed on disk"):
+            b.write()
+    else:
+        b.write()
+    assert path.read_bytes() == saved
+    assert [msg.content for msg in Log.read_jsonl(path)] == ["summary", "concurrent"]
+
+
+def test_other_branch_preserves_concurrent_lossless_append(tmp_path: Path) -> None:
+    setup = LogManager(logdir=tmp_path, lock=False)
+    setup.append(Message("user", "main"))
+    setup.preserve_lossless_log()
+    setup.create_view("compacted-001", [Message("user", "summary")])
+    setup.switch_view("compacted-001")
+    setup.branch("dev")
+    setup.append(Message("user", "dev"))
+
+    a = LogManager.load(tmp_path, lock=False)
+    b = LogManager.load(tmp_path, branch="dev", lock=False)
+    a.append(Message("user", "concurrent"))
+    b.append(Message("user", "branch append"))
+    assert _contents(tmp_path / "lossless.jsonl") == ["main", "concurrent"]
+
+
+def test_backup_retry_replaces_orphaned_archive(tmp_path: Path) -> None:
+    from gptme.logmanager import Log
+
+    setup = LogManager(logdir=tmp_path, lock=False)
+    setup.append(Message("user", "first"))
+    setup.preserve_lossless_log()
+    setup.create_view("compacted-001", [Message("user", "summary")])
+    setup.switch_view("compacted-001")
+    setup.branch("dev")
+    setup.append(Message("user", "second"))
+    manager = LogManager.load(tmp_path, branch="dev", lock=False)
+    original_write = Log.write_jsonl
+    backup_path = tmp_path / "branches" / "dev-edit-0.jsonl"
+
+    def fail_backup_branch(self, path, *, append=False):
+        if path == backup_path:
+            raise OSError("backup branch write failed")
+        return original_write(self, path, append=append)
+
+    with (
+        patch.object(Log, "write_jsonl", fail_backup_branch),
+        pytest.raises(OSError, match="backup branch write failed"),
+    ):
+        manager.edit([Message("user", "edited")])
+    archive = tmp_path / "branch-archives" / "dev-edit-0.jsonl"
+    assert archive.exists()
+    assert not backup_path.exists()
+    # A later append means the retry needs a newer full-history backup.
+    manager = LogManager.load(tmp_path, branch="dev", lock=False)
+    manager.append(Message("user", "third"))
+    manager = LogManager.load(tmp_path, branch="dev", lock=False)
+    manager.edit([Message("user", "edited")])
+    assert _contents(archive) == ["first", "second", "third"]
+    assert _contents(backup_path) == ["summary", "second", "third"]
