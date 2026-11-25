@@ -20,6 +20,7 @@ import html
 import importlib.util
 import logging
 import mimetypes
+import os
 import re
 import shutil
 import stat
@@ -89,27 +90,41 @@ def _arg(path: Path) -> str:
 
 
 @contextmanager
-def _im_first_frame(path: Path) -> Iterator[str]:
-    """Yield an ImageMagick ``src[0]`` argument that reads ``path`` literally.
+def _im_first_frame(path: Path) -> Iterator[tuple[str, str | None]]:
+    """Yield a literal ImageMagick ``src[0]`` argument and its child cwd.
 
     ImageMagick interprets ``[`` and ``]`` in an input path as frame selectors,
     so a file named ``foo[0].pdf`` would silently match a different file.
     Backslash-escaping the brackets works on ImageMagick 6 but not 7, which then
-    looks for a file literally named ``foo\\[0\\].pdf``. Instead, expose a
-    bracketed source under a plain name in a temporary directory.
+    looks for a file literally named ``foo\\[0\\].pdf``. With a frame selector,
+    ImageMagick also expands ``%d``-style scene patterns, so ``scan%d.pdf[0]``
+    reads ``scan0.pdf``. Instead, expose such a source under a plain name in a
+    temporary directory. Use its basename and a child cwd so syntax in the
+    temporary parent cannot be interpreted either.
     """
-    if "[" not in str(path) and "]" not in str(path):
-        yield f"{_arg(path)}[0]"
+    if not any(char in str(path) for char in "[]%"):
+        yield f"{_arg(path)}[0]", None
         return
     with tempfile.TemporaryDirectory(prefix="gptme-convert-src-") as directory:
-        suffix = path.suffix.replace("[", "").replace("]", "")
+        suffix = "".join(char for char in path.suffix if char not in "[]%")
         staged = Path(directory) / f"source{suffix}"
         try:
             staged.symlink_to(path.absolute())
         except OSError:
             # Symlinks can need privileges (e.g. on Windows); copy instead.
             shutil.copyfile(path, staged)
-        yield f"{staged}[0]"
+        yield f"{staged.name}[0]", directory
+
+
+def _im_environment(directory: str | None) -> dict[str, str] | None:
+    """Keep executable/delegate lookup relative to the caller, not staging."""
+    if directory is None:
+        return None
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(
+        str(Path(entry).absolute()) for entry in os.get_exec_path(env)
+    )
+    return env
 
 
 def _para_to_md(para: object) -> str:
@@ -511,9 +526,20 @@ class PDFToImageConverter(Converter):
 
         if avail.imagemagick:
             density = str(dpi)
-            with _im_first_frame(src) as source:
-                cmd = ["convert", "-density", density, source, _arg(dest)]
-                result = subprocess.run(cmd, capture_output=True, check=False)
+            with _im_first_frame(src) as (source, directory):
+                env = _im_environment(directory)
+                executable = "convert"
+                if env and (found := shutil.which(executable, path=env["PATH"])):
+                    executable = str(Path(found).absolute())
+                output = str(dest.absolute()) if directory else _arg(dest)
+                cmd = [executable, "-density", density, source, output]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    check=False,
+                    cwd=directory,
+                    env=env,
+                )
             if result.returncode == 0:
                 warnings.append("PDF-to-image conversion saves only the first page")
                 return ConversionResult(
@@ -678,15 +704,19 @@ class ImageConverter(Converter):
 
         if avail.imagemagick:
             with ExitStack() as inputs:
-                source = (
+                source, directory = (
                     inputs.enter_context(_im_first_frame(src))
                     if single_frame
-                    else _arg(src)
+                    else (_arg(src), None)
                 )
+                env = _im_environment(directory)
+                executable = "convert"
+                if env and (found := shutil.which(executable, path=env["PATH"])):
+                    executable = str(Path(found).absolute())
                 # Normalize pixels and reset EXIF orientation before writing,
                 # including formats that cannot retain orientation (e.g. BMP).
                 cmd = [
-                    "convert",
+                    executable,
                     source,
                     "-auto-orient",
                     "-define",
@@ -694,8 +724,14 @@ class ImageConverter(Converter):
                 ]
                 if lossy:
                     cmd += ["-quality", str(q)]
-                cmd += [_arg(dest)]
-                result = subprocess.run(cmd, capture_output=True, check=False)
+                cmd += [str(dest.absolute()) if directory else _arg(dest)]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    check=False,
+                    cwd=directory,
+                    env=env,
+                )
             if result.returncode == 0:
                 return ConversionResult(
                     success=True,
