@@ -14,7 +14,7 @@ from ..llm.models import get_default_model, get_model
 from ..llm.models.types import ModelMeta
 from ..message import Message, len_tokens
 from . import console
-from .context_budget import _DEFAULT_HEADROOM, _DEFAULT_MAX_OUTPUT, _MIN_BUDGET
+from .context_budget import DEFAULT_HEADROOM, DEFAULT_MAX_OUTPUT, MIN_BUDGET
 
 logger = logging.getLogger(__name__)
 
@@ -378,18 +378,18 @@ def _input_token_limit(model: ModelMeta) -> int:
     Reserves the model's output allowance plus safety headroom so the combined
     request fits the provider window. When ``max_output`` is unset or exceeds
     half the window (e.g. providers that advertise ``max_output == context``),
-    cap the reserve so input is not starved. Tiny windows (<= ``_MIN_BUDGET``)
+    cap the reserve so input is not starved. Tiny windows (<= ``MIN_BUDGET``)
     keep their full declared context as a floor.
     """
-    reserve = model.max_output or _DEFAULT_MAX_OUTPUT
+    reserve = model.max_output or DEFAULT_MAX_OUTPUT
     if reserve > model.context // 2:
         reserve = min(
             reserve,
-            max(min(_DEFAULT_MAX_OUTPUT, model.context // 4), model.context // 8),
+            max(min(DEFAULT_MAX_OUTPUT, model.context // 4), model.context // 8),
         )
     return max(
-        min(_MIN_BUDGET, model.context),
-        model.context - reserve - _DEFAULT_HEADROOM,
+        min(MIN_BUDGET, model.context),
+        model.context - reserve - DEFAULT_HEADROOM,
     )
 
 

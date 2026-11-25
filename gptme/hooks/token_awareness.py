@@ -151,9 +151,10 @@ def add_token_usage_warning(
             assert last_warning_tokens is not None
             assert message_fingerprints is not None
 
-            # Incremental counting (O(1) amortized per message), with prefix
-            # verification so compaction, edits, or model changes trigger a
-            # full recount instead of retaining a stale total.
+            # Incremental counting with prefix verification (O(n) per call:
+            # every prior message fingerprint is compared), so compaction,
+            # edits, or model changes trigger a full recount instead of
+            # retaining a stale total.
             current_count = len(log.messages)
             previous_count = message_counts.get(log_id, 0)
             prev_state = message_fingerprints.get(log_id)

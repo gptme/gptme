@@ -32,21 +32,21 @@ _DEFAULT_FRACTION = 0.9
 
 # Reserve this many tokens for model output and internal headroom even when an
 # explicit budget fraction would leave less room.
-_DEFAULT_MAX_OUTPUT = 8192
-_DEFAULT_HEADROOM = 1000
+DEFAULT_MAX_OUTPUT = 8192
+DEFAULT_HEADROOM = 1000
 _DEFAULT_LONG_WINDOW_CAP = 256_000
 
 # Floor for the budget on tiny windows where reserving output tokens and
 # headroom leaves nothing: clamp instead of raising so compaction stays
 # available (and env/config overrides still resolve) for small local models.
-_MIN_BUDGET = 1000
+MIN_BUDGET = 1000
 
 
 def get_context_budget(
     model_context: int,
     *,
-    max_output: int = _DEFAULT_MAX_OUTPUT,
-    headroom: int = _DEFAULT_HEADROOM,
+    max_output: int = DEFAULT_MAX_OUTPUT,
+    headroom: int = DEFAULT_HEADROOM,
     model_id: str | None = None,
     model_context_budget: float | int | None = None,
 ) -> int:
@@ -88,7 +88,7 @@ def get_context_budget(
         if (
             request_output is not None or leaves_no_input
         ) and max_output > model_context // 2:
-            max_output = min(max_output, max(_DEFAULT_MAX_OUTPUT, model_context // 8))
+            max_output = min(max_output, max(DEFAULT_MAX_OUTPUT, model_context // 8))
     if request_output is not None:
         max_output = max(max_output, request_output)
     safe_ceiling = model_context - max_output - headroom
@@ -98,7 +98,7 @@ def get_context_budget(
         # 1000-token floor on a 500-token model would make the budget larger
         # than the window, so compaction would never fire before the provider
         # rejects the request.
-        safe_ceiling = max(1, min(_MIN_BUDGET, model_context))
+        safe_ceiling = max(1, min(MIN_BUDGET, model_context))
         logger.warning(
             "Model context %d does not exceed reserved output (%d) + headroom "
             "(%d); clamping context budget to %d",
