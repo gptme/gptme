@@ -36,7 +36,6 @@ import shutil
 import subprocess
 import time
 from collections.abc import Generator
-from pathlib import Path
 
 from ..message import Message
 from ..util.gh import (
@@ -443,12 +442,37 @@ def _resolve_ref(
     if not ref:
         return None, Message("system", f"Error: No {entity_name} provided")
 
-    # A bare #N / N resolves against the session's checkout (the same cwd the
-    # CLI pass-through runs gh in), not the host process cwd.
-    cwd = get_workspace_cwd()
-    github_info = parse_github_ref(
-        ref, workspace=Path(cwd) if cwd else None, default_type=default_type
-    )
+    # Match gh's repository selection, including GH_REPO and the default set
+    # by `gh repo set-default` in fork checkouts. Never guess origin for a
+    # mutation when gh cannot determine the intended repository.
+    if re.fullmatch(r"#?\d+", ref):
+        try:
+            result = subprocess.run(
+                [
+                    "gh",
+                    "repo",
+                    "view",
+                    "--json",
+                    "nameWithOwner",
+                    "--jq",
+                    ".nameWithOwner",
+                ],
+                cwd=get_workspace_cwd(),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+            repo = result.stdout.strip()
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+                raise ValueError("Invalid repository returned by gh")
+            ref = f"{repo}#{ref.lstrip('#')}"
+        except (subprocess.SubprocessError, OSError, ValueError):
+            return None, Message(
+                "system",
+                "Error: Could not determine GitHub repository. Use owner/repo#N or --repo owner/repo.",
+            )
+    github_info = parse_github_ref(ref, default_type=default_type)
     if not github_info:
         return None, Message(
             "system",

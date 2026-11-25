@@ -87,7 +87,8 @@ def test_block_body_parse_error_is_reported() -> None:
 
 @pytest.mark.parametrize("form", FORMS)
 @pytest.mark.parametrize("repo", ["", " --repo o/r"])
-def test_native_run_view_output_is_redacted(form: str, repo: str) -> None:
+def test_native_run_view_output_is_redacted(form: str, repo: str, monkeypatch) -> None:
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "true")
     log = "step failed\nGITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789\n"
     with patch("gptme.tools.gh.get_github_run_logs", return_value=log) as logs:
         messages = invoke(f"run view 123{repo}", form)
@@ -162,7 +163,7 @@ def test_pr_view_actions_status_caps_names_per_state() -> None:
     assert len(text) < 1000
 
 
-def test_pr_view_actions_status_omitted_on_incomplete_listing() -> None:
+def test_pr_view_actions_status_warns_on_incomplete_listing() -> None:
     """A page that ends early must not be summarized as the full picture."""
     runs = [
         {"id": i, "name": f"check-{i}", "status": "completed", "conclusion": "success"}
@@ -176,7 +177,10 @@ def test_pr_view_actions_status_omitted_on_incomplete_listing() -> None:
         return SimpleNamespace(returncode=0, stdout=json.dumps(data), stderr="")
 
     with patch("gptme.util.gh.subprocess.run", side_effect=transport):
-        assert _get_github_actions_status("o", "r", SHA) is None
+        text = _get_github_actions_status("o", "r", SHA)
+    assert text is not None
+    assert "CI status unavailable" in text
+    assert "retry" in text
 
 
 @pytest.mark.parametrize("form", FORMS)
@@ -191,12 +195,22 @@ def test_bare_merge_ref_resolves_against_session_workspace(
 
     def remote(cmd: list[str], **kwargs: object) -> SimpleNamespace:
         seen_cwds.append(kwargs.get("cwd"))  # type: ignore[arg-type]
-        url = (
-            "git@github.com:session/repo.git"
-            if kwargs.get("cwd")
-            else "git@github.com:host/repo.git"
+        # origin points at a fork; gh has selected its upstream as default.
+        if cmd[0] == "gh":
+            assert cmd == [
+                "gh",
+                "repo",
+                "view",
+                "--json",
+                "nameWithOwner",
+                "--jq",
+                ".nameWithOwner",
+            ]
+            repo = "session/repo" if kwargs.get("cwd") == str(tmp_path) else "host/repo"
+            return SimpleNamespace(returncode=0, stdout=repo + "\n", stderr="")
+        return SimpleNamespace(
+            returncode=0, stdout="git@github.com:fork/repo.git\n", stderr=""
         )
-        return SimpleNamespace(returncode=0, stdout=url + "\n", stderr="")
 
     with (
         workspace_scope(tmp_path),
@@ -211,7 +225,7 @@ def test_bare_merge_ref_resolves_against_session_workspace(
     assert merge.call_args.args == ("session", "repo", "42")
 
 
-def test_run_log_redacted_before_truncation() -> None:
+def test_run_log_redacted_before_truncation(monkeypatch) -> None:
     """Wherever the tail cut lands, no fragment of the credential survives.
 
     Redacting only the final output misses a token whose key name was clipped
@@ -220,6 +234,7 @@ def test_run_log_redacted_before_truncation() -> None:
     from gptme.tools.gh import _redact_passthrough_output
     from gptme.util.gh import get_github_run_logs
 
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "true")
     secret = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
     meta = {
         "status": "completed",
@@ -244,3 +259,55 @@ def test_run_log_redacted_before_truncation() -> None:
         if any(secret[i : i + 8] in text for i in range(len(secret) - 7)):
             leaks.append(pad)
     assert leaks == []
+
+
+@pytest.mark.parametrize("form", FORMS)
+@pytest.mark.parametrize("repo_flag", ["", " --repo o/r"])
+@pytest.mark.parametrize("fallback", [False, True])
+def test_native_run_view_uses_session_checkout(
+    form, repo_flag, fallback, tmp_path
+) -> None:
+    from gptme.util.workspace import workspace_scope
+
+    calls = []
+    meta = {
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/session/repo/actions/runs/123",
+        "jobs": [{"name": "build", "conclusion": "failure", "databaseId": 1}],
+    }
+
+    def transport(cmd, **kwargs):
+        calls.append((cmd, kwargs.get("cwd")))
+        if "--json" in cmd:
+            return SimpleNamespace(returncode=0, stdout=json.dumps(meta), stderr="")
+        if "--log-failed" in cmd and fallback:
+            return SimpleNamespace(returncode=1, stdout="", stderr="unavailable")
+        return SimpleNamespace(
+            returncode=0, stdout="Error: synthetic failure", stderr=""
+        )
+
+    with (
+        workspace_scope(tmp_path),
+        patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh"),
+        patch("gptme.util.gh.subprocess.run", side_effect=transport),
+    ):
+        messages = invoke(f"run view 123{repo_flag}", form)
+    assert "synthetic failure" in messages[0].content
+    assert len(calls) == (3 if fallback else 2)
+    assert all(str(cwd) == str(tmp_path) for _, cwd in calls)
+    for cmd, _ in calls[:2]:
+        assert (cmd[-2:] == ["--repo", "o/r"]) == bool(repo_flag)
+
+
+@pytest.mark.parametrize("output", ["", "invalid", "host/owner/repo"])
+def test_bare_merge_fails_closed_when_gh_repo_is_unknown(output) -> None:
+    with (
+        patch(
+            "gptme.tools.gh.subprocess.run", return_value=SimpleNamespace(stdout=output)
+        ),
+        patch("gptme.tools.gh.merge_github_pr") as merge,
+    ):
+        messages = invoke("pr merge 42 --squash", "body")
+    merge.assert_not_called()
+    assert "Use owner/repo#N or --repo owner/repo" in messages[0].content

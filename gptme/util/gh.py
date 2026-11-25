@@ -304,12 +304,10 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
 
         return "\n".join(lines) if lines else None
 
-    except (
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        ValueError,  # includes json.JSONDecodeError and incomplete listings
-        KeyError,
-    ) as e:
+    except ValueError as e:  # includes json.JSONDecodeError and incomplete listings
+        logger.debug(f"Incomplete GitHub Actions status: {e}")
+        return "⚠️ CI status unavailable (could not obtain a complete check listing; retry)."
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, KeyError) as e:
         logger.debug(f"Failed to get GitHub Actions status: {e}")
         return None
 
@@ -1207,7 +1205,7 @@ def get_github_run_logs(
         max_tokens: Approximate total output budget, at four characters per token
             including metadata and truncation notices (default: 4000)
         repo: Optional explicit ``owner/repo`` the run belongs to. When omitted,
-            ``gh`` resolves the repository from the current checkout.
+            ``gh`` resolves the repository from the session checkout.
 
     Returns:
         Formatted string with run info and failure logs, or None on error.
@@ -1219,6 +1217,9 @@ def get_github_run_logs(
         logger.debug("gh CLI not available")
         return None
 
+    from .workspace import get_workspace_cwd
+
+    cwd = get_workspace_cwd()
     repo_args = ["--repo", repo] if repo else []
 
     def bounded_output(output: str) -> str:
@@ -1251,6 +1252,7 @@ def get_github_run_logs(
                 "databaseId,displayTitle,event,headBranch,conclusion,status,workflowName,createdAt,updatedAt,url,jobs",
                 *repo_args,
             ],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -1311,6 +1313,7 @@ def get_github_run_logs(
         # logs for ALL failed jobs in a single call)
         log_result = subprocess.run(
             ["gh", "run", "view", run_id, "--log-failed", *repo_args],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=False,
@@ -1387,6 +1390,7 @@ def get_github_run_logs(
                         "api",
                         f"/repos/{owner}/{repo_name}/actions/jobs/{job_id}/logs",
                     ],
+                    cwd=cwd,
                     capture_output=True,
                     text=True,
                     check=False,
