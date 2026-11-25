@@ -318,3 +318,23 @@ describe('standardMarkdown mode', () => {
     expect(div.querySelector('pre')).not.toBeNull();
   });
 });
+
+describe('inline code block langtag', () => {
+  // The body is a bare `1` so highlight.js auto-detection keeps the fence
+  // tag as the class; asserting on it below keeps the test from passing
+  // without exercising the hostile tag.
+  it.each([
+    ['img onerror', 'x"><img/src/onerror=alert(1)>'],
+    ['attribute breakout', 'x"/onmouseover="alert(1)'],
+  ])('does not turn a hostile langtag into markup (%s)', (_name, langtag) => {
+    const div = parse('```' + langtag + '\n1\n```\n');
+    const inline = div.querySelector('.inline-codeblock');
+    expect(inline).not.toBeNull();
+    expect(div.querySelector('img')).toBeNull();
+    const code = inline!.querySelector('code');
+    expect(code).not.toBeNull();
+    expect(code!.getAttribute('onmouseover')).toBeNull();
+    expect(code!.textContent).toBe('1');
+    expect(code!.className).toContain(`language-${langtag}`);
+  });
+});
