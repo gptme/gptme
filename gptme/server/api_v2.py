@@ -4398,14 +4398,19 @@ def _update_conversation_in_cache(conv_id: str) -> None:
         # stale entry is removed on the next list request.
         _invalidate_conversations_cache()
         return
-    if not any(c.id == conv_id for c in cache):
+    stale_entry = next((c for c in cache if c.id == conv_id), None)
+    if stale_entry is None:
         # Entry not in cached list (e.g., concurrent external filesystem write).
         # Fall back to full invalidation so the list gets rebuilt correctly.
         _invalidate_conversations_cache()
         return
     with _conversations_cache_lock:
-        # Only apply the update to the list it was computed from. A fill that
-        # landed meanwhile began its scan after the generation bump above, so
-        # it already holds this save and its complete flag wins.
-        if _conversations_cache is cache:
-            _conversations_cache = [updated if c.id == conv_id else c for c in cache]
+        # Apply the update only where the entry it replaces is still cached.
+        # Another conversation's in-place update may have swapped the list but
+        # keeps this entry by identity, so the refresh still lands there. A
+        # fill that landed meanwhile holds fresh entries: it began its scan
+        # after the generation bump above, so it already has this save and
+        # its complete flag wins. An invalidation leaves no list to update.
+        current = _conversations_cache
+        if current is not None and any(c is stale_entry for c in current):
+            _conversations_cache = [updated if c is stale_entry else c for c in current]

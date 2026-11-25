@@ -341,6 +341,64 @@ def test_update_conversation_in_cache_does_not_overwrite_newer_fill(tmp_path):
         api_v2_module._invalidate_conversations_cache()
 
 
+def test_concurrent_updates_of_different_conversations_both_apply(tmp_path):
+    """Two in-place updates that snapshot the same list must not drop each other."""
+    import time
+
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    def meta(conv_id: str, preview: str) -> ConversationMeta:
+        return ConversationMeta(
+            id=conv_id,
+            name=conv_id,
+            path=str(tmp_path / conv_id / "conversation.jsonl"),
+            created=0.0,
+            modified=0.0,
+            messages=1,
+            branches=1,
+            workspace="",
+            agent_name=None,
+            agent_path=None,
+            agent_avatar=None,
+            agent_urls=None,
+            model=None,
+            total_cost=0.0,
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cache_read_tokens=0,
+            last_message_role="user",
+            last_message_preview=preview,
+        )
+
+    api_v2_module._conversations_cache = [meta("a", "old"), meta("b", "old")]
+    api_v2_module._conversations_cache_logs_dir = tmp_path
+    api_v2_module._conversations_cache_time = time.monotonic()
+    api_v2_module._conversations_cache_complete = True
+
+    def read_meta(conv_id, detail=False, logs_dir=None):
+        if conv_id == "b":
+            # "a" is saved (under its own conversation lock) and finishes its
+            # cache update while "b" is reading from disk, after both
+            # snapshotted the same list.
+            api_v2_module._update_conversation_in_cache("a")
+        return replace(meta(conv_id, "new"), messages=2)
+
+    try:
+        with patch.object(api_v2_module, "get_conversation_meta_direct", read_meta):
+            api_v2_module._update_conversation_in_cache("b")
+        cache = api_v2_module._conversations_cache
+        assert cache is not None
+        assert {c.id: c.last_message_preview for c in cache} == {
+            "a": "new",
+            "b": "new",
+        }
+        assert all(c.messages == 2 for c in cache)
+        assert api_v2_module._conversations_cache_complete is True
+    finally:
+        api_v2_module._invalidate_conversations_cache()
+
+
 def test_api_conversation_search(client: FlaskClient, tmp_path, monkeypatch):
     """Test that search parameter filters conversations by name."""
 
