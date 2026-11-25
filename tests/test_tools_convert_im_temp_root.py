@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,8 @@ def test_imagemagick_staging_parent_is_literal(
     local_executable = bin_dir / Path(executable).name
     shutil.copyfile(executable, local_executable)
     shutil.copymode(executable, local_executable)
-    monkeypatch.setenv("PATH", "bin" + os.pathsep + os.environ.get("PATH", ""))
+    # No absolute fallback: losing the original relative lookup must fail.
+    monkeypatch.setenv("PATH", "bin")
     temp_root = tmp_path / temp_name
     temp_root.mkdir()
     monkeypatch.setattr("tempfile.tempdir", str(temp_root))
@@ -55,3 +57,54 @@ def test_imagemagick_staging_parent_is_literal(
     assert Path.cwd() == tmp_path
     assert src.read_bytes() == original
     assert list(temp_root.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable fixtures")
+@pytest.mark.parametrize("converter", [ImageConverter, PDFToImageConverter])
+@pytest.mark.parametrize("path_entry", ["bin", ".", ""])
+def test_imagemagick_staging_preserves_delegate_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    converter: type[ImageConverter] | type[PDFToImageConverter],
+    path_entry: str,
+) -> None:
+    executable = shutil.which("convert")
+    if not executable:
+        pytest.skip("ImageMagick not installed")
+    executable = str(Path(executable).absolute())
+    monkeypatch.chdir(tmp_path)
+    bin_dir = tmp_path / path_entry
+    bin_dir.mkdir(exist_ok=True)
+    marker = tmp_path / "delegate-ran"
+    # A real child lookup models ImageMagick finding gs, without depending on
+    # the host's PDF security policy or Ghostscript installation.
+    delegate = bin_dir / "gptme-test-delegate"
+    delegate.write_text(
+        f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n"
+    )
+    delegate.chmod(0o755)
+    wrapper = bin_dir / "convert"
+    wrapper.write_text(
+        f"#!{sys.executable}\n"
+        "import os, subprocess, sys\n"
+        "subprocess.run(['gptme-test-delegate'], check=True)\n"
+        f"os.execv({executable!r}, [{executable!r}, *sys.argv[1:]])\n"
+    )
+    wrapper.chmod(0o755)
+    monkeypatch.setenv("PATH", path_entry)
+    monkeypatch.setattr(
+        "gptme.tools.convert.get_availability",
+        lambda: ToolAvailability(ffmpeg=False, pdftoppm=False, imagemagick=True),
+    )
+    src = Path("image[0].png")
+    Image.new("RGB", (20, 10), "red").save(src)
+    dest = Path("output.jpg")
+
+    result = converter().convert(src, dest)
+
+    assert result.success, result.error
+    assert marker.is_file(), "the selected convert must find its delegate"
+    with Image.open(dest) as output:
+        assert output.size == (20, 10)
+    assert os.environ["PATH"] == path_entry
+    assert Path.cwd() == tmp_path

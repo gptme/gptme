@@ -20,6 +20,7 @@ import html
 import importlib.util
 import logging
 import mimetypes
+import os
 import re
 import shutil
 import stat
@@ -113,6 +114,17 @@ def _im_first_frame(path: Path) -> Iterator[tuple[str, str | None]]:
             # Symlinks can need privileges (e.g. on Windows); copy instead.
             shutil.copyfile(path, staged)
         yield f"{staged.name}[0]", directory
+
+
+def _im_environment(directory: str | None) -> dict[str, str] | None:
+    """Keep executable/delegate lookup relative to the caller, not staging."""
+    if directory is None:
+        return None
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(
+        str(Path(entry).absolute()) for entry in os.get_exec_path(env)
+    )
+    return env
 
 
 def _para_to_md(para: object) -> str:
@@ -515,13 +527,18 @@ class PDFToImageConverter(Converter):
         if avail.imagemagick:
             density = str(dpi)
             with _im_first_frame(src) as (source, directory):
+                env = _im_environment(directory)
                 executable = "convert"
-                if directory and (found := shutil.which(executable)):
+                if env and (found := shutil.which(executable, path=env["PATH"])):
                     executable = str(Path(found).absolute())
                 output = str(dest.absolute()) if directory else _arg(dest)
                 cmd = [executable, "-density", density, source, output]
                 result = subprocess.run(
-                    cmd, capture_output=True, check=False, cwd=directory
+                    cmd,
+                    capture_output=True,
+                    check=False,
+                    cwd=directory,
+                    env=env,
                 )
             if result.returncode == 0:
                 warnings.append("PDF-to-image conversion saves only the first page")
@@ -692,9 +709,9 @@ class ImageConverter(Converter):
                     if single_frame
                     else (_arg(src), None)
                 )
-                # Anchor relative PATH entries and output before changing child cwd.
+                env = _im_environment(directory)
                 executable = "convert"
-                if directory and (found := shutil.which(executable)):
+                if env and (found := shutil.which(executable, path=env["PATH"])):
                     executable = str(Path(found).absolute())
                 # Normalize pixels and reset EXIF orientation before writing,
                 # including formats that cannot retain orientation (e.g. BMP).
@@ -709,7 +726,11 @@ class ImageConverter(Converter):
                     cmd += ["-quality", str(q)]
                 cmd += [str(dest.absolute()) if directory else _arg(dest)]
                 result = subprocess.run(
-                    cmd, capture_output=True, check=False, cwd=directory
+                    cmd,
+                    capture_output=True,
+                    check=False,
+                    cwd=directory,
+                    env=env,
                 )
             if result.returncode == 0:
                 return ConversionResult(
