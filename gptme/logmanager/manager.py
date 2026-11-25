@@ -117,6 +117,8 @@ def _unchanged_since_persisted(log: "Log", path: Path) -> bool:
         log.persisted_path is not None
         and path.exists()
         and log.persisted_path == path.resolve()
+        and log.persisted_size is not None
+        and path.stat().st_size >= log.persisted_size
         and len(baseline) == len(log)
         and all(old is new for old, new in zip(baseline, log))
     )
@@ -214,10 +216,13 @@ class Log:
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
         if append and self.persisted_path == output.resolve() and output.exists():
-            # No disk work is needed when even the attachment hashes are saved.
-            # In particular, size drift must not rewrite a concurrent append.
-            if len(self.persisted) == len(self) and all(
-                old is new for old, new in zip(self.persisted, self)
+            # Preserve concurrent growth, but repair a truncated file rather
+            # than report success with acknowledged messages missing on disk.
+            if (
+                self.persisted_size is not None
+                and output.stat().st_size >= self.persisted_size
+                and len(self.persisted) == len(self)
+                and all(old is new for old, new in zip(self.persisted, self))
             ):
                 return self
             # Snapshotting legacy attachments requires rewriting old rows. Do
@@ -864,6 +869,8 @@ class LogManager:
             if (
                 archive.persisted_path is not None
                 and archive_path.exists()
+                and archive.persisted_size is not None
+                and archive_path.stat().st_size >= archive.persisted_size
                 and len(baseline) == len(archive)
                 and all(old is new for old, new in zip(baseline, archive))
             ):
