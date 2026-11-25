@@ -43,6 +43,14 @@ def extract_tool_uses_from_assistant_message(
 
     for message_part in message_parts:
         if message_part["type"] != "text":
+            # Flush pending text before the non-text part so the original
+            # order is preserved: text that followed a tool call must come
+            # before an attached image, not after it.
+            pending = carry + text
+            if pending.strip():
+                content_parts.append({"type": "text", "text": pending})
+            carry = ""
+            text = ""
             content_parts.append(message_part)
             continue
 

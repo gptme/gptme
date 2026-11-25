@@ -4,7 +4,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import assert_type
+from typing import assert_type, cast
 
 import httpx2
 import pytest
@@ -278,6 +278,50 @@ def test_assistant_images_survive_tool_conversion(content: str, tmp_path: Path):
     assert parts[-1]["type"] == "image", parts
     texts = [p["text"] for p in parts if p["type"] == "text"]
     assert any("Here is the chart." in t for t in texts), parts
+
+
+def test_text_after_tool_call_precedes_attached_image():
+    """Text that follows a tool call must stay before an attached image:
+    the image is appended while the text is still pending otherwise."""
+    init_tools(allowlist=["save"])
+
+    content = [
+        {
+            "type": "text",
+            "text": '@save(call_1): {"path": "a.txt", "content": "x"}'
+            "Here is the chart.",
+        },
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]
+
+    parts, tool_uses = extract_tool_uses_from_assistant_message(
+        cast("list[dict[str, str]]", content), tool_format_override="tool"
+    )
+
+    assert [t.call_id for t in tool_uses] == ["call_1"]
+    assert [p["type"] for p in parts] == ["text", "image_url"], parts
+    assert parts[0]["text"].strip() == "Here is the chart."
+
+
+def test_text_around_an_image_keeps_its_order():
+    """Text on both sides of an image stays separate and in place; buffering
+    the first text while appending the image would move the image first."""
+    init_tools(allowlist=["save"])
+
+    content = [
+        {"type": "text", "text": "Before"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        {"type": "text", "text": "After"},
+    ]
+
+    parts, tool_uses = extract_tool_uses_from_assistant_message(
+        cast("list[dict[str, str]]", content), tool_format_override="tool"
+    )
+
+    assert tool_uses == []
+    assert [p["type"] for p in parts] == ["text", "image_url", "text"], parts
+    assert parts[0]["text"].strip() == "Before"
+    assert parts[2]["text"].strip() == "After"
 
 
 def test_message_conversion_with_tools():
