@@ -1738,8 +1738,9 @@ def test_conversation_meta_direct_invalid_id_skips_logs_dir(conv_id: str, monkey
     assert conversations.get_conversation_meta_direct(conv_id) is None
 
 
+@pytest.mark.parametrize("alias", ["alias", "Draft..Notes"])
 def test_delete_refuses_alias_of_current_conversation(
-    tmp_path: Path, monkeypatch, capsys, requires_symlinks
+    tmp_path: Path, monkeypatch, capsys, requires_symlinks, alias: str
 ):
     """/delete compares directories, not names, before deleting.
 
@@ -1756,9 +1757,9 @@ def test_delete_refuses_alias_of_current_conversation(
     monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
     manager = LogManager.load(logs / "current-conv", create=True, lock=False)
     manager.append(Message("user", "hi", quiet=True))
-    (logs / "alias").symlink_to(logs / "current-conv", target_is_directory=True)
+    (logs / alias).symlink_to(logs / "current-conv", target_is_directory=True)
 
-    cmd = Message("user", "/delete --force alias", quiet=True)
+    cmd = Message("user", f"/delete --force {alias}", quiet=True)
     manager.append(cmd)
     execute_cmd(cmd, manager)
 
@@ -1766,7 +1767,7 @@ def test_delete_refuses_alias_of_current_conversation(
     assert "Cannot delete the current conversation." in out
     assert "Deleted conversation" not in out
     assert (logs / "current-conv" / "conversation.jsonl").exists()
-    assert (logs / "alias").exists()
+    assert (logs / alias).exists()
 
 
 def test_is_current_conversation_matches_names_and_refuses_unknown_ids(

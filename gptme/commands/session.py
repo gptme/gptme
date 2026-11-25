@@ -110,12 +110,14 @@ def _is_current_conversation(logdir: "Path", conv_id: str) -> bool:
     if logdir.name == conv_id:
         return True
     from ..dirs import get_logs_dir
-    from ..util.conversation_ids import is_valid_conversation_id
+    from ..logmanager.conversations import _conversation_dir
+    from ..util.conversation_ids import is_valid_conversation_lookup
 
-    if not is_valid_conversation_id(conv_id):
+    if not is_valid_conversation_lookup(conv_id):
         return False
     try:
-        return os.path.samefile(get_logs_dir() / conv_id, logdir)
+        conv_dir = _conversation_dir(get_logs_dir(), conv_id)
+        return conv_dir is not None and os.path.samefile(conv_dir, logdir)
     except OSError:
         return False
 
