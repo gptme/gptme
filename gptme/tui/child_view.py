@@ -3,7 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from rich.text import Text
 from textual import events
@@ -14,6 +14,9 @@ from textual.widgets import Button, Collapsible, Static
 from ..message import Message, MessageMetadata
 from ..tools.subagent import SubagentSnapshot
 from .app import MAX_INITIAL_MESSAGES, ChatInput, ChatScroll, GptmeApp, message_widget
+
+if TYPE_CHECKING:
+    from textual.timer import Timer
 
 
 def read_child_messages(logdir: Path) -> tuple[list[Message], str | None]:
@@ -163,6 +166,7 @@ class ChildView(Vertical):
         self.highlight = highlight
         self._messages: list[Message] = []
         self._refreshing = False
+        self._refresh_timer: Timer | None = None
         self._parent_seen = 0
 
     def compose(self) -> ComposeResult:
@@ -183,7 +187,7 @@ class ChildView(Vertical):
             editor.text, editor.selection, editor._pastes = saved
         editor.focus()
         await self.refresh_snapshot()
-        self.set_interval(1.0, self.refresh_snapshot)
+        self._refresh_timer = self.set_interval(1.0, self.refresh_snapshot)
 
     def update_parent_status(self) -> None:
         assert isinstance(self.app, GptmeApp)
@@ -253,7 +257,10 @@ class ChildView(Vertical):
         messages, error = await asyncio.to_thread(
             read_child_messages, self.child.logdir
         )
-        if not self.is_attached:
+        # The periodic refresh can outlive app shutdown: mounting or removing
+        # chat widgets while Textual prunes the DOM cancels their tasks and
+        # raises CancelledError from the prune (gptme/gptme#5261).
+        if not self.is_attached or not self.app._running:
             return
         # Append-only refresh preserves existing child scroll and expansions.
         shown = [m for m in messages if not m.hide]

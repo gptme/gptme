@@ -182,6 +182,12 @@ async def test_rolling_tail_keeps_overlapping_expanded_widgets(
         app.open_child(children[0])
         await pilot.pause()
         view = app.query_one(ChildView)
+        # Stop the periodic refresh and let an in-flight tick finish, so the
+        # explicit refresh below is the one that rolls the tail.
+        assert view._refresh_timer is not None
+        view._refresh_timer.pause()
+        while view._refreshing:
+            await pilot.pause()
         chat = view.query_one("#child-chat", ChatScroll)
         retained = list(chat.children)[-1]
         block = retained.query_one(Collapsible)
