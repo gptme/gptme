@@ -58,6 +58,17 @@ def test_normalize_model():
     assert normalize_model("some/unknown-model") == "some/unknown-model"
 
 
+def test_normalize_model_keeps_provider_pin_readable():
+    """A provider pin resolves its base name and keeps the pin as a tag."""
+    # parse_model_format keeps a non-format '@suffix' in the name, so the
+    # leaderboard must still resolve the human-readable base (gptme#5127).
+    assert normalize_model("openrouter/z-ai/glm-5@z-ai") == "GLM-5 (@z-ai)"
+    # A tool-format suffix is not a provider pin and never reaches display.
+    assert normalize_model("openai/gpt-4o@tool") == "GPT-4o"
+    # An unpinned row keeps the bare display name.
+    assert normalize_model("openrouter/z-ai/glm-5") == "GLM-5"
+
+
 def _create_eval_results(tmp_path: Path, runs: list[dict]) -> Path:
     """Helper to create eval results directory structure."""
     for run in runs:
