@@ -157,6 +157,13 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
                     break
                 if arg.startswith("-"):
                     flags += arg[1:]
+                elif "m" in arg[1:]:
+                    # `+m` forces the matching parameters to be printed even
+                    # inside a function, like pattern mode with `-m`. The
+                    # operands are patterns, so a secret name may be hidden
+                    # behind a wildcard; mark pattern printing for the check
+                    # below. With no operands `-m`/`+m` print nothing.
+                    flags += "m"
                 elif "p" in arg[1:]:
                     # Zsh's +p prints values too, including after -x.
                     return _REASON

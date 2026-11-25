@@ -91,6 +91,11 @@ from gptme.tools.base import ToolUse
         "zsh -c 'declare GITHUB_TOKEN'",
         "zsh -c 'typeset -px OPENAI_API_KEY'",
         "zsh -c 'typeset -x +p OPENAI_API_KEY'",
+        # `+m` forces matching parameters to print even inside a function.
+        "zsh -c 'typeset -x +m OPENAI_API_KEY'",
+        "zsh -c 'typeset +m OPENAI_API_KEY'",
+        "zsh -c \"typeset -x +m '*TOKEN*'\"",
+        "zsh -c 'declare -x +m GITHUB_TOKEN'",
         "zsh -c 'declare -x +p GITHUB_TOKEN'",
         "zsh -c 'typeset + -x OPENAI_API_KEY'",
         "zsh <<'EOF'\ntypeset -x +p OPENAI_API_KEY\nEOF",
@@ -153,6 +158,8 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "bash -c 'declare -Fx'",
         "declare -x FOO=bar",
         "zsh -c 'typeset OPENAI_API_KEY=synthetic'",
+        # `+m` alone prints nothing; with -x it is a full export dump.
+        "zsh -c 'typeset +m'",
         "zsh -c 'typeset -x OPENAI_API_KEY=synthetic'",
         "zsh -c 'typeset -x OPENAI_API_KEY'",
         "zsh -c 'typeset -x + OPENAI_API_KEY'",
