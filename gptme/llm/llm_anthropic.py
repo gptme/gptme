@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import replace
 from functools import wraps
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1515,16 +1516,18 @@ def _process_file(message_dict: dict) -> dict:
     )
 
     for f in message_dict.pop("files", []):
+        previous_parts = len(content)
         result = process_image_file(f, content, max_size_mb=5, expand_user=True)
         if result is None:
-            # Tell the model a file was attached, as the OpenAI provider does,
-            # instead of dropping it without a trace.
-            content.append(
-                {
-                    "type": "text",
-                    "text": f"[WARNING: Model doesn't support viewing file: {f}]",
-                }
-            )
+            # Tell the model a file was attached unless the image helper already
+            # supplied a diagnostic (such as a read error or size limit).
+            if len(content) == previous_parts:
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"[WARNING: Model doesn't support viewing file: {Path(f).name}]",
+                    }
+                )
             continue
 
         data, media_type = result

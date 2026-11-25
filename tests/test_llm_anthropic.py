@@ -1573,4 +1573,26 @@ def test_unsupported_attachment_is_mentioned(tmp_path):
         for part in message["content"]
         if part.get("type") == "text"
     ]
-    assert f"[WARNING: Model doesn't support viewing file: {pdf}]" in texts, dicts
+    assert f"[WARNING: Model doesn't support viewing file: {pdf.name}]" in texts, dicts
+    assert all(str(tmp_path) not in text for text in texts), dicts
+
+
+@pytest.mark.parametrize("oversized", [True, False])
+def test_image_failure_keeps_specific_diagnostic(tmp_path, oversized):
+    """Image size/read failures must not get an unsupported-file warning too."""
+    from gptme.llm.llm_anthropic import _process_file
+
+    image = tmp_path / "image.png"
+    if oversized:
+        image.write_bytes(b"\x00" * (5 * 1024 * 1024 + 1))
+    result = _process_file(
+        {"role": "user", "content": "Inspect the image.", "files": [image]}
+    )
+    texts = [part["text"] for part in result["content"]]
+    expected = (
+        "Image size exceeds 5MB. Please upload a smaller image."
+        if oversized
+        else "Error reading file image.png. Please check the file path."
+    )
+    assert expected in texts
+    assert not any("doesn't support viewing file" in text for text in texts)
