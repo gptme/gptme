@@ -487,7 +487,7 @@ This file currently supports a few options:
   CLI/TUI sessions ignore this setting. Resolution order: the
   ``GPTME_SUBAGENT_DRAIN_TIMEOUT`` environment variable, then this setting.
 
-- ``context``, context management settings. ``budget`` sets when compaction triggers, as a fraction of the model context window (``0 < x <= 1``) or an absolute token count; see :doc:`context-compression` for how it layers with the CLI flag, environment variable, and per-model config. ``enabled`` turns on fresh context mode (default ``false``; it replaces ``GPTME_FRESH``, and takes precedence over it whenever a project config is present), ``[context.selector]`` tunes how relevant files are selected, and ``scout_model`` names a cheap model that picks relevant files before each user turn of at least 20 words (unset disables the pre-pass). Example:
+- ``context``, context management settings. ``budget`` sets when compaction triggers, as a fraction of the model context window (``0 < x <= 1``) or an absolute token count; see :doc:`context-compression` for how it layers with the CLI flag, environment variable, and per-model config. ``enabled`` turns on fresh context mode (default ``false``; it replaces ``GPTME_FRESH``, and takes precedence over it whenever a project config is present), ``[context.selector]`` tunes how relevant files are selected, and ``scout_model`` names a cheap model that picks relevant files before each user turn of at least 20 words (unset disables the pre-pass). Inline ``@path`` attachments count toward that threshold: they are expanded into the message before the pre-turn hook runs, so even ``Review @notes.txt`` can trigger a scout call when the attached file adds enough words. Example:
 
   .. code-block:: toml
 
@@ -674,6 +674,11 @@ When ``GPTME_CHAT_HISTORY=true`` is set, gptme will automatically include summar
 - The initial user request from each conversation
 - Last meaningful assistant response from each conversation
 - Filters out test conversations and very short interactions
+
+**Limits:** only the newest 20 non-test conversations are examined, and at most
+five summaries are taken from them; gptme does not look further back. A run of
+short conversations can therefore leave a new conversation with no summaries at
+all, because the four-message minimum is applied only to those 20 candidates.
 
 **Benefits:**
 
