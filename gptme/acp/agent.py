@@ -50,7 +50,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine, Generator
 
     from ..message import Message
 
@@ -113,6 +113,20 @@ _CANCEL_GRACE_S = 1.0
 _acp_turn: contextvars.ContextVar[_AcpTurn | None] = contextvars.ContextVar(
     "acp_turn", default=None
 )
+
+
+def _acp_generation_hook(
+    messages: list[Message], **kwargs: Any
+) -> Generator[Message, None, None]:
+    """GENERATION_PRE hook, run last: no provider request once Stop has arrived.
+
+    reply() runs these hooks after the turn's own step checkpoint, and a slow
+    one (e.g. reading workspace files) can outlast session/cancel.
+    """
+    turn = _acp_turn.get()
+    if turn is not None and turn.cancelled.is_set():
+        raise _TurnCancelled
+    yield from ()
 
 
 def _acp_confirm_hook(
@@ -911,6 +925,12 @@ class GptmeAgent:
                 HookType.TOOL_CONFIRM,
                 _acp_confirm_hook,
                 priority=100,
+            )
+            register_hook(
+                "acp_cancel",
+                HookType.GENERATION_PRE,
+                _acp_generation_hook,
+                priority=-1000,  # after every hook that might be slow
             )
             self._hook_registry = get_registry()
             # Capture the resolved model (from config/env/auto-detect)

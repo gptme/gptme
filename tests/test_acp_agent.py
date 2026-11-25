@@ -15,7 +15,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from gptme.acp.agent import _CANCEL_GRACE_S, GptmeAgent, _AcpTurn, _import_acp
+from gptme.acp.agent import (
+    _CANCEL_GRACE_S,
+    GptmeAgent,
+    _acp_turn,
+    _AcpTurn,
+    _import_acp,
+    _TurnCancelled,
+)
 from gptme.acp.types import (
     ToolCall,
     ToolCallStatus,
@@ -2464,6 +2471,44 @@ class TestPromptCancel:
 
         assert result.stop_reason == "cancelled"
         assert generations == []
+
+    def test_cancel_during_generation_pre_hook_sends_no_request(self, monkeypatch):
+        """reply() runs its hooks after the step checkpoint; Stop can land there."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+
+        from gptme.hooks import HookType, register_hook, unregister_hook
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        monkeypatch.setattr("gptme.acp.agent.init", lambda **kwargs: None)
+        provider = MagicMock()
+        monkeypatch.setattr("gptme.llm._reply_after_hooks", provider)
+        agent = GptmeAgent()
+        turn = _AcpTurn(agent=agent, session_id="s1", loop=MagicMock())
+
+        def slow_hook(messages, **kwargs):
+            turn.cancelled.set()  # session/cancel arrives while this hook runs
+            yield from ()
+
+        async def scenario():
+            await agent.initialize(protocol_version=1)
+            register_hook("test_slow_hook", HookType.GENERATION_PRE, slow_hook)
+            token = _acp_turn.set(turn)
+            try:
+                with pytest.raises(_TurnCancelled):
+                    reply([Message("user", "go")], "openai/gpt-4o-mini")
+            finally:
+                _acp_turn.reset(token)
+
+        try:
+            _run(scenario())
+        finally:
+            unregister_hook("test_slow_hook", HookType.GENERATION_PRE)
+            unregister_hook("acp_cancel", HookType.GENERATION_PRE)
+            unregister_hook("acp_permission", HookType.TOOL_CONFIRM)
+
+        provider.assert_not_called()
 
     def test_final_send_failing_as_cancel_lands_answers_cancelled(self, monkeypatch):
         """A cancelled turn ignores the failed write and still saves every message."""
