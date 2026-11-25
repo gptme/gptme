@@ -167,6 +167,13 @@ class ConversationSession(BaseSession):
     # Lock guarding append, trim and read of events list to prevent concurrent
     # modifications from losing events or giving inconsistent indices.
     _events_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # Condition wrapping _events_lock so non-SSE waiters (e.g. /step startup
+    # poll) can wait for new events without clearing the shared event_flag.
+    _events_cond: threading.Condition = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._events_cond = threading.Condition(self._events_lock)
+
     # Monotonically increasing generation epoch. Interrupts revoke the current
     # epoch; successful user dispatches and tool continuations claim a new one.
     # Tool workers compare their captured epoch before releasing or continuing.
@@ -307,13 +314,25 @@ class ConversationSession(BaseSession):
 
     def append_event(self, event: EventType) -> None:
         """Append an event and trim if needed."""
-        with self._events_lock:
+        with self._events_cond:
             self.events.append(event)
             # Call trim while holding the lock to ensure atomic append+trim
             if len(self.events) > self._MAX_EVENTS:
                 trim_count = len(self.events) - self._KEEP_EVENTS
                 self._events_offset += trim_count
                 self.events = self.events[trim_count:]
+            self._events_cond.notify_all()
+
+    def wait_for_events(self, abs_index: int, timeout: float) -> bool:
+        """Wait until an event at or after ``abs_index`` is appended, or timeout.
+
+        Unlike waiting on ``event_flag``, this does not clear the shared flag
+        that SSE streams wait on.
+        """
+        with self._events_cond:
+            return self._events_cond.wait_for(
+                lambda: self.events_count > abs_index, timeout=timeout
+            )
 
 
 class SessionManager:

@@ -102,29 +102,30 @@ class AcpSessionRuntime:
         await client.__aenter__()
         try:
             session_id = await client.new_session(cwd=self.workspace)
-        except Exception:
+            if self.model:
+                try:
+                    await client.set_session_model(
+                        session_id=session_id, model_id=self.model
+                    )
+                except NotImplementedError:
+                    logger.debug(
+                        "ACP client does not support set_session_model; "
+                        "falling back to ACP-side model resolution"
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to set ACP session model %s for session %s",
+                        self.model,
+                        session_id,
+                    )
+                    raise
+        except BaseException:
+            self._client = None
+            self._session_id = None
             await client.__aexit__(None, None, None)
             raise
         self._client = client
         self._session_id = session_id
-        if self.model:
-            try:
-                await client.set_session_model(
-                    session_id=session_id, model_id=self.model
-                )
-            except NotImplementedError:
-                logger.debug(
-                    "ACP client does not support set_session_model; "
-                    "falling back to ACP-side model resolution"
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to set ACP session model %s for session %s",
-                    self.model,
-                    session_id,
-                )
-                await client.__aexit__(None, None, None)
-                raise
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",
             self.command,
