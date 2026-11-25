@@ -340,12 +340,16 @@ def test_chat_completions_cutoff_is_not_a_normal_finish(monkeypatch, finish_reas
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
     monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
 
+    monkeypatch.setattr(llm_openai, "_resolve_reasoning_effort", lambda *a: "high")
+
     text, metadata = _drain(
         llm_openai.stream([Message("user", "hi")], "openai/gpt-4o", None)
     )
 
     assert text == ""
     assert not EmptyStreamError("openai/gpt-4o", metadata).normal_finish
+    # The request metadata fallback still runs for a cut-off without usage.
+    assert metadata.get("reasoning_effort") == "high"
 
 
 def test_chat_completions_stop_is_a_normal_finish(monkeypatch):
