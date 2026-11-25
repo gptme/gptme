@@ -117,15 +117,11 @@ def _find_grok_cli_key(data: dict) -> str | None:
     return None
 
 
-def _load_grok_cli_tokens() -> SubscriptionAuth | None:
-    """Load tokens from grok CLI auth file (~/.grok/auth.json).
+def _load_grok_cli_tokens_with_key() -> tuple[str, SubscriptionAuth] | None:
+    """Load grok CLI tokens together with the auth.json key they came from.
 
-    The grok CLI stores tokens as a dict keyed by "{issuer}::{client_id}".
-    Each entry has: key (access token), refresh_token, expires_at (ISO 8601).
-
-    Falls back to any key that contains our exact client ID, so variant issuer
-    URL formats are handled while ensuring we never use a token belonging to a
-    different OAuth client or account.
+    The key is needed by the write-back path so a refresh only ever updates the
+    entry it was loaded from — never a newer login stored under another key.
     """
     grok_path = _get_grok_cli_auth_path()
     if not grok_path.exists():
@@ -135,9 +131,9 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
         data = json.loads(grok_path.read_text())
 
         key = _find_grok_cli_key(data)
-        entry = data[key] if key is not None else None
+        entry = data.get(key) if key is not None else None
 
-        if entry is None:
+        if key is None or entry is None:
             logger.warning(
                 "Expected grok auth key %r not found; "
                 "run 'grok login' or 'gptme auth grok-subscription' to authenticate",
@@ -149,7 +145,7 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
         if not access_token:
             return None
 
-        return SubscriptionAuth(
+        return key, SubscriptionAuth(
             access_token=access_token,
             refresh_token=entry.get("refresh_token"),
             expires_at=_parse_expires_at(entry.get("expires_at", "")),
@@ -157,6 +153,20 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
     except Exception as e:
         logger.debug(f"Failed to load grok CLI tokens: {e}")
         return None
+
+
+def _load_grok_cli_tokens() -> SubscriptionAuth | None:
+    """Load tokens from grok CLI auth file (~/.grok/auth.json).
+
+    The grok CLI stores tokens as a dict keyed by "{issuer}::{client_id}".
+    Each entry has: key (access token), refresh_token, expires_at (ISO 8601).
+
+    Falls back to any key that contains our exact client ID, so variant issuer
+    URL formats are handled while ensuring we never use a token belonging to a
+    different OAuth client or account.
+    """
+    loaded = _load_grok_cli_tokens_with_key()
+    return loaded[1] if loaded is not None else None
 
 
 def _load_stored_tokens() -> SubscriptionAuth | None:
@@ -188,8 +198,19 @@ def _save_tokens(auth: SubscriptionAuth) -> None:
     logger.debug(f"Saved grok subscription tokens to {token_path}")
 
 
-def _update_grok_cli_tokens(auth: SubscriptionAuth) -> None:
+def _update_grok_cli_tokens(
+    auth: SubscriptionAuth,
+    *,
+    source_key: str | None = None,
+    expected_refresh_token: str | None = None,
+) -> None:
     """Write refreshed tokens back to grok CLI auth file to keep them in sync.
+
+    ``source_key`` is the auth.json key the refreshed session was loaded from.
+    When given, the write is confined to that entry and skipped if the entry no
+    longer holds ``expected_refresh_token`` — otherwise a ``grok login`` that
+    lands a fresh session while we refresh would be overwritten with our older
+    tokens. Without it we fall back to the loader's key lookup.
 
     Uses a separate .lock file as the flock target so the lock inode stays
     constant across os.replace() calls (locking auth.json directly is unsafe
@@ -210,14 +231,22 @@ def _update_grok_cli_tokens(auth: SubscriptionAuth) -> None:
             if not grok_path.exists():
                 return
             data = json.loads(grok_path.read_text())
-            key = _find_grok_cli_key(data)
-            if key is None:
+            key = source_key if source_key is not None else _find_grok_cli_key(data)
+            if key is None or key not in data:
+                return
+            entry = data[key]
+            if (
+                expected_refresh_token is not None
+                and entry.get("refresh_token") != expected_refresh_token
+            ):
+                logger.debug(
+                    "grok auth entry %r changed since load; not overwriting", key
+                )
                 return
 
             from datetime import datetime, timezone
 
             dt = datetime.fromtimestamp(auth.expires_at, tz=timezone.utc)
-            entry = data[key]
             entry["key"] = auth.access_token
             entry["expires_at"] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f000Z")
             if auth.refresh_token:
@@ -449,7 +478,8 @@ def get_auth(timeout: float | tuple[float, float] = 30) -> SubscriptionAuth:
 
     # Gather candidates: grok CLI tokens take priority (managed by the CLI)
     sources = []
-    cli_auth = _load_grok_cli_tokens()
+    cli_loaded = _load_grok_cli_tokens_with_key()
+    cli_key, cli_auth = cli_loaded if cli_loaded is not None else (None, None)
     if cli_auth is not None:
         sources.append(("grok CLI", cli_auth, True))
 
@@ -470,7 +500,11 @@ def get_auth(timeout: float | tuple[float, float] = 30) -> SubscriptionAuth:
             try:
                 new_auth = _refresh_access_token(source_auth.refresh_token, timeout)
                 if is_cli:
-                    _update_grok_cli_tokens(new_auth)
+                    _update_grok_cli_tokens(
+                        new_auth,
+                        source_key=cli_key,
+                        expected_refresh_token=source_auth.refresh_token,
+                    )
                 _auth = new_auth
                 # Re-initialize the cached OpenAI client so it uses the new token
                 try:
@@ -516,7 +550,8 @@ def init(config: Any) -> bool:
     global _auth
 
     # Collect all token sources
-    cli_auth = _load_grok_cli_tokens()
+    cli_loaded = _load_grok_cli_tokens_with_key()
+    cli_key, cli_auth = cli_loaded if cli_loaded is not None else (None, None)
     stored_auth = _load_stored_tokens()
 
     initial_auth: SubscriptionAuth | None = None
@@ -537,7 +572,11 @@ def init(config: Any) -> bool:
                 try:
                     initial_auth = _refresh_access_token(source_auth.refresh_token)
                     if is_cli:
-                        _update_grok_cli_tokens(initial_auth)
+                        _update_grok_cli_tokens(
+                            initial_auth,
+                            source_key=cli_key,
+                            expected_refresh_token=source_auth.refresh_token,
+                        )
                     break
                 except Exception as e:
                     logger.debug(
