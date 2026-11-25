@@ -670,17 +670,11 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             file_lines[e:e] = new_lines
             endings[e:e] = new_endings
 
-    # A bare CR immediately before an empty line's "\n" reads back as a single
-    # CRLF, which silently drops the blank line. Give the empty line the same
-    # bare terminator so the two breaks stay distinct.
-    for idx in range(1, len(endings)):
-        if file_lines[idx] == "" and endings[idx] == "\n" and endings[idx - 1] == "\r":
-            endings[idx] = "\r"
-
     if not file_lines:
         return "\n" if had_trailing_newline else ""
     parts: list[str] = []
     last = len(file_lines) - 1
+    prev_bare_cr = False
     for idx, (line, ending) in enumerate(zip(file_lines, endings, strict=True)):
         if idx == last:
             # An originally unterminated file stays unterminated. Otherwise a
@@ -689,8 +683,15 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             parts.append(line + (ending or final_ending if final_ending else ""))
         else:
             # New lines, and an unterminated last line that is no longer last,
-            # get "\n".
-            parts.append(line + (ending or "\n"))
+            # get "\n". A bare CR followed by an empty line's "\n" reads back as
+            # a single CRLF, so keep the two breaks distinct by giving the empty
+            # line the same bare terminator; the run propagates until a
+            # non-empty line ends it.
+            sep = ending or "\n"
+            if prev_bare_cr and line == "" and sep == "\n":
+                sep = "\r"
+            parts.append(line + sep)
+            prev_bare_cr = sep == "\r"
     return "".join(parts)
 
 

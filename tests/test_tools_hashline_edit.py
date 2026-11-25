@@ -247,6 +247,18 @@ class TestApplyOperations:
         result = _apply_operations(content, ops)
         assert result.splitlines() == ["A", "", "c"]
 
+    def test_blank_replacement_does_not_rewrite_a_run_of_untouched_blank_lines(self):
+        """Only as many breaks as the edit created change; line count is kept.
+
+        ``a\rb\n\nc\n`` has four lines. Replacing ``b`` with a blank line must
+        still save four lines (``a``, ``, ``, ``c``), not three.
+        """
+        content = "a\rb\n\nc\n"
+        ops = [HashlineOp(kind="replace", start=2, end=2, text=None, text_lines=[""])]
+        result = _apply_operations(content, ops)
+        assert result == "a\r\r\rc\n"
+        assert result.splitlines() == ["a", "", "", "c"]
+
     def test_insert_before(self):
         content = "alpha\nbeta\n"
         ops = [HashlineOp(kind="insert_before", start=1, end=1, text="zero")]
