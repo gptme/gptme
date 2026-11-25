@@ -5,14 +5,15 @@ import re
 import socket
 import ssl
 import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import AsyncExitStack
 from typing import Any
 from urllib.parse import urlparse
 
+import anyio
 import httpx
 import mcp.types as types  # Import all types
-from mcp import ClientSession
+from mcp import ClientSession, McpError
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.session import RequestContext
 from mcp.client.sse import sse_client
@@ -53,6 +54,12 @@ MCP_CLOSE_TIMEOUT_S = 5.0
 MCP_INITIALIZE_TIMEOUT_S = 5.0
 MCP_INITIALIZE_OAUTH_TIMEOUT_S = DEFAULT_FLOW_TIMEOUT_S + 30.0
 
+# Event-loop passes given to the stdio reader before a request is sent, so an
+# EOF that arrived while the loop was stopped closes the stream first. A pending
+# EOF needs a few passes (fd readiness, StreamReader wakeup, writer close).
+_PRE_SEND_DRAIN_STEPS = 20
+_MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS = 1_000
+
 
 def _initialize_timeout(auth: httpx.Auth | None) -> float:
     """Return the handshake budget for a transport with (or without) OAuth."""
@@ -67,8 +74,47 @@ class MCPInterruptedError(Exception):
     """
 
 
+class MCPToolCallError(RuntimeError):
+    """A tool call failed and must not be retried, even with connection text."""
+
+
+class MCPUnknownOutcomeError(MCPToolCallError):
+    """A sent tool call failed without a confirmed response."""
+
+
+async def _await_tool_response(coro: Awaitable[Any]) -> Any:
+    """Keep explicit server errors distinct from uncertain transport failures."""
+    try:
+        return await coro
+    except Exception as error:
+        known_failure = (
+            isinstance(error, McpError) and error.error.code != types.CONNECTION_CLOSED
+        )
+        if known_failure or _is_connection_error(error):
+            diagnostic = str(error) or type(error).__name__
+            if len(diagnostic) > _MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS:
+                diagnostic = (
+                    diagnostic[:_MAX_UNKNOWN_OUTCOME_DIAGNOSTIC_CHARS] + " [truncated]"
+                )
+            if known_failure:
+                raise MCPToolCallError(f"MCP tool failed: {diagnostic}") from error
+            raise MCPUnknownOutcomeError(
+                "MCP server failed during the call; its result is unknown "
+                f"and it was not retried: {diagnostic}"
+            ) from error
+        raise
+
+
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates MCP connection failure"""
+    if isinstance(error, MCPToolCallError):
+        return False
+    # A closed or broken transport stream: str() of these is empty.
+    if isinstance(
+        error,
+        (anyio.ClosedResourceError, anyio.BrokenResourceError, anyio.EndOfStream),
+    ):
+        return True
     error_msg = str(error).lower()
     return any(
         phrase in error_msg
@@ -352,6 +398,11 @@ class MCPClient:
         # instances to overwrite each other's loops.
         logger.debug(f"Init - Loop ID: {id(self.loop)}")
         self.session: ClientSession | None = None
+        # stdio read stream; its writer closes when the server's stdout hits EOF.
+        self._read_stream: Any = None
+        # An uncertain call is never replayed; the next independent call can
+        # safely reconnect before sending anything on this failed session.
+        self._tool_transport_failed = False
         self.tools: types.ListToolsResult | None = None
         self.stack: AsyncExitStack | None = None
         self.roots: list[types.Root] = []
@@ -490,6 +541,7 @@ class MCPClient:
                 stdio_client(server_params)
             )
             read, write = transport
+            self._read_stream = read
 
             csession = ClientSession(
                 read,
@@ -512,8 +564,10 @@ class MCPClient:
             if not self.tools:
                 raise RuntimeError("Failed to get tools list")
 
+            self._tool_transport_failed = False
             return (self.tools, self.session)
-        except Exception:
+        except BaseException:
+            self._read_stream = None
             if self.stack:
                 await self.stack.__aexit__(None, None, None)
                 self.stack = None
@@ -527,6 +581,7 @@ class MCPClient:
         auth: httpx.Auth | None = None,
     ) -> tuple[types.ListToolsResult, ClientSession]:
         """Set up HTTP connection and maintain it"""
+        self._read_stream = None
         self.stack = AsyncExitStack()
         await self.stack.__aenter__()
 
@@ -563,6 +618,7 @@ class MCPClient:
             if not self.tools:
                 raise RuntimeError("Failed to get tools list")
 
+            self._tool_transport_failed = False
             return (self.tools, self.session)
         except asyncio.CancelledError:
             user_interrupted = self._interrupt_ops.is_set()
@@ -719,6 +775,7 @@ class MCPClient:
                 self.stack = None
                 self.session = None
                 self.tools = None
+                self._read_stream = None
                 close_oauth_provider(self._oauth_provider)
                 self._oauth_provider = None
                 if not self.loop.is_closed():
@@ -726,6 +783,56 @@ class MCPClient:
         finally:
             if acquired:
                 self._op_lock.release()
+
+    async def _unless_transport_closed(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        """Await ``coro``, failing fast if the stdio server's stdout closes.
+
+        The event loop only runs during a call, so when a stdio server exits
+        between calls the SDK notices the EOF only after the next request is
+        sent, and that request then waits forever for a response. Race the
+        request against the read stream's writer closing. Only a close observed
+        before sending is safe to retry; transport failures after sending have
+        an unknown outcome and must not repeat the tool call.
+        """
+        stream = self._read_stream
+        if stream is None:
+            return await _await_tool_response(coro)
+        # The loop was stopped since the last call, so an EOF from a server that
+        # exited in between is still unprocessed. Let the reader task run first:
+        # without this the closed stream is seen only after the request is sent,
+        # which reads as "died mid-call" and skips a safe restart.
+        try:
+            for _ in range(_PRE_SEND_DRAIN_STEPS):
+                if stream.statistics().open_send_streams == 0:
+                    break
+                await asyncio.sleep(0)
+        except BaseException:
+            # Cancelled (e.g. by close()) before the request was scheduled.
+            coro.close()
+            raise
+        if stream.statistics().open_send_streams == 0:
+            # Died before this request was sent: retrying after a restart is safe.
+            coro.close()
+            raise ConnectionError(
+                "MCP server connection closed: the server process exited"
+            )
+        request = asyncio.ensure_future(coro)
+        try:
+            while not request.done():
+                if stream.statistics().open_send_streams == 0:
+                    # Died while the request was in flight: the tool may already
+                    # have run. Not a connection error, so the auto-restart does
+                    # not repeat a call that may have changed data; the next call
+                    # sees the closed stream and restarts.
+                    raise MCPUnknownOutcomeError(
+                        "MCP server exited during the call; its result is unknown "
+                        "and it was not retried"
+                    )
+                await asyncio.wait({request}, timeout=0.1)
+            return await _await_tool_response(request)
+        finally:
+            if not request.done():
+                request.cancel()
 
     def call_tool(self, tool_name: str, arguments: dict) -> str:
         """Synchronous tool call method.
@@ -742,8 +849,15 @@ class MCPClient:
             session = self.session
             if session is None:
                 raise RuntimeError("Should not be None")
-
-            result = await session.call_tool(tool_name, arguments)
+            if self._tool_transport_failed:
+                raise ConnectionError("MCP transport closed after the previous call")
+            try:
+                result = await self._unless_transport_closed(
+                    session.call_tool(tool_name, arguments)
+                )
+            except MCPUnknownOutcomeError:
+                self._tool_transport_failed = True
+                raise
             # Safely access content for logging
             if (
                 result.content
