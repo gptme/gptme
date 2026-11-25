@@ -2557,9 +2557,8 @@ Thread-mode only; has no effect in subprocess or ACP modes (the child process’
 own <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> controls its secret handling).</p></li>
 </ul>
 <p>Signal tools are loaded regardless of allowlist so the subagent can communicate
-back. Thread-mode subagents get <code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">clarify</span></code>, and <code class="docutils literal notranslate"><span class="pre">progress</span></code>.
-Subprocess subagents get <code class="docutils literal notranslate"><span class="pre">complete</span></code> and <code class="docutils literal notranslate"><span class="pre">clarify</span></code>; <code class="docutils literal notranslate"><span class="pre">progress</span></code> is not loaded
-because it depends on the parent’s in-process notification queue.</p>
+back. Both thread-mode and subprocess subagents get <code class="docutils literal notranslate"><span class="pre">complete</span></code>, <code class="docutils literal notranslate"><span class="pre">clarify</span></code>,
+<code class="docutils literal notranslate"><span class="pre">progress</span></code> and <code class="docutils literal notranslate"><span class="pre">yield</span></code>.</p>
 <p><strong>3. Cancellation and timeout</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">max_time</span></code> (seconds) — a watchdog timer that marks the subagent result as

@@ -190,6 +190,10 @@ If no model is configured, gptme will scan your API keys and pick the first avai
      - ``ANTHROPIC_API_KEY``
    * - ``openrouter``
      - ``OPENROUTER_API_KEY``
+   * - ``requesty``
+     - ``REQUESTY_API_KEY``
+   * - ``opencode-go``
+     - ``OPENCODE_API_KEY``
    * - ``gemini``
      - ``GEMINI_API_KEY``
    * - ``groq``
@@ -207,6 +211,9 @@ If no model is configured, gptme will scan your API keys and pick the first avai
 
 So if you have both ``ANTHROPIC_API_KEY`` and ``GROQ_API_KEY`` set, gptme will
 use Anthropic (earlier in the list) unless you override with ``MODEL`` or ``--model``.
+``requesty``, ``moonshot``, ``nvidia`` and ``azure`` have no recommended model:
+if one of them is picked, startup stops with "Provider 'X' requires specifying a
+model", so set ``MODEL`` or ``--model`` to a full ``provider/model`` ID as well.
 See :doc:`providers` for the full list and :doc:`models` for model recommendations.
 
 **Using multiple providers:**
@@ -454,7 +461,7 @@ This file currently supports a few options:
 
 - ``env``, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.
 - ``mcp``, MCP server configuration for this project. See :ref:`mcp` for more information.
-- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the directory gptme is started from (normally the workspace root). ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
+- ``lessons``, extra lesson directories for this project. Relative paths are resolved against the active workspace. The CLI takes the workspace from ``--workspace`` or ``GPTME_WORKSPACE``, defaulting to the directory gptme is started from. The special value ``@log`` uses the chat log's ``workspace`` entry, which may be a symlink to an existing project workspace rather than a separate directory. A new chat uses the resulting path. A resumed chat keeps its saved workspace if the resulting path is the launch directory, including when you pass ``--workspace .``; otherwise it uses the resulting path. ``~`` is not expanded here, and missing directories are skipped silently. See :doc:`lessons` for the lesson format. Example:
 
   .. code-block:: toml
 
@@ -480,7 +487,7 @@ This file currently supports a few options:
   CLI/TUI sessions ignore this setting. Resolution order: the
   ``GPTME_SUBAGENT_DRAIN_TIMEOUT`` environment variable, then this setting.
 
-- ``context``, context management settings. ``budget`` sets when compaction triggers, as a fraction of the model context window (``0 < x <= 1``) or an absolute token count; see :doc:`context-compression` for how it layers with the CLI flag, environment variable, and per-model config. ``enabled`` turns on fresh context mode (default ``false``; it replaces ``GPTME_FRESH``, and takes precedence over it whenever a project config is present), ``[context.selector]`` tunes how relevant files are selected, and ``scout_model`` names a cheap model that picks relevant files before each user turn (unset disables the pre-pass). Example:
+- ``context``, context management settings. ``budget`` sets when compaction triggers, as a fraction of the model context window (``0 < x <= 1``) or an absolute token count; see :doc:`context-compression` for how it layers with the CLI flag, environment variable, and per-model config. ``enabled`` turns on fresh context mode (default ``false``; it replaces ``GPTME_FRESH``, and takes precedence over it whenever a project config is present), ``[context.selector]`` tunes how relevant files are selected, and ``scout_model`` names a cheap model that picks relevant files before each user turn of at least 20 words (unset disables the pre-pass). In the default append-only context mode that count includes inline ``@path`` attachments, whose text is expanded into the message before the pre-turn hook runs, so ``Review @notes.txt`` can trigger a scout call when the file adds enough words. With fresh context mode enabled (``enabled = true``) the attachment stays a file reference and its text is added only when the request is sent, so only what is written in the message counts. Example:
 
   .. code-block:: toml
 
@@ -663,10 +670,15 @@ When ``GPTME_CHAT_HISTORY=true`` is set, gptme will automatically include summar
 
 **What it includes:**
 
-- Summaries of the 3 most recent substantial conversations (4+ messages)
-- Initial user requests and follow-ups from each conversation
+- Summaries of the 5 most recent substantial conversations (4+ messages)
+- The initial user request from each conversation
 - Last meaningful assistant response from each conversation
 - Filters out test conversations and very short interactions
+
+**Limits:** only the newest 20 non-test conversations are examined, and at most
+five summaries are taken from them; gptme does not look further back. A run of
+short conversations can therefore leave a new conversation with no summaries at
+all, because the four-message minimum is applied only to those 20 candidates.
 
 **Benefits:**
 

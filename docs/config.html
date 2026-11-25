@@ -840,6 +840,12 @@ not mean the main chat model failed.</p>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">openrouter</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code></p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requesty</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">REQUESTY_API_KEY</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">opencode-go</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OPENCODE_API_KEY</span></code></p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gemini</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">GEMINI_API_KEY</span></code></p></td>
 </tr>
@@ -866,6 +872,9 @@ not mean the main chat model failed.</p>
 </div>
 <p>So if you have both <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> and <code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY</span></code> set, gptme will
 use Anthropic (earlier in the list) unless you override with <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> or <code class="docutils literal notranslate"><span class="pre">--model</span></code>.
+<code class="docutils literal notranslate"><span class="pre">requesty</span></code>, <code class="docutils literal notranslate"><span class="pre">moonshot</span></code>, <code class="docutils literal notranslate"><span class="pre">nvidia</span></code> and <code class="docutils literal notranslate"><span class="pre">azure</span></code> have no recommended model:
+if one of them is picked, startup stops with “Provider ‘X’ requires specifying a
+model”, so set <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> or <code class="docutils literal notranslate"><span class="pre">--model</span></code> to a full <code class="docutils literal notranslate"><span class="pre">provider/model</span></code> ID as well.
 See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for the full list and <a class="reference internal" href="models.html"><span class="doc">Models</span></a> for model recommendations.</p>
 <p><strong>Using multiple providers:</strong></p>
 <p>You can set API keys for as many providers as you like. Use <code class="docutils literal notranslate"><span class="pre">--model</span></code> on the
@@ -1073,7 +1082,7 @@ repositories. See <a class="reference internal" href="security.html"><span class
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">env</span></code>, a dictionary of environment variables to set for this project. These take precedence over global config but are overridden by shell environment variables.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code>, MCP server configuration for this project. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lessons</span></code>, extra lesson directories for this project. Relative paths are resolved against the directory gptme is started from (normally the workspace root). <code class="docutils literal notranslate"><span class="pre">~</span></code> is not expanded here, and missing directories are skipped silently. See <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> for the lesson format. Example:</p>
+<li><p><code class="docutils literal notranslate"><span class="pre">lessons</span></code>, extra lesson directories for this project. Relative paths are resolved against the active workspace. The CLI takes the workspace from <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> or <code class="docutils literal notranslate"><span class="pre">GPTME_WORKSPACE</span></code>, defaulting to the directory gptme is started from. The special value <code class="docutils literal notranslate"><span class="pre">&#64;log</span></code> uses the chat log’s <code class="docutils literal notranslate"><span class="pre">workspace</span></code> entry, which may be a symlink to an existing project workspace rather than a separate directory. A new chat uses the resulting path. A resumed chat keeps its saved workspace if the resulting path is the launch directory, including when you pass <code class="docutils literal notranslate"><span class="pre">--workspace</span> <span class="pre">.</span></code>; otherwise it uses the resulting path. <code class="docutils literal notranslate"><span class="pre">~</span></code> is not expanded here, and missing directories are skipped silently. See <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> for the lesson format. Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[lessons]</span>
 <span class="n">dirs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"lessons"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/opt/shared-lessons"</span><span class="p">]</span>
 </pre></div>
@@ -1096,7 +1105,7 @@ warning. Explicit <code class="docutils literal notranslate"><span class="pre">c
 CLI/TUI sessions ignore this setting. Resolution order: the
 <code class="docutils literal notranslate"><span class="pre">GPTME_SUBAGENT_DRAIN_TIMEOUT</span></code> environment variable, then this setting.</p>
 </li>
-<li><p><code class="docutils literal notranslate"><span class="pre">context</span></code>, context management settings. <code class="docutils literal notranslate"><span class="pre">budget</span></code> sets when compaction triggers, as a fraction of the model context window (<code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;</span> <span class="pre">x</span> <span class="pre">&lt;=</span> <span class="pre">1</span></code>) or an absolute token count; see <a class="reference internal" href="context-compression.html"><span class="doc">Context Compression</span></a> for how it layers with the CLI flag, environment variable, and per-model config. <code class="docutils literal notranslate"><span class="pre">enabled</span></code> turns on fresh context mode (default <code class="docutils literal notranslate"><span class="pre">false</span></code>; it replaces <code class="docutils literal notranslate"><span class="pre">GPTME_FRESH</span></code>, and takes precedence over it whenever a project config is present), <code class="docutils literal notranslate"><span class="pre">[context.selector]</span></code> tunes how relevant files are selected, and <code class="docutils literal notranslate"><span class="pre">scout_model</span></code> names a cheap model that picks relevant files before each user turn (unset disables the pre-pass). Example:</p>
+<li><p><code class="docutils literal notranslate"><span class="pre">context</span></code>, context management settings. <code class="docutils literal notranslate"><span class="pre">budget</span></code> sets when compaction triggers, as a fraction of the model context window (<code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;</span> <span class="pre">x</span> <span class="pre">&lt;=</span> <span class="pre">1</span></code>) or an absolute token count; see <a class="reference internal" href="context-compression.html"><span class="doc">Context Compression</span></a> for how it layers with the CLI flag, environment variable, and per-model config. <code class="docutils literal notranslate"><span class="pre">enabled</span></code> turns on fresh context mode (default <code class="docutils literal notranslate"><span class="pre">false</span></code>; it replaces <code class="docutils literal notranslate"><span class="pre">GPTME_FRESH</span></code>, and takes precedence over it whenever a project config is present), <code class="docutils literal notranslate"><span class="pre">[context.selector]</span></code> tunes how relevant files are selected, and <code class="docutils literal notranslate"><span class="pre">scout_model</span></code> names a cheap model that picks relevant files before each user turn of at least 20 words (unset disables the pre-pass). In the default append-only context mode that count includes inline <code class="docutils literal notranslate"><span class="pre">&#64;path</span></code> attachments, whose text is expanded into the message before the pre-turn hook runs, so <code class="docutils literal notranslate"><span class="pre">Review</span> <span class="pre">&#64;notes.txt</span></code> can trigger a scout call when the file adds enough words. With fresh context mode enabled (<code class="docutils literal notranslate"><span class="pre">enabled</span> <span class="pre">=</span> <span class="pre">true</span></code>) the attachment stays a file reference and its text is added only when the request is sent, so only what is written in the message counts. Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[context]</span>
 <span class="n">budget</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.85</span>
 <span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
@@ -1247,11 +1256,15 @@ The variable name is derived from the parameter name in uppercase.</p>
 <p>When <code class="docutils literal notranslate"><span class="pre">GPTME_CHAT_HISTORY=true</span></code> is set, gptme will automatically include summaries from recent conversations in new chat sessions, providing continuity across conversations.</p>
 <p><strong>What it includes:</strong></p>
 <ul class="simple">
-<li><p>Summaries of the 3 most recent substantial conversations (4+ messages)</p></li>
-<li><p>Initial user requests and follow-ups from each conversation</p></li>
+<li><p>Summaries of the 5 most recent substantial conversations (4+ messages)</p></li>
+<li><p>The initial user request from each conversation</p></li>
 <li><p>Last meaningful assistant response from each conversation</p></li>
 <li><p>Filters out test conversations and very short interactions</p></li>
 </ul>
+<p><strong>Limits:</strong> only the newest 20 non-test conversations are examined, and at most
+five summaries are taken from them; gptme does not look further back. A run of
+short conversations can therefore leave a new conversation with no summaries at
+all, because the four-message minimum is applied only to those 20 candidates.</p>
 <p><strong>Benefits:</strong></p>
 <ul class="simple">
 <li><p>Better continuity for ongoing projects and work</p></li>

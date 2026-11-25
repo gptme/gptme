@@ -764,8 +764,10 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span><span class="p">,</span> <span class="n">Parameter</span><span class="p">,</span> <span class="n">ToolUse</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">confirm</span><span class="p">):</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'name'</span><span class="p">,</span> <span class="s1">'World'</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+    <span class="c1"># Native tool calls pass kwargs and code=None;</span>
+    <span class="c1"># fenced ```hello blocks pass the block content and kwargs=None.</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="p">(</span><span class="n">kwargs</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'name'</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">code</span> <span class="ow">or</span> <span class="s1">''</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">'World'</span>
     <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s1">'system'</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!"</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
@@ -793,7 +795,9 @@
 <section id="registering-commands-in-tools">
 <h3>Registering Commands in Tools<a class="headerlink" href="#registering-commands-in-tools" title="Link to this heading">#</a></h3>
 <p>Tools can register commands in their <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> definition:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Generator</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">CommandContext</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 

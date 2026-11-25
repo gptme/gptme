@@ -117,12 +117,15 @@ long sessions — see the benchmark cited in :doc:`tools`.
 Note that ``tool`` mode still parses markdown code blocks in addition to native
 tool calls, so ``/impersonate`` and hand-written blocks keep working.
 
-**Not every provider supports it.** On the OpenAI-compatible chat-completions
-path, native tools are only accepted for ``openai``, ``azure``, ``openrouter``,
-``deepseek``, ``moonshot``, ``local``, and custom providers. Selecting
-``--tool-format tool`` on e.g. ``gemini``, ``xai``, ``groq``, ``nvidia`` or
-``requesty`` raises an error rather than silently degrading. Anthropic, the
-OpenAI Responses API, and ``openai-subscription`` all support it.
+**Provider support.** On the OpenAI-compatible chat-completions path, native
+tools are accepted for every OpenAI-compatible provider (``openai``, ``azure``,
+``openrouter``, ``deepseek``, ``moonshot``, ``gemini``, ``xai``, ``groq``,
+``nvidia``, ``requesty``, ``local`` and others), plus custom and plugin
+providers. When gptme converts tool definitions on that path for a provider
+outside that set, it raises an error rather than silently degrading.
+Anthropic, the OpenAI Responses API, and ``openai-subscription`` all support it.
+The ``mock`` test provider accepts ``--tool-format tool`` but ignores tool
+definitions and replies normally.
 
 Choosing a format
 -----------------
@@ -281,9 +284,10 @@ of 4 tests is too weak to change a production default.
 Troubleshooting
 ---------------
 
-**"Provider doesn't support tools API"** — you selected ``--tool-format tool`` on
-a provider that is not on the native-tools allowlist above. Use ``markdown`` or
-``xml``.
+**"Provider doesn't support tools API"** — gptme was converting tool definitions
+for a chat-completions request with ``--tool-format tool``, and the provider is
+not OpenAI-compatible, custom, or a plugin provider (see above). Use
+``markdown`` or ``xml``.
 
 **The model narrates a tool call but nothing runs** — in ``xml`` mode, markdown
 code blocks are not parsed. Either switch to ``markdown`` or steer the model back

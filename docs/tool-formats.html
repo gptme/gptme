@@ -762,12 +762,15 @@ be shortened for this format. Accuracy is also more sensitive to context rot in
 long sessions — see the benchmark cited in <a class="reference internal" href="tools.html"><span class="doc">Tools</span></a>.</p>
 <p>Note that <code class="docutils literal notranslate"><span class="pre">tool</span></code> mode still parses markdown code blocks in addition to native
 tool calls, so <code class="docutils literal notranslate"><span class="pre">/impersonate</span></code> and hand-written blocks keep working.</p>
-<p><strong>Not every provider supports it.</strong> On the OpenAI-compatible chat-completions
-path, native tools are only accepted for <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">azure</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter</span></code>,
-<code class="docutils literal notranslate"><span class="pre">deepseek</span></code>, <code class="docutils literal notranslate"><span class="pre">moonshot</span></code>, <code class="docutils literal notranslate"><span class="pre">local</span></code>, and custom providers. Selecting
-<code class="docutils literal notranslate"><span class="pre">--tool-format</span> <span class="pre">tool</span></code> on e.g. <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">xai</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>, <code class="docutils literal notranslate"><span class="pre">nvidia</span></code> or
-<code class="docutils literal notranslate"><span class="pre">requesty</span></code> raises an error rather than silently degrading. Anthropic, the
-OpenAI Responses API, and <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> all support it.</p>
+<p><strong>Provider support.</strong> On the OpenAI-compatible chat-completions path, native
+tools are accepted for every OpenAI-compatible provider (<code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">azure</span></code>,
+<code class="docutils literal notranslate"><span class="pre">openrouter</span></code>, <code class="docutils literal notranslate"><span class="pre">deepseek</span></code>, <code class="docutils literal notranslate"><span class="pre">moonshot</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">xai</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>,
+<code class="docutils literal notranslate"><span class="pre">nvidia</span></code>, <code class="docutils literal notranslate"><span class="pre">requesty</span></code>, <code class="docutils literal notranslate"><span class="pre">local</span></code> and others), plus custom and plugin
+providers. When gptme converts tool definitions on that path for a provider
+outside that set, it raises an error rather than silently degrading.
+Anthropic, the OpenAI Responses API, and <code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> all support it.
+The <code class="docutils literal notranslate"><span class="pre">mock</span></code> test provider accepts <code class="docutils literal notranslate"><span class="pre">--tool-format</span> <span class="pre">tool</span></code> but ignores tool
+definitions and replies normally.</p>
 </section>
 </section>
 <section id="choosing-a-format">
@@ -930,9 +933,10 @@ of 4 tests is too weak to change a production default.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
-<p><strong>“Provider doesn’t support tools API”</strong> — you selected <code class="docutils literal notranslate"><span class="pre">--tool-format</span> <span class="pre">tool</span></code> on
-a provider that is not on the native-tools allowlist above. Use <code class="docutils literal notranslate"><span class="pre">markdown</span></code> or
-<code class="docutils literal notranslate"><span class="pre">xml</span></code>.</p>
+<p><strong>“Provider doesn’t support tools API”</strong> — gptme was converting tool definitions
+for a chat-completions request with <code class="docutils literal notranslate"><span class="pre">--tool-format</span> <span class="pre">tool</span></code>, and the provider is
+not OpenAI-compatible, custom, or a plugin provider (see above). Use
+<code class="docutils literal notranslate"><span class="pre">markdown</span></code> or <code class="docutils literal notranslate"><span class="pre">xml</span></code>.</p>
 <p><strong>The model narrates a tool call but nothing runs</strong> — in <code class="docutils literal notranslate"><span class="pre">xml</span></code> mode, markdown
 code blocks are not parsed. Either switch to <code class="docutils literal notranslate"><span class="pre">markdown</span></code> or steer the model back
 to XML.</p>
