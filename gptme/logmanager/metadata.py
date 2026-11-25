@@ -50,7 +50,7 @@ def read_metadata(logdir: Path) -> ConversationMetadata:
     """Read the sidecar; a missing or unreadable file yields the defaults."""
     path = logdir / METADATA_FILENAME
     try:
-        data = tomlkit.parse(path.read_text()).unwrap()
+        data = tomlkit.parse(path.read_text(encoding="utf-8")).unwrap()
     except (OSError, ValueError, tomlkit.exceptions.TOMLKitError):
         return ConversationMetadata()
     return _coerce(data)
@@ -79,6 +79,13 @@ def validate_metadata_patch(patch: dict[str, Any]) -> str | None:
             not isinstance(pinned, int) or isinstance(pinned, bool)
         ):
             return "pinned_order must be an integer or null"
+    texts = [patch.get("description")] + list(patch.get("tags") or [])
+    for text in texts:
+        if isinstance(text, str):
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:
+                return "description and tags must be valid Unicode text"
     return None
 
 
@@ -100,7 +107,7 @@ def update_metadata(logdir: Path, patch: dict[str, Any]) -> ConversationMetadata
             doc[key] = value
     fd, tmp = tempfile.mkstemp(dir=logdir, prefix=".metadata-", suffix=".toml")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(tomlkit.dumps(doc))
         os.replace(tmp, logdir / METADATA_FILENAME)
     except BaseException:

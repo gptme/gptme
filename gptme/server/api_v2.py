@@ -341,16 +341,17 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
-def _saved_conversation_model(conversation_id: str) -> str | None:
-    """The model stored in a conversation's config, or None if it has none."""
+def _saved_model_and_effort(conversation_id: str) -> tuple[str | None, str | None]:
+    """The model and reasoning effort stored in a conversation's config."""
     logdir = get_logs_dir() / conversation_id
     if not (logdir / "config.toml").is_file():
-        return None
+        return None, None
     try:
-        model = ChatConfig.from_logdir(logdir, create_workspace=False).model
+        saved = ChatConfig.from_logdir(logdir, create_workspace=False)
     except Exception:
-        return None
-    return model.strip() if isinstance(model, str) else None
+        return None, None
+    model = saved.model.strip() if isinstance(saved.model, str) else None
+    return model, saved.reasoning_effort
 
 
 def _validate_conversation_model(model: str) -> None:
@@ -3204,6 +3205,7 @@ def api_conversation_config_patch(conversation_id: str):
     # init_tools validation is deferred to after the 404/409 guards because it
     # mutates process-wide state (loaded_tools, _tools_init_lock).
     tool_allowlist: list[str] | None = None
+    patch_model: str | None = None
     chat_patch = req_json.get("chat")
     if isinstance(chat_patch, dict):
         if "tools" in chat_patch:
@@ -3218,17 +3220,8 @@ def api_conversation_config_patch(conversation_id: str):
                 {"error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-5-5')"}
             ), 400
         if isinstance(chat_patch.get("model"), str):
-            # Saving an unroutable model makes every later step fail; reject it
-            # here like /step does (gptme/gptme#5187).
-            # Save the same trimmed value that passed the check.
-            chat_patch["model"] = chat_patch["model"].strip()
-            # Only a model change is checked: a settings save that echoes the
-            # stored model must not 400 because that model is no longer known.
-            if chat_patch["model"] != _saved_conversation_model(conversation_id):
-                try:
-                    _validate_conversation_model(chat_patch["model"])
-                except ValueError as exc:
-                    return flask.jsonify({"error": str(exc)}), 400
+            # Save the same trimmed value that is validated under the lock.
+            chat_patch["model"] = patch_model = chat_patch["model"].strip()
 
     normalized_tools, forbidden = _resolve_requested_tools(tool_allowlist)
     if forbidden:
@@ -3282,6 +3275,19 @@ def api_conversation_config_patch(conversation_id: str):
                 409,
             )
 
+        # Read the saved model and effort under the lock that writes them, so
+        # a save that landed while this request waited is what we compare to.
+        saved_model, saved_effort = _saved_model_and_effort(conversation_id)
+        # Saving an unroutable model makes every later step fail; reject it
+        # here like /step does (gptme/gptme#5187). Only a change is checked: a
+        # settings save that echoes the stored model must not 400 because that
+        # model is no longer known.
+        if patch_model is not None and patch_model != saved_model:
+            try:
+                _validate_conversation_model(patch_model)
+            except ValueError as exc:
+                return flask.jsonify({"error": str(exc)}), 400
+
         # Validate tool allowlist now that 404/409 guards have passed.
         # init_tools mutates process-wide state; must run AFTER guards, not before.
         if tool_allowlist is not None:
@@ -3326,7 +3332,13 @@ def api_conversation_config_patch(conversation_id: str):
         try:
             chat_config = ChatConfig.load_or_create(logdir, request_config)
             effective_model = _effective_model_for_effort_validation(chat_config)
-            if effective_model:
+            # Keep a saved model/effort pair as is when neither changes: its
+            # model may no longer be known, and that must not block other edits.
+            pair_changed = (chat_config.model, chat_config.reasoning_effort) != (
+                saved_model,
+                saved_effort,
+            )
+            if effective_model and pair_changed:
                 from ..llm.models.effort import validate_reasoning_effort
 
                 validate_reasoning_effort(
@@ -4517,11 +4529,12 @@ def _store_conversations_cache(
         _conversations_cache, \
         _conversations_cache_logs_dir, \
         _conversations_cache_time
-    if scan_gen != _conversations_cache_gen:
-        return
-    _conversations_cache = conversations
-    _conversations_cache_logs_dir = logs_dir
-    _conversations_cache_time = time.monotonic()
+    with _conversations_cache_lock:
+        if scan_gen != _conversations_cache_gen:
+            return
+        _conversations_cache = conversations
+        _conversations_cache_logs_dir = logs_dir
+        _conversations_cache_time = time.monotonic()
 
 
 def _update_conversation_in_cache(conv_id: str) -> None:

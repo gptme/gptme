@@ -37,6 +37,28 @@ class TestMetadata:
             "pinned_order": None,
         }
 
+    def test_non_ascii_text_round_trips_and_lone_surrogates_are_400(
+        self, client: FlaskClient
+    ):
+        from gptme.dirs import get_logs_dir
+        from gptme.logmanager.metadata import METADATA_FILENAME
+
+        cid = _create_conv(client)
+        url = f"/api/v2/conversations/{cid}/metadata"
+        resp = client.patch(url, json={"description": "日本語", "tags": ["🚀"]})
+        assert resp.status_code == 200, resp.get_json()
+        sidecar = get_logs_dir() / cid / METADATA_FILENAME
+        assert "日本語" in sidecar.read_bytes().decode("utf-8")
+        assert client.get(url).get_json()["tags"] == ["🚀"]
+
+        # JSON can carry a lone surrogate that no file encoding can write.
+        resp = client.patch(
+            url,
+            data='{"description": "\\ud800"}',
+            content_type="application/json",
+        )
+        assert resp.status_code == 400, resp.get_json()
+
     def test_star_persists_and_shows_in_list(self, client: FlaskClient):
         cid = _create_conv(client)
         # Warm the list cache first: starring must invalidate it.
@@ -217,3 +239,66 @@ class TestConfigPatchModelValidation:
             json={"chat": {"model": "other-retired/zzz"}},
         )
         assert resp.status_code == 400
+
+    def test_retired_model_cannot_return_after_a_concurrent_change(
+        self, client: FlaskClient, monkeypatch
+    ):
+        """The unchanged-model check must read the saved model under the same
+        lock that writes it: a save that replaced the retired model while this
+        request waited must not let the echo put it back unchecked."""
+        import contextlib
+
+        import tomlkit
+
+        from gptme.dirs import get_logs_dir
+        from gptme.server.session_models import SessionManager
+
+        cid = _create_conv(client)
+        config_path = get_logs_dir() / cid / "config.toml"
+
+        def set_model(model: str) -> None:
+            doc = tomlkit.parse(config_path.read_text())
+            doc.setdefault("chat", tomlkit.table())["model"] = model
+            config_path.write_text(tomlkit.dumps(doc))
+
+        set_model("retired-provider/old")
+        real_lock = SessionManager.conversation_lock
+
+        @contextlib.contextmanager
+        def lock_after_concurrent_save(conversation_id: str):
+            # Another save lands while this request waits for the lock.
+            set_model("openai/gpt-4o")
+            with real_lock(conversation_id):
+                yield
+
+        monkeypatch.setattr(
+            SessionManager, "conversation_lock", lock_after_concurrent_save
+        )
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": "retired-provider/old"}},
+        )
+        assert resp.status_code == 400, resp.get_json()
+
+    def test_saved_effort_on_a_retired_model_does_not_block_other_edits(
+        self, client: FlaskClient
+    ):
+        """Neither the model nor the effort changes, so the saved pair is kept
+        rather than revalidated against a model that is no longer known."""
+        import tomlkit
+
+        from gptme.dirs import get_logs_dir
+
+        cid = _create_conv(client)
+        config_path = get_logs_dir() / cid / "config.toml"
+        doc = tomlkit.parse(config_path.read_text())
+        chat = doc.setdefault("chat", tomlkit.table())
+        chat["model"] = "retired-provider/old"
+        chat["reasoning_effort"] = "high"
+        config_path.write_text(tomlkit.dumps(doc))
+
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"name": "renamed"}},
+        )
+        assert resp.status_code == 200, resp.get_json()
