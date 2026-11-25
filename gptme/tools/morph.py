@@ -15,6 +15,7 @@ from pathlib import Path
 from ..llm import _chat_complete, list_available_providers
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
+from ..util.file_write import write_text_preserving_original
 from ..util.workspace import current_workspace, resolve_in_workspace
 from .base import (
     Parameter,
@@ -22,6 +23,7 @@ from .base import (
     ToolUse,
     file_newline,
     get_path,
+    read_text_lf,
 )
 
 # Prompt from Morph Fast Apply v2 documentation
@@ -75,8 +77,7 @@ def preview_morph(content: str, path: Path | None) -> str | None:
             return f"Cannot morph `{path}`: not a regular file"
 
         # Read original content
-        with open(path, encoding="utf-8") as f:
-            original_content = f.read()
+        original_content = read_text_lf(path)
 
         # Generate a diff between original and edited content
         diff_lines = list(
@@ -139,8 +140,7 @@ def execute_morph(
             return
 
         # Read the original file
-        with open(file_path, encoding="utf-8") as f:
-            original_content = f.read()
+        original_content = read_text_lf(file_path)
     except FileNotFoundError:
         yield Message("system", f"Error: File not found: {file_path}")
         return
@@ -204,8 +204,7 @@ def execute_morph_impl(
             return
 
         # Read current content to verify it hasn't changed
-        with open(path, encoding="utf-8") as f:
-            current_content = f.read()
+        current_content = read_text_lf(path)
 
         # Verify that the file hasn't changed since we generated the patch
         if current_content != expected_original_content:
@@ -236,15 +235,17 @@ def execute_morph_impl(
         )
 
         # Write the edited content back to file, keeping its line endings
-        newline = file_newline(path)  # before open() truncates the file
-        with open(path, "w", encoding="utf-8", newline=newline) as f:
-            # Normalize \r\n → \n unconditionally: files are read in universal-newline
-            # mode so the content model is always LF-only. Python's newline= then
-            # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
-            # for LF). Skipping this on LF files would let model-emitted \r\n create
-            # mixed line endings.
-            text = content.replace("\r\n", "\n")
-            f.write(text)
+        newline = file_newline(path)
+        # Normalize \r\n → \n unconditionally: files are read in universal-newline
+        # mode so the content model is always LF-only. Python's newline= then
+        # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
+        # for LF). Skipping this on LF files would let model-emitted \r\n create
+        # mixed line endings.
+        text = content.replace("\r\n", "\n")
+        # Validate UTF-8 before touching the file, then replace it atomically so an
+        # encode error or a full disk cannot leave the target truncated.
+        text.encode("utf-8")
+        write_text_preserving_original(path, text, newline=newline)
 
         # Provide detailed success message with diff
         if diff_lines:

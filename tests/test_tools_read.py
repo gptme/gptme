@@ -82,9 +82,14 @@ def test_read_file_includes_hashline_tag_when_hashline_tool_active(tmp_path: Pat
 
 
 def test_read_file_hashline_snapshot_preserves_newline_normalization(tmp_path: Path):
-    """Bounded binary reads retain read_text()'s universal-newline contract."""
+    """Bounded reads normalize CRLF but keep a lone CR (gptme#5126).
+
+    The snapshot must equal hashline_edit's live read (``read_text_lf``), and a
+    lone CR is line content that an edit elsewhere must not turn into a newline.
+    """
     from gptme.tools import get_tools, set_tools
     from gptme.tools._hashline_snapshot import lookup_snapshot
+    from gptme.tools.base import read_text_lf
     from gptme.tools.hashline_edit import tool as hashline_tool
 
     path = tmp_path / "windows.txt"
@@ -101,7 +106,7 @@ def test_read_file_hashline_snapshot_preserves_newline_normalization(tmp_path: P
     tag = message.content.split(marker, 1)[1].split("]", 1)[0]
     matched, snapshot = lookup_snapshot(str(path.resolve()), tag)
     assert matched
-    assert snapshot == path.read_text(encoding="utf-8") == "first\nsecond\nthird\n"
+    assert snapshot == read_text_lf(path) == "first\nsecond\rthird\n"
 
 
 def test_read_file_line_range_kwargs(tmp_path: Path):

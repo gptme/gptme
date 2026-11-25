@@ -1654,6 +1654,17 @@ def get_path(
     return Path(fn).expanduser()
 
 
+def read_text_lf(path: Path) -> str:
+    """Read UTF-8 text with ``"\\r\\n"`` normalized to ``"\\n"``.
+
+    Unlike universal-newline mode, a lone ``"\\r"`` inside a line (e.g. a
+    progress-bar string literal) is preserved, so an edit elsewhere in the file
+    cannot turn it into a line break. Pair with ``newline=file_newline(path)``
+    on write.
+    """
+    return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+
+
 def file_newline(path: Path) -> str:
     """Return the dominant line ending of an existing file: ``"\\r\\n"`` or ``"\\n"``.
 

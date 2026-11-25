@@ -37,6 +37,35 @@ from gptme.tools.browser import (
     tool,
 )
 
+
+def test_search_falls_back_when_perplexity_raises(monkeypatch):
+    """A Perplexity client exception is an engine failure, so search() falls back."""
+    import sys
+    import types
+
+    from gptme.tools._browser_perplexity import search_perplexity
+
+    class _RaisingOpenAI:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("rate limited")
+
+    monkeypatch.setitem(
+        sys.modules, "openai", types.SimpleNamespace(OpenAI=_RaisingOpenAI)
+    )
+    monkeypatch.setenv("PERPLEXITY_API_KEY", "test-key")
+    result = search_perplexity("x")
+    assert result.startswith("Error:"), result
+    assert "rate limited" in result
+
+    monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
+    monkeypatch.setattr("gptme.tools.browser.search_perplexity", search_perplexity)
+    lynx_search = MagicMock(return_value="google ok")
+    monkeypatch.setattr("gptme.tools.browser.search_lynx", lynx_search, raising=False)
+
+    assert search("x") == "google ok"
+
+
 # ── URL type detection ────────────────────────────────────────────────
 
 

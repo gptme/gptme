@@ -14,6 +14,11 @@ from gptme.tools._hashline_snapshot import (
 )
 from gptme.tools.hashline_edit import execute_hashline_edit
 
+# The hashline writer now goes through write_text_preserving_original, which
+# refuses to replace an existing file on macOS (ACLs) and Windows (security
+# descriptors), like save/patch/morph (#4622). Only the cases that actually
+# replace a file are skipped there; cancellation and changed-file paths still run.
+
 
 @pytest.mark.parametrize(
     "recovered", [False, True], ids=["ordinary", "merge-recovered"]
@@ -92,7 +97,7 @@ def test_post_confirmation_permission_failure_aborts(tmp_path, recovered, action
     tag = store_snapshot(str(target.resolve()), original)
     live = original + ("external-before-confirmation\n" if recovered else "")
     target.write_text(live)
-    read_text = Path.read_text
+    read_bytes = Path.read_bytes
     confirmed = False
 
     def confirm(**kwargs):
@@ -105,11 +110,11 @@ def test_post_confirmation_permission_failure_aborts(tmp_path, recovered, action
     def guarded_read(path, *args, **kwargs):
         if confirmed and path == target:
             raise PermissionError("target became unreadable")
-        return read_text(path, *args, **kwargs)
+        return read_bytes(path, *args, **kwargs)
 
     with (
         patch("gptme.hooks.get_confirmation", side_effect=confirm),
-        patch.object(Path, "read_text", guarded_read),
+        patch.object(Path, "read_bytes", guarded_read),
     ):
         messages = [
             message.content

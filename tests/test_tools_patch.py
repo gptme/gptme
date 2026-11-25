@@ -608,3 +608,15 @@ def test_patch_refuse_fifo(tmp_path):
     messages = list(execute_patch(example_patch, [str(fifo)], None))
     assert any("non-regular file" in m.content for m in messages)
     assert all("successfully" not in m.content for m in messages)
+
+
+def test_execute_patch_keeps_lone_carriage_return(tmp_path):
+    """Patching one line must not turn a lone CR elsewhere into a newline."""
+    f = tmp_path / "progress.py"
+    f.write_bytes(b'one\nbar = "a\rb"\ntwo\n')
+    patch = "<<<<<<< ORIGINAL\ntwo\n=======\nTWO\n>>>>>>> UPDATED\n"
+
+    result = next(execute_patch(patch, [str(f)], None)).content
+
+    assert "successfully" in result
+    assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'
