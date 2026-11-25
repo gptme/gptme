@@ -750,6 +750,14 @@ def _stream_responses_event_chunks(
                 in_reasoning_block = False
             delta = _obj_get(event, "delta", "")
             if delta:
+                # Flush text held back as a possible partial tag before the
+                # refusal, or it would be emitted after the refusal at the end
+                # of the stream and garble the ordering.
+                if pending and not in_duplicate_thinking_block:
+                    yield pending.replace("<thinking>", " thinking").replace(
+                        "</thinking>", "</think>"
+                    )
+                pending = ""
                 yield delta
 
         elif event_type in ("response.output_item.added", "response.output_item.done"):

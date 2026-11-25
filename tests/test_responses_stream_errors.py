@@ -307,6 +307,48 @@ def test_refusal_deltas_are_rendered() -> None:
     )
 
 
+def test_refusal_is_not_duplicated_without_reasoning() -> None:
+    """Refusal chunks plus the terminal refusal part render once, no reasoning involved."""
+    events = [
+        {"type": "response.refusal.delta", "delta": "I can't "},
+        {"type": "response.refusal.delta", "delta": "help with that."},
+        {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {"type": "refusal", "refusal": "I can't help with that."}
+                        ],
+                    }
+                ]
+            },
+        },
+    ]
+    assert "".join(_stream_responses_events(events)) == "I can't help with that."
+
+
+def test_refusal_flushes_pending_text_before_the_refusal() -> None:
+    """Text held back as a possible partial tag is emitted before the refusal."""
+    events = [
+        {"type": "response.output_text.delta", "delta": "Sure <"},
+        {"type": "response.refusal.delta", "delta": "I can't"},
+        {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "refusal", "refusal": "I can't"}],
+                    }
+                ]
+            },
+        },
+    ]
+    assert "".join(_stream_responses_events(events)) == "Sure <I can't"
+
+
 def test_no_deltas_recovers_refusal_from_terminal_output() -> None:
     events = [
         {
