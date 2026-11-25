@@ -250,7 +250,8 @@ def _is_op_header(line: str) -> bool:
 def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
     """Collect ``+``-prefixed content lines starting at *start_idx*.
 
-    Returns (next_index, collected_text).
+    Returns (next_index, collected_text), with each content line terminated
+    by a newline so splitlines() preserves even a final blank line.
     """
     content_lines: list[str] = []
     i = start_idx
@@ -268,7 +269,7 @@ def _collect_content(lines: list[str], start_idx: int) -> tuple[int, str]:
             raise ParseError(
                 f"Expected '+'-prefixed content line or next operation, got: {line!r}"
             )
-    return i, "\n".join(content_lines)
+    return i, "".join(line + "\n" for line in content_lines)
 
 
 # ---------------------------------------------------------------------------
