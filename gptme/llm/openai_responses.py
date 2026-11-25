@@ -610,6 +610,7 @@ def _stream_responses_events(
         yield chunk
 
     response_obj = terminal.get("response")
+    strip_prefix = emitted_ws
     ordered_output: list[str | _ResponseFunctionCall] = []
     for index, item in enumerate(_obj_get(response_obj, "output", None) or []):
         if _obj_get(item, "type") == "function_call":
@@ -621,9 +622,12 @@ def _stream_responses_events(
             for chunk in _completed_output_chunks({"output": [item]}):
                 # The streamed whitespace is already in the output. If the
                 # terminal text repeats it, yielding both would add it twice
-                # (four leading spaces turn a heading into a code block).
-                if emitted_ws and chunk.startswith(emitted_ws):
-                    chunk = chunk[len(emitted_ws) :]
+                # (four leading spaces turn a heading into a code block). Only
+                # the very start of the reply is affected: later parts keep
+                # their own indentation.
+                if strip_prefix:
+                    chunk = chunk.removeprefix(strip_prefix)
+                    strip_prefix = ""
                 if chunk:
                     ordered_output.append(chunk)
     # Terminal order is authoritative; retain calls from delta-only providers.

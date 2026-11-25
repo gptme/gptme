@@ -241,6 +241,33 @@ def test_responses_terminal_text_prefix_is_not_duplicated() -> None:
     assert "".join(_stream_responses_events(events)) == "  # heading"
 
 
+def test_responses_terminal_prefix_strip_leaves_later_indentation() -> None:
+    """Only the start of the reply loses the streamed prefix.
+
+    Stripping it from every matching part would eat a later part's own
+    indentation and stop it rendering as a code block.
+    """
+    events = [
+        {"type": "response.output_text.delta", "delta": "  "},
+        {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {"type": "output_text", "text": "  Intro\n\n"},
+                            {"type": "output_text", "text": "    code"},
+                        ],
+                    }
+                ]
+            },
+        },
+    ]
+
+    assert "".join(_stream_responses_events(events)) == "  Intro\n\n    code"
+
+
 @pytest.mark.parametrize("terminal", ["response.completed", "response.done"])
 def test_responses_terminal_allows_native_reconciliation(terminal: str) -> None:
     output = "".join(
