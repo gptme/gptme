@@ -302,3 +302,36 @@ class TestConfigPatchModelValidation:
             json={"chat": {"name": "renamed"}},
         )
         assert resp.status_code == 200, resp.get_json()
+
+    def test_effort_is_rechecked_when_the_resolved_model_changes(
+        self, client: FlaskClient, monkeypatch
+    ):
+        """A workspace switch can change the inherited MODEL without touching
+        the saved model or effort; the effort must be checked against it."""
+        import tomlkit
+
+        from gptme.dirs import get_logs_dir
+        from gptme.llm.models import effort
+        from gptme.server import api_v2
+
+        cid = _create_conv(client)
+        config_path = get_logs_dir() / cid / "config.toml"
+        doc = tomlkit.parse(config_path.read_text())
+        doc.setdefault("chat", tomlkit.table())["reasoning_effort"] = "high"
+        config_path.write_text(tomlkit.dumps(doc))
+
+        # Saved config resolves to o3; after the patch it resolves to gpt-4o.
+        resolved = iter(["openai/o3", "openai/gpt-4o"])
+        monkeypatch.setattr(
+            api_v2, "_effective_model_for_effort_validation", lambda cfg: next(resolved)
+        )
+
+        def reject(model, level):
+            raise ValueError(f"{model.full} does not support effort {level}")
+
+        monkeypatch.setattr(effort, "validate_reasoning_effort", reject)
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config", json={"chat": {"name": "x"}}
+        )
+        assert resp.status_code == 400, resp.get_json()
+        assert "gpt-4o" in resp.get_json()["error"]

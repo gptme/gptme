@@ -341,17 +341,21 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
-def _saved_model_and_effort(conversation_id: str) -> tuple[str | None, str | None]:
-    """The model and reasoning effort stored in a conversation's config."""
+def _saved_model_and_effort(
+    conversation_id: str,
+) -> tuple[str | None, str | None, str | None]:
+    """The stored model and reasoning effort, plus the model that effort
+    resolves against (which may come from the server default or workspace)."""
     logdir = get_logs_dir() / conversation_id
     if not (logdir / "config.toml").is_file():
-        return None, None
+        return None, None, None
     try:
         saved = ChatConfig.from_logdir(logdir, create_workspace=False)
+        effective = _effective_model_for_effort_validation(saved)
     except Exception:
-        return None, None
+        return None, None, None
     model = saved.model.strip() if isinstance(saved.model, str) else None
-    return model, saved.reasoning_effort
+    return model, saved.reasoning_effort, effective
 
 
 def _validate_conversation_model(model: str) -> None:
@@ -3277,7 +3281,9 @@ def api_conversation_config_patch(conversation_id: str):
 
         # Read the saved model and effort under the lock that writes them, so
         # a save that landed while this request waited is what we compare to.
-        saved_model, saved_effort = _saved_model_and_effort(conversation_id)
+        saved_model, saved_effort, saved_effective = _saved_model_and_effort(
+            conversation_id
+        )
         # Saving an unroutable model makes every later step fail; reject it
         # here like /step does (gptme/gptme#5187). Only a change is checked: a
         # settings save that echoes the stored model must not 400 because that
@@ -3334,10 +3340,13 @@ def api_conversation_config_patch(conversation_id: str):
             effective_model = _effective_model_for_effort_validation(chat_config)
             # Keep a saved model/effort pair as is when neither changes: its
             # model may no longer be known, and that must not block other edits.
-            pair_changed = (chat_config.model, chat_config.reasoning_effort) != (
-                saved_model,
-                saved_effort,
-            )
+            # The resolved model counts too: a workspace change can swap the
+            # inherited MODEL without touching the saved fields.
+            pair_changed = (
+                chat_config.model,
+                chat_config.reasoning_effort,
+                effective_model,
+            ) != (saved_model, saved_effort, saved_effective)
             if effective_model and pair_changed:
                 from ..llm.models.effort import validate_reasoning_effort
 
