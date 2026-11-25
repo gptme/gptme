@@ -1796,6 +1796,31 @@ def test_conversation_dir_rejects_invalid_ids():
 
     logs = PurePosixPath("/logs")
     assert _conversation_dir(logs, "../evil") is None
+    assert _conversation_dir(logs, ".") is None
     assert _conversation_dir(logs, "conv") == logs / "conv"
+
+
+    # A name that merely contains '..' is a legal single child: the TUI creates
+    # such directories, so a lookup must not hide them.
+    assert _conversation_dir(logs, "draft..notes") == logs / "draft..notes"
+
+
+def test_get_conversation_meta_direct_finds_names_with_embedded_dots(
+    tmp_path: Path,
+):
+    """A conversation the TUI can create is also readable by id."""
+    from gptme.logmanager.conversations import get_conversation_meta_direct
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    logdir = logs / "draft..notes"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+
+    meta = get_conversation_meta_direct("draft..notes", logs_dir=logs)
+    assert meta is not None
+    assert meta.id == "draft..notes"
 
 

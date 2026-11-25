@@ -481,9 +481,12 @@ def _conversation_dir(logs_dir: PurePath, conv_id: str) -> PurePath | None:
     'C:x' collapses to ``logs_dir / 'x'``), so the joined result is checked
     structurally as well.
     """
-    from ..util.conversation_ids import is_valid_conversation_id
+    from ..util.conversation_ids import is_valid_conversation_lookup
 
-    if not is_valid_conversation_id(conv_id):
+    # Lookup, not naming: an existing directory may legitimately contain '..'
+    # in its name (e.g. 'draft..notes'), and the structural check below is what
+    # keeps the join inside logs_dir.
+    if not is_valid_conversation_lookup(conv_id):
         return None
     conv_dir = logs_dir / conv_id
     if conv_dir.parent != logs_dir or conv_dir.name != conv_id:
@@ -506,11 +509,14 @@ def get_conversation_meta_direct(
     Returns None when the conversation directory or JSONL file does not exist,
     or when ``conv_id`` is not a valid conversation id.
     """
-    from ..util.conversation_ids import is_valid_conversation_id
+    from ..util.conversation_ids import is_valid_conversation_lookup
 
-    # Reject invalid ids before get_logs_dir(), which may create directories
-    # (and raise) as a side effect; _conversation_dir() still checks the join.
-    if not is_valid_conversation_id(conv_id):
+    # Reject ids that cannot name a direct child before get_logs_dir(), which
+    # may create directories (and raise) as a side effect; _conversation_dir()
+    # still checks the join structurally. Naming rules are deliberately not
+    # applied here: the TUI can create 'draft..notes', and a lookup must still
+    # find the conversation it created.
+    if not is_valid_conversation_lookup(conv_id):
         return None
     if logs_dir is None:
         logs_dir = get_logs_dir()
