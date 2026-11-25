@@ -72,6 +72,24 @@ def test_json_search_respects_matches(history, flags, expected_indices):
     ] == expected_indices
 
 
+@pytest.mark.parametrize(
+    ("flags", "expected_snippets"),
+    [
+        ([], ["**needle** first"]),
+        (["--matches", "0"], []),
+    ],
+)
+def test_text_search_respects_matches(history, flags, expected_snippets):
+    name = history("needle first", continuation=("needle second",))
+    result = CliRunner().invoke(chats, ["search", "needle", *flags])
+    assert result.exit_code == 0, result.exception
+    assert f"{name} (2 matches):" in result.output
+    assert len(re.findall(r"^  Match \d+ \(", result.output, re.MULTILINE)) == len(
+        expected_snippets
+    )
+    assert re.findall(r"\*\*needle\*\* \w+", result.output) == expected_snippets
+
+
 @pytest.mark.parametrize("flags", [[], ["--json"]])
 def test_search_rejects_negative_matches(flags):
     result = CliRunner().invoke(chats, ["search", "needle", "--matches", "-1", *flags])
