@@ -19,12 +19,27 @@ describe('isRemoteImageUrl', () => {
     ['scheme without slashes', 'https:attacker.example/x.png', true],
     ['embedded newline in a remote URL', 'https://attacker.example\n/x.png', true],
     ['backslash inside a relative path', 'images\\a.png', false],
+    // The URL parser strips leading/trailing C0 controls and spaces.
+    ['leading control character, protocol-relative', '\x01//attacker.example/p.png', true],
+    ['leading unit separator, backslashes', '\x1f\\\\attacker.example/p.png', true],
+    ['leading NUL, absolute URL', '\x00https://attacker.example/p.png', true],
+    ['control character before a relative path', '\x01images/a.png', false],
+    // A non-breaking space is not stripped, so this stays a path on our origin.
+    ['leading non-breaking space', '\u00a0//attacker.example/p.png', false],
   ])('treats %s as remote=%s', (_name, url, expected) => {
     expect(isRemoteImageUrl(url, origin)).toBe(expected);
   });
 
   it('fails closed on an unparseable absolute-looking URL', () => {
     expect(isRemoteImageUrl('https://[::1', origin)).toBe(true);
+  });
+
+  it('handles a custom app scheme as the page URL', () => {
+    const page = 'tauri://localhost/chat';
+
+    expect(isRemoteImageUrl('/logo.png', page)).toBe(false);
+    expect(isRemoteImageUrl('data:image/png;base64,AAAA', page)).toBe(false);
+    expect(isRemoteImageUrl('https://attacker.example/p.png', page)).toBe(true);
   });
 });
 

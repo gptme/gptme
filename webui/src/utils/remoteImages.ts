@@ -16,40 +16,31 @@ export const REMOTE_IMAGE_PLACEHOLDER_CLASS = 'remote-image-placeholder';
  */
 export const PREVIEW_IMAGE_CSP = "img-src 'self' data: blob:";
 
-function pageOriginFallback(): string | undefined {
-  return typeof window !== 'undefined' ? window.location?.origin : undefined;
+function pageUrl(): string {
+  return typeof window !== 'undefined' ? window.location.href : 'http://localhost';
 }
 
 /** True when loading `url` would send a request to another origin. */
-export function isRemoteImageUrl(
-  url: string,
-  pageOrigin: string | undefined = pageOriginFallback()
-): boolean {
-  // Browsers strip tabs/newlines from URLs and treat `\` as `/` in markup
-  // attributes, so `\\attacker.example/x.png` is a real network fetch. Decide
-  // on the same form the URL parser will see, not the raw string.
-  const trimmed = url.replace(/[\t\n\r]/g, '').trim();
-  if (!trimmed) return false;
-  if (/^(?:data|blob):/i.test(trimmed)) return false;
-
-  const candidate = trimmed.replace(/\\/g, '/');
-  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(candidate);
-  // No scheme and no leading `//`: a relative path, which stays on our origin.
-  if (!hasScheme && !candidate.startsWith('//')) return false;
-
+export function isRemoteImageUrl(url: string, page: string = pageUrl()): boolean {
   try {
-    const parsed = new URL(candidate, pageOrigin || 'http://localhost');
+    // Hand the raw string to the URL parser, which is what the browser runs on
+    // `src`: it strips leading/trailing C0 controls and spaces, drops
+    // tabs/newlines and reads `\` as `/`. A pre-check that normalizes any less
+    // than the parser does is a bypass.
+    const base = new URL(page);
+    const parsed = new URL(url, base);
+    // `data:`, `blob:` and app-scheme URLs send nothing to a third party.
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-    return !pageOrigin || parsed.origin !== pageOrigin;
+    return parsed.origin !== base.origin;
   } catch {
-    // An unparseable absolute-looking URL is treated as remote: fail closed.
+    // An unparseable URL is treated as remote: fail closed.
     return true;
   }
 }
 
 function imageSourceLabel(src: string): string {
   try {
-    return new URL(src.replace(/\\/g, '/'), pageOriginFallback()).host;
+    return new URL(src, pageUrl()).host;
   } catch {
     return 'remote host';
   }
@@ -67,7 +58,9 @@ export function createRemoteImagePlaceholder(src: string): HTMLButtonElement {
   button.title = src;
   button.textContent = `Remote image from ${imageSourceLabel(src)} — click to load`;
   button.setAttribute('aria-label', `Load remote image from ${imageSourceLabel(src)}`);
-  button.addEventListener('click', () => {
+  button.addEventListener('click', (event) => {
+    // A linked image must only load: the click must not also open the link.
+    event.preventDefault();
     const img = document.createElement('img');
     img.setAttribute('src', src);
     img.setAttribute('alt', '');

