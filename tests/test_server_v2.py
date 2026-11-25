@@ -6458,21 +6458,88 @@ def test_v2_conversation_config_patch_duplicate_server_names_keep_own_secrets(
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
 
 
-def test_v2_conversation_config_patch_rotate_one_duplicate_secret(
-    client: FlaskClient,
+@pytest.mark.parametrize("reverse", [False, True])
+def test_v2_conversation_config_patch_rejects_mixed_identical_duplicates(
+    client: FlaskClient, reverse: bool
 ):
-    """A supplied credential still occupies its row in an unchanged group."""
+    """A ``***`` row next to an otherwise identical row with its own secret is
+    ambiguous: the new value may rotate the first entry in place, or replace it
+    while the second moves up. Reject rather than keep a secret by position.
+    """
     conversation_id = create_conversation(client)["conversation_id"]
     logdir = _save_duplicate_name_mcp_servers(conversation_id)
     data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
-    data["mcp"]["servers"][0]["env"]["API_KEY"] = "fresh"
+    servers = data["mcp"]["servers"]
+    servers[0]["env"]["API_KEY"] = "fresh"
+    if reverse:
+        # First entry removed, new row appended: the masked row is now first.
+        servers.reverse()
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400, response.get_json()
+    assert "unambiguously" in response.get_json()["error"]
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
+
+    # Sending every real value resolves the same edit.
+    for srv in servers:
+        if srv["env"]["API_KEY"] == "***":
+            srv["env"]["API_KEY"] = "second"
     response = client.patch(
         f"/api/v2/conversations/{conversation_id}/config", json=data
     )
     assert response.status_code == 200, response.get_json()
     stored = ChatConfig.from_logdir(logdir)
     assert stored.mcp is not None
-    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["fresh", "second"]
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == (
+        ["second", "fresh"] if reverse else ["fresh", "second"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "routing_key"), [("env", "AUTH_URL"), ("headers", "X-Auth-Host")]
+)
+def test_v2_conversation_config_patch_keeps_secret_only_if_other_secrets_unchanged(
+    client: FlaskClient, field: str, routing_key: str
+):
+    """A secret-looking key can carry routing data (``AUTH_URL``): changing its
+    value must not keep the other masked secrets."""
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    original = {"API_KEY": "real-key", routing_key: "https://good.example"}
+    server = MCPServerConfig(name="routed", command="uvx")
+    setattr(server, field, dict(original))
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(enabled=True, servers=[server])
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    values = data["mcp"]["servers"][0][field]
+    assert values == {"API_KEY": "***", routing_key: "***"}
+    values[routing_key] = "https://attacker.example"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400, response.get_json()
+    assert "changed" in response.get_json()["error"]
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert getattr(stored.mcp.servers[0], field) == original
+
+    # Re-sending a secret's stored value is not a change.
+    values[routing_key] = original[routing_key]
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert getattr(stored.mcp.servers[0], field) == original
 
 
 @pytest.mark.parametrize("toggle_both", [False, True])

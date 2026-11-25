@@ -722,26 +722,22 @@ def _match_saved_mcp_server(
 ):
     """Pair duplicate-name entries one-to-one using their public settings.
 
-    Reordering is safe when each public signature retains the same multiplicity
-    in the redacted peers. Identical signatures keep their relative order, as in
-    an unchanged redacted echo. A body entry that supplies its own real secret
-    needs no match, so it does not compete for a saved one: an edit that merges
-    two public signatures stays valid as long as the remaining masked peers can
-    each claim exactly one saved entry. An edited or duplicated masked signature
-    cannot identify the saved credential; callers must supply real secrets for
-    such edits instead of guessing by position.
+    Only rows relying on ``***`` need a saved entry, and each public signature
+    must have exactly as many of those rows as saved entries. Rows sharing a
+    signature then keep their relative order, as in an unchanged redacted echo.
+    Anything else is ambiguous and rejected rather than guessed, including an
+    identical row that supplies its own secret: it may have rotated or replaced
+    any of the saved entries.
     """
     if len(matches) <= 1:
         return matches[0] if matches else None
     signature = _mcp_server_signature(body_server)
     same = [srv for srv in matches if _mcp_server_signature(srv) == signature]
-    peers = [srv for srv in body_group if _mcp_server_signature(srv) == signature]
-    # An unchanged signature group retains its relative order even when one
-    # row rotates its credential. If edits changed the group's size, only
-    # masked rows need a saved entry (a newly colliding row supplies its own).
-    # Capture masked_ids before restoration so earlier restores still count.
-    if len(peers) != len(same):
-        peers = [srv for srv in peers if id(srv) in masked_ids]
+    peers = [
+        srv
+        for srv in body_group
+        if id(srv) in masked_ids and _mcp_server_signature(srv) == signature
+    ]
     if len(same) != len(peers):
         raise ValueError(
             f"{body_server.get('name', '')}: redacted secrets cannot be matched "
@@ -753,6 +749,26 @@ def _match_saved_mcp_server(
     return None
 
 
+def _changes_mcp_secret(body_server: dict, saved) -> bool:
+    """Whether a body server sends a new value for any secret-looking key.
+
+    ``_mcp_server_signature`` ignores these values, but a key such as
+    ``AUTH_URL`` looks secret while configuring the destination.
+    """
+    for field_name in ("env", "headers"):
+        values = body_server.get(field_name)
+        if not isinstance(values, dict):
+            continue
+        original = getattr(saved, field_name) or {}
+        for key, value in values.items():
+            if _MCP_SECRET_KEY_RE.search(str(key)) and value not in (
+                _REDACT_SENTINEL,
+                original.get(key),
+            ):
+                return True
+    return False
+
+
 def _restore_conversation_mcp_secrets(
     body: dict, load_stored: Callable[[], MCPConfig | None]
 ) -> None:
@@ -760,21 +776,19 @@ def _restore_conversation_mcp_secrets(
 
     Clients echo the redacted config back on save; writing the sentinel would
     replace the real secret. A body server matches the saved server with the
-    same name; when several saved servers share a name, they are paired by
-    non-secret content, preserving relative order only within identical public
-    signatures. The masked peers must retain each signature's multiplicity for a
-    secret to have an unambiguous match; a row that supplies its own real secret
-    does not compete for a saved one. A secret is only kept when command, args,
-    url, transport and public env/header settings are unchanged: these can all
-    configure the destination. Toggling enabled is allowed. ``load_stored`` is
-    called at most once, and only when a redacted value needs restoring.
-    Raises ValueError when a
-    redacted secret has no unambiguous stored value to keep.
+    same name; several saved servers sharing a name are paired as described in
+    ``_match_saved_mcp_server``. A secret is only kept when command, args, url,
+    transport, env/header keys and every other env/header value (secret-looking
+    ones included) are unchanged, since any of them can configure the
+    destination. Toggling enabled is allowed. ``load_stored`` is called at most
+    once, and only when a redacted value needs restoring. Raises ValueError when
+    a redacted secret has no unambiguous stored value to keep.
     """
     mcp = body.get("mcp")
     if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
         return
     body_servers = [srv for srv in mcp["servers"] if isinstance(srv, dict)]
+    # Snapshot before restoring, so already-restored rows still count as masked.
     masked_ids = {id(srv) for srv in body_servers if _has_redacted_mcp_secret(srv)}
     body_name_counts: dict[str, int] = {}
     for srv in body_servers:
@@ -815,7 +829,9 @@ def _restore_conversation_mcp_secrets(
                     )
                 # Env/header settings can redirect a stdio server just as
                 # changing an HTTP URL can.
-                if _mcp_server_signature(srv) != _mcp_server_signature(saved):
+                if _mcp_server_signature(srv) != _mcp_server_signature(
+                    saved
+                ) or _changes_mcp_secret(srv, saved):
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but the server's "
                         "command, args, url, transport or env/headers changed; "
