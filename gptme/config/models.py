@@ -44,9 +44,15 @@ def _stringify_env(env: dict) -> dict[str, str]:
     ``Config.get_env``'s ``or`` chain skips falsy values (so an explicit
     ``false`` is ignored) and ``get_env_bool`` crashes calling ``.lower()``.
     """
-    return {
-        k: str(v).lower() if isinstance(v, bool) else str(v) for k, v in env.items()
-    }
+    result: dict[str, str] = {}
+    for key, value in env.items():
+        # JSON chat configs can contain null: keep treating that as unset.
+        if value is None:
+            continue
+        if isinstance(value, (dict, list)):
+            raise ValueError(f"env.{key} must be a scalar value")
+        result[key] = str(value).lower() if isinstance(value, bool) else str(value)
+    return result
 
 
 def _require_str_list(key: str, value):

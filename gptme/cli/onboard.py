@@ -33,7 +33,12 @@ from ..config.user import (
 from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
 from ..llm import PROVIDER_API_KEYS, list_available_providers
 from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
-from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
+from ..llm.validate import (
+    OAUTH_PROVIDERS,
+    PROVIDER_DOCS,
+    ApiKeyValidationStatus,
+    validate_api_key_status,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -162,7 +167,10 @@ def _test_provider(provider: str) -> tuple[bool, str]:
             return False, f"Unknown provider: {provider}"
         return False, f"No API key found (set {env_var})"
 
-    return validate_api_key(api_key, provider)
+    status, message = validate_api_key_status(api_key, provider)
+    if status == ApiKeyValidationStatus.UNSUPPORTED:
+        return True, message or "API key found (not validated during onboarding)"
+    return status != ApiKeyValidationStatus.INVALID, message
 
 
 def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None:
