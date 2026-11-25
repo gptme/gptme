@@ -68,6 +68,8 @@ def test_parse_github_url_invalid():
     assert parse_github_url("https://github.com/owner/repo/issues/²") is None
     assert parse_github_url("https://github.com.evil.com/owner/repo/issues/1") is None
     assert parse_github_url("https://github.com@evil.com/owner/repo/issues/1") is None
+    assert parse_github_url("https://github.com:44x/team/project/pull/42") is None
+    assert parse_github_url("https://github.com:99999/owner/repo/issues/1") is None
 
 
 @pytest.mark.parametrize(
@@ -429,6 +431,11 @@ def test_get_repo_from_git_remote_supported_formats(remote_url: str):
         "https://github.com/o/.git",
         "git@github.com:o/.git",
         "https://github.com/o/r/extra.git",
+        "./mirrors/cache@github.com:team/project.git",
+        "/srv/mirrors/git@github.com:team/project.git",
+        "mirrors/cache@github.com:team/project.git",
+        "https://github.com:44x/o/r.git",
+        "ssh://git@github.com:99999/o/r.git",
     ],
 )
 def test_get_repo_from_git_remote_rejected_formats(remote_url: str):

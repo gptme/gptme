@@ -299,11 +299,12 @@ def _get_repo_from_git_remote(
         if "://" not in remote_url and ":" in remote_url:
             host_part, path = remote_url.split(":", 1)
             host = host_part.rsplit("@", 1)[-1].lower()
-            if host in _GITHUB_HOSTS:
+            if "/" not in host_part and host in _GITHUB_HOSTS:
                 return _extract_github_owner_repo(path)
 
         # Handle URL formats: https://, ssh://, git:// (including tokens, ports, www.)
         parsed = urllib.parse.urlparse(remote_url)
+        _ = parsed.port  # validate port if present (raises ValueError on invalid port)
         if parsed.hostname in _GITHUB_HOSTS:
             return _extract_github_owner_repo(parsed.path)
     except (
@@ -380,6 +381,7 @@ def parse_github_url(url: str) -> dict[str, str] | None:
     """
     try:
         parsed = urllib.parse.urlparse(url)
+        _ = parsed.port  # validate port if present (raises ValueError on invalid port)
         if parsed.hostname not in _GITHUB_HOSTS:
             return None
 
