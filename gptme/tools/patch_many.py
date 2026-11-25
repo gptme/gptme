@@ -467,12 +467,14 @@ def execute_patch_many_impl(
             )
             return
 
-    # Content was read in universal-newline mode; preserve each file's style.
+    # ``current[path]`` derives from the LF model (a lone carriage return is
+    # content) and the patch's replacement text is normalized in ``Patch.apply``.
+    # Re-normalizing CRLF here would pair a preserved lone CR with its following
+    # newline and delete it from an untouched line. Mapping \n to the target
+    # ending restores CRLF exactly once (a lone CR before "\n" becomes CR + CRLF,
+    # i.e. the original bytes).
     contents = {
-        path: current[path]
-        .replace("\r\n", "\n")
-        .replace("\n", newlines[path])
-        .encode("utf-8")
+        path: current[path].replace("\n", newlines[path]).encode("utf-8")
         for path in order
     }
     cleanup_errors: list[str] = []

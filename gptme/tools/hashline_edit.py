@@ -1125,12 +1125,13 @@ def execute_hashline_edit(
     # Write via the shared atomic writer (stage beside the target, then
     # os.replace), keeping the file's line endings. Like patch/save, it refuses
     # hard-linked targets instead of silently splitting them from their aliases.
-    # The content is LF-only here (see read_text_lf); newline= restores CRLF.
+    # ``updated`` derives from ``read_text_lf`` and the edit block is normalized
+    # in ``_parse_operations``, so it is LF-only apart from preserved lone CRs;
+    # newline= restores CRLF. Re-normalizing here would pair a preserved lone CR
+    # with its following newline and delete it from an untouched line.
     try:
         newline = file_newline(resolved)
-        write_text_preserving_original(
-            resolved, updated.replace("\r\n", "\n"), newline=newline
-        )
+        write_text_preserving_original(resolved, updated, newline=newline)
     except (UnicodeEncodeError, ValueError, OSError) as e:
         yield Message("system", f"hashline_edit: write failed: {e}")
         return

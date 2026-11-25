@@ -603,11 +603,24 @@ def test_morph_writes_existing_file_on_acl_platforms(
     f = tmp_path / "target.py"
     original = "def foo():\n    pass\n"
     f.write_text(original)
-    monkeypatch.setattr(sys, "platform", platform)
     # Pin both platform signals so each case exercises the intended check: on a
     # Windows runner the darwin case would otherwise hit the `os.name == "nt"`
-    # branch first and pass for the wrong reason.
-    monkeypatch.setattr(os, "name", "nt" if platform == "win32" else "posix")
+    # branch first and pass for the wrong reason. Patch the writer's module
+    # globals, not the real `sys`/`os`: flipping the live `os.name` to "nt" makes
+    # pathlib construct a WindowsPath on a POSIX runner, which fails before the
+    # write is even attempted.
+    from types import SimpleNamespace
+
+    from gptme.util import file_write
+
+    monkeypatch.setattr(file_write, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(
+        file_write,
+        "os",
+        SimpleNamespace(
+            **(vars(os) | {"name": "nt" if platform == "win32" else "posix"})
+        ),
+    )
 
     list(execute_morph_impl("def foo():\n    return 1\n", f, original))
 
