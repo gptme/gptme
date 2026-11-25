@@ -890,45 +890,62 @@ def api_conversation_tool_confirm(conversation_id: str):
                 default_model.full if default_model else "anthropic"
             )
 
-            session.generating = True
-            session.generating_since = datetime.now(tz=timezone.utc)
-            # Advance step_seq before capturing the epoch so that any
-            # concurrent tool worker whose my_seq equals the pre-skip value
-            # sees a mismatch and stands down (same protocol as /step and
-            # /interrupt + rerun).
-            session.step_seq += 1
-            skip_step_seq = session.step_seq
-            try:
-                current_tool.status = ToolStatus.SKIPPED
-                session.finish_skill_turn("abandoned")
-                session.pending_tools.pop(tool_id)
-                session.remember_handled_tool(tool_id)
+            # Skipping a tool resolves one call of the current assistant turn;
+            # it is not a new generation. The turn's tool phase is complete
+            # only once no tool of this epoch is pending or executing, and the
+            # continuation elected then is the turn's single reply. Advancing
+            # ``step_seq`` here made a later-approved sibling start a second
+            # reply for the same turn, and re-tagging the batch (an earlier
+            # attempt) moved tools away from workers already dispatched for
+            # them, so the last worker could never deliver its result.
+            skip_step_seq: int | None = None
+            current_tool.status = ToolStatus.SKIPPED
+            session.finish_skill_turn("abandoned")
+            session.pending_tools.pop(tool_id)
+            session.remember_handled_tool(tool_id)
 
-                # Persist the skip before the continuation can load the log.
-                tool_name = current_tool.tooluse.tool
-                msg = Message(
-                    "system",
-                    f"User chose not to execute this {tool_name} tool. "
-                    "Do not re-suggest the same action unless explicitly requested.",
-                )
-                manager = LogManager.load(
-                    conversation_id, branch=current_tool.branch, lock=False
-                )
-                _append_and_notify(manager, session, msg)
-                manager.write()
+            # Persist the skip before the continuation can load the log.
+            tool_name = current_tool.tooluse.tool
+            msg = Message(
+                "system",
+                f"User chose not to execute this {tool_name} tool. "
+                "Do not re-suggest the same action unless explicitly requested.",
+            )
+            manager = LogManager.load(
+                conversation_id, branch=current_tool.branch, lock=False
+            )
+            _append_and_notify(manager, session, msg)
+            manager.write()
 
-                resolve_hook_confirmation(tool_id, action, req_json.get("content"))
-            except Exception:
-                session.generating = False
-                session.generating_since = None
-                raise
-            # A peer wake may have promoted this session to the conversation
-            # writer. Pin it before unlocking, as request_peer_wake does, so a
-            # session removal in the dispatch gap cannot close the writer lock
-            # before the continuation worker pins ownership.
-            if session.writer_manager is not None:
-                session._writer_workers += 1
-                writer_pinned = True
+            resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+            # Same epoch rules the tool workers use to elect a continuation:
+            # a tool from an older epoch is already excluded there, so it must
+            # not block this reply either.
+            own_pending = any(
+                tool.step_seq is None or tool.step_seq == session.step_seq
+                for tool in session.pending_tools.values()
+            )
+            own_executing = any(
+                seq == session.step_seq
+                for seq in session._executing_tool_epochs.values()
+            )
+            if not own_pending and not own_executing:
+                session.generating = True
+                session.generating_since = datetime.now(tz=timezone.utc)
+                skip_step_seq = session.step_seq
+                # A peer wake may have promoted this session to the conversation
+                # writer. Pin it before unlocking, as request_peer_wake does, so a
+                # session removal in the dispatch gap cannot close the writer lock
+                # before the continuation worker pins ownership.
+                if session.writer_manager is not None:
+                    session._writer_workers += 1
+                    writer_pinned = True
+
+        if skip_step_seq is None:
+            # A sibling of the same batch still owns the turn. Whoever finishes
+            # or approves last elects the continuation, so the model sees both
+            # that result and the skip notice exactly once.
+            return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
 
         # Worker pinning takes step_lock; never dispatch while holding it.
         try:

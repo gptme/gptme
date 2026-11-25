@@ -1793,16 +1793,16 @@ class TestToolConfirmEndpoint:
             "top_p": None,
         }
 
-    def test_skip_increments_step_seq_to_invalidate_stale_workers(
+    def test_skip_leaves_epoch_to_the_running_sibling_worker(
         self, conv, client: FlaskClient
     ):
-        """Skip must advance step_seq so concurrent tool workers stand down.
+        """Skip must not advance the epoch or reply while a sibling tool runs.
 
-        A concurrent auto-confirm tool worker captures my_seq at start_tool_execution
-        time. If skip does NOT increment step_seq, the worker's owns_reservation check
-        (session.step_seq == my_seq) still holds after skip fires, and the worker elects
-        its own continuation — producing duplicate LLM turns alongside the skip
-        continuation.
+        A skip decides one tool call of the current turn; the executing sibling
+        worker still owns the epoch and elects the turn's single continuation
+        when it finishes. Advancing step_seq here left that worker on an older
+        epoch, so it could never deliver its result, and the skip's own reply
+        went out before the result was in the log.
         """
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
@@ -1811,30 +1811,37 @@ class TestToolConfirmEndpoint:
         tool_exec = ToolExecution(
             tool_id=tool_id,
             tooluse=ToolUse("bash", [], "echo hi"),
+            step_seq=initial_step_seq,
         )
         session.pending_tools[tool_id] = tool_exec
-
-        with (
-            patch("gptme.server.api_v2_sessions._append_and_notify"),
-            patch("gptme.server.api_v2_sessions._start_step_thread", return_value=True),
-            patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
-        ):
-            response = client.post(
-                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
-                json={
-                    "session_id": conv["session_id"],
-                    "tool_id": tool_id,
-                    "action": "skip",
-                },
-            )
+        session._executing_tools.add("running-sibling")
+        session._executing_tool_epochs["running-sibling"] = initial_step_seq
+        try:
+            with (
+                patch("gptme.server.api_v2_sessions._append_and_notify"),
+                patch(
+                    "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+                ) as start_step,
+                patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
+            ):
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                    json={
+                        "session_id": conv["session_id"],
+                        "tool_id": tool_id,
+                        "action": "skip",
+                    },
+                )
+        finally:
+            session._executing_tools.discard("running-sibling")
+            session._executing_tool_epochs.pop("running-sibling", None)
 
         assert response.status_code == 200
-        # step_seq must have advanced so any stale tool worker with the old
-        # my_seq sees a mismatch and releases its reservation instead of
-        # electing a duplicate continuation.
-        assert session.step_seq == initial_step_seq + 1, (
-            "skip must increment step_seq to invalidate stale concurrent workers"
+        assert session.step_seq == initial_step_seq, (
+            "skip resolves a tool call; it does not revoke the sibling's epoch"
         )
+        assert start_step.call_count == 0, "the running sibling worker elects the reply"
+        assert not session.generating
 
     def test_skip_preserves_tool_when_step_reserved_generation(
         self, conv, client: FlaskClient

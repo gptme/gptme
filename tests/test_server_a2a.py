@@ -1160,3 +1160,159 @@ def test_tool_chain_does_not_steal_a_newer_epoch_tool(v2_conv, monkeypatch):
     assert new_tool.tool_id in session.pending_tools
     assert session.pending_tools[new_tool.tool_id].step_seq == 6
     assert continuation.call_count == 0
+
+
+def _skip_tool(client, v2_conv, tool_id: str, monkeypatch, dispatches: list[dict]):
+    """POST the real skip route with continuation dispatch captured."""
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    def fake_start_step_thread(*args, **kwargs):
+        dispatches.append(kwargs)
+        return True
+
+    monkeypatch.setattr(sessions_mod, "_start_step_thread", fake_start_step_thread)
+    return client.post(
+        f"/api/v2/conversations/{v2_conv['conversation_id']}/tool/confirm",
+        json={
+            "session_id": v2_conv["session_id"],
+            "tool_id": tool_id,
+            "action": "skip",
+        },
+    )
+
+
+def test_skip_does_not_reply_while_a_batch_sibling_is_pending(
+    v2_conv, client, monkeypatch
+):
+    """Skipping one call must not answer the turn while a sibling still waits.
+
+    The skip resolves a single tool call of the current assistant turn; it is
+    not a new generation. The turn's tool phase is complete only once no tool
+    of that epoch is pending or executing. Advancing the epoch here made a
+    later-approved sibling start a second reply for the same turn.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    session.pending_tools["keeper"] = ToolExecution(
+        tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    assert response.status_code == 200
+    assert "skip-me" not in session.pending_tools
+    assert "keeper" in session.pending_tools
+    assert session.step_seq == 5, "a skip is a tool decision, not a new epoch"
+    assert dispatches == [], "the pending sibling still owns the turn"
+    assert not session.generating
+
+
+def test_skip_does_not_strand_an_executing_sibling_worker(v2_conv, client, monkeypatch):
+    """A skip must leave a running same-epoch worker able to deliver its result.
+
+    Re-tagging the batch to a new epoch (an earlier attempt) moved tools away
+    from workers already dispatched for them: the last worker could not start a
+    continuation (epoch mismatch) and its result never got a model turn.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    session._executing_tools.add("running-sibling")
+    session._executing_tool_epochs["running-sibling"] = 5
+    try:
+        dispatches: list[dict] = []
+        response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+        assert response.status_code == 200
+        assert session.step_seq == 5, "the running sibling still owns epoch 5"
+        assert dispatches == [], "the running worker will elect the reply itself"
+        assert session._executing_tool_epochs["running-sibling"] == 5
+    finally:
+        session._executing_tools.discard("running-sibling")
+        session._executing_tool_epochs.pop("running-sibling", None)
+
+
+def test_approving_a_sibling_after_a_skip_yields_one_reply(
+    v2_conv, client, monkeypatch
+):
+    """The batch produces exactly one reply, and it includes the sibling result.
+
+    End-to-end: skip one call, then approve the other. The approval worker is
+    the last owner of the epoch, so it must start the turn's single
+    continuation; the skip must not have started one first.
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    keeper = ToolExecution(
+        tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
+    )
+    session.pending_tools["keeper"] = keeper
+
+    skip_dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, skip_dispatches)
+    assert response.status_code == 200
+    assert skip_dispatches == []
+
+    def execute(code, args, kwargs):
+        return Message("system", "kept tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    import gptme.server.session_step as step_mod
+
+    continuation = unittest.mock.Mock(return_value=True)
+    monkeypatch.setattr(step_mod, "_start_step_thread", continuation)
+
+    thread = start_tool_execution(
+        v2_conv["conversation_id"],
+        session,
+        "keeper",
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert continuation.call_count == 1, "exactly one reply for the whole batch"
+    assert continuation.call_args.kwargs["step_seq"] == 6
+    assert session.pending_tools == {}
+    assert session.step_seq == 6
