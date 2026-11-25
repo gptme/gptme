@@ -1416,11 +1416,15 @@ def _stream_with_client(
                     name,
                 )
                 notice = (
-                    f"\n[The `{name}` tool call was cut off ({stop_reason}) and "
-                    "was not run. Retry with less output, e.g. split a large "
-                    "write into several calls.]\n"
+                    f"\n[The last `{name}` tool call in this reply was cut off "
+                    f"({stop_reason}) and was not run. Retry with less output, "
+                    "e.g. split a large write into several calls.]\n"
                 )
-                native_pending[start:] = [notice]
+                # Ahead of the finished calls: break_on_tooluse stops reading
+                # at the first one, and history conversion drops text that
+                # follows the last.
+                del native_pending[start:]
+                native_pending.insert(0, notice)
         elif stop_reason != "tool_use":
             # Another known terminal reason (e.g. refusal) is not a
             # transport failure: replaying with the same cap can charge for

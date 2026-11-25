@@ -17,9 +17,10 @@ import anthropic
 import httpx2 as httpx
 import pytest
 
+from gptme import llm
 from gptme.llm import llm_anthropic
 from gptme.message import Message
-from gptme.tools.base import ToolUse
+from gptme.tools.base import ToolSpec, ToolUse
 
 
 def _sse(events):
@@ -333,7 +334,7 @@ def test_truncated_reply_keeps_finished_tool_calls(monkeypatch, stop_reason, cut
         ("shell", "toolu_01", {"command": "ls"})
     ], repr(text)
     assert "toolu_02" not in text
-    assert f"`save` tool call was cut off ({stop_reason})" in text
+    assert f"`save` tool call in this reply was cut off ({stop_reason})" in text
     assert len(requests) == 1
     assert successes == [True]
 
@@ -363,6 +364,54 @@ def test_truncated_text_after_tool_call_keeps_the_call(monkeypatch):
     assert [c.call_id for c in calls] == ["toolu_01"], repr(text)
     assert text.endswith("Next I will")
     assert "cut off" not in text
+
+
+@pytest.mark.parametrize("thinking", [False, True])
+@pytest.mark.parametrize("break_on_tooluse", [False, True])
+def test_cutoff_notice_reaches_the_next_request(
+    monkeypatch, break_on_tooluse, thinking
+):
+    """The model must learn a call was skipped, even after an early tool break."""
+    text, _, _ = _stream_truncated(
+        monkeypatch,
+        [
+            *_tool_block(0, "toolu_01", "shell", '{"command": "ls"}'),
+            *_tool_block(1, "toolu_02", "save", '{"path": "big.txt", "content": "ab'),
+        ],
+        "max_tokens",
+    )
+    if thinking:
+        text = f"<think>\nplan\n<!-- think-sig: sig== -->\n</think>\n\n{text}"
+    monkeypatch.setattr(
+        llm,
+        "_stream",
+        lambda *args, **kwargs: llm._StreamWithMetadata(
+            (chunk for chunk in [text]), "anthropic/claude-sonnet-4-6"
+        ),
+    )
+    monkeypatch.setattr(llm, "get_tool_format", lambda: "tool")
+    reply = llm._reply_stream(
+        [Message("user", "write files")],
+        "anthropic/claude-sonnet-4-6",
+        None,
+        break_on_tooluse=break_on_tooluse,
+    )
+
+    shell = ToolSpec(name="shell", desc="run a command", parameters=[])
+    sent, _, _ = llm_anthropic._prepare_messages_for_api(
+        [
+            Message("system", "sys"),
+            Message("user", "write files"),
+            reply,
+            Message("system", "file.txt", call_id="toolu_01"),
+        ],
+        [shell],
+    )
+
+    blocks: list[Any] = list(sent[1]["content"])
+    prose = "".join(b["text"] for b in blocks if b["type"] == "text")
+    assert "`save` tool call in this reply was cut off (max_tokens)" in prose
+    assert [b["id"] for b in blocks if b["type"] == "tool_use"] == ["toolu_01"]
 
 
 @pytest.mark.parametrize(
