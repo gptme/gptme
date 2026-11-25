@@ -752,6 +752,7 @@ def approved_execution_argv(
 _MAKE_INCLUDE = re.compile(r"[ \t]*(?:-include|sinclude|include)[ \t]+(.+?)\s*")
 # Conditionals do not end a rule: make keeps reading its recipe across them.
 _MAKE_CONDITIONAL = re.compile(r"[ \t]*(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b")
+_MAKE_ENDIF = re.compile(r"[ \t]*endif\b")
 # make joins backslash-newline before it strips comments, but only after an
 # odd run of backslashes: an even run is literal and ends the line.
 _MAKE_CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n[ \t]*")
@@ -795,13 +796,28 @@ def _make_include_tokens(text: str) -> list[str]:
     return tokens
 
 
+def _make_unconditional_text(lines: list[str]) -> str:
+    """Drop conditional blocks: without evaluating them, make may skip each."""
+    depth = 0
+    kept: list[str] = []
+    for line in lines:
+        if _MAKE_ENDIF.match(line):
+            depth -= 1
+        elif _MAKE_CONDITIONAL.match(line):
+            depth += not line.lstrip().startswith("else")
+        elif not depth:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 def _scan_makefile(
     workspace: Path, makefile: Path
 ) -> tuple[Path | None, list[tuple[Path, bytes]]] | None:
     """Read ``makefile`` and every file it includes, as ``make`` would.
 
     Returns the first file defining ``test`` (or None) and every file read,
-    with the exact bytes parsed, so all of them can be fingerprinted. Include
+    with the exact bytes parsed, so all of them can be fingerprinted. An
+    included file defines ``test`` only outside conditional blocks. Include
     paths resolve against the workspace, as they do for ``make`` run there.
     Returns None when an include cannot be accounted for (variable, glob or
     ``~`` path, missing or unreadable file, too many files): make would read
@@ -811,7 +827,7 @@ def _scan_makefile(
     seen: dict[Path, bytes] = {}
     target: Path | None = None
 
-    def visit(path: Path) -> bool:
+    def visit(path: Path, unconditional: bool) -> bool:
         nonlocal target
         try:
             # RuntimeError: symlink loop on Python < 3.13.
@@ -865,16 +881,21 @@ def _scan_makefile(
             line.startswith("\t") and _MAKE_INCLUDE.fullmatch(line) for line in lines
         ):
             return False
-        if target is None and _MAKE_TEST_TARGET.search(text):
+        certain = _make_unconditional_text(lines)
+        # The entry point keeps the plain text search; an include has to be
+        # sure to define the target.
+        searched = text if path == makefile else certain if unconditional else ""
+        if target is None and _MAKE_TEST_TARGET.search(searched):
             target = path
+        certain_tokens = _make_include_tokens(certain)
         for token in _make_include_tokens(text):
             if any(ch in token for ch in "$*?[~"):
                 return False
-            if not visit(workspace / token):
+            if not visit(workspace / token, unconditional and token in certain_tokens):
                 return False
         return True
 
-    if not visit(makefile):
+    if not visit(makefile, True):
         return None
     return target, reads
 

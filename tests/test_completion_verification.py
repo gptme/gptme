@@ -926,3 +926,43 @@ def test_make_expanded_line_cannot_hide_include(tmp_path: Path) -> None:
     )
     (tmp_path / "config.mk").write_text("CMD := approved\n")
     assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {
+            "GNUmakefile": "include tests.mk\n",
+            "tests.mk": "ifeq (0,1)\ntest: ; @true\nendif\nall: ; @true\n",
+        },
+        {
+            "GNUmakefile": "ifeq (0,1)\ninclude tests.mk\nendif\nall: ; @true\n",
+            "tests.mk": "test: ; @true\n",
+        },
+        {
+            "GNUmakefile": "ifdef UNSET\ninclude a.mk\nendif\nall: ; @true\n",
+            "a.mk": "include tests.mk\n",
+            "tests.mk": "test: ; @true\n",
+        },
+    ],
+    ids=["target", "include", "nested-include"],
+)
+def test_make_conditional_included_target_is_not_offered(
+    tmp_path: Path, files: dict[str, str]
+) -> None:
+    """make may skip a conditional block, so it cannot vouch for ``test``."""
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_unconditional_included_target_survives_conditionals(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
+    (tmp_path / "tests.mk").write_text(
+        "ifdef A\nifdef B\nX := 1\nendif\nelse\nX := 2\nendif\ntest: ; @true\n"
+    )
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("make", "test")
