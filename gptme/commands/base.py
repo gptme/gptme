@@ -17,6 +17,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ASCII whitespace, the only separators a command line is split on. ``\s`` also
+# matches Unicode whitespace (e.g. the non-breaking space), which is a legal
+# character in a conversation name and must survive tokenization.
+ASCII_WS = r"[ \t\n\r\f\v]"
+
 
 @dataclass
 class CommandContext:
@@ -279,9 +284,14 @@ def handle_cmd(
     # is_message_command but carries no command name. Fall back to an empty
     # name so it lands in the unknown-command path below instead of crashing
     # on empty-list unpacking.
-    name, *args = [s for s in re.split(r"[\n\s]", cmd) if s] or [""]
-    # Split args off at the same whitespace that ended the name (incl. newline).
-    name_and_args = re.split(r"\s", cmd.lstrip(), maxsplit=1)
+    # Split on ASCII whitespace only. ``\s`` also matches Unicode whitespace
+    # such as the non-breaking space, which is a legal character in a
+    # conversation name; splitting on it would truncate the id for commands
+    # like ``/delete draft\xa0notes`` and could act on a different chat.
+    name, *args = [s for s in re.split(ASCII_WS, cmd) if s] or [""]
+    # Split args off at the same ASCII whitespace that ended the name (incl.
+    # newline), keeping the remainder verbatim.
+    name_and_args = re.split(ASCII_WS, cmd.lstrip(" \t\n\r\f\v"), maxsplit=1)
     full_args = name_and_args[1] if len(name_and_args) > 1 else ""
 
     # Check if command is registered

@@ -153,7 +153,10 @@ def cmd_delete(ctx: CommandContext) -> None:
         print("\nNote: Cannot delete the current conversation.")
         return
 
-    conv_id = args[0]
+    # Reconstruct the id from every positional token: a conversation name may
+    # contain whitespace (regular or non-breaking), and taking only args[0]
+    # would look up -- and with --force delete -- a different conversation.
+    conv_id = " ".join(args)
 
     # Prevent deleting current conversation
     if _is_current_conversation(ctx.manager.logdir, conv_id):

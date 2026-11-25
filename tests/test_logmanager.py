@@ -1850,3 +1850,42 @@ def test_get_conversation_meta_direct_finds_names_with_non_breaking_space(
     assert meta.id == conv_id
 
 
+def test_delete_keeps_whitespace_in_conversation_id(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """/delete must use the whole id, not truncate it at whitespace.
+
+    Regression: the command tokenizer split on Unicode whitespace, and the
+    handler took ``args[0]``. ``/delete --force draft<NBSP>notes`` therefore
+    deleted a different chat called ``draft``.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("draft", "draft\u00a0notes", "my chat"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    cmd = Message("user", "/delete --force draft\u00a0notes", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft\u00a0notes" in out
+    assert not (logs / "draft\u00a0notes").exists()
+    # The prefix-named chat must survive: only the full id may be deleted.
+    assert (logs / "draft").exists()
+
+    # A regular space is part of the name too, not an argument separator.
+    cmd = Message("user", "/delete --force my chat", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert not (logs / "my chat").exists()
+
+
