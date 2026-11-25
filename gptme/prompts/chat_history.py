@@ -83,14 +83,18 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                     f"Modified: {datetime.fromtimestamp(conv.modified, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')}"
                 )
 
-                # Always show first exchange to establish context
+                # Always show first exchange to establish context.
+                # messages_shown counts only messages whose line was appended:
+                # a code-only message summarises to "" and is not shown.
+                messages_shown = 0
+                first_assistant = None
                 first_user = user_messages[0]
                 first_user_content = extract_content_summary(first_user.content)
                 if first_user_content:
                     summary_parts.append(f"User: {first_user_content}")
+                    messages_shown += 1
 
                     # Find first assistant response after first user message
-                    first_assistant = None
                     first_user_idx = messages.index(first_user)
                     for msg in messages[first_user_idx + 1 :]:
                         if msg.role == "assistant":
@@ -104,29 +108,29 @@ def prompt_chat_history() -> Generator[Message, None, None]:
                         )
                         if first_response:
                             summary_parts.append(f"Assistant: {first_response}")
+                            messages_shown += 1
 
-                # Calculate omitted messages (all except first exchange and last assistant)
-                messages_shown = 1  # first user
-                if first_assistant:
-                    messages_shown += 1  # first assistant
-                if best_assistant_msg and best_assistant_msg != first_assistant:
-                    messages_shown += 1  # last assistant (if different)
-
-                omitted_count = len(messages) - messages_shown
-                if omitted_count > 0:
-                    summary_parts.append(f"... ({omitted_count} messages omitted) ...")
-
-                # Add last assistant response if different from first
+                # Last assistant response, if different from the first
+                outcome = ""
                 if best_assistant_msg and best_assistant_msg != first_assistant:
                     # Use 60 words for last response - capture the outcome/conclusion
                     outcome = extract_content_summary(
                         best_assistant_msg.content, max_words=60
                     )
                     if outcome:
-                        summary_parts.append(f"Assistant: {outcome}")
+                        messages_shown += 1
 
-                if len(summary_parts) > 2:  # More than just metadata
-                    context_parts.append("\n".join(summary_parts))
+                # An entry with no message text tells the assistant nothing
+                if not messages_shown:
+                    continue
+
+                omitted_count = len(messages) - messages_shown
+                if omitted_count > 0:
+                    summary_parts.append(f"... ({omitted_count} messages omitted) ...")
+                if outcome:
+                    summary_parts.append(f"Assistant: {outcome}")
+
+                context_parts.append("\n".join(summary_parts))
 
             except Exception as e:
                 logger.debug(f"Failed to process conversation {conv.name}: {e}")

@@ -80,3 +80,117 @@ def test_chat_history_context():
 
 if __name__ == "__main__":
     test_chat_history_context()
+
+
+def test_chat_history_keeps_conversation_whose_first_message_is_code(monkeypatch):
+    """A first user message that is only a code block summarises to "".
+
+    `first_assistant` was then never assigned, the summary raised
+    UnboundLocalError, and the per-conversation handler silently dropped the
+    conversation from the context.
+    """
+    from types import SimpleNamespace
+
+    import gptme.logmanager as logmanager
+
+    messages = [
+        Message("user", "```\nTraceback (most recent call last):\n  boom\n```"),
+        Message("assistant", "Looking."),
+        Message("user", "Can you fix it?"),
+        Message(
+            "assistant",
+            "Fixed the crash by guarding the empty list before indexing it in the parser.",
+        ),
+    ]
+    conv = SimpleNamespace(
+        messages=4,
+        path="/nonexistent/code-first/conversation.jsonl",
+        name="code-first",
+        modified=0.0,
+    )
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "true")
+    monkeypatch.setattr(logmanager, "list_conversations", lambda **kw: [conv])
+    monkeypatch.setattr(
+        logmanager.LogManager,
+        "load",
+        classmethod(
+            lambda cls, *a, **kw: SimpleNamespace(
+                log=SimpleNamespace(messages=messages)
+            )
+        ),
+    )
+
+    history = list(prompt_chat_history())
+    assert len(history) == 1
+    assert "code-first" in history[0].content
+    assert "guarding the empty list" in history[0].content
+    # Only the final reply is shown; the code-only opener is not.
+    assert "(3 messages omitted)" in history[0].content
+
+
+def _history_for(monkeypatch, messages):
+    from types import SimpleNamespace
+
+    import gptme.logmanager as logmanager
+
+    conv = SimpleNamespace(
+        messages=len(messages),
+        path="/nonexistent/conv/conversation.jsonl",
+        name="conv",
+        modified=0.0,
+    )
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "true")
+    monkeypatch.setattr(logmanager, "list_conversations", lambda **kw: [conv])
+    monkeypatch.setattr(
+        logmanager.LogManager,
+        "load",
+        classmethod(
+            lambda cls, *a, **kw: SimpleNamespace(
+                log=SimpleNamespace(messages=messages)
+            )
+        ),
+    )
+    # prompt_chat_history swallows errors at debug level and yields nothing, so an
+    # empty result alone cannot tell "skipped on purpose" from "crashed". Fail on
+    # any swallowed error instead.
+    import gptme.prompts.chat_history as chat_history
+
+    def _no_swallowed_errors(msg, *args, **kwargs):
+        if str(msg).startswith("Failed"):
+            raise AssertionError(f"prompt_chat_history swallowed an error: {msg}")
+
+    monkeypatch.setattr(chat_history.logger, "debug", _no_swallowed_errors)
+    return list(prompt_chat_history())
+
+
+def test_chat_history_does_not_count_code_only_first_reply_as_shown(monkeypatch):
+    """A code-only first reply summarises to "" and must count as omitted."""
+    history = _history_for(
+        monkeypatch,
+        [
+            Message("user", "Please fix the parser crash."),
+            Message("assistant", "```python\nprint('hi')\n```"),
+            Message("user", "Thanks, does it work now?"),
+            Message(
+                "assistant",
+                "Yes, the parser now guards the empty list before indexing into it.",
+            ),
+        ],
+    )
+    assert len(history) == 1
+    # Shown: first user + final reply. Omitted: the code-only reply + 2nd user.
+    assert "(2 messages omitted)" in history[0].content
+
+
+def test_chat_history_skips_conversation_with_no_message_text(monkeypatch):
+    """Only a count and no User:/Assistant: line tells the assistant nothing."""
+    history = _history_for(
+        monkeypatch,
+        [
+            Message("user", "```\nTraceback: boom\n```"),
+            Message("assistant", "```\nok\n```"),
+            Message("user", "```\nmore\n```"),
+            Message("assistant", "Done."),
+        ],
+    )
+    assert history == []
