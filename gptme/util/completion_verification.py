@@ -475,17 +475,16 @@ def unsnapshotted_sources_match(command: VerificationCommand) -> bool:
     A snapshot binds only ``source_blobs``; anything else the runner reads
     from the workspace must still match its approved fingerprint.
     """
-    snapshotted = {path for path, _ in command.source_blobs}
-    return fingerprints_match(
-        replace(
-            command,
-            source_fingerprints=tuple(
-                item
-                for item in command.source_fingerprints
-                if item[0] not in snapshotted
-            ),
-        )
-    )
+    # Drop exactly one fingerprint per snapshotted path: the source bytes are
+    # run from the snapshot, so the workspace copy may change. A path that is
+    # *also* read live (a makefile including itself) keeps its second binding.
+    remaining = list(command.source_fingerprints)
+    for path, _ in command.source_blobs:
+        for index, (candidate, _fp) in enumerate(remaining):
+            if candidate == path:
+                del remaining[index]
+                break
+    return fingerprints_match(replace(command, source_fingerprints=tuple(remaining)))
 
 
 def uses_approved_snapshot(command: VerificationCommand) -> bool:
@@ -781,7 +780,7 @@ def _scan_makefile(
     something discovery could not bind to the approval.
     """
     reads: list[tuple[Path, bytes]] = []
-    seen: set[Path] = set()
+    seen: dict[Path, bytes] = {}
     target: Path | None = None
 
     def visit(path: Path) -> bool:
@@ -794,19 +793,26 @@ def _scan_makefile(
         if key in seen:
             # make reads it again by this path; bind that path too, so a
             # symlink alias retargeted after approval is caught.
-            if all(path != read for read, _ in reads):
-                try:
-                    reads.append((path, _read_regular(path)))
-                except OSError:
-                    return False
+            try:
+                blob = _read_regular(path)
+            except OSError:
+                return False
+            if blob != seen[key]:
+                # Retargeted between resolve() and open(): make would read a
+                # file whose includes were never scanned.
+                return False
+            # The entry point is executed from the approved snapshot, but an
+            # include of that same path is read live and needs its own binding.
+            if path == makefile or all(path != read for read, _ in reads):
+                reads.append((path, blob))
             return True
         if len(seen) >= _MAKE_MAX_FILES:
             return False
-        seen.add(key)
         try:
             blob = _read_regular(path)
         except OSError:
             return False
+        seen[key] = blob
         reads.append((path, blob))
         text = blob.decode(errors="replace")
         if target is None and _MAKE_TEST_TARGET.search(text):
