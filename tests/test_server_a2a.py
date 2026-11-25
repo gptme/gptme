@@ -1464,7 +1464,10 @@ def test_deferred_skip_snapshots_approvals_before_worker_can_claim(
     monkeypatch.setattr(ToolExecution, "to_pending_dict", serialize)
     response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, [])
     assert response.status_code == 200
-    assert claims == [False]
+    # The deferred skip serializes twice now: once for its HTTP response and
+    # once for the snapshot it publishes to every other viewer. Neither pass
+    # may be claimable by a worker.
+    assert claims and not any(claims), "a worker claimed during serialization"
     assert [t["tool_id"] for t in response.json["pending_tools"]] == ["keeper"]
 
 

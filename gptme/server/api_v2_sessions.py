@@ -347,6 +347,35 @@ def api_conversation_events(conversation_id: str):
     )
 
 
+def _publish_tool_state(conversation_id: str) -> None:
+    """Publish the authoritative approval snapshot to every live viewer.
+
+    A viewer that never made the request that changed the batch (another
+    client's Skip, for example) has no HTTP response to reconcile from, so the
+    snapshot has to reach the shared stream. Materializing the tool values
+    matters: tool registration mutates ``pending_tools`` without this lock.
+    """
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "tool_state",
+                "generating": SessionManager._conversation_busy(
+                    conversation_id, sessions
+                ),
+                "pending_tools": [
+                    tool.to_pending_dict()
+                    for owner in sessions
+                    for tool in list(owner.pending_tools.values())
+                    if tool.status == ToolStatus.PENDING
+                    and not tool.auto_confirm
+                    and tool.tool_id not in owner.handled_tools
+                ],
+            },
+        )
+
+
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/events/refresh", methods=["POST"]
 )
@@ -369,27 +398,7 @@ def api_conversation_refresh_events(conversation_id: str):
     # Capture and publish under the same lock as tool claims and interrupts.
     # The existing stream delivers prior results, this snapshot, and subsequent
     # changes in order; a replacement stream would lose events in its gap.
-    with SessionManager.conversation_lock(conversation_id):
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "tool_state",
-                "generating": SessionManager._conversation_busy(
-                    conversation_id,
-                    SessionManager.get_sessions_for_conversation(conversation_id),
-                ),
-                "pending_tools": [
-                    tool.to_pending_dict()
-                    for owner in SessionManager.get_sessions_for_conversation(
-                        conversation_id
-                    )
-                    for tool in owner.pending_tools.values()
-                    if tool.status == ToolStatus.PENDING
-                    and not tool.auto_confirm
-                    and tool.tool_id not in owner.handled_tools
-                ],
-            },
-        )
+    _publish_tool_state(conversation_id)
     return flask.jsonify({"status": "queued"})
 
 
@@ -1027,6 +1036,13 @@ def api_conversation_tool_confirm(conversation_id: str):
             # the client clears its approval card and marks the chat busy when
             # it sends the skip, so without this it waits on a generation that
             # starts only when another tool of the batch resolves.
+            #
+            # Publish the same snapshot to the conversation stream as well:
+            # every other viewer of this conversation has no HTTP response to
+            # reconcile from, and the skip's message_added does not touch their
+            # approval card. Without it the remaining approvals stay hidden
+            # there and the turn cannot continue from that viewer.
+            _publish_tool_state(conversation_id)
             return flask.jsonify(
                 {
                     "status": "ok",

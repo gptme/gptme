@@ -20,7 +20,7 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from flask.testing import FlaskClient  # fmt: skip
 
@@ -1898,6 +1898,69 @@ class TestToolConfirmEndpoint:
         )
         assert start_step.call_count == 0, "the running sibling worker elects the reply"
         assert not session.generating
+
+    def test_deferred_skip_publishes_approvals_to_other_viewers(
+        self, conv, client: FlaskClient
+    ):
+        """A deferred skip must reach every viewer's approval card.
+
+        Only the requesting viewer gets the HTTP ``pending_tools`` snapshot.
+        A second viewer of the same conversation receives just the skip's
+        ``message_added``, which does not update its approval card, so the
+        remaining approvals stayed hidden there and only that viewer could
+        resolve them. The snapshot therefore belongs on the shared stream.
+        """
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        viewer = SessionManager.create_session(conv["conversation_id"])
+        initial_step_seq = session.step_seq
+        skipped_id = str(uuid.uuid4())
+        pending_id = str(uuid.uuid4())
+        session.pending_tools[skipped_id] = ToolExecution(
+            tool_id=skipped_id,
+            tooluse=ToolUse("bash", [], "echo hi"),
+            step_seq=initial_step_seq,
+        )
+        session.pending_tools[pending_id] = ToolExecution(
+            tool_id=pending_id,
+            tooluse=ToolUse("bash", [], "echo bye"),
+            step_seq=initial_step_seq,
+        )
+        session._executing_tools.add("running-sibling")
+        session._executing_tool_epochs["running-sibling"] = initial_step_seq
+        viewer_cursor = viewer.events_count
+        try:
+            with (
+                patch("gptme.server.api_v2_sessions._append_and_notify"),
+                patch(
+                    "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+                ),
+                patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
+            ):
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                    json={
+                        "session_id": conv["session_id"],
+                        "tool_id": skipped_id,
+                        "action": "skip",
+                    },
+                )
+        finally:
+            session._executing_tools.discard("running-sibling")
+            session._executing_tool_epochs.pop("running-sibling", None)
+
+        assert response.status_code == 200
+        body = cast(dict[str, Any], response.get_json())
+        assert body["continuation_started"] is False
+        assert [tool["tool_id"] for tool in body["pending_tools"]] == [pending_id]
+
+        events, _ = viewer.read_events(viewer_cursor)
+        snapshots = [event for event in events if event["type"] == "tool_state"]
+        assert len(snapshots) == 1, "the other viewer needs the authoritative snapshot"
+        from gptme.server.api_v2_common import ToolStateEvent
+
+        snapshot = cast(ToolStateEvent, snapshots[0])
+        assert [tool["tool_id"] for tool in snapshot["pending_tools"]] == [pending_id]
 
     def test_skip_preserves_tool_when_step_reserved_generation(
         self, conv, client: FlaskClient
