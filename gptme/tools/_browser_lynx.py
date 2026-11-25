@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote_plus, urljoin, urlparse
@@ -18,6 +19,7 @@ _MAX_REDIRECT_HOPS = 10
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 # One budget for the whole fetch: redirect probes plus the final request.
 _FETCH_TIMEOUT = 60.0
+_MAX_PROBE_HEADER_BYTES = 64 * 1024
 
 
 def _status_code(head_dump: str) -> int | None:
@@ -49,16 +51,41 @@ def _redirect_target(head_dump: str, url: str) -> str | None:
 
 
 def _probe_headers(cmd: list[str], env: dict[str, str], deadline: float) -> str:
-    return subprocess.run(
-        cmd,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=_remaining(deadline),
-    ).stdout
+    """Read only a bounded header block, then stop and reap the GET probe.
+
+    A reader thread keeps pipe reads deadline-bound on Windows too. Never use
+    communicate(): its capture would buffer the discarded raw body in memory.
+    """
+    with subprocess.Popen(
+        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+    ) as process:
+        assert process.stdout is not None
+        stream = process.stdout
+        headers = bytearray()
+
+        def read_headers() -> None:
+            while len(headers) <= _MAX_PROBE_HEADER_BYTES:
+                line = stream.readline(_MAX_PROBE_HEADER_BYTES + 1 - len(headers))
+                if not line:
+                    break
+                headers.extend(line)
+                if line in (b"\n", b"\r\n"):
+                    break
+
+        reader = threading.Thread(target=read_headers, daemon=True)
+        reader.start()
+        try:
+            reader.join(_remaining(deadline))
+            if reader.is_alive():
+                raise subprocess.TimeoutExpired(cmd, _FETCH_TIMEOUT)
+            if len(headers) > _MAX_PROBE_HEADER_BYTES:
+                raise ValueError("Lynx response headers exceed 64 KiB")
+            return headers.decode("utf-8", errors="replace")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            reader.join()
 
 
 def _resolve_allowlisted_redirects(

@@ -15,6 +15,84 @@ from gptme.tools._browser_lynx import _validate_url_scheme, read_url, search
 lynx_available = shutil.which("lynx") is not None
 
 
+def test_header_probe_bounds_bytes_before_decoding(monkeypatch):
+    """A large raw body must not be captured or decoded in full."""
+    import subprocess
+    import time
+
+    from gptme.tools import _browser_lynx
+
+    real_popen = subprocess.Popen
+    children = []
+
+    def fake_lynx(cmd, **kwargs):
+        child = real_popen(
+            [
+                sys.executable,
+                "-c",
+                "import os; "
+                "os.write(1, b'HTTP/1.1 302 Found\\r\\nLocation: /next\\r\\n\\r\\n'); "
+                "exec('for _ in range(32): os.write(1, b\"x\" * 65536)')",
+            ],
+            **kwargs,
+        )
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(_browser_lynx.subprocess, "Popen", fake_lynx)
+    headers = _browser_lynx._probe_headers(
+        ["lynx", "unused"], os.environ.copy(), time.monotonic() + 2
+    )
+    assert _browser_lynx._redirect_target(headers, "https://example.com/") == (
+        "https://example.com/next"
+    )
+    assert len(headers) < 65536
+    assert "xxxxxxxx" not in headers
+    assert children[0].poll() is not None
+
+
+@pytest.mark.parametrize("mode", ["oversized", "stalled"])
+def test_header_probe_rejects_oversized_or_stalled_headers(monkeypatch, mode):
+    import subprocess
+    import time
+
+    from gptme.tools import _browser_lynx
+
+    real_popen = subprocess.Popen
+    children = []
+    code = (
+        "import os; os.write(1, b'x' * 131072)"
+        if mode == "oversized"
+        else "import time; time.sleep(30)"
+    )
+
+    def fake_lynx(cmd, **kwargs):
+        child = real_popen([sys.executable, "-c", code], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(_browser_lynx.subprocess, "Popen", fake_lynx)
+    error = ValueError if mode == "oversized" else subprocess.TimeoutExpired
+    with pytest.raises(error):
+        _browser_lynx._probe_headers(
+            ["lynx", "unused"], os.environ.copy(), time.monotonic() + 0.5
+        )
+    assert children[0].poll() is not None
+
+
+@pytest.fixture
+def mock_probe_via_run(monkeypatch):
+    """Keep redirect-policy mocks separate from the real pipe-reader tests."""
+    from gptme.tools import _browser_lynx
+
+    def probe(cmd, env, deadline):
+        return _browser_lynx.subprocess.run(
+            cmd, env=env, timeout=_browser_lynx._remaining(deadline)
+        ).stdout
+
+    monkeypatch.setattr(_browser_lynx, "_probe_headers", probe)
+
+
 def test_url_scheme_validation():
     """Test that dangerous URL schemes are blocked in lynx backend."""
     # Valid schemes should work
@@ -379,7 +457,7 @@ def test_redirect_target_parsing():
     assert _redirect_target("HTTP/1.1 307 Temporary\nServer: x\n", base) is None
 
 
-def test_resolve_allowlisted_redirects_too_many_hops():
+def test_resolve_allowlisted_redirects_too_many_hops(mock_probe_via_run):
     """An endless redirect chain raises instead of looping forever."""
     from subprocess import CompletedProcess
 
@@ -397,7 +475,7 @@ def test_resolve_allowlisted_redirects_too_many_hops():
         _resolve_allowlisted_redirects("https://example.com/start", {})
 
 
-def test_read_url_cookies_stay_scoped_to_requested_host():
+def test_read_url_cookies_stay_scoped_to_requested_host(mock_probe_via_run):
     """Cookies go to the requested host, not to an allowlisted redirect target."""
     from subprocess import CompletedProcess
 
@@ -434,7 +512,7 @@ def test_read_url_cookies_stay_scoped_to_requested_host():
     assert "other.example.org" not in cookie_contents[0]
 
 
-def test_read_url_redirect_chain_shares_one_deadline():
+def test_read_url_redirect_chain_shares_one_deadline(mock_probe_via_run):
     """Redirect probes and the final fetch draw on one timeout budget."""
     from subprocess import CompletedProcess
 
@@ -521,7 +599,7 @@ def test_read_url_checks_get_redirect_regardless_of_head_response(head_status):
         server.server_close()
 
 
-def test_read_url_redirect_probes_send_cookies():
+def test_read_url_redirect_probes_send_cookies(mock_probe_via_run):
     """Allow-listed redirect probes carry the caller's cookies.
 
     Google search relies on SOCS/CONSENT cookies to avoid a consent redirect; a
@@ -562,7 +640,7 @@ def test_read_url_redirect_probes_send_cookies():
     assert all("\tSOCS\tabc" in c for c in probe_cookies)
 
 
-def test_read_url_cookie_file_removed_when_redirect_probe_fails():
+def test_read_url_cookie_file_removed_when_redirect_probe_fails(mock_probe_via_run):
     """The cookie file is cleaned up even if redirect resolution raises."""
     from subprocess import CompletedProcess
 
