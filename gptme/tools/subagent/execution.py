@@ -121,53 +121,39 @@ def _intersect_tool_allowlists(
 ) -> list[str] | None:
     """Freeze both operator boundaries in the caller's tool/config context.
 
-    None means unrestricted, including on legacy records. Tool-file grants must
-    remain whole files: reject a partial intersection rather than re-importing
-    excluded exports in the child.
+    None means unrestricted, including on legacy records. Differing file-bearing
+    boundaries require inert export metadata; reject them without importing code
+    to discover whether the intersection would permit the file.
     """
     if saved is None:
         return list(current) if current is not None else None
     if current is None or saved == current:
         return list(saved)
 
-    from ..base import load_from_file
+    # A file's exports cannot be established by importing it: its startup code
+    # would run before the tightened boundary has authorized that execution.
+    # Legacy records have no inert export manifest. Fail closed rather than
+    # guessing whether a name/hint grant covers all exports (or their aliases).
+    if any(_is_tool_file_entry(item) for item in [*saved, *current]):
+        raise ValueError(
+            "Cannot intersect a changed tool-file boundary without saved export "
+            "metadata; start a new child with the current tool permissions."
+        )
 
     candidates = {tool.name: tool for tool in get_available_tools()}
-    file_tools: dict[str, list[ToolSpec]] = {}
-    for item in dict.fromkeys([*saved, *current]):
-        if _is_tool_file_entry(item):
-            file_tools[item] = load_from_file(Path(item))
-            for tool in file_tools[item]:
-                if tool.name in candidates:
-                    raise ValueError(
-                        f"Ambiguous tool-file export {tool.name}: cannot intersect limits"
-                    )
-                candidates[tool.name] = tool
     for item in [*saved, *current]:
         if not _is_tool_file_entry(item) and not allowlist_contains_glob([item]):
             candidates.setdefault(item, ToolSpec(name=item, desc=""))
 
     def permits(tool: ToolSpec, boundary: list[str]) -> bool:
-        return tool_matches_allowlist(tool.name, boundary, tool.hints) or any(
-            item in boundary and tool.name in {export.name for export in exports}
-            for item, exports in file_tools.items()
-        )
+        return tool_matches_allowlist(tool.name, boundary, tool.hints)
 
     allowed = {
         name
         for name, tool in candidates.items()
         if permits(tool, saved) and permits(tool, current)
     }
-    result: list[str] = []
-    for item, exports in file_tools.items():
-        names = {tool.name for tool in exports}
-        if names & allowed:
-            if not names <= allowed:
-                raise ValueError(f"Tool limits permit only part of tool file {item}")
-            result.append(item)
-            allowed -= names
-    result.extend(sorted(allowed))
-    return result
+    return sorted(allowed)
 
 
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress", "yield")

@@ -206,7 +206,7 @@ def setup_config_from_cli(
             resolved_tool_allowlist = [
                 tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
             ]
-    elif existing_chat_config and existing_chat_config.tools:
+    elif existing_chat_config and existing_chat_config.tools is not None:
         # When resuming, use saved conversation tools unless CLI override provided
         resolved_tool_allowlist = existing_chat_config.tools
     elif tools_env := config.get_env("TOOL_ALLOWLIST"):
@@ -226,14 +226,15 @@ def setup_config_from_cli(
 
     # Automatically add 'complete' tool in non-interactive mode, except for
     # exclusive named presets such as read-only audit mode.
-    if not interactive and not tool_preset_selected:
-        if resolved_tool_allowlist is None:
-            # Get default tools and add complete to them
-            default_tools = [tool.name for tool in get_toolchain(None)]
-            resolved_tool_allowlist = default_tools
-            if "complete" not in resolved_tool_allowlist:
-                resolved_tool_allowlist.append("complete")
-        elif "complete" not in resolved_tool_allowlist:
+    # Leave unrestricted defaults as None, including when saved/resumed. Tool
+    # initialization adds complete without turning that default into an operator
+    # boundary (which would incorrectly disable ACP delegation).
+    if (
+        not interactive
+        and not tool_preset_selected
+        and resolved_tool_allowlist is not None
+    ):
+        if "complete" not in resolved_tool_allowlist:
             resolved_tool_allowlist.append("complete")
         logger.debug("Added 'complete' tool to allowlist for non-interactive mode")
 

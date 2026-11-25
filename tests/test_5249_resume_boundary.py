@@ -169,16 +169,16 @@ def test_intersection_preserves_hint_and_file_boundaries(tmp_path, monkeypatch):
     assert execution._intersect_tool_allowlists(["project.*"], ["hint:read-only"]) == [
         "project.read"
     ]
-    assert execution._intersect_tool_allowlists(
-        [str(approved)], ["hint:read-only"]
-    ) == [str(approved)]
-    assert execution._intersect_tool_allowlists(
-        ["hint:read-only"], [str(approved)]
-    ) == [str(approved)]
+    # No inert export metadata exists for legacy records. Even a seemingly
+    # compatible hint boundary must not import the file to check it.
+    with pytest.raises(ValueError, match="changed tool-file boundary"):
+        execution._intersect_tool_allowlists([str(approved)], ["hint:read-only"])
+    with pytest.raises(ValueError, match="changed tool-file boundary"):
+        execution._intersect_tool_allowlists(["hint:read-only"], [str(approved)])
     approved.write_text(
         'from gptme.tools.base import ToolSpec\nread = ToolSpec(name="custom_read", desc="read")\nwrite = ToolSpec(name="custom_write", desc="write")\n'
     )
-    with pytest.raises(ValueError, match="only part of tool file"):
+    with pytest.raises(ValueError, match="changed tool-file boundary"):
         execution._intersect_tool_allowlists([str(approved)], ["custom_read"])
 
 
@@ -222,5 +222,5 @@ def test_intersection_rejects_ambiguous_file_exports(tmp_path):
     source = 'from gptme.tools.base import ToolSpec\ntool = ToolSpec(name="same_name", desc="tool")\n'
     first.write_text(source)
     second.write_text(source)
-    with pytest.raises(ValueError, match="export.*same_name"):
+    with pytest.raises(ValueError, match="changed tool-file boundary"):
         _intersect_tool_allowlists([str(first)], [str(second)])

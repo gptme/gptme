@@ -571,7 +571,7 @@ def init_tools(
             env_allowlist = config.get_env("TOOL_ALLOWLIST")
             if env_allowlist:
                 allowlist = env_allowlist.split(",")
-            elif config.chat and config.chat.tools:
+            elif config.chat and config.chat.tools is not None:
                 allowlist = config.chat.tools
 
         allowlist = expand_tool_allowlist_presets(allowlist)
@@ -609,7 +609,15 @@ def init_tools(
         # When file paths are present, only load explicitly named built-in tools
         # (file_paths + no names = only file tools; file_paths + names = both)
         name_allowlist = tool_names if (tool_names or file_paths) else allowlist
-        for tool in get_toolchain(name_allowlist, include_mcp=include_mcp):
+        default_completion = (
+            allowlist is None
+            and config.chat is not None
+            and not config.chat.interactive
+        )
+        selected_tools = get_toolchain(name_allowlist, include_mcp=include_mcp)
+        if default_completion:
+            selected_tools.extend(get_toolchain(["complete"], include_mcp=include_mcp))
+        for tool in selected_tools:
             if is_read_only_session() and _denied_for_read_only(tool):
                 continue
             if has_tool(tool.name):
