@@ -22,7 +22,9 @@ import io
 import logging
 import os
 import pickle
+import queue
 import secrets
+import signal
 import socket
 import struct
 import subprocess
@@ -512,6 +514,7 @@ class KernelBackend:
         self._registered_stubs: list[str] = []
         # Track last synced working directory; None forces a sync on first execute.
         self._last_cwd: str | None = None
+        self._active_execute_msg_id: str | None = None
         # Explanation from the memory guard after it killed the kernel; reported
         # to the model once, with the next cell's output.
         self._memory_notice: str | None = None
@@ -910,6 +913,7 @@ class KernelBackend:
         msg_id = self._kc.execute(
             code, silent=True, store_history=False, allow_stdin=False
         )
+        self._active_execute_msg_id = msg_id
         deadline = _monotonic() + timeout
         while True:
             remaining = deadline - _monotonic()
@@ -929,6 +933,7 @@ class KernelBackend:
                         f"Kernel setup failed: {content.get('ename')}: "
                         f"{content.get('evalue')}"
                     )
+                self._active_execute_msg_id = None
                 return
 
     def execute(self, code: str, timeout: float | None = 120) -> KernelExecResult:
@@ -1007,6 +1012,7 @@ class KernelBackend:
             code, silent=False, store_history=True, allow_stdin=False
         )
         self._bridge.active_cell = msg_id
+        self._active_execute_msg_id = msg_id
         deadline = _monotonic() + timeout if timeout is not None else None
 
         timed_out = False
@@ -1179,6 +1185,7 @@ class KernelBackend:
             retained_bytes += len(image.data)
 
         self._bridge.active_cell = None
+        self._active_execute_msg_id = None
         return KernelExecResult(
             stdout=_with_marker(stdout_parts, stdout_bytes, stdout_total_bytes),
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
@@ -1190,23 +1197,67 @@ class KernelBackend:
 
     def _drain_until_idle(self, grace: float = 5.0) -> None:
         """Consume iopub messages until the kernel reports idle or grace elapses."""
+        if self._active_execute_msg_id is None:
+            return
         deadline = _monotonic() + grace
         while _monotonic() < deadline:
             try:
                 msg = self._kc.get_iopub_msg(timeout=min(deadline - _monotonic(), 0.5))
+            except queue.Empty:
+                continue
             except Exception:
                 break
             if (
                 msg.get("msg_type") == "status"
+                and msg.get("parent_header", {}).get("msg_id")
+                == self._active_execute_msg_id
                 and msg.get("content", {}).get("execution_state") == "idle"
             ):
+                self._active_execute_msg_id = None
                 break
+
+    def _interrupt_uv_workers(self) -> None:
+        """Signal cell workers without signalling uv or the kernel twice.
+
+        uv leads the launch group and forwards signals to its Python child.
+        Message-mode interruption reaches that child only, so separately signal
+        the other members of the same group, preserving signal-mode coverage.
+        """
+        if os.name != "posix":
+            return
+        provisioner = getattr(self._km, "provisioner", None)
+        pid = getattr(provisioner, "pid", None)
+        pgid = getattr(provisioner, "pgid", None)
+        if not pid or not pgid or pgid == os.getpgrp():
+            return
+        try:
+            processes = subprocess.run(
+                ["ps", "-A", "-o", "pid=,ppid=,pgid="],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            members = [
+                tuple(map(int, line.split())) for line in processes.stdout.splitlines()
+            ]
+        except (OSError, subprocess.SubprocessError, ValueError):
+            logger.warning("Could not enumerate uv kernel workers", exc_info=True)
+            return
+        # The direct child of uv is the kernel; its interrupt arrives on the
+        # control channel. Everything else in the launch group is a cell worker.
+        for child, parent, group in reversed(members):
+            if group == pgid and child != pid and parent != pid:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(child, signal.SIGINT)
 
     def interrupt(self) -> None:
         """Send SIGINT to the kernel, interrupting any blocking operation."""
         self._bridge.active_cell = None
         if self._km and self._km.is_alive():
             logger.info("Interrupting kernel")
+            if self._km.kernel_spec.interrupt_mode == "message":
+                self._interrupt_uv_workers()
             self._km.interrupt_kernel()
 
 

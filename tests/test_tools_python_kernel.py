@@ -1115,7 +1115,8 @@ def test_direct_kernel_keeps_signal_interrupts(monkeypatch, tmp_path):
     modes: list[str] = []
     cmd = _run_ensure_started_and_capture_cmd(monkeypatch, modes)
 
-    assert "uv" not in cmd[0]
+    assert cmd[0] != "/usr/bin/uv"
+    assert "ipykernel_launcher" in cmd
     assert modes == ["signal"]
 
 
