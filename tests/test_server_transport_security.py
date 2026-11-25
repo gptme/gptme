@@ -14,7 +14,6 @@ rebinding) are explicitly claimed to be blocked.
 from __future__ import annotations
 
 import io
-import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,11 +22,21 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
-# Collection happens before conftest's per-test `init_` fixture runs, so pin a
-# provider-free model here: create_app()/init() would otherwise resolve the
-# developer's configured model and fail on a missing provider key.
-os.environ.setdefault("MODEL", "local/test")
-os.environ.setdefault("OPENAI_BASE_URL", "http://localhost:666")
+
+@pytest.fixture(autouse=True)
+def init_(monkeypatch, isolate_user_config):
+    """Override conftest's init locally, without mutating collection-time env."""
+    from gptme.init import init
+    from gptme.lessons.index import LessonIndex
+
+    monkeypatch.setenv("MODEL", "local/test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:666")
+    with monkeypatch.context() as m:
+        m.setattr(LessonIndex, "_default_dirs", staticmethod(lambda: []))
+        init(
+            "local/test", interactive=False, tool_allowlist=None, tool_format="markdown"
+        )
+
 
 TOKEN = "security-hunt-token"
 
@@ -46,7 +55,6 @@ def _make_app(monkeypatch, **kwargs):
     monkeypatch.delenv("GPTME_DISABLE_AUTH", raising=False)
     monkeypatch.setattr(auth_mod, "_server_token", None)
     monkeypatch.setattr(auth_mod, "_auth_enabled", True)
-    monkeypatch.setattr(auth_mod, "_trusted_origins", set())
 
     from gptme.server.app import create_app
 
@@ -410,3 +418,62 @@ def test_api_docs_init_script_is_served_same_origin(app):
     resp = client.get("/api/docs/swagger-init.js")
     assert resp.status_code == 200
     assert "SwaggerUIBundle" in resp.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("second_origin", ["https://second.example", None])
+def test_cookie_origin_policy_is_per_app(monkeypatch, upload_logdir, second_origin):
+    first = _make_app(monkeypatch, cors_origin="https://first.example")
+    second = _make_app(monkeypatch, cors_origin=second_origin)
+    first_client = _client_with_auth_cookie(first)
+    second_client = _client_with_auth_cookie(second)
+    assert _upload(first_client, {"Origin": "https://first.example"}).status_code == 200
+    assert (
+        _upload(first_client, {"Origin": "https://second.example"}).status_code == 403
+    )
+    assert (
+        _upload(second_client, {"Origin": "https://first.example"}).status_code == 403
+    )
+    assert _upload(second_client, {"Origin": "https://second.example"}).status_code == (
+        200 if second_origin else 403
+    )
+    for app_, origin in ((first, "https://first.example"), (second, second_origin)):
+        csp = app_.test_client().get("/").headers["Content-Security-Policy"]
+        assert csp == "frame-ancestors 'self'" + (f" {origin}" if origin else "")
+
+
+@pytest.mark.parametrize(
+    "authorization", ["Bearer ", "Bearer", "Basic x", "Bearer wrong"]
+)
+def test_invalid_bearer_never_falls_back_to_cookie(app, authorization):
+    client = _client_with_auth_cookie(app)
+    response = client.post(
+        "/api/v2/auth/cookie",
+        headers={"Origin": FOREIGN_SAME_SITE_ORIGIN, "Authorization": authorization},
+    )
+    assert response.status_code == 401
+
+
+def test_unmatched_preview_path_keeps_ui_frame_protection(monkeypatch, tmp_path):
+    (tmp_path / "index.html").write_text("<!doctype html><title>UI</title>")
+    app = _make_app(monkeypatch, webui_dir=tmp_path)
+    response = app.test_client().get("/preview/not-a-port/")
+    assert response.status_code == 200
+    assert b"<title>UI</title>" in response.data
+    assert response.headers.get("X-Frame-Options") == "SAMEORIGIN"
+    assert "frame-ancestors 'self'" in response.headers.get(
+        "Content-Security-Policy", ""
+    )
+
+
+def test_collecting_transport_tests_does_not_set_model_environment():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = (
+        "import os, runpy; "
+        "os.environ.pop('MODEL', None); os.environ.pop('OPENAI_BASE_URL', None); "
+        f"runpy.run_path({str(Path(__file__).resolve())!r}); "
+        "assert 'MODEL' not in os.environ; assert 'OPENAI_BASE_URL' not in os.environ"
+    )
+    subprocess.run([sys.executable, "-c", script], check=True)

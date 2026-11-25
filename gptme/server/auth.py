@@ -46,10 +46,6 @@ AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
 # (that would grant untrusted content the API cookie scope).
 AUTH_COOKIE_PATHS: tuple[str, ...] = ("/api/", "/preview/")
 
-# Origins (besides the server's own) trusted to make cookie-authenticated
-# state-changing requests. Populated from named ``--cors-origin`` values: those
-# are already granted credentialed CORS access, so they are trusted equally here.
-_trusted_origins: set[str] = set()
 
 # Methods that never change state; the cookie Origin check skips them.
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
@@ -234,24 +230,24 @@ def _request_origin() -> str | None:
     return _normalize_origin(f"{scheme}://{request.host}")
 
 
-def init_origin_check(cors_origins: list[str] | None = None) -> None:
+def init_origin_check(app: flask.Flask, cors_origins: list[str] | None = None) -> None:
     """Configure which extra origins may make cookie-authenticated writes.
 
     Args:
+        app: The app whose origin policy is being configured.
         cors_origins: The parsed ``--cors-origin`` list. A wildcard entry grants
             no trust: wildcard CORS never enables credentials.
     """
-    global _trusted_origins
-    _trusted_origins = {
+    app.config["COOKIE_TRUSTED_ORIGINS"] = {
         normalized
         for origin in (cors_origins or [])
         if origin != "*" and (normalized := _normalize_origin(origin))
     }
 
 
-def get_trusted_origins() -> set[str]:
-    """Origins (besides the server's own) trusted for credentialed requests."""
-    return set(_trusted_origins)
+def get_trusted_origins(app: flask.Flask) -> set[str]:
+    """Origins (besides the server's own) trusted by this app for cookie writes."""
+    return set(app.config.get("COOKIE_TRUSTED_ORIGINS", ()))
 
 
 def validate_cookie_origin():
@@ -283,7 +279,7 @@ def validate_cookie_origin():
     source = origin_header if origin_header is not None else referer_header
     origin = _normalize_origin(source)
     if origin is not None and (
-        origin == _request_origin() or origin in _trusted_origins
+        origin == _request_origin() or origin in get_trusted_origins(flask.current_app)
     ):
         return None
 
@@ -398,6 +394,8 @@ def require_auth(f):
             except ValueError:
                 logger.warning("Invalid Authorization header format")
                 return jsonify({"error": "Invalid authorization header format"}), 401
+            if not token:
+                return jsonify({"error": "Missing bearer credentials"}), 401
 
         # 2. Check HttpOnly cookie (for SSE/EventSource connections)
         if not token:

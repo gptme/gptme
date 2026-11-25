@@ -273,20 +273,21 @@ def create_app(
     # CSRF: reject state-changing cookie-authenticated requests from foreign
     # origins (same-site pages on other ports get the SameSite=Lax cookie, and
     # multipart POSTs need no preflight). Named --cors-origin values are trusted.
-    init_origin_check(origins_list)
+    init_origin_check(app, origins_list)
     app.before_request(validate_cookie_origin)
 
     # Clickjacking: the authenticated SPA must not be framable by other origins.
     # Same-origin framing stays allowed (the computer view iframes /chat), and
     # named --cors-origin values may frame it as they already hold API access.
-    # /api/ and /preview/ responses are left alone: preview content and plugin
-    # panels are meant to be framed by the webui.
-    frame_ancestors = " ".join(["'self'", *sorted(get_trusted_origins())])
+    # /api/ and preview-blueprint responses are left alone: preview content and
+    # plugin panels are meant to be framed by the webui. Unmatched /preview/
+    # paths can serve the SPA and must retain its framing protection.
+    frame_ancestors = " ".join(["'self'", *sorted(get_trusted_origins(app))])
 
     @app.after_request
     def set_frame_protection(response: flask.Response) -> flask.Response:
         path = flask.request.path
-        if path.startswith(("/api/", "/preview/")):
+        if path.startswith("/api/") or flask.request.blueprint == "preview_proxy_api":
             return response
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         csp = response.headers.get("Content-Security-Policy")

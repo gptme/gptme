@@ -359,11 +359,15 @@ Preflight alone is not enough. ``multipart/form-data`` and ``text/plain``
 requests need no preflight, and the ``SameSite=Lax`` auth cookie is still sent
 by *same-site* pages, which includes any other port on the same host (for
 example an agent-started dev server on ``http://127.0.0.1:8888``). So every
-state-changing request (``POST``/``PUT``/``PATCH``/``DELETE``) that is
-authenticated only by the cookie must carry an ``Origin`` (or ``Referer``)
-matching the server's own origin or a named ``--cors-origin``; anything else
-gets ``403``. Requests with an ``Authorization`` header are exempt, since a
-forged browser request cannot set one.
+state-changing request (``POST``/``PUT``/``PATCH``/``DELETE``) authenticated
+only by the cookie is checked if it includes an ``Origin`` or ``Referer``.
+The server checks ``Origin`` first and falls back to ``Referer`` if ``Origin``
+is absent. If the source does not match the server's own origin or a named
+``--cors-origin``, the server returns ``403``. Requests with neither source
+header are allowed for non-browser clients. Requests with an
+``Authorization`` header are also exempt from this check, since a forged
+browser request cannot set one; an empty or invalid bearer token is rejected
+rather than falling back to the cookie.
 
 **2. Clickjacking**
 
