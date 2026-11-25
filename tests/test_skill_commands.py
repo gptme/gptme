@@ -169,6 +169,17 @@ def test_skill_invocation_via_handle_cmd(skills_root: Path, manager):
     assert "Do the thing with: world" in drained[0].content
 
 
+def test_multiline_skill_arguments_are_not_truncated(skills_root: Path, manager):
+    """A newline ending the command name must not drop the first argument words."""
+    _write_skill(skills_root, "demo", "A demo skill", "Review: $ARGUMENTS")
+    register_skill_commands()
+
+    list(handle_cmd("/skill:demo\nsrc/main.py and tests/test_main.py", manager))
+    drained = drain_prompt_queue(manager.logdir)
+    assert len(drained) == 1
+    assert "Review: src/main.py and tests/test_main.py" in drained[0].content
+
+
 def test_skill_without_args(skills_root: Path, manager):
     _write_skill(skills_root, "demo", "A demo skill", "Body $ARGUMENTS end")
     register_skill_commands()

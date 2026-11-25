@@ -280,7 +280,9 @@ def handle_cmd(
     # name so it lands in the unknown-command path below instead of crashing
     # on empty-list unpacking.
     name, *args = [s for s in re.split(r"[\n\s]", cmd) if s] or [""]
-    full_args = cmd.split(" ", 1)[1] if " " in cmd else ""
+    # Split args off at the same whitespace that ended the name (incl. newline).
+    name_and_args = re.split(r"\s", cmd.lstrip(), maxsplit=1)
+    full_args = name_and_args[1] if len(name_and_args) > 1 else ""
 
     # Check if command is registered
     if name in _command_registry:
