@@ -2203,24 +2203,20 @@ def _start_step_thread(
                     # resume after an unrelated turn, and deferred wakes retry.
                     if session.generating:
                         session.checkpoint_needs_continuation = False
-                        session.generating = False
-                        session.generating_since = None
                         # Some exceptions stringify to "", which would make
                         # last_error falsy (task reports COMPLETED/SUBMITTED)
                         # and emit an empty webui error. Mirror step()'s own
                         # failure path so both always carry a message.
                         error_message = str(e) or "Generation failed"
                         session.last_error = error_message
-                        # Publish terminal events before best-effort disk I/O:
-                        # A2A must observe the failure even if persistence stalls
-                        # beyond its remaining blocking timeout.
+                        # Publish the error before best-effort disk I/O: A2A
+                        # must observe failure even if persistence stalls past
+                        # its deadline. Keep the reservation until I/O finishes,
+                        # so step_complete doesn't launch queued work into locks
+                        # still held by this crash handler.
                         SessionManager.add_event(
                             conversation_id, {"type": "error", "error": error_message}
                         )
-                        SessionManager.add_event(
-                            conversation_id, {"type": "step_complete"}
-                        )
-                        released = True
                         try:
                             manager = LogManager.load(
                                 conversation_id, branch=branch, lock=False
@@ -2228,6 +2224,14 @@ def _start_step_thread(
                             _persist_generation_error(manager, session, error_message)
                         except Exception:
                             logger.exception("Failed to persist step thread error")
+                        session.generating = False
+                        session.generating_since = None
+                        # No blocking cleanup remains. Publish under step_lock
+                        # so a replacement cannot reserve before this event.
+                        SessionManager.add_event(
+                            conversation_id, {"type": "step_complete"}
+                        )
+                        released = True
             if released:
                 SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise

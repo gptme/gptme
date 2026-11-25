@@ -263,10 +263,11 @@ def test_step_thread_crash_empty_error_reports_failed(client, tmp_path, monkeypa
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
-def test_crash_publishes_terminal_events_before_persistence(
-    client, tmp_path, monkeypatch
+@pytest.mark.parametrize("persistence_fails", [False, True])
+def test_crash_publishes_error_early_but_completes_after_persistence(
+    client, tmp_path, monkeypatch, persistence_fails
 ):
-    """Slow transcript storage must not hide the failure past an A2A deadline."""
+    """A2A sees the error early; queued steps wait for storage cleanup to finish."""
     name = f"test-crash-slow-storage-{uuid4().hex}"
     result = client.put(
         f"/api/v2/conversations/{name}",
@@ -284,6 +285,8 @@ def test_crash_publishes_terminal_events_before_persistence(
     def slow_persist(*args, **kwargs):
         persisting.set()
         assert release.wait(5)
+        if persistence_fails:
+            raise OSError("conversation storage unavailable")
 
     monkeypatch.setattr(session_step, "step", crash)
     monkeypatch.setattr(session_step, "_persist_generation_error", slow_persist)
@@ -298,8 +301,26 @@ def test_crash_publishes_terminal_events_before_persistence(
         events, _ = session.read_events(first_event)
         assert [
             e["type"] for e in events if e["type"] in ("error", "step_complete")
+        ] == ["error"]
+        # The error is observable without step_lock, but completion must not
+        # advertise admission while persistence still holds the writer locks.
+        assert session.generating
+        release.set()
+        assert finished.wait(5)
+        with session.step_lock:
+            assert not session.generating
+            assert session.generating_since is None
+            events, _ = session.read_events(first_event)
+        assert [
+            e["type"] for e in events if e["type"] in ("error", "step_complete")
         ] == ["error", "step_complete"]
-        assert not session.generating
+        # This is the write the UI queues behind step_complete. It no longer
+        # waits behind the crash handler's transcript persistence.
+        response = client.post(
+            f"/api/v2/conversations/{name}",
+            json={"role": "user", "content": "queued follow-up"},
+        )
+        assert response.status_code == 200
     finally:
         release.set()
         assert finished.wait(5)
