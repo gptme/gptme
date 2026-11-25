@@ -39,6 +39,7 @@ from ..util.multiprompt import group_prompt_args as _group_prompt_args
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from contextlib import ExitStack
     from types import FrameType
 
     from ..logmanager import ConversationMeta
@@ -1852,6 +1853,46 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
     return "generic", 1
 
 
+_ERROR_LOG_LIFECYCLE_LOCK_TIMEOUT = 0.5
+_ERROR_LOG_LIFECYCLE_LOCK_POLL_INTERVAL = 0.01
+
+
+def _enter_lifecycle_lock_briefly(
+    stack: ExitStack,
+    logdir: Path,
+    *,
+    timeout: float = _ERROR_LOG_LIFECYCLE_LOCK_TIMEOUT,
+    poll_interval: float = _ERROR_LOG_LIFECYCLE_LOCK_POLL_INTERVAL,
+) -> None:
+    """Enter ``conversation_lifecycle_lock(logdir, blocking=False)`` with brief retries.
+
+    Short-lived holders such as ``gptme chats send`` (prompt queue writes)
+    momentarily hold the lifecycle gate without owning the conversation.
+    """
+    import errno
+
+    from ..logmanager.locking import conversation_lifecycle_lock
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            stack.enter_context(conversation_lifecycle_lock(logdir, blocking=False))
+            return
+        except OSError as exc:
+            retryable = isinstance(
+                exc, (BlockingIOError, PermissionError)
+            ) or exc.errno in (
+                errno.EACCES,
+                errno.EAGAIN,
+                errno.EWOULDBLOCK,
+                errno.EDEADLK,
+            )
+            remaining = deadline - time.monotonic()
+            if not retryable or remaining <= 0:
+                raise
+            time.sleep(min(poll_interval, remaining))
+
+
 def _write_terminal_error_to_log(
     logdir: Path, error_class: str, exit_code: int, message: str
 ) -> None:
@@ -1862,12 +1903,14 @@ def _write_terminal_error_to_log(
     of silently ending the log at the user prompt.
 
     Refuses to append when another process holds ``logdir/.lock`` or is
-    currently starting up / cleaning up ``logdir``.
+    currently starting up / cleaning up ``logdir``. Retries briefly when the
+    short-lived lifecycle gate is busy (e.g. during a concurrent ``gptme chats
+    send`` prompt-queue write) before re-checking conversation ownership.
     """
+    from contextlib import ExitStack
     from io import FileIO
 
     from ..logmanager import manager as logmanager_mod
-    from ..logmanager.locking import conversation_lifecycle_lock
 
     if not logdir.is_dir():
         return
@@ -1884,26 +1927,26 @@ def _write_terminal_error_to_log(
     log_file = logdir / "conversation.jsonl"
     lockfile = logdir / ".lock"
     try:
-        with conversation_lifecycle_lock(logdir, blocking=False):
+        with ExitStack() as stack:
+            _enter_lifecycle_lock_briefly(stack, logdir)
             if not logdir.is_dir():
                 return
             lock_fd: FileIO | None = None
-            locked_here = False
             try:
                 if lockfile.exists():
                     lock_key = lockfile.resolve()
                     with logmanager_mod._windows_lock_owners_guard:
                         owned_by_self = lock_key in logmanager_mod._windows_lock_owners
                     if not owned_by_self:
+                        candidate_fd: FileIO | None = None
                         try:
-                            lock_fd = FileIO(lockfile, "r+")
-                            lock_fd.seek(0)
-                            logmanager_mod.LogManager._platform_lock(lock_fd)
-                            locked_here = True
+                            candidate_fd = FileIO(lockfile, "r+")
+                            candidate_fd.seek(0)
+                            logmanager_mod.LogManager._platform_lock(candidate_fd)
+                            lock_fd = candidate_fd
                         except OSError:
-                            if lock_fd is not None:
-                                lock_fd.close()
-                                lock_fd = None
+                            if candidate_fd is not None:
+                                candidate_fd.close()
                             try:
                                 pid_str = lockfile.read_text(encoding="utf-8").strip()
                                 lock_pid = int(pid_str) if pid_str.isdigit() else None
@@ -1915,11 +1958,10 @@ def _write_terminal_error_to_log(
                     f.write(json.dumps(event) + "\n")
             finally:
                 if lock_fd is not None:
-                    if locked_here:
-                        try:
-                            logmanager_mod.LogManager._platform_unlock(lock_fd)
-                        except (OSError, ValueError):
-                            pass
+                    try:
+                        logmanager_mod.LogManager._platform_unlock(lock_fd)
+                    except (OSError, ValueError):
+                        pass
                     lock_fd.close()
     except OSError:
         pass  # best-effort — don't mask the original failure

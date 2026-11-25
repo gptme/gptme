@@ -8,9 +8,11 @@ When gptme --non-interactive encounters a fatal LLM startup error, it should:
 import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
+import time
 from io import FileIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +45,7 @@ def _fake_config(tmp_path: Path) -> Any:
     return SimpleNamespace(
         chat=SimpleNamespace(
             agent_config=None,
+            agent_profile=None,
             tools=["shell", "read"],
             interactive=False,
             tool_format="markdown",
@@ -247,6 +250,21 @@ def _stop_child(proc: subprocess.Popen[str], timeout: float = 5.0) -> None:
         ),
         (
             RuntimeError("Request timed out after 401 ms"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Worker PID 403 exited unexpectedly"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Failed to bind port 401 on localhost"),
+            "generic",
+            1,
+        ),
+        (
+            RuntimeError("Parse error at line 404"),
             "generic",
             1,
         ),
@@ -603,6 +621,264 @@ def test_write_terminal_error_corrupt_lock_pid_skips_without_raising(
         holder_fd.close()
 
     assert log_file.read_text() == original_content
+
+
+def test_write_terminal_error_retries_briefly_when_prompt_queue_holds_lifecycle_lock(
+    tmp_path: Path,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runner: CliRunner,
+) -> None:
+    """A transient ``gptme chats send`` lifecycle lock must not drop fatal error records."""
+    from gptme.logmanager import manager as logmanager_mod
+
+    conv_name = "busy-send-conv"
+    logdir = cli.get_logs_dir() / conv_name
+    logdir.mkdir(parents=True, exist_ok=True)
+    log_file = logdir / "conversation.jsonl"
+    log_file.write_text('{"role":"user","content":"ping"}\n')
+    lockfile = logdir / ".lock"
+    lockfile.write_text(str(os.getpid()))
+
+    # Simulate the failing non-interactive run actively owning logdir/.lock.
+    owner_fd = FileIO(lockfile, "r+")
+    owner_fd.seek(0)
+    logmanager_mod.LogManager._platform_lock(owner_fd)
+    lock_key = lockfile.resolve()
+    with logmanager_mod._windows_lock_owners_guard:
+        logmanager_mod._windows_lock_owners[lock_key] = (
+            logmanager_mod._WindowsLockState(owner_fd)
+        )
+
+    # Simulate a concurrent `gptme chats send` holding _prompt_queue_lock
+    # (which acquires conversation_lifecycle_lock) while enqueueing a prompt.
+    sender_code = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "from gptme.prompt_queue import _prompt_queue_lock, get_prompt_queue_path\n"
+        "logdir = Path(sys.argv[1])\n"
+        "with _prompt_queue_lock(logdir):\n"
+        "    print('LOCKED', flush=True)\n"
+        "    sys.stdin.readline()\n"
+        "    with get_prompt_queue_path(logdir).open('a', encoding='utf-8') as f:\n"
+        "        f.write(json.dumps({'content': 'follow-up'}) + '\\n')\n"
+    )
+    sender = subprocess.Popen(
+        [sys.executable, "-c", sender_code, str(logdir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    release_thread: threading.Thread | None = None
+    try:
+        ready = _read_line_with_timeout(sender)
+        if ready != "LOCKED":
+            sender.kill()
+            _, stderr = sender.communicate(timeout=5)
+            pytest.fail(f"Prompt sender failed to start ({ready!r}): {stderr}")
+
+        def _release_sender_after_delay() -> None:
+            time.sleep(0.08)
+            assert sender.stdin is not None
+            try:
+                sender.stdin.write("\n")
+                sender.stdin.flush()
+            except OSError:
+                pass
+
+        config = _fake_config(tmp_path)
+        monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: config)
+        monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+        monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
+        monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
+
+        def _fail_while_sender_holds_gate(*args: Any, **kwargs: Any) -> None:
+            nonlocal release_thread
+            release_thread = threading.Thread(
+                target=_release_sender_after_delay, daemon=True
+            )
+            release_thread.start()
+            raise ValueError("Codex API error 429: usage_limit_reached")
+
+        monkeypatch.setattr(
+            importlib.import_module("gptme.chat"),
+            "chat",
+            _fail_while_sender_holds_gate,
+        )
+
+        result = runner.invoke(
+            cli.main, ["--non-interactive", "--name", conv_name, "ping"]
+        )
+        assert result.exit_code == cli.EXIT_RATE_LIMIT, result.output
+
+        if release_thread is not None:
+            release_thread.join(timeout=5)
+        sender.wait(timeout=5)
+        assert sender.returncode == 0
+
+        events = [
+            json.loads(line)
+            for line in log_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        error_events = [e for e in events if e.get("metadata", {}).get("error")]
+        assert error_events, "Fatal error record was dropped while chats send held lock"
+        assert error_events[-1]["metadata"]["error_class"] == "rate_limit"
+        assert error_events[-1]["metadata"]["exit_code"] == cli.EXIT_RATE_LIMIT
+        assert (logdir / "prompt-queue.jsonl").exists()
+    finally:
+        _stop_child(sender)
+        with logmanager_mod._windows_lock_owners_guard:
+            logmanager_mod._windows_lock_owners.pop(lock_key, None)
+        logmanager_mod.LogManager._platform_unlock(owner_fd)
+        owner_fd.close()
+
+
+def test_write_terminal_error_retry_respects_foreign_owner_after_lifecycle_release(
+    tmp_path: Path,
+) -> None:
+    """After waiting out a busy lifecycle gate, foreign .lock ownership must still skip."""
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    original_content = '{"role":"user","content":"existing"}\n'
+    log_file.write_text(original_content)
+
+    # Child simulates another gptme instance starting up: holds the lifecycle
+    # lock, creates and acquires .lock with its own PID, then releases the
+    # lifecycle lock while keeping .lock held.
+    starter_code = (
+        "import os, sys\n"
+        "from io import FileIO\n"
+        "from pathlib import Path\n"
+        "from gptme.logmanager import LogManager\n"
+        "from gptme.logmanager.locking import conversation_lifecycle_lock\n"
+        "logdir = Path(sys.argv[1])\n"
+        "lockfile = logdir / '.lock'\n"
+        "lock_fd = None\n"
+        "with conversation_lifecycle_lock(logdir):\n"
+        "    print('GATE_LOCKED', flush=True)\n"
+        "    sys.stdin.readline()\n"
+        "    lockfile.write_text(str(os.getpid()), encoding='utf-8')\n"
+        "    lock_fd = FileIO(lockfile, 'r+')\n"
+        "    lock_fd.seek(0)\n"
+        "    LogManager._platform_lock(lock_fd)\n"
+        "print('OWNED', flush=True)\n"
+        "sys.stdin.readline()\n"
+        "LogManager._platform_unlock(lock_fd)\n"
+        "lock_fd.close()\n"
+    )
+    starter = subprocess.Popen(
+        [sys.executable, "-c", starter_code, str(logdir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        ready = _read_line_with_timeout(starter)
+        if ready != "GATE_LOCKED":
+            starter.kill()
+            _, stderr = starter.communicate(timeout=5)
+            pytest.fail(f"Starter failed to lock gate ({ready!r}): {stderr}")
+
+        def _advance_starter() -> None:
+            time.sleep(0.05)
+            assert starter.stdin is not None
+            try:
+                starter.stdin.write("\n")
+                starter.stdin.flush()
+            except OSError:
+                pass
+
+        advancer = threading.Thread(target=_advance_starter, daemon=True)
+        advancer.start()
+        cli._write_terminal_error_to_log(logdir, "rate_limit", 75, "must not write")
+        advancer.join(timeout=5)
+
+        assert _read_line_with_timeout(starter) == "OWNED"
+        assert log_file.read_text() == original_content
+    finally:
+        _stop_child(starter)
+
+
+def test_write_terminal_error_skips_when_logdir_deleted_before_lock_acquired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If cleanup removes logdir while waiting for the lifecycle gate, do not recreate it."""
+    from contextlib import contextmanager
+
+    import gptme.logmanager.locking as locking_mod
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    real_lock = locking_mod.conversation_lifecycle_lock
+
+    @contextmanager
+    def _delete_before_entering(path: Path, *, blocking: bool = True):
+        shutil.rmtree(path, ignore_errors=True)
+        with real_lock(path, blocking=blocking):
+            yield
+
+    monkeypatch.setattr(
+        locking_mod, "conversation_lifecycle_lock", _delete_before_entering
+    )
+
+    cli._write_terminal_error_to_log(logdir, "generic", 1, "deleted during wait")
+    assert not logdir.exists()
+
+
+def test_write_terminal_error_same_pid_fallback_and_unlock_error_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cover same-PID lock fallback and best-effort unlock error handling."""
+    from gptme.logmanager import manager as logmanager_mod
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    lockfile = logdir / ".lock"
+    lockfile.write_text(str(os.getpid()))
+
+    # Case 1: .lock is locked by an open handle in this process (not registered
+    # in _windows_lock_owners) with our own PID -> fallback PID check allows write.
+    holder_fd = FileIO(lockfile, "r+")
+    try:
+        holder_fd.seek(0)
+        logmanager_mod.LogManager._platform_lock(holder_fd)
+        cli._write_terminal_error_to_log(logdir, "auth_error", 76, "same pid fallback")
+    finally:
+        logmanager_mod.LogManager._platform_unlock(holder_fd)
+        holder_fd.close()
+
+    lines = log_file.read_text().strip().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["metadata"]["error_class"] == "auth_error"
+
+    # Case 2: .lock is unlocked (acquired by writer), and _platform_unlock raises
+    # on cleanup -> error is swallowed and the record still lands cleanly.
+    lock_stat = lockfile.stat()
+    lock_id = (lock_stat.st_dev, lock_stat.st_ino)
+    real_unlock = logmanager_mod.LogManager._platform_unlock
+    unlock_calls = 0
+
+    def _flaky_unlock(fd: Any) -> None:
+        nonlocal unlock_calls
+        st = os.fstat(fd.fileno())
+        real_unlock(fd)
+        if (st.st_dev, st.st_ino) == lock_id:
+            unlock_calls += 1
+            raise OSError("simulated unlock failure")
+
+    monkeypatch.setattr(
+        logmanager_mod.LogManager, "_platform_unlock", staticmethod(_flaky_unlock)
+    )
+    cli._write_terminal_error_to_log(logdir, "rate_limit", 75, "unlock error ignored")
+    assert unlock_calls == 1
+    lines = log_file.read_text().strip().splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[1])["metadata"]["error_class"] == "rate_limit"
 
 
 # ---------------------------------------------------------------------------
