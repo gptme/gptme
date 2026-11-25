@@ -130,7 +130,10 @@ def chats_list(limit: int, summarize: bool, output_json: bool, metadata: bool):
     "-c", "--context", default=1, help="Lines of context to show around each match."
 )
 @click.option(
-    "-m", "--matches", default=1, help="Maximum matches to show per conversation."
+    "-m",
+    "--matches",
+    type=click.IntRange(min=0),
+    help="Maximum matches to show per conversation (defaults: 1 for text, 3 for JSON).",
 )
 @click.option(
     "--all-agents",
@@ -143,7 +146,7 @@ def chats_search(
     summarize: bool,
     output_json: bool,
     context: int,
-    matches: int,
+    matches: int | None,
     all_agents: bool,
 ):
     """Search conversation logs.
@@ -157,6 +160,7 @@ def chats_search(
     _ensure_tools()
 
     if output_json:
+        snippet_limit = 3 if matches is None else matches
         if all_agents:
             click.echo(
                 "Warning: --all-agents is not supported with --json; "
@@ -181,7 +185,7 @@ def chats_search(
                         "role": msg.role,
                         "content": _matching_excerpt(msg.content, query, budget=200),
                     }
-                    for idx, msg in matching[:3]
+                    for idx, msg in matching[:snippet_limit]
                 ]
                 results.append(entry)
                 if len(results) >= limit:
@@ -200,7 +204,12 @@ def chats_search(
             tool_allowlist=[],
             tool_format="markdown",
         )
-    search_chats(query, max_results=limit, context_lines=context, max_matches=matches)
+    search_chats(
+        query,
+        max_results=limit,
+        context_lines=context,
+        max_matches=1 if matches is None else matches,
+    )
     if all_agents:
         search_external_chats(query, max_results=limit)
 
