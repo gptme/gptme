@@ -1984,6 +1984,33 @@ def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     assert not (logs / "draft --force notes").exists()
 
 
+def test_tool_payload_keeps_trailing_whitespace(tmp_path: Path, monkeypatch, capsys):
+    """A command's full_args reaches the handler verbatim, tail included.
+
+    Regression: ``cmd.strip()`` trimmed the payload before it was split off,
+    so a multi-line ``/shell`` script lost its trailing newline (and a
+    trailing backslash stopped continuing the line).
+    """
+    from gptme.commands import execute_cmd
+    from gptme.commands.base import _command_registry, command
+
+    seen: list[str] = []
+
+    @command("test-capture-full-args")
+    def _capture(ctx):
+        seen.append(ctx.full_args)
+
+    try:
+        manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
+        cmd = Message("user", "/test-capture-full-args echo hi\n", quiet=True)
+        manager.append(cmd)
+        execute_cmd(cmd, manager)
+    finally:
+        _command_registry.pop("test-capture-full-args", None)
+
+    assert seen == ["echo hi\n"]
+
+
 def test_arguments_still_split_on_unicode_whitespace(tmp_path: Path):
     """Only the command name needs Unicode separators; args keep the legacy split.
 

@@ -284,7 +284,10 @@ def handle_cmd(
     # legacy Unicode split; a handler that needs an exact remainder (``/delete``)
     # reads ``full_args`` instead, so a Unicode space inside a name survives
     # without changing how every other command sees its arguments.
-    name_parts = re.split(r"\s+", cmd.strip(), maxsplit=1)
+    # Only leading whitespace is trimmed: the remainder is passed to handlers
+    # (and to the tool fallback) verbatim, so a payload's trailing newline or
+    # backslash must survive.
+    name_parts = re.split(r"\s+", cmd.lstrip(), maxsplit=1)
     name = name_parts[0]
     full_args = name_parts[1] if len(name_parts) > 1 else ""
     args = [s for s in re.split(r"\s+", full_args) if s]
