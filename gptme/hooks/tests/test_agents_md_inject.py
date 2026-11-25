@@ -225,7 +225,15 @@ class TestOnCwdChanged:
             )
             contents = [m.content for m in msgs if isinstance(m, Message)]
             assert any("Still loaded." in c for c in contents), contents
-            assert not any(str(bad_file) in c for c in contents), contents
+            # The display path may be ~/-relative, so check the attached files.
+            loaded = [
+                Path(f).resolve()
+                for m in msgs
+                if isinstance(m, Message)
+                for f in m.files
+            ]
+            assert (sub / "AGENTS.md").resolve() in loaded, loaded
+            assert bad_file.resolve() not in loaded, loaded
         finally:
             os.chdir(original)
 
