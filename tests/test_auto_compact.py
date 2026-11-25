@@ -2291,6 +2291,7 @@ def test_manual_trim_keeps_master_log_and_recovery_refs(tmp_path, monkeypatch):
     monkeypatch.setenv("GPTME_AUTOCOMPACT_KEEP_HEAD", "2")
     import json
     import re
+    from contextvars import ContextVar
     from pathlib import Path
     from unittest.mock import MagicMock
 
@@ -2298,6 +2299,11 @@ def test_manual_trim_keeps_master_log_and_recovery_refs(tmp_path, monkeypatch):
     from gptme.logmanager import LogManager
     from gptme.tools.autocompact.handlers import _compact_trim
 
+    # Keep the real model lookup throughout compression without leaking its state.
+    monkeypatch.setattr(
+        "gptme.llm.models.resolution._default_model_var",
+        ContextVar("test_default_model", default=None),
+    )
     set_default_model("openai/gpt-4")
     original = " ".join(
         f"Sentence number {i} explains detail alpha{i} beta{i} gamma{i}."
