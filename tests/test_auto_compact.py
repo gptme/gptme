@@ -1272,13 +1272,95 @@ def test_load_context_files_protects_process_cwd_store_from_other_workspace(
     monkeypatch.chdir(process_cwd)
     monkeypatch.setenv("XDG_CONFIG_HOME", "")
     credential = set_stored_api_key("openai", "synthetic-test-key")
-    assert credential.resolve() == process_cwd / "gptme" / "credentials.toml"
+    assert credential.resolve() == process_cwd.resolve() / "gptme" / "credentials.toml"
     (process_cwd / "gptme" / "resume.py").write_text("# ordinary source\n")
     # The workspace is a parent of cwd, not cwd itself. Protection must use
     # the writer's process-relative store while preserving ordinary source.
     assert _load_context_files(
         ["host/gptme/credentials.toml", "host/gptme/resume.py"], workspace=tmp_path
     ) == [("host/gptme/resume.py", "# ordinary source\n")]
+
+
+@pytest.mark.parametrize("xdg", ["cfg", ""])
+@pytest.mark.parametrize("token_dir", ["auth", "oauth", "mcp-oauth"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_load_context_files_skips_token_symlink_backing_paths(
+    tmp_path, monkeypatch, xdg, token_dir, nested
+):
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / xdg) if xdg else "")
+    store = tmp_path / xdg / "gptme" / token_dir
+    store.mkdir(parents=True)
+    target = tmp_path / "private-token.txt"
+    if nested:
+        target.mkdir()
+        token = target / "token.txt"
+    else:
+        token = target
+    token.write_text("synthetic private token\n")
+    link = store / "provider"
+    try:
+        link.symlink_to(target, target_is_directory=nested)
+    except OSError:
+        pytest.skip("symlink not permitted")
+    (tmp_path / "notes.md").write_text("ordinary\n")
+    assert _load_context_files(
+        [str(token), str(link / "token.txt" if nested else link), "notes.md"],
+        workspace=tmp_path,
+    ) == [("notes.md", "ordinary\n")]
+
+
+@pytest.mark.parametrize("directory", [".config/git", "cfg/git"])
+def test_load_context_files_skips_git_xdg_credentials(tmp_path, directory):
+    from gptme.tools.autocompact import _load_context_files
+
+    store = tmp_path / directory
+    store.mkdir(parents=True)
+    (store / "credentials").write_text("https://user:synthetic-token@example.com\n")
+    (store / "config").write_text("[core]\n")
+    assert _load_context_files(
+        [f"{directory}/credentials", f"{directory}/config"], workspace=tmp_path
+    ) == [(f"{directory}/config", "[core]\n")]
+
+
+@pytest.mark.parametrize("error_kind", ["runtime-loop", "os-loop", "permission"])
+def test_load_context_files_handles_broken_backup_individually(
+    tmp_path, monkeypatch, error_kind
+):
+    import errno
+    from pathlib import Path
+
+    from gptme.tools.autocompact import _load_context_files
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    store = tmp_path / "cfg" / "gptme"
+    store.mkdir(parents=True)
+    backup = store / "config.toml.bak"
+    backup.write_text("synthetic private token\n")
+    (tmp_path / "notes.md").write_text("ordinary\n")
+    resolve = Path.resolve
+    errors = {
+        "runtime-loop": RuntimeError("Symlink loop"),
+        "os-loop": OSError(errno.ELOOP, "Too many levels of symbolic links"),
+        "permission": PermissionError(errno.EACCES, "Permission denied"),
+    }
+    attempted = []
+
+    def resolve_with_error(path, *args, **kwargs):
+        if path == backup:
+            attempted.append(path)
+            raise errors[error_kind]
+        return resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_with_error)
+    loaded = _load_context_files(["notes.md"], workspace=tmp_path)
+    assert attempted
+    assert loaded == (
+        [] if error_kind == "permission" else [("notes.md", "ordinary\n")]
+    )
 
 
 def test_load_context_files_nonexistent(tmp_path):

@@ -4,6 +4,7 @@ Creates structured summaries of conversations using LLM, extracts
 context files, and manages conversation resumption.
 """
 
+import errno
 import logging
 import re
 from collections import Counter
@@ -190,6 +191,10 @@ def _is_secret_bearing_path(path: Path) -> bool:
     ):
         return True
     name = path.name.lower()
+    # Git's plaintext credential store can live under any XDG_CONFIG_HOME.
+    # Keep ordinary git/config readable rather than excluding the whole dir.
+    if parts[-2:] == ("git", "credentials"):
+        return True
     if name in _SECRET_FILE_NAMES or name.endswith(_SECRET_SUFFIXES):
         return True
     if name.endswith(_ENV_TEMPLATE_SUFFIXES):
@@ -243,6 +248,17 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
     def parts(p: Path) -> tuple[str, ...]:
         return tuple(part.lower() for part in p.parts)
 
+    def resolved_parts(p: Path) -> tuple[str, ...]:
+        try:
+            return parts(p.resolve())
+        except RuntimeError:
+            # Path.resolve raises RuntimeError for loops on Python < 3.13.
+            return ()
+        except OSError as e:
+            if e.errno == errno.ELOOP:
+                return ()
+            raise
+
     path_parts = parts(path)
     for d in config_dirs:
         dir_parts = parts(d)
@@ -270,12 +286,17 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
             secret_paths.extend(
                 p for p in d.glob("*") if _is_config_secret_name(p.name)
             )
-            if any(path_parts == parts(p.resolve()) for p in secret_paths):
+            if any(path_parts == resolved_parts(p) for p in secret_paths):
                 return True
             for name in _CONFIG_SECRET_DIRS:
-                target_parts = parts((d / name).resolve())
-                if path_parts[: len(target_parts)] == target_parts:
-                    return True
+                token_dir = d / name
+                # rglob does not follow directory symlinks. Check each entry's
+                # target too: individual OAuth files (and subdirectories) may
+                # link outside the store even when token_dir itself does not.
+                for entry in (token_dir, *token_dir.rglob("*")):
+                    target_parts = resolved_parts(entry)
+                    if target_parts and path_parts[: len(target_parts)] == target_parts:
+                        return True
         except (OSError, RuntimeError):
             # An unreadable or looping store cannot be classified safely.
             return True
