@@ -317,9 +317,12 @@ def test_phase_preserves_all_prose_edge_whitespace(text: str) -> None:
     metadata = capture.metadata(None, text)
     assert metadata is not None
     expected = text.replace("<think>private</think>", "")
-    assert replay_responses_output(text, metadata["responses_output"]) == [
-        {"role": "assistant", "content": expected, "phase": "final_answer"}
-    ]
+    replay = [{"role": "assistant", "content": expected, "phase": "final_answer"}]
+    assert replay_responses_output(text, metadata["responses_output"]) == replay
+    from gptme.context import strip_reasoning
+
+    stripped, _ = strip_reasoning(text)
+    assert replay_responses_output(stripped, metadata["responses_output"]) == replay
 
 
 @pytest.mark.parametrize(

@@ -215,8 +215,7 @@ class ResponsesPhaseCapture:
         }
         # Allow a prose-only reasoning-strip edit, never a transform of argument
         # strings. Every native span is copied byte-for-byte into this anchor.
-        normalized = [_prose(text) for text in prose]
-        if normalized != prose:
+        if any(re.search(r"<think(?:ing)?>", text) for text in prose):
             from ..context.compress import (
                 _reasoning_segments,
                 _render_reasoning_segments,

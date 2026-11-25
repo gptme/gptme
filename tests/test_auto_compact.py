@@ -393,6 +393,16 @@ def test_strip_reasoning_multiline_inline_code(literal: str) -> None:
     assert remove_reasoning(content, drop_unclosed=True) == code + "\nAnswer"
 
 
+@pytest.mark.parametrize("fence", ["```xml", "~~~xml"])
+def test_inline_code_cannot_cross_fenced_block(fence: str) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    prefix = f"An unmatched ` marker.\n{fence}\n<think>example</think>\n{fence[:3]}\n"
+    content = prefix + "<think>private ` detail</think>\nAnswer"
+    assert remove_reasoning(content) == prefix + "\nAnswer"
+    assert remove_reasoning(content, drop_unclosed=True) == prefix + "\nAnswer"
+
+
 def test_strip_reasoning_inline_mention_before_fenced_example():
     from gptme.context.compress import remove_reasoning
 

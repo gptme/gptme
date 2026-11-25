@@ -301,10 +301,14 @@ def _reasoning_segments(
             if (start - escape_start) % 2:
                 start += 1
             delimiter = content[start : inline.end()]
-            paragraph_end = re.search(r"\r?\n[ \t]*\r?\n", content[inline.end() :])
-            limit = (
-                inline.end() + paragraph_end.start() if paragraph_end else len(content)
+            # Block boundaries end the paragraph too: inline code cannot
+            # swallow a later fence and pair with a backtick inside reasoning.
+            boundary = re.search(
+                r"\r?\n[ \t]*\r?\n|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,})",
+                content[inline.end() :],
+                re.MULTILINE,
             )
+            limit = inline.end() + boundary.start() if boundary else len(content)
             closing = (
                 re.compile(r"(?<!`)" + re.escape(delimiter) + r"(?!`)").search(
                     content, inline.end(), limit
