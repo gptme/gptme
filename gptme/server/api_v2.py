@@ -699,23 +699,28 @@ def _mcp_server_signature(server: dict | object) -> tuple:
     )
 
 
-def _match_saved_mcp_server(body_server: dict, matches: list, occurrence: int):
-    """Pick the saved server a redacted body entry belongs to.
+def _match_saved_mcp_server(body_server: dict, matches: list, body_group: list[dict]):
+    """Pair duplicate-name entries one-to-one using their public settings.
 
-    Duplicate names are paired by non-secret content first, so reordering two
-    same-name entries with different settings keeps each one's own secret
-    rather than handing the runtime the other entry's credential. Entries that
-    are indistinguishable apart from their secrets can only be paired by
-    position, which is correct for an order-preserving echo (the webui always
-    echoes in the order it received).
+    Reordering is safe when each public signature retains the same multiplicity.
+    Identical signatures keep their relative order, as in an unchanged redacted
+    echo. An edited or duplicated signature cannot identify the saved credential;
+    callers must supply real secrets for such edits instead of guessing by position.
     """
     if len(matches) <= 1:
         return matches[0] if matches else None
     signature = _mcp_server_signature(body_server)
     same = [srv for srv in matches if _mcp_server_signature(srv) == signature]
-    if len(same) == 1:
-        return same[0]
-    return matches[occurrence] if occurrence < len(matches) else None
+    peers = [srv for srv in body_group if _mcp_server_signature(srv) == signature]
+    if len(same) != len(peers):
+        raise ValueError(
+            f"{body_server.get('name', '')}: redacted secrets cannot be matched "
+            "unambiguously after editing duplicate-name MCP servers; send the real value"
+        )
+    for peer, saved in zip(peers, same):
+        if peer is body_server:
+            return saved
+    return None
 
 
 def _restore_conversation_mcp_secrets(
@@ -726,9 +731,9 @@ def _restore_conversation_mcp_secrets(
     Clients echo the redacted config back on save; writing the sentinel would
     replace the real secret. A body server matches the saved server with the
     same name; when several saved servers share a name, they are paired by
-    non-secret content (falling back to position for entries that differ only
-    in their secrets), but only if the body has exactly as many entries with
-    that name (otherwise the match is ambiguous). A secret is only kept when
+    non-secret content, preserving relative order only within identical public
+    signatures. The body must retain each signature's multiplicity for a masked
+    secret to have an unambiguous match. A secret is only kept when
     the destination (``command``/``args``/``url``) is unchanged, so it never
     follows a server to a new endpoint. ``load_stored`` is called at most once,
     and only when a redacted value needs restoring. Raises ValueError when a
@@ -743,11 +748,8 @@ def _restore_conversation_mcp_secrets(
         name = str(srv.get("name", ""))
         body_name_counts[name] = body_name_counts.get(name, 0) + 1
     stored_servers: list | None = None
-    seen: dict[str, int] = {}
     for srv in body_servers:
         name = str(srv.get("name", ""))
-        occurrence = seen.get(name, 0)
-        seen[name] = occurrence + 1
         for field_name in ("env", "headers"):
             values = srv.get(field_name)
             if not isinstance(values, dict):
@@ -770,7 +772,8 @@ def _restore_conversation_mcp_secrets(
                     isinstance(a, str) for a in args
                 ):
                     raise ValueError(f"{name}: args must be a list of strings")
-                saved = _match_saved_mcp_server(srv, matches, occurrence)
+                body_group = [s for s in body_servers if str(s.get("name", "")) == name]
+                saved = _match_saved_mcp_server(srv, matches, body_group)
                 original = getattr(saved, field_name, None) if saved else None
                 if saved is None or not original or key not in original:
                     raise ValueError(

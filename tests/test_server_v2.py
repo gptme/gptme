@@ -6461,8 +6461,10 @@ def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
 
 
+@pytest.mark.parametrize("changed_region", [None, "ca", "eu"])
 def test_v2_conversation_config_patch_reordered_duplicates_keep_own_secrets(
     client: FlaskClient,
+    changed_region: str | None,
 ):
     """Reordering same-name servers pairs each secret with its own entry.
 
@@ -6501,9 +6503,22 @@ def test_v2_conversation_config_patch_reordered_duplicates_keep_own_secrets(
     assert [s["env"]["REGION"] for s in servers] == ["eu", "us"]
     assert all(s["env"]["API_KEY"] == "***" for s in servers)
     servers.reverse()
+    if changed_region is not None:
+        servers[0]["env"]["REGION"] = changed_region
     response = client.patch(
         f"/api/v2/conversations/{conversation_id}/config", json=data
     )
+    if changed_region is not None:
+        # Editing public settings can erase or collide with the only identity
+        # available in a redacted duplicate-name group. Never guess a secret.
+        assert response.status_code == 400, response.get_json()
+        stored = ChatConfig.from_logdir(logdir)
+        assert stored.mcp is not None
+        assert [(s.env["REGION"], s.env["API_KEY"]) for s in stored.mcp.servers] == [
+            ("eu", "eu-key"),
+            ("us", "us-key"),
+        ]
+        return
     assert response.status_code == 200, response.get_json()
 
     stored = ChatConfig.from_logdir(logdir)
