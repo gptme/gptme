@@ -2014,6 +2014,39 @@ describe('useConversation', () => {
     expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('elder-tool');
   });
 
+  it.each(['interrupted event', 'newer approval'])(
+    'applies approval snapshots again after Stop once an %s arrives',
+    async (settledBy) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onToolPending!('canceled', { tool: 'shell' }, false));
+      await act(async () => {
+        await result.current.interruptGeneration();
+      });
+      const snapshot = (id: string) => ({
+        generating: false,
+        pendingTools: [
+          {
+            tool_id: id,
+            tooluse: { tool: 'shell', args: [], content: 'pwd' },
+            auto_confirm: false,
+          },
+        ],
+      });
+      // Queued before the server handled Stop: must not touch the stopped UI.
+      act(() => eventHandlers!.onToolState!(snapshot('stale')));
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('canceled');
+
+      // Another viewer reruns two tools and skips the one displayed here.
+      act(() => {
+        if (settledBy === 'interrupted event') eventHandlers!.onInterrupted!();
+        else eventHandlers!.onToolPending!('skipped', { tool: 'shell' }, false);
+      });
+      act(() => eventHandlers!.onToolState!(snapshot('remaining')));
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('remaining');
+    }
+  );
+
   it('ignores a late Skip failure after a new approval arrives', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());

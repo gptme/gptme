@@ -75,6 +75,9 @@ export function useConversation(conversationId: string, serverId?: string) {
   // Stop during the new-chat handshake: onConnected / onMessageStart must not
   // restart generation after the user already cancelled the pending initial step.
   const stopRequestedRef = useRef(false);
+  // True from a local Stop until the stream shows newer server state. Only
+  // snapshots in that window can restore canceled approvals.
+  const stopUnsettledRef = useRef(false);
   const generationEpochRef = useRef(0);
   const generationChainRef = useRef<Promise<void> | null>(null);
   // Deferred step: set when post-persistence 409 retries exhaust; fired by onStepComplete.
@@ -551,6 +554,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               addMessage(conversationId, message);
             },
             onToolPending: (toolId, tooluse, auto_confirm) => {
+              stopUnsettledRef.current = false;
               if (messageJustCompleted.current) {
                 messageJustCompleted.current = false;
                 // Keep generating true as we're continuing with tool execution
@@ -638,6 +642,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
+              stopUnsettledRef.current = false;
               conversation$?.disconnectedGenerationPrompt.set(undefined);
               conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
               conversation$?.generationPrompt.set(undefined);
@@ -830,7 +835,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onToolState: (state) => {
-              if (stopRequestedRef.current) return;
+              if (stopUnsettledRef.current) return;
               setPendingTool(conversationId, null, null);
               const next = state.pendingTools[0];
               setGenerating(conversationId, state.generating);
@@ -958,6 +963,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   const beginGeneration = () => {
     generationEpochRef.current += 1;
     stopRequestedRef.current = false;
+    stopUnsettledRef.current = false;
     return generationEpochRef.current;
   };
 
@@ -1430,6 +1436,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     // without a session id yet. The API interrupt is best-effort and no-ops
     // until a session exists.
     stopRequestedRef.current = true;
+    stopUnsettledRef.current = true;
     conversation$?.disconnectedGenerationPrompt.set(undefined);
     conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
     conversation$?.generationPrompt.set(undefined);
