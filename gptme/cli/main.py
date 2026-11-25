@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from types import FrameType
 
+    from click.shell_completion import CompletionItem
+
     from ..logmanager import ConversationMeta
     from ..profiles import Profile
     from ..prompts import ContextMode
@@ -101,6 +103,18 @@ class _DynamicHelpCommand(click.Command):
     """
 
     _help_expanded = False
+
+    def shell_complete(
+        self, ctx: click.Context, incomplete: str
+    ) -> list[CompletionItem]:
+        """Complete a dash token from gptme-util when the words dispatch to it."""
+        if incomplete.startswith("-"):
+            from .completion import complete_shortcut
+
+            delegated = complete_shortcut(ctx, incomplete)
+            if delegated is not None:
+                return delegated
+        return super().shell_complete(ctx, incomplete)
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         """Reject unknown leading options; keep utility arguments opaque to Click."""

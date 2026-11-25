@@ -638,7 +638,15 @@ def test_bash_argparse_completion_word_breaks(
     assert not unexpected & candidates, result.stdout
 
 
-def test_bash_argparse_completion_rejoins_a_path_split_at_a_colon(tmp_path):
+@pytest.mark.parametrize(
+    "words",
+    [
+        ("--results-dir", "run", ":", "cur"),
+        # The same path after the --opt=value form Bash splits at "=" too.
+        ("--results-dir", "=", "run", ":", "cur"),
+    ],
+)
+def test_bash_argparse_completion_rejoins_a_path_split_at_a_colon(tmp_path, words):
     """Bash breaks words at ':' too, so a literal ``run:cur`` path must complete."""
     if not shutil.which("bash"):
         pytest.skip("bash is not installed")
@@ -651,10 +659,11 @@ def test_bash_argparse_completion_rejoins_a_path_split_at_a_colon(tmp_path):
     cwd = tmp_path / "cwd"
     (cwd / "run:current").mkdir(parents=True)
     func = "_gptme_eval_trends_completion"
+    quoted = " ".join(["gptme-eval-trends", *words])
     code = (
         f"compopt() {{ :; }}; source {source}; "
-        "COMP_WORDS=('gptme-eval-trends' '--results-dir' 'run' ':' 'cur'); "
-        f"COMP_CWORD=4; {func}; printf '%s\\n' \"${{COMPREPLY[@]}}\""
+        f"COMP_WORDS=({quoted}); "
+        f"COMP_CWORD={len(words)}; {func}; printf '%s\\n' \"${{COMPREPLY[@]}}\""
     )
     result = subprocess.run(
         ["bash", "-c", code],
@@ -685,6 +694,37 @@ def test_first_prompt_word_offers_paths_with_subcommands():
     assert "file" in lines and "models" in lines, lines
     # Click's Bash script resets COMPREPLY on a file item: it must come first.
     assert lines.index("file") < lines.index("models"), lines
+
+
+@pytest.mark.parametrize(
+    ("words", "expected", "unexpected"),
+    [
+        # A dash token is resolved by Click against the outer command, so the
+        # prompt callback never runs; the utility dispatch must complete it.
+        ("gptme models list --pro", "--provider", "--profile"),
+        # Outer options keep completing from gptme itself.
+        ("gptme --na", "--name", "--provider"),
+        # After "--" everything is a literal prompt: no utility dispatch.
+        ("gptme -- --pro", None, "--provider"),
+    ],
+)
+def test_shortcut_option_completion_delegates_to_the_util_command(
+    words, expected, unexpected
+):
+    from gptme.cli.main import main as gptme_main
+
+    parts = words.split()
+    env = {
+        "_GPTME_COMPLETE": "zsh_complete",
+        "COMP_WORDS": words,
+        "COMP_CWORD": str(len(parts) - 1),
+    }
+    result = CliRunner().invoke(gptme_main, [], prog_name="gptme", env=env)
+    assert result.exit_code == 0, result.output
+    candidates = set(result.output.splitlines())
+    if expected is not None:
+        assert expected in candidates, result.output
+    assert unexpected not in candidates, result.output
 
 
 @pytest.mark.parametrize("under_home", [False, True])

@@ -172,22 +172,22 @@ def _bash(prog: str, scope: _Scope) -> str:
     COMPREPLY=()
     # Filename handling belongs only to path results, not options or choices.
     compopt +o filenames 2>/dev/null || :
-    # COMP_WORDBREAKS splits --opt=value into "--opt" "=" "value".
+    # COMP_WORDBREAKS splits --opt=value into "--opt" "=" "value", and a path
+    # at ':' and '=' as well (run:cur). Rebuild the value from its fragments
+    # so the owning option stays visible and compgen sees the whole path;
+    # readline replaces only the last fragment, so strip the rebuilt prefix
+    # from each candidate again.
     if [[ "$cur" == "=" ]]; then
         cur=""
-    elif [[ "$prev" == "=" ]]; then
-        prev="${{COMP_WORDS[COMP_CWORD-2]}}"
     fi
-    # It splits a path at ':' and '=' as well (run:cur), so rebuild the value
-    # from its fragments: the option stays recognisable and compgen sees the
-    # whole path. readline replaces only the last fragment, so strip the
-    # rebuilt prefix from each candidate again.
     while (( cw >= 2 )) && [[ "${{COMP_WORDS[cw-1]}}" == ":" || "${{COMP_WORDS[cw-1]}}" == "=" ]] \\
         && [[ "${{COMP_WORDS[cw-2]}}" != -* ]]; do
         path_prefix="${{COMP_WORDS[cw-2]}}${{COMP_WORDS[cw-1]}}$path_prefix"
         cw=$((cw-2))
     done
-    if (( cw != COMP_CWORD )); then
+    if (( cw >= 2 )) && [[ "${{COMP_WORDS[cw-1]}}" == "=" ]]; then
+        prev="${{COMP_WORDS[cw-2]}}"
+    elif (( cw != COMP_CWORD )); then
         prev="${{COMP_WORDS[cw-1]}}"
     fi
 {_scan(scope, "COMP_WORDS", 1, "COMP_CWORD")}    if [[ -z "$dd" ]]; then

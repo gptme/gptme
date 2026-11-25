@@ -108,3 +108,29 @@ def complete_prompt(
                 prompts, incomplete
             )
     return [CompletionItem(incomplete, type="file")]
+
+
+def complete_shortcut(
+    ctx: click.Context, incomplete: str
+) -> list[CompletionItem] | None:
+    """Complete an option from the gptme-util command the words dispatch to.
+
+    Click resolves a token starting with ``-`` against the outer command, so
+    ``complete_prompt`` never runs for it: ``gptme models list --pro<Tab>``
+    would offer gptme's own flags instead of ``--provider``. Returns ``None``
+    when the words are not a utility dispatch and the outer command applies.
+    """
+    from click.shell_completion import ShellComplete
+
+    from .util import UTIL_SUBCOMMANDS
+
+    prompts = list(ctx.params.get("prompts") or ())
+    if ctx.meta.get("shortcut_dispatch_suppressed") or not prompts:
+        return None
+    if prompts[0] not in UTIL_SUBCOMMANDS:
+        return None
+    from .util import main as util_main
+
+    return ShellComplete(util_main, {}, "gptme-util", "").get_completions(
+        prompts, incomplete
+    )
