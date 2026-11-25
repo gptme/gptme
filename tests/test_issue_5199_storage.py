@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import sys
 from typing import TYPE_CHECKING
@@ -107,6 +108,25 @@ def test_conv_checkpoint_append_after_torn_tail(tmp_path: Path) -> None:
     save_conv_checkpoint(tmp_path, 3, "b")
     assert [c.label for c in list_conv_checkpoints(tmp_path)] == ["a", "b"]
     assert resolve_conv_checkpoint(tmp_path, "b").index == 3
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0, reason="needs POSIX read permissions"
+)
+@pytest.mark.parametrize("tail", [b"", b'{"torn":'])
+def test_conv_checkpoint_append_to_write_only_sidecar(
+    tmp_path: Path, tail: bytes
+) -> None:
+    save_conv_checkpoint(tmp_path, 1, "first")
+    sidecar = tmp_path / "conv-checkpoints.jsonl"
+    with sidecar.open("ab") as f:
+        f.write(tail)
+    sidecar.chmod(0o200)
+    try:
+        save_conv_checkpoint(tmp_path, 2, "second")
+    finally:
+        sidecar.chmod(0o600)
+    assert [c.label for c in list_conv_checkpoints(tmp_path)] == ["first", "second"]
 
 
 @pytest.mark.parametrize(

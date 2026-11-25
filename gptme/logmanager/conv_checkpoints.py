@@ -70,14 +70,22 @@ def save_conv_checkpoint(
     )
     path = _sidecar_path(logdir)
     line = (json.dumps(dataclasses.asdict(record)) + "\n").encode("utf-8")
-    with open(path, "ab+") as f:
-        # Guard against a torn tail with no terminating newline: appending
-        # straight after it would glue this record onto the fragment and lose it.
-        if f.seek(0, 2) > 0:
-            f.seek(-1, 2)
-            if f.read(1) != b"\n":
-                line = b"\n" + line
-        f.write(line)
+    try:
+        stream = open(path, "ab+")
+    except PermissionError:
+        # An appendable sidecar need not be readable. Without tail inspection,
+        # a separator is safe for both complete and torn last rows.
+        with open(path, "ab") as f:
+            f.write(b"\n" + line)
+    else:
+        with stream as f:
+            # Guard against a torn tail with no terminating newline: appending
+            # straight after it would glue this record onto the fragment and lose it.
+            if f.seek(0, 2) > 0:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    line = b"\n" + line
+            f.write(line)
     return record
 
 
