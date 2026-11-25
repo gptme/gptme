@@ -224,3 +224,30 @@ def test_intersection_rejects_ambiguous_file_exports(tmp_path):
     second.write_text(source)
     with pytest.raises(ValueError, match="changed tool-file boundary"):
         _intersect_tool_allowlists([str(first)], [str(second)])
+
+
+def test_intersection_ignores_named_entry_order_with_file_boundary(tmp_path):
+    """Greptile P2: reordering named grants must not block continuation.
+
+    Only the order of file entries is part of the declared boundary.
+    """
+    from gptme.tools.subagent.execution import _intersect_tool_allowlists
+
+    approved = tmp_path / "approved.py"
+    approved.write_text(
+        'from gptme.tools.base import ToolSpec\ntool = ToolSpec(name="custom_read", desc="read")\n'
+    )
+    saved = ["shell", "ipython", str(approved)]
+    current = [str(approved), "ipython", "shell"]
+    assert _intersect_tool_allowlists(saved, current) == saved
+
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first.write_text(
+        'from gptme.tools.base import ToolSpec\ntool = ToolSpec(name="a", desc="a")\n'
+    )
+    second.write_text(
+        'from gptme.tools.base import ToolSpec\ntool = ToolSpec(name="b", desc="b")\n'
+    )
+    with pytest.raises(ValueError, match="changed tool-file boundary"):
+        _intersect_tool_allowlists([str(first), str(second)], [str(second), str(first)])

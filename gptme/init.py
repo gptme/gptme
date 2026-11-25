@@ -85,7 +85,7 @@ def init(
             "Clients must supply a model per-request, or set an API key and restart.",
             first_line,
         )
-    init_tools(tool_allowlist)
+    init_tools(tool_allowlist, interactive=interactive)
     _register_core_compaction_hook()
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
 

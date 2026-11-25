@@ -116,6 +116,20 @@ def _capture_subprocess_tools(
     )
 
 
+def _same_grants(saved: list[str], current: list[str]) -> bool:
+    """Compare two allowlists as grants, ignoring named-entry order only.
+
+    Reordering named entries grants nothing new, so a resumed child stays
+    continuable. File entries keep their order: load order is part of the
+    boundary the operator declared.
+    """
+    return [item for item in saved if _is_tool_file_entry(item)] == [
+        item for item in current if _is_tool_file_entry(item)
+    ] and {item for item in saved if not _is_tool_file_entry(item)} == {
+        item for item in current if not _is_tool_file_entry(item)
+    }
+
+
 def _intersect_tool_allowlists(
     saved: list[str] | None, current: list[str] | None
 ) -> list[str] | None:
@@ -127,7 +141,7 @@ def _intersect_tool_allowlists(
     """
     if saved is None:
         return list(current) if current is not None else None
-    if current is None or saved == current:
+    if current is None or _same_grants(saved, current):
         return list(saved)
 
     # A file's exports cannot be established by importing it: its startup code

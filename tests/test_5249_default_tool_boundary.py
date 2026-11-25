@@ -125,3 +125,30 @@ def test_configured_limits_are_not_mistaken_for_defaults(tmp_path, monkeypatch, 
     assert boundary is not None
     assert "ipython" in boundary
     assert "shell" not in boundary
+
+
+def test_interactive_frontend_resuming_autonomous_session_skips_complete(tmp_path):
+    """Greptile P1: a saved `interactive=False` must not enable `complete` in the TUI.
+
+    The TUI always resumes with ``interactive=True``, but the persisted chat
+    config still describes the autonomous run that created the conversation.
+    """
+    from gptme.config import setup_config_from_cli
+    from gptme.tools import clear_tools, get_tools, init_tools
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "chat"
+    setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=False)
+    config = setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=True)
+    assert config.chat is not None
+    # Premise: the stale value survives the resume (it equals the field default,
+    # so the CLI value is not treated as an override).
+    assert config.chat.interactive is False
+
+    clear_tools()
+    init_tools(config.chat.tools, include_mcp=False, interactive=True)
+    assert "complete" not in {tool.name for tool in get_tools()}, (
+        "an interactive frontend must not load the turn-ending 'complete' tool "
+        f"from a saved autonomous config; got {sorted(t.name for t in get_tools())}"
+    )
