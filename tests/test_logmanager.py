@@ -1739,12 +1739,16 @@ def test_conversation_meta_direct_invalid_id_skips_logs_dir(conv_id: str, monkey
 
 
 def test_delete_refuses_alias_of_current_conversation(
-    tmp_path: Path, monkeypatch, requires_symlinks
+    tmp_path: Path, monkeypatch, capsys, requires_symlinks
 ):
     """/delete compares directories, not names, before deleting.
 
     On case-insensitive filesystems 'Current-Conv' is the active chat's
-    directory; a symlinked alias reproduces that on any filesystem.
+    directory; a symlinked alias reproduces that on any filesystem. The
+    refusal message is what discriminates the guard: without it the command
+    reaches ``shutil.rmtree`` on the symlink, which fails with an unrelated
+    OSError and leaves both paths on disk either way, so checking that the
+    files survive proves nothing.
     """
     from gptme.commands import execute_cmd
 
@@ -1758,6 +1762,9 @@ def test_delete_refuses_alias_of_current_conversation(
     manager.append(cmd)
     execute_cmd(cmd, manager)
 
+    out = capsys.readouterr().out
+    assert "Cannot delete the current conversation." in out
+    assert "Deleted conversation" not in out
     assert (logs / "current-conv" / "conversation.jsonl").exists()
     assert (logs / "alias").exists()
 
