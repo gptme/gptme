@@ -20,7 +20,8 @@ import pytest
 from gptme import llm
 from gptme.llm import llm_anthropic
 from gptme.message import Message
-from gptme.tools.base import ToolSpec, ToolUse
+from gptme.tools import get_tool_format, init_tools, set_tool_format
+from gptme.tools.base import ToolUse
 
 
 def _sse(events):
@@ -382,22 +383,29 @@ def test_cutoff_notice_reaches_the_next_request(
     )
     if thinking:
         text = f"<think>\nplan\n<!-- think-sig: sig== -->\n</think>\n\n{text}"
+    # Only read if the reply is consumed past the finished call.
+    chunks = [text, "after-the-call"]
     monkeypatch.setattr(
         llm,
         "_stream",
         lambda *args, **kwargs: llm._StreamWithMetadata(
-            (chunk for chunk in [text]), "anthropic/claude-sonnet-4-6"
+            (chunk for chunk in chunks), "anthropic/claude-sonnet-4-6"
         ),
     )
-    monkeypatch.setattr(llm, "get_tool_format", lambda: "tool")
-    reply = llm._reply_stream(
-        [Message("user", "write files")],
-        "anthropic/claude-sonnet-4-6",
-        None,
-        break_on_tooluse=break_on_tooluse,
-    )
+    shell = init_tools(["shell"])[0]
+    previous_format = get_tool_format()
+    set_tool_format("tool")
+    try:
+        reply = llm._reply_stream(
+            [Message("user", "write files")],
+            "anthropic/claude-sonnet-4-6",
+            None,
+            break_on_tooluse=break_on_tooluse,
+        )
+    finally:
+        set_tool_format(previous_format)
 
-    shell = ToolSpec(name="shell", desc="run a command", parameters=[])
+    assert ("after-the-call" in reply.content) is not break_on_tooluse
     sent, _, _ = llm_anthropic._prepare_messages_for_api(
         [
             Message("system", "sys"),
