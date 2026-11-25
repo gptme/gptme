@@ -643,10 +643,10 @@ def _parse_providers(providers_config: Any, *, strict: bool) -> list[ProviderCon
 def _drop_malformed_env_entries(config: dict, source: str | Path) -> None:
     """Drop non-scalar ``[env]`` values from a user/local config before merging.
 
-    Dropping them only after the merge lets a malformed overlay entry (e.g. a
-    table where a string belongs) delete a valid lower-priority value such as
-    ``TOOL_ALLOWLIST``, silently re-enabling default tools on the next run.
-    Runtime defaults stay strict: ``_stringify_env`` still raises on them.
+    A stray compound value must not prevent every invocation from starting.
+    Dropping it only after the merge would let it replace and then delete a valid
+    lower-priority value such as ``TOOL_ALLOWLIST``, silently re-enabling default
+    tools. Runtime defaults stay strict: ``_stringify_env`` raises on them.
     """
     env = config.get("env")
     if not isinstance(env, dict):
@@ -733,14 +733,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
             user_identity, about=about, response_preference=resp_pref
         )
 
-    env_data = _pop_object_section(config, "env")
-    # A stray compound user/local value must not prevent every invocation
-    # from starting. Runtime defaults were validated strictly before merging.
-    for key, value in list(env_data.items()):
-        if isinstance(value, (dict, list)):
-            logger.warning("env.%s must be a scalar value (skipped)", key)
-            del env_data[key]
-    env = _stringify_env(env_data)
+    env = _stringify_env(_pop_object_section(config, "env"))
 
     # Parse [mcp] and [[providers]]. Runtime overlays are admin-managed: if
     # config.runtime.toml itself defines mcp/providers, those entries fail

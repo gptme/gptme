@@ -96,7 +96,8 @@ def test_user_env_skips_compound_values(tmp_path, caplog, value, filename, runti
     assert cfg.env["COSTS"] == "false"
     if runtime:
         assert cfg.env["RUNTIME_KEY"] == "default"
-    assert "env.EXAMPLE_KEY must be a scalar value" in caplog.text
+    assert "env.EXAMPLE_KEY in " in caplog.text
+    assert f"{filename} must be a scalar value (skipped)" in caplog.text
 
 
 @pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
