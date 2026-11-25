@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it } from '@jest/globals';
-import {
-  addServer,
-  findOrCreateServerByUrl,
-  getActiveServer,
-  serverRegistry$,
-} from '@/stores/servers';
+import { addServer, getActiveServer, serverRegistry$ } from '@/stores/servers';
 import { getConnectionConfigFromSources } from '../connectionConfig';
 
 // Uses the real server registry: the bug lives in how the two modules interact.
@@ -51,8 +46,12 @@ describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
   it('registers an unknown server without auth when the link has no userToken', () => {
     getConnectionConfigFromSources('baseUrl=https://new.example.com');
 
-    const created = findOrCreateServerByUrl('https://new.example.com');
-    expect(created.authToken).toBeNull();
-    expect(created.useAuthToken).toBe(false);
+    const created = serverRegistry$
+      .get()
+      .servers.find((s) => s.baseUrl === 'https://new.example.com');
+    expect(created).toBeDefined();
+    expect(getActiveServer()?.id).toBe(created?.id);
+    expect(created?.authToken).toBeNull();
+    expect(created?.useAuthToken).toBe(false);
   });
 });
