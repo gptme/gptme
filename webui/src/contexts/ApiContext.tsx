@@ -444,9 +444,14 @@ export function ApiProvider({
       if (isManualRetry) {
         let message = 'Could not connect to gptme instance.';
         if (lastResult && !lastResult.ok) {
-          message += ` Tried ${lastResult.url}. ${lastResult.message}`;
-          if (lastResult.reason === 'parse_error') {
-            message += ' — is this URL really a gptme server?';
+          message += ` Tried ${lastResult.url}.`;
+          if (lastResult.reason === 'http_error' && lastResult.status === 403) {
+            message += ' Server returned 403 Forbidden — check auth token / permissions.';
+          } else {
+            message += ` ${lastResult.message}`;
+            if (lastResult.reason === 'parse_error') {
+              message += ' — is this URL really a gptme server?';
+            }
           }
         }
         toast.error(message);
@@ -473,6 +478,16 @@ export function ApiProvider({
         return;
       }
 
+      // The last failed probe ends the loop immediately. A manual retry has
+      // already reported its error; do not schedule a timer just to report it again.
+      if (autoConnectAttempts >= MAX_AUTO_CONNECT_ATTEMPTS) {
+        stopAutoConnect();
+        if (!isInitialAttempt && !isManualRetry) {
+          toast.error('Unable to connect to gptme server after multiple attempts');
+        }
+        return;
+      }
+
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, autoConnectAttempts - 1);
       const maxDelay = 30000;
       const nextDelay = Math.min(delay, maxDelay);
@@ -487,8 +502,8 @@ export function ApiProvider({
   );
 
   const retryConnection = useCallback(async () => {
-    // Once the automatic budget is spent, the pending timer would only stop
-    // the loop; check the server directly instead.
+    // Once the automatic budget is spent or the loop is idle, check the
+    // server directly instead.
     if (!isAutoConnecting$.get() || autoConnectAttempts >= MAX_AUTO_CONNECT_ATTEMPTS) {
       await connect();
       return;

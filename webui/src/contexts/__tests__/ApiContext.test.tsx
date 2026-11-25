@@ -772,47 +772,76 @@ describe('ApiProvider mobile auto-connect', () => {
       expect.stringContaining('https://bob.example.com/api/v2/conversations?limit=1')
     );
     expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining(failure.message));
+    if (failure.reason === 'http_error' && failure.status === 403) {
+      expect(mockToastError).toHaveBeenCalledWith(
+        expect.stringContaining('check auth token / permissions')
+      );
+    }
   });
 
-  it('manual retry after the automatic budget is spent still checks the server', async () => {
-    setActiveServerBaseUrl('https://bob.example.com');
-    mockCheckConnection.mockImplementation(async () => {
-      lastConnectionResult$.set({
-        ok: false,
-        url: 'https://bob.example.com',
-        reason: 'network',
-        message: 'Could not reach server',
+  it.each([true, false])(
+    'ends the exhausted budget immediately (last retry manual: %s)',
+    async (manual) => {
+      jest.useFakeTimers();
+      setActiveServerBaseUrl('https://bob.example.com');
+      mockCheckConnection.mockImplementation(async () => {
+        lastConnectionResult$.set({
+          ok: false,
+          url: 'https://bob.example.com',
+          reason: 'network',
+          message: 'Could not reach server',
+        });
+        return false;
       });
-      return false;
-    });
 
-    let retryFromProbe!: () => Promise<void>;
-    function RetryProbe() {
-      retryFromProbe = useApi().retryConnection;
-      return null;
-    }
-    render(
-      <ApiProvider queryClient={new QueryClient()}>
-        <RetryProbe />
-      </ApiProvider>
-    );
+      let retryFromProbe!: () => Promise<void>;
+      let autoConnecting$!: { get: () => boolean };
+      function RetryProbe() {
+        const ctx = useApi();
+        retryFromProbe = ctx.retryConnection;
+        autoConnecting$ = ctx.isAutoConnecting$;
+        return null;
+      }
+      render(
+        <ApiProvider queryClient={new QueryClient()}>
+          <RetryProbe />
+        </ApiProvider>
+      );
 
-    await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(1));
-    // Nine manual retries spend the remaining automatic attempts (10 total).
-    for (let i = 0; i < 9; i++) {
+      await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(1));
+      // Reach attempt nine, then exhaust the budget with either kind of retry.
+      for (let i = 0; i < 8; i++) {
+        await act(async () => {
+          await retryFromProbe();
+        });
+      }
+      await act(async () => {
+        if (manual) await retryFromProbe();
+        else await jest.advanceTimersByTimeAsync(30000);
+      });
+      expect(mockCheckConnection).toHaveBeenCalledTimes(10);
+      expect(mockToastError).toHaveBeenCalledTimes(9);
+      expect(mockToastError).toHaveBeenLastCalledWith(
+        manual
+          ? expect.stringContaining('Could not reach server')
+          : 'Unable to connect to gptme server after multiple attempts'
+      );
+      expect(autoConnecting$.get()).toBe(false);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(31000);
+      });
+      expect(mockToastError).toHaveBeenCalledTimes(9);
+      expect(mockCheckConnection).toHaveBeenCalledTimes(10);
+      expect(autoConnecting$.get()).toBe(false);
+
+      // The server is back; one more click must reach it.
+      mockCheckConnection.mockResolvedValue(true);
       await act(async () => {
         await retryFromProbe();
       });
+      expect(mockCheckConnection).toHaveBeenCalledTimes(11);
     }
-    expect(mockCheckConnection).toHaveBeenCalledTimes(10);
-
-    // The server is back; one more click must reach it.
-    mockCheckConnection.mockResolvedValue(true);
-    await act(async () => {
-      await retryFromProbe();
-    });
-    expect(mockCheckConnection).toHaveBeenCalledTimes(11);
-  });
+  );
 });
 
 describe('ApiProvider auth code exchange', () => {
@@ -911,4 +940,9 @@ describe('shouldSkipHostedLoopbackAutoConnect', () => {
       shouldSkipHostedLoopbackAutoConnect('http://127.0.0.1:5700', 'https://chat.gptme.org', true)
     ).toBe(false);
   });
+});
+
+// Restore the clock even when a fake-timer regression assertion fails.
+afterEach(() => {
+  jest.useRealTimers();
 });
