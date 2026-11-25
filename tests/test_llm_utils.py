@@ -1380,17 +1380,21 @@ def test_extract_thinking_content_signed_literal_in_tool(multiline: bool) -> Non
     ],
 )
 @pytest.mark.parametrize("prefix", ["", "An interleaved answer.\n"])
+@pytest.mark.parametrize("length_framed", [False, True])
 def test_handle_tools_signed_thinking_keeps_quoted_content(
-    tag: str, reasoning: str, prefix: str
+    tag: str, reasoning: str, prefix: str, length_framed: bool
 ) -> None:
     """Replay the provider's exact signed text, not tags/calls quoted inside it."""
     from gptme.llm.llm_anthropic import _extract_thinking_content, _handle_tools
     from gptme.tools import init_tools
 
     init_tools()
+    if length_framed:
+        reasoning += "\nExample:\n<think>\nquoted\n</think>\nContinue"
     tool_call = '@shell(real-call): {"command": "echo real"}'
+    framing = f"\nthink-chars: {len(reasoning)}" if length_framed else ""
     content = (
-        f"{prefix}<{tag}>\n{reasoning}\n<!-- think-sig: signed== -->\n</{tag}>\n"
+        f"{prefix}<{tag}>\n{reasoning}\n<!-- think-sig: signed=={framing} -->\n</{tag}>\n"
         f"{tool_call}"
     )
     assert _extract_thinking_content(content) == (

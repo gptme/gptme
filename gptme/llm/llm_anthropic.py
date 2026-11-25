@@ -1078,7 +1078,9 @@ def chat(
             # Embed signature so it survives serialisation and can be passed
             # back on the next API call (Anthropic requires it for multi-turn).
             parsed_block.append(
-                f"<think>\n{block.thinking}\n<!-- think-sig: {block.signature} -->\n</think>"
+                f"<think>\n{block.thinking}\n"
+                f"<!-- think-sig: {block.signature}\n"
+                f"think-chars: {len(block.thinking)} -->\n</think>"
             )
         elif block.type == "tool_use":
             parsed_block.append(
@@ -1150,6 +1152,7 @@ def _stream_with_client(
     # Track the signature for the current thinking block so it can be embedded
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
+    _current_thinking_chars = 0
 
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools, model=model
@@ -1231,6 +1234,7 @@ def _stream_with_client(
                             f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
                         )
                     elif isinstance(block, anthropic.types.ThinkingBlock):
+                        _current_thinking_chars = 0
                         yield from _emit("<think>\n")
                     elif isinstance(block, anthropic.types.RedactedThinkingBlock):
                         yield from _emit("<think redacted>\n")
@@ -1249,6 +1253,7 @@ def _stream_with_client(
                             yield from _emit(delta.text)
                     elif isinstance(delta, anthropic.types.ThinkingDelta):
                         if delta.thinking is not None:
+                            _current_thinking_chars += len(delta.thinking)
                             yield from _emit(delta.thinking)
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
                         if delta.partial_json is not None:
@@ -1278,7 +1283,8 @@ def _stream_with_client(
                         # and can be passed back to the API on subsequent turns.
                         if _current_block_signature:
                             yield from _emit(
-                                f"\n<!-- think-sig: {_current_block_signature} -->"
+                                f"\n<!-- think-sig: {_current_block_signature}\n"
+                                f"think-chars: {_current_thinking_chars} -->"
                             )
                             _current_block_signature = None
                         yield from _emit("\n</think>\n\n")
@@ -1380,8 +1386,28 @@ def _extract_thinking_content(
     # content and must survive; stripping it altered tool arguments and, when
     # the span crossed a tool call, dropped a tool_use whose tool_result was
     # still sent (gptme/gptme#5218 item 11).
-    # Signed blocks have the framing emitted by chat()/stream(). Their body is
-    # opaque: quoted tags and native calls are reasoning, not message syntax.
+    # Length-framed blocks preserve arbitrary reasoning, including complete
+    # examples of this very syntax. Compute their exact opening position from
+    # the footer rather than interpreting anything inside the signed body.
+    framed_blocks: dict[int, tuple[int, str, str]] = {}
+    footer_pattern = re.compile(
+        r"\n<!-- think-sig: ((?:(?!-->).)*?)\n"
+        r"think-chars: ([0-9]{1,12}) -->\n</(think|thinking)>\s*",
+        re.DOTALL,
+    )
+    for footer in footer_pattern.finditer(text_content):
+        body_start = footer.start() - int(footer.group(2))
+        opening = f"<{footer.group(3)}>\n"
+        start = body_start - len(opening)
+        if start >= 0 and text_content[start:body_start] == opening:
+            framed_blocks[start] = (
+                footer.end(),
+                text_content[body_start : footer.start()],
+                footer.group(1),
+            )
+
+    # Legacy signed blocks lack a length; accept inline quoted tags and calls,
+    # but a whole-line opener remains ambiguous with a subsequent real block.
     # A subsequent framed opener starts a new block, so legacy/literal openers
     # cannot consume the signature belonging to that later block.
     signed_pattern = re.compile(
@@ -1415,6 +1441,13 @@ def _extract_thinking_content(
             break
         if leading and text_content[search_from : opener.start()].strip():
             leading = False
+        framed = framed_blocks.get(opener.start())
+        if framed:
+            end, block, signature = framed
+            kept.append(text_content[pos : opener.start()])
+            pos = search_from = end
+            thinking_blocks.append((block, signature))
+            continue
         match = signed_pattern.match(text_content, opener.start())
         if match:
             # Remove only the framing newline, never strip signed whitespace.
