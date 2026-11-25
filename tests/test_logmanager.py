@@ -1920,6 +1920,48 @@ def test_delete_preserves_exact_separators_in_conversation_id(
     assert (logs / "two spaces").exists()
 
 
+def test_delete_prefers_the_exact_id_over_its_trimmed_form(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A forced delete must not trim a trailing space off the id.
+
+    Regression: the handler right-stripped the id, so a TUI-created chat named
+    ``draft\xa0`` (``gptme-tui -n "draft "`` creates the directory without
+    applying the naming rules) could not be targeted: ``/delete --force
+    draft\xa0`` removed ``draft`` instead.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("draft", "draft\u00a0"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    cmd = Message("user", "/delete --force draft\u00a0", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft\u00a0" in out
+    assert not (logs / "draft\u00a0").exists()
+    # Only the exact id may be deleted; the trimmed prefix must survive.
+    assert (logs / "draft").exists()
+
+    # A stray trailing space next to a real id still resolves to that id.
+    cmd = Message("user", "/delete --force draft ", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft" in out
+    assert not (logs / "draft").exists()
+
+
 def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     """A trailing --force still skips confirmation, as earlier versions did.
 

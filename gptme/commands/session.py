@@ -132,7 +132,11 @@ def cmd_delete(ctx: CommandContext) -> None:
         /delete --force <id> - Delete without confirmation
         /delete <id> --force - Same, with the flag after the id
     """
-    from ..logmanager import delete_conversation, list_conversations  # fmt: skip
+    from ..logmanager import (  # fmt: skip
+        delete_conversation,
+        get_conversation_by_id,
+        list_conversations,
+    )
 
     # ``ctx.args`` is whitespace-split, so it loses the exact separators inside
     # a conversation name. Parse the raw remainder instead: consume at most one
@@ -157,23 +161,43 @@ def cmd_delete(ctx: CommandContext) -> None:
             break
         if not raw:
             break
-    raw = raw.rstrip()
     # Also accept flags after the id (``/delete old-chat --force``), which
     # earlier versions accepted. Only the edges are parsed, so a name that
     # contains a flag keeps it.
+    #
+    # The id is never trimmed here. The TUI creates conversation directories
+    # without applying the naming rules (``gptme-tui -n "draft "`` mkdirs the
+    # name as given), so a chat id may legitimately end with whitespace; a
+    # forced delete of ``draft\xa0`` must not trim down to ``draft`` and remove
+    # a different chat. The exact remainder is therefore the first candidate,
+    # and the trimmed forms are only fallbacks — for an ordinary trailing
+    # ``--force`` token (where the whitespace is a separator) and for a stray
+    # trailing space typed next to a real id.
+    candidates = [raw]
+    body = raw
     while True:
+        stripped = body.rstrip()
         for flag in ("--force", "-f"):
-            if raw.endswith(flag) and (
-                len(raw) == len(flag) or raw[-len(flag) - 1].isspace()
+            if stripped == flag:
+                force, body = True, ""
+                break
+            if stripped.endswith(flag) and (
+                len(stripped) == len(flag) or stripped[-len(flag) - 1].isspace()
             ):
                 force = True
-                raw = raw[: -len(flag)].rstrip()
+                body = stripped[: -len(flag)]
                 break
         else:
             break
-        if not raw:
+        if not body:
             break
-    conv_id = raw
+    for candidate in (body, body.rstrip()):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    conv_id = next(
+        (c for c in candidates if get_conversation_by_id(c, detail=False) is not None),
+        candidates[-1],
+    )
 
     if not conv_id:
         # List conversations to help user find the ID
