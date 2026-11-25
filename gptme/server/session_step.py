@@ -2148,6 +2148,7 @@ def _start_step_thread(
     # Direct callers (tool continuations and A2A) share /step's atomic
     # check-and-reserve protocol. The /step route reserves before setup and
     # identifies that reservation explicitly to avoid rejecting itself.
+    claimed_seq: int | None = None
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
             if SessionManager.conversation_generating(
@@ -2156,11 +2157,13 @@ def _start_step_thread(
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
-            # Capture the epoch under the lock so step() doesn't need to sample
-            # session.step_seq inside the thread (where a delay could give it
-            # a stale or replacement epoch).
+            # Claim a fresh epoch under the lock, like every other reservation
+            # path. Reusing the previous epoch would let a worker that already
+            # released it (e.g. step()'s release-then-re-raise paths) mistake
+            # this reservation for its own and clear it.
             if step_seq is None:
-                step_seq = session.step_seq
+                session.step_seq += 1
+                step_seq = claimed_seq = session.step_seq
     session.last_error = None
 
     def step_thread() -> None:
@@ -2231,6 +2234,10 @@ def _start_step_thread(
         # clear the replacement's reservation.
         with session.step_lock:
             if step_seq is None or session.step_seq == step_seq:
+                if claimed_seq is not None:
+                    # Roll back the epoch this call claimed so idle workers of
+                    # the previous epoch keep their ownership, as /step does.
+                    session.step_seq -= 1
                 session.generating = False
                 session.generating_since = None
         raise
