@@ -124,6 +124,52 @@ def test_api_conversation_list_with_limit(client: FlaskClient):
     assert len(data) <= 5
 
 
+def test_legacy_conversation_cache_hit_survives_invalidation(
+    client: FlaskClient, monkeypatch, tmp_path
+):
+    """Invalidation during the TTL check must not turn a cache hit into a 500."""
+    from types import SimpleNamespace
+
+    import gptme.server.api_v2 as api_v2_module
+
+    monkeypatch.setattr(
+        api_v2_module.conversations_module, "get_logs_dir", lambda: tmp_path
+    )
+    api_v2_module._invalidate_conversations_cache()
+    monkeypatch.setattr(
+        api_v2_module, "get_user_conversations", lambda detail=False: iter(())
+    )
+    assert client.get("/api/v2/conversations").status_code == 200
+    assert api_v2_module._conversations_cache == []
+    monotonic = time.monotonic
+
+    class InvalidateOnSubtract(float):
+        def __sub__(self, other):
+            elapsed = super().__sub__(other)
+            api_v2_module._invalidate_conversations_cache()
+            return elapsed
+
+    def invalidate_during_ttl_check():
+        return InvalidateOnSubtract(monotonic())
+
+    try:
+        with (
+            client.application.test_request_context("/api/v2/conversations"),
+            patch.object(
+                api_v2_module,
+                "time",
+                SimpleNamespace(monotonic=invalidate_during_ttl_check),
+            ),
+        ):
+            response = api_v2_module.api_conversations()
+        assert response.status_code == 200
+        assert response.get_json() == []
+        assert response.get_etag()[0] is not None
+        assert api_v2_module._conversations_cache is None
+    finally:
+        api_v2_module._invalidate_conversations_cache()
+
+
 def test_api_conversation_list_paginated_cursor_preserves_equal_timestamps(
     client: FlaskClient, monkeypatch
 ):

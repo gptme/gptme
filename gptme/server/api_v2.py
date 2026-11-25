@@ -1546,15 +1546,13 @@ def api_conversations():
     # Use cached list for the common case (no search, no detail).
     # Cache is invalidated on conversation create/update/delete and scoped to
     # the current logs dir so test/workspace swaps do not reuse stale results.
-    if (
-        not search
-        and not detail
-        and _conversations_cache is not None
-        and _conversations_cache_logs_dir == logs_dir
-    ):
-        elapsed = time.monotonic() - _conversations_cache_time
+    with _conversations_cache_lock:
+        cached = _conversations_cache
+        cached_logs_dir = _conversations_cache_logs_dir
+        cached_time = _conversations_cache_time
+    if not search and not detail and cached is not None and cached_logs_dir == logs_dir:
+        elapsed = time.monotonic() - cached_time
         if elapsed < _CONVERSATIONS_CACHE_TTL:
-            cached = _conversations_cache
             record_cache_result(hit=True)
             etag = _etag_conversations(cached[:limit])
             if request.if_none_match.contains_weak(etag):
