@@ -485,6 +485,9 @@ class LessonIndex:
         2. Legacy user config (~/.config/gptme/lessons, fallback for XDG compat)
         3. Workspace (./lessons)
         4. Configured dirs (from gptme.toml)
+
+        Malformed headers are fallbacks behind valid copies. This includes an
+        unclosed opening ``---`` line, which is ambiguous with a Markdown divider.
         """
         self.lessons = []
         _realpath_dir.cache_clear()
@@ -661,7 +664,10 @@ class LessonIndex:
                 # malformed skills still require usable frontmatter as before.
                 if lesson_file.name.upper() != "SKILL.MD":
                     fallback_lessons.append((directory, lesson))
-                    logger.debug("Using default lesson metadata: %s", lesson_file)
+                    if lesson.unclosed_frontmatter:
+                        logger.debug("Using default lesson metadata: %s", lesson_file)
+                    else:
+                        logger.warning("Malformed lesson frontmatter: %s", lesson_file)
                 else:
                     logger.warning("Malformed lesson frontmatter: %s", lesson_file)
                 continue

@@ -945,10 +945,24 @@ class TestFrontmatterFenceLines:
 
     def test_non_mapping_header_keeps_body_and_is_flagged(self, tmp_path: Path):
         lesson_file = tmp_path / "lesson.md"
-        lesson_file.write_text("---\n- a\n- list\n---\n# Title\n\nBody.\n")
+        content = "---\n- a\n- list\n---\n# Title\n\nBody.\n"
+        lesson_file.write_text(content)
         lesson = parse_lesson(lesson_file)
         assert lesson.title == "Title"
         assert lesson.malformed_frontmatter
+        assert lesson.body == content
+
+    def test_closed_thematic_breaks_keep_entire_body(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        content = "---\n\n# Deploy\n\nAlways tag releases\n\n---\n\nMore"
+        lesson_file.write_text(content)
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson.malformed_frontmatter
+        assert lesson.body == content
+        assert lesson.title == "Deploy"
+        assert lesson.description == "Always tag releases"
 
     def test_empty_header_is_not_flagged(self, tmp_path: Path):
         lesson_file = tmp_path / "lesson.md"

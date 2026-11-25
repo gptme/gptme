@@ -817,7 +817,28 @@ class TestLessonDeduplication:
             caplog.clear()
             index = LessonIndex([lesson_dir])
             assert [lesson.title for lesson in index.lessons] == ["Divider Lesson"]
-            assert not caplog.records
+            assert not any(record.levelno >= 30 for record in caplog.records)
+
+    @pytest.mark.parametrize("header", ["- list\n", "scalar\n", "null\n"])
+    def test_closed_malformed_header_warns(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, header: str
+    ) -> None:
+        """A definitely closed, non-mapping header remains diagnosable on cache hits."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        lesson_file = lesson_dir / "bad.md"
+        lesson_file.write_text(f"---\n{header}---\n# Bad\n\nBody.\n")
+
+        for _ in range(2):
+            caplog.clear()
+            index = LessonIndex([lesson_dir])
+            assert [lesson.title for lesson in index.lessons] == ["Bad"]
+            assert any(
+                record.levelno >= 30
+                and "Malformed lesson frontmatter" in record.message
+                for record in caplog.records
+            )
 
     def test_first_default_metadata_copy_is_fallback(self, tmp_path: Path):
         """Fallbacks still deduplicate, and a valid inactive copy still suppresses them."""

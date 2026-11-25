@@ -83,6 +83,8 @@ class Lesson:
     # A frontmatter block is unclosed or is not a mapping (e.g. a YAML list):
     # the body is kept, but the metadata is defaults, not what the file meant.
     malformed_frontmatter: bool = False
+    # Distinguish an ambiguous opening Markdown divider from a closed bad header.
+    unclosed_frontmatter: bool = False
 
 
 def _extract_title(content: str) -> str:
@@ -350,6 +352,7 @@ def parse_lesson(path: Path) -> Lesson:
     metadata = LessonMetadata()
     body = content
     malformed_frontmatter = False
+    unclosed_frontmatter = False
 
     if content.startswith("---"):
         if not HAS_YAML:
@@ -360,7 +363,8 @@ def parse_lesson(path: Path) -> Lesson:
 
         # Fences must be whole lines: a "---" inside a YAML value is not a fence.
         fence = _FRONTMATTER_RE.match(content)
-        malformed_frontmatter = fence is None and has_frontmatter_fence(content)
+        unclosed_frontmatter = fence is None and has_frontmatter_fence(content)
+        malformed_frontmatter = unclosed_frontmatter
         if fence:
             frontmatter_str = fence.group(1)
             body = fence.group(2).strip()
@@ -453,6 +457,11 @@ def parse_lesson(path: Path) -> Lesson:
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e
 
+    if malformed_frontmatter:
+        # A non-mapping header can also be prose between Markdown thematic breaks.
+        # Keep all content rather than silently discarding the heading and paragraph.
+        body = content
+
     # Infer metadata from content and path
     title = _extract_title(body)
     description = _extract_description(body)
@@ -466,4 +475,5 @@ def parse_lesson(path: Path) -> Lesson:
         category=category,
         body=body,
         malformed_frontmatter=malformed_frontmatter,
+        unclosed_frontmatter=unclosed_frontmatter,
     )
