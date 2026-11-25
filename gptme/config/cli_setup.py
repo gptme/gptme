@@ -220,7 +220,13 @@ def setup_config_from_cli(
     if allowlist_spec is None and saved_tools is None:
         if tools_env := config.get_env("TOOL_ALLOWLIST"):
             try:
-                allowlist_spec = parse_tool_specs([tools_env])
+                # A nonempty env value containing only separators selected no
+                # tools before the shared parser; it must not enable defaults.
+                allowlist_spec = (
+                    parse_tool_specs([tools_env])
+                    if any(token.strip() for token in tools_env.split(","))
+                    else ""
+                )
             except ValueError as e:
                 raise ValueError(f"Invalid TOOL_ALLOWLIST: {e}") from e
     if allowlist_spec is not None:
@@ -288,20 +294,6 @@ def setup_config_from_cli(
         and len(resolved_tool_allowlist) == 1
         and resolved_tool_allowlist[0] in TOOL_PRESETS
     )
-
-    # Automatically add 'complete' tool in non-interactive mode, except for
-    # exclusive named presets such as read-only audit mode.
-    # Leave unrestricted defaults as None, including when saved/resumed. Tool
-    # initialization adds complete without turning that default into an operator
-    # boundary (which would incorrectly disable ACP delegation).
-    if (
-        not interactive
-        and not tool_preset_selected
-        and resolved_tool_allowlist is not None
-    ):
-        if "complete" not in resolved_tool_allowlist:
-            resolved_tool_allowlist.append("complete")
-        logger.debug("Added 'complete' tool to allowlist for non-interactive mode")
 
     # Handle tool_format with similar precedence
     if tool_format is not None:
@@ -371,17 +363,17 @@ def setup_config_from_cli(
     # Set tools if not already set or if a CLI override was provided
     if config.chat.tools is None or tool_allowlist is not None:
         config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
-    elif (
-        resolved_tool_allowlist is not None
-        and "complete" in resolved_tool_allowlist
-        and "complete" not in config.chat.tools
-    ):
-        # Non-interactive resume: add 'complete' to the saved filters verbatim.
-        # Re-normalizing would expand hint:/glob filters against this run's
-        # tools and drop any that match nothing now.
-        config.chat.tools = [*config.chat.tools, "complete"]
 
-    # Save and set the final config
+    # Persist the user's tool boundary, not this run's completion mechanism.
     config.chat.save()
+    # Leave unrestricted defaults as None: tool initialization adds 'complete'
+    # without turning that default into an operator boundary (which would
+    # incorrectly disable ACP delegation). Only an explicit boundary is extended.
+    if not interactive and not tool_preset_selected and config.chat.tools is not None:
+        tools = config.chat.tools
+        if "complete" not in tools:
+            # Copy rather than mutate saved lists; preserve hint/glob filters.
+            config.chat = replace(config.chat, tools=[*tools, "complete"])
+        logger.debug("Added 'complete' tool to allowlist for non-interactive mode")
     set_config(config)
     return config

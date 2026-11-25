@@ -168,7 +168,12 @@ def test_noninteractive_resume_keeps_tools_none(tmp_path, monkeypatch):
     assert cfg.chat is not None
     # Same as a fresh `--tools none --non-interactive` run: only 'complete'.
     assert cfg.chat.tools == ["complete"]
-    assert ChatConfig.from_logdir(logdir).tools == ["complete"]
+    assert ChatConfig.from_logdir(logdir).tools == []
+
+    # The run-only completion tool must not widen later interactive resumes.
+    resumed = setup_config_from_cli(workspace=ws, logdir=logdir, interactive=True)
+    assert resumed.chat is not None
+    assert resumed.chat.tools == []
 
 
 def test_noninteractive_resume_keeps_saved_hint_filter(tmp_path):
@@ -189,8 +194,4 @@ def test_noninteractive_resume_keeps_saved_hint_filter(tmp_path):
     )
     assert cfg.chat is not None
     assert cfg.chat.tools == ["shell", "hint:no-such-hint", "complete"]
-    assert ChatConfig.from_logdir(logdir).tools == [
-        "shell",
-        "hint:no-such-hint",
-        "complete",
-    ]
+    assert ChatConfig.from_logdir(logdir).tools == ["shell", "hint:no-such-hint"]
