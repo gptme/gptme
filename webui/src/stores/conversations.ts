@@ -77,6 +77,8 @@ export interface ConversationState {
   pendingGenerationPrompt?: string;
   // Terminal SSE/local-stop events invalidate late step HTTP acknowledgments.
   generationRevision?: number;
+  // A new generation invalidates approval reconciliation from the previous one.
+  toolGenerationRevision?: number;
   // Shared tool/generation transitions invalidate delayed confirmation snapshots.
   toolStateRevision?: number;
   connectionStatus: ConversationConnectionStatus;

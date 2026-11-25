@@ -348,6 +348,52 @@ def api_conversation_events(conversation_id: str):
 
 
 @sessions_api.route(
+    "/api/v2/conversations/<string:conversation_id>/events/refresh", methods=["POST"]
+)
+@require_auth
+@api_doc(
+    summary="Refresh approval state on the live stream (V2)",
+    description="Queue a tool_state snapshot without replacing the event stream or its cursor.",
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[CONVERSATION_ID_PARAM],
+    tags=["sessions"],
+)
+def api_conversation_refresh_events(conversation_id: str):
+    """Queue an authoritative tool snapshot without interrupting live delivery."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    # Capture and publish under the same lock as tool claims and interrupts.
+    # The existing stream delivers prior results, this snapshot, and subsequent
+    # changes in order; a replacement stream would lose events in its gap.
+    with SessionManager.conversation_lock(conversation_id):
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "tool_state",
+                "generating": SessionManager._conversation_busy(
+                    conversation_id,
+                    SessionManager.get_sessions_for_conversation(conversation_id),
+                ),
+                "pending_tools": [
+                    tool.to_pending_dict()
+                    for owner in SessionManager.get_sessions_for_conversation(
+                        conversation_id
+                    )
+                    for tool in owner.pending_tools.values()
+                    if tool.status == ToolStatus.PENDING
+                    and not tool.auto_confirm
+                    and tool.tool_id not in owner.handled_tools
+                ],
+            },
+        )
+    return flask.jsonify({"status": "queued"})
+
+
+@sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/step", methods=["POST"]
 )
 @require_auth
@@ -506,6 +552,13 @@ def api_conversation_step(conversation_id: str):
             conversation_id
         ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify({"error": "Generation already in progress"}), 409
+        if any(
+            owner.pending_tools
+            for owner in SessionManager.get_sessions_for_conversation(conversation_id)
+        ):
+            return flask.jsonify(
+                {"error": "Cannot step while tool approvals are pending"}
+            ), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
         effort_provided = req_json.get("reasoning_effort") is not None
         if effort_provided:

@@ -385,6 +385,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         api
           .subscribeToEvents(conversationId, {
             onMessageStart: () => {
+              conversation$?.toolGenerationRevision.set((value) => (value ?? 0) + 1);
               if (conversation$?.pendingElicitation.peek()) {
                 setPendingElicitation(conversationId, null);
               }
@@ -826,6 +827,16 @@ export function useConversation(conversationId: string, serverId?: string) {
                 case 'connecting':
                   setConnectionStatus(conversationId, 'connecting');
                   break;
+              }
+            },
+            onToolState: (state) => {
+              if (stopRequestedRef.current) return;
+              setPendingTool(conversationId, null, null);
+              const next = state.pendingTools[0];
+              setGenerating(conversationId, state.generating);
+              if (next) {
+                setPendingTool(conversationId, next.tool_id, next.tooluse);
+                setGenerating(conversationId, false);
               }
             },
             onReconnectState: (state) => {
@@ -1293,17 +1304,24 @@ export function useConversation(conversationId: string, serverId?: string) {
       setPendingTool(conversationId, null, null);
     }
     const confirmedToolId = pendingTool.id;
+    const toolGenerationRevision = conversation$?.toolGenerationRevision.peek();
     const revision = conversation$?.toolStateRevision.peek();
     const generationRevision = conversation$?.generationRevision.peek();
     const generationEpoch = generationEpochRef.current;
     const owner = conversation$?.serverId.peek();
     const clientGeneration = conversation$?.streamClientGeneration.peek();
-    const isCurrent = () =>
-      conversation$?.toolStateRevision.peek() === revision &&
+    const ownsTurn = () =>
+      conversation$?.toolGenerationRevision.peek() === toolGenerationRevision &&
       conversation$?.generationRevision.peek() === generationRevision &&
       generationEpochRef.current === generationEpoch &&
       conversation$?.serverId.peek() === owner &&
       conversation$?.streamClientGeneration.peek() === clientGeneration;
+    const isCurrent = () => conversation$?.toolStateRevision.peek() === revision && ownsTurn();
+    const refreshApprovals = () => {
+      void api.refreshEventState(conversationId)?.catch((error) => {
+        console.error('Error refreshing tool approvals:', error);
+      });
+    };
     const confirmOnce = async (): Promise<void> => {
       try {
         const { alreadyHandled, continuationStarted, pendingTools } = await api.confirmTool(
@@ -1313,19 +1331,18 @@ export function useConversation(conversationId: string, serverId?: string) {
           options
         );
         if (!isCurrent()) {
-          // A sibling event invalidates the HTTP snapshot but need not expose
-          // the next approval. Reconnect for an authoritative snapshot rather
-          // than restoring a possibly canceled tool from this response.
-          if (
-            action === 'skip' &&
-            !continuationStarted &&
-            !conversation$?.pendingTool.peek() &&
-            conversation$?.generationRevision.peek() === generationRevision &&
-            generationEpochRef.current === generationEpoch &&
-            conversation$?.serverId.peek() === owner &&
-            conversation$?.streamClientGeneration.peek() === clientGeneration
-          ) {
-            api.refreshEventState(conversationId);
+          // Sibling events invalidate the HTTP snapshot, not the turn. A
+          // duplicate receipt still proves this exact approval is gone.
+          if (ownsTurn()) {
+            if (alreadyHandled && conversation$?.pendingTool.peek()?.id === confirmedToolId) {
+              setPendingTool(conversationId, null, null);
+            }
+            if (
+              !conversation$?.pendingTool.peek() &&
+              ((action === 'skip' && !continuationStarted) || alreadyHandled)
+            ) {
+              refreshApprovals();
+            }
           }
           return;
         }
@@ -1367,6 +1384,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         // Still preserve the rejection contract for non-Skip approvals.
         if (!isCurrent()) {
           if (action !== 'skip') throw error;
+          if (ownsTurn() && !conversation$?.pendingTool.peek()) refreshApprovals();
           return;
         }
         console.error('Error confirming tool:', error);

@@ -66,6 +66,10 @@ describe('useConversation', () => {
   let eventHandlers:
     | {
         onConnected?: () => void;
+        onToolState?: (state: {
+          generating: boolean;
+          pendingTools: ToolConfirmResult['pendingTools'];
+        }) => void;
         onReconnectState?: (state: {
           generating: boolean;
           latestUserTimestamp?: string;
@@ -496,6 +500,76 @@ describe('useConversation', () => {
     });
     expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('new');
   });
+
+  it('clears a stale duplicate confirmation after sibling completion', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('done', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    let confirming!: Promise<void>;
+    act(() => {
+      confirming = result.current.confirmTool('confirm');
+    });
+    act(() => eventHandlers!.onToolComplete!('sibling', 1, true));
+    await act(async () => {
+      finish(duplicate);
+      await confirming;
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+  });
+
+  it.each(['progress', 'stop', 'generation'])(
+    'reconciles a failed Skip overtaken by %s',
+    async (event) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onToolPending!('approval', { tool: 'shell' }, false));
+      let fail!: (error: Error) => void;
+      confirmToolApi.mockReturnValueOnce(
+        new Promise((_, reject) => {
+          fail = reject;
+        })
+      );
+      let skipping!: Promise<void>;
+      act(() => {
+        skipping = result.current.confirmTool('skip');
+      });
+      await act(async () => {
+        if (event === 'progress') eventHandlers!.onToolExecuting!('sibling');
+        if (event === 'stop') await result.current.interruptGeneration();
+        if (event === 'generation') eventHandlers!.onMessageStart!();
+      });
+      await act(async () => {
+        fail(new ApiClientError('Busy', 409));
+        await skipping;
+      });
+      if (event === 'progress') {
+        expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+        act(() =>
+          eventHandlers!.onToolState!({
+            generating: true,
+            pendingTools: [
+              {
+                tool_id: 'approval',
+                tooluse: { tool: 'shell', args: [], content: 'pwd' },
+                auto_confirm: false,
+              },
+            ],
+          })
+        );
+        expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('approval');
+        expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(false);
+      } else {
+        expect(primaryClient.refreshEventState).not.toHaveBeenCalled();
+      }
+    }
+  );
 
   it('reports a genuine missing approval without blind retries', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
@@ -1880,16 +1954,16 @@ describe('useConversation', () => {
         await skipping;
       });
       expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
-      // The old HTTP payload is never restored. The fresh connected snapshot
-      // reveals the third tool, which was not represented by the sibling event.
+      // The old HTTP payload is never restored. The ordered tool snapshot
+      // reveals the third tool, without reconnecting or losing live results.
       expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
       act(() =>
-        eventHandlers!.onReconnectState!({
+        eventHandlers!.onToolState!({
           generating: false,
           pendingTools: [
             {
               tool_id: 'third-tool',
-              tooluse: { tool: 'shell', content: 'pwd' },
+              tooluse: { tool: 'shell', args: [], content: 'pwd' },
               auto_confirm: false,
             },
           ],

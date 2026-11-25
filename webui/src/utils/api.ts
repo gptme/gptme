@@ -626,9 +626,12 @@ export class ApiClient {
     document.removeEventListener('visibilitychange', wake);
   }
 
-  /** Refresh the authoritative tool/generation snapshot using the existing listener. */
-  refreshEventState(conversationId: string): void {
-    this.reviveEventStream(conversationId);
+  /** Queue a snapshot on the live stream, preserving its cursor and messages. */
+  async refreshEventState(conversationId: string): Promise<void> {
+    if (!this.eventCallbacks.has(conversationId)) return;
+    await this.fetchJson(`${this.baseUrl}/api/v2/conversations/${conversationId}/events/refresh`, {
+      method: 'POST',
+    });
   }
 
   /** Re-open a stream the app still wants but whose connection gave up. */
@@ -1139,6 +1142,10 @@ export class ApiClient {
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
       onConnectionState?: (state: EventStreamConnectionState) => void;
+      onToolState?: (state: {
+        generating: boolean;
+        pendingTools: ToolConfirmResult['pendingTools'];
+      }) => void;
       onReconnectState?: (state: {
         generating: boolean;
         latestUserTimestamp?: string;
@@ -1420,6 +1427,13 @@ export class ApiClient {
 
           case 'ping':
             console.log(`[ApiClient] ping`);
+            break;
+
+          case 'tool_state':
+            callbacks.onToolState?.({
+              generating: data.generating ?? false,
+              pendingTools: data.pending_tools ?? [],
+            });
             break;
 
           case 'connected':

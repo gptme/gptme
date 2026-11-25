@@ -20,7 +20,7 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from flask.testing import FlaskClient  # fmt: skip
 
@@ -238,6 +238,62 @@ class TestInterruptNonexistentConversation:
 
 class TestStepEndpoint:
     """Test POST /api/v2/conversations/<id>/step validation."""
+
+    @pytest.mark.parametrize("peer_session", [False, True])
+    def test_step_preserves_pending_batch(
+        self, conv, client: FlaskClient, peer_session
+    ):
+        """A new step must not strand or split another approval batch."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        owner = (
+            SessionManager.create_session(conv["conversation_id"])
+            if peer_session
+            else session
+        )
+        owner.pending_tools["approval"] = ToolExecution(
+            tool_id="approval", tooluse=ToolUse("shell", [], "pwd"), step_seq=5
+        )
+        session.step_seq = 5
+        with patch("gptme.server.api_v2_sessions._start_step_thread") as start:
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/step",
+                json={"session_id": session.id, "model": "openai/gpt-4o-mini"},
+            )
+        assert response.status_code == 409
+        assert "pending" in response.get_json()["error"].lower()
+        assert session.step_seq == 5
+        assert owner.pending_tools["approval"].step_seq == 5
+        start.assert_not_called()
+
+    def test_refresh_approvals_is_an_ordered_event(self, conv, client: FlaskClient):
+        """Refreshing approvals leaves the existing event cursor usable."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.pending_tools["approval"] = ToolExecution(
+            tool_id="approval", tooluse=ToolUse("shell", [], "pwd")
+        )
+        session.pending_tools["auto"] = ToolExecution(
+            tool_id="auto", tooluse=ToolUse("shell", [], "pwd"), auto_confirm=True
+        )
+        session.pending_tools["approved"] = ToolExecution(
+            tool_id="approved", tooluse=ToolUse("shell", [], "pwd")
+        )
+        session.remember_handled_tool("approved")
+        session._executing_tools.add("running")
+        cursor = session.events_count
+        SessionManager.add_event(conv["conversation_id"], {"type": "step_complete"})
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/events/refresh"
+        )
+        assert response.status_code == 200
+        events, _ = session.read_events(cursor)
+        assert [event["type"] for event in events] == ["step_complete", "tool_state"]
+        from gptme.server.api_v2_common import ToolStateEvent
+
+        snapshot = cast(ToolStateEvent, events[-1])
+        assert [tool["tool_id"] for tool in snapshot["pending_tools"]] == ["approval"]
+        assert snapshot["generating"] is True
 
     def test_missing_session_id(self, conv, client: FlaskClient):
         """Step without session_id returns 400."""

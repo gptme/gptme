@@ -316,7 +316,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       callbacks.onConnectionState?.({ status: 'connected' });
       callbacks.onConnected?.();
     },
-    refreshEventState: () => {},
+    refreshEventState: async () => {},
     closeEventStream: (conversationId) => {
       eventCallbacks.delete(conversationId);
     },
