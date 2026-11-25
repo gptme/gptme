@@ -705,18 +705,17 @@ def _goto_and_snapshot(url: str) -> str:
     page = _current_page
     if page is None:
         raise RuntimeError("No page is currently open")
-    # Playwright's commit signal: fires when the main frame has a new document,
-    # including a reload of the same URL (which a URL comparison would miss).
     committed = False
-
-    def _on_navigated(frame) -> None:
-        nonlocal committed
-        if frame == page.main_frame:
-            committed = True
-
-    page.on("framenavigated", _on_navigated)
+    deadline = time.monotonic() + INTERACTIVE_NAVIGATION_TIMEOUT_MS / 1000
     try:
-        page.goto(url, timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
+        # Unlike framenavigated, goto's commit wait cannot be satisfied by a
+        # same-document URL update in the old page while the request is pending.
+        page.goto(url, wait_until="commit", timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
+        committed = True
+        # Share one budget between the commit and load waits. A zero timeout
+        # disables Playwright's deadline, so keep the remaining wait positive.
+        remaining_ms = max(1, (deadline - time.monotonic()) * 1000)
+        page.wait_for_load_state("load", timeout=remaining_ms)
         # A redirect may land outside the allowlist; reject the final URL.
         _validate_page_url(page.url)
     except PlaywrightTimeoutError as e:
@@ -733,8 +732,6 @@ def _goto_and_snapshot(url: str) -> str:
         if isinstance(e, ValueError):
             raise
         raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
-    finally:
-        page.remove_listener("framenavigated", _on_navigated)
     return _page_snapshot()
 
 

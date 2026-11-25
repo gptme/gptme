@@ -1458,7 +1458,9 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         page.goto.assert_called_once_with(
-            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
         create_page.assert_not_called()
         ctx.close.assert_not_called()
@@ -1487,7 +1489,9 @@ class TestOpenPageSessionReuse:
         assert result == "snapshot"
         create_page.assert_called_once()
         page.goto.assert_called_once_with(
-            "https://example.com", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+            "https://example.com",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
         assert bp._current_page is page
         assert bp._current_context is ctx
@@ -1520,7 +1524,9 @@ class TestOpenPageSessionReuse:
         ctx.new_page.assert_called_once_with()
         new_page.set_extra_http_headers.assert_called_once_with(bp._OPEN_PAGE_HEADERS)
         new_page.goto.assert_called_once_with(
-            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
         dead_page.close.assert_called()
         assert bp._current_page is new_page
@@ -1549,7 +1555,9 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         page.goto.assert_called_once_with(
-            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
         create_page.assert_not_called()
         close.assert_not_called()
@@ -1592,14 +1600,11 @@ class TestOpenPageSessionReuse:
         bp._current_page = page
         bp._current_context = ctx
 
-        def commit_then_time_out(url, timeout):
-            # A reload of the same URL commits a new document without
-            # changing page.url; only the framenavigated signal shows it.
-            handler = page.on.call_args.args[1]
-            handler(page.main_frame)
-            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
-
-        page.goto.side_effect = commit_then_time_out
+        # goto's commit wait succeeds even for a reload of the same URL;
+        # only the subsequent load wait times out.
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
 
         with (
             patch.object(bp, "_browser", None),
@@ -1610,12 +1615,73 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         snapshot.assert_called_once_with(timeout_ms=bp.TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
-        page.remove_listener.assert_called_once_with(
-            "framenavigated", page.on.call_args.args[1]
+        page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
+        page.wait_for_load_state.assert_called_once()
+        assert page.wait_for_load_state.call_args.args == ("load",)
+        assert 0 < page.wait_for_load_state.call_args.kwargs["timeout"] <= 16_000
         close.assert_not_called()
         ctx.close.assert_not_called()
         assert bp._current_page is page
+        assert bp._current_context is ctx
+
+    @pytest.mark.parametrize(
+        ("commit_finished", "remaining_ms"), [(110.0, 6000.0), (116.5, 1.0)]
+    )
+    def test_commit_and_load_share_navigation_budget(
+        self, commit_finished, remaining_ms
+    ):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.url = "https://example.com/account"
+        bp._current_page = page
+        with (
+            patch.object(bp.time, "monotonic", side_effect=[100.0, commit_finished]),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+        ):
+            assert bp._goto_and_snapshot(page.url) == "snapshot"
+
+        page.goto.assert_called_once_with(
+            page.url, wait_until="commit", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
+        page.wait_for_load_state.assert_called_once_with("load", timeout=remaining_ms)
+
+    def test_old_document_navigation_does_not_count_as_commit(self):
+        """An SPA URL update cannot make a stalled goto return the old page."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        def old_document_updates_url(*args, **kwargs):
+            page.url = "https://example.com/account#updated"
+            # Playwright emits this even for same-document replaceState/hash
+            # changes. Deliver the event if the implementation listens for it.
+            for call in page.on.call_args_list:
+                if call.args[0] == "framenavigated":
+                    call.args[1](page.main_frame)
+            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+
+        page.goto.side_effect = old_document_updates_url
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot") as snapshot,
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="Timed out navigating"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/unreachable")
+
+        snapshot.assert_not_called()
+        page.wait_for_load_state.assert_not_called()
+        close.assert_not_called()
         assert bp._current_context is ctx
 
     def test_load_timeout_before_commit_raises_without_closing_session(self):
@@ -1651,12 +1717,13 @@ class TestOpenPageSessionReuse:
         bp._current_page = page
         bp._current_context = MagicMock()
 
-        def redirect_then_time_out(url, timeout):
+        def redirect(url, **kwargs):
             page.url = "https://evil.example/landing"
-            page.on.call_args.args[1](page.main_frame)
-            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
 
-        page.goto.side_effect = redirect_then_time_out
+        page.goto.side_effect = redirect
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
 
         def block_evil(url):
             if "evil.example" in url:
@@ -1734,7 +1801,9 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         page.goto.assert_called_once_with(
-            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
         create_page.assert_not_called()
         close.assert_not_called()
@@ -1812,7 +1881,9 @@ class TestOpenPageSessionReuse:
         old_page.close.assert_called()
         old_ctx.close.assert_called()
         new_page.goto.assert_called_once_with(
-            "https://example.com/account", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
         )
         assert bp._current_page is new_page
         assert bp._current_context is new_ctx
