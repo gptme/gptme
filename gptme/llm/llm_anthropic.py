@@ -1489,6 +1489,18 @@ def _extract_thinking_content(
             return first
         return block
 
+    def after_block(start: int, end: int) -> int:
+        """Where to resume after removing the block spanning ``start:end``.
+
+        Trailing whitespace goes with the block unless the kept text before it
+        does not end its line. A tool call after interleaved thinking would
+        otherwise join the previous call's JSON line and stop being parsed.
+        """
+        before = next((part for part in reversed(kept) if part), "")
+        if not before or before.endswith("\n"):
+            return end
+        return start + len(text_content[start:end].rstrip())
+
     call_start, call_end = next_call(0)
     while search_from < len(text_content):
         opener = opener_pattern.search(text_content, search_from)
@@ -1510,7 +1522,7 @@ def _extract_thinking_content(
             while end < len(text_content) and text_content[end].isspace():
                 end += 1
             kept.append(text_content[pos : opener.start()])
-            pos = search_from = end
+            pos = search_from = after_block(opener.start(), end)
             thinking_blocks.append((block, signature))
             continue
         next_framed = bisect_right(framed_starts, opener.start())
@@ -1534,7 +1546,7 @@ def _extract_thinking_content(
             search_from = opener.end()
             continue
         kept.append(text_content[pos : match.start()])
-        pos = search_from = match.end()
+        pos = search_from = after_block(match.start(), match.end())
         if block or signature:
             thinking_blocks.append((block, signature))
     kept.append(text_content[pos:])

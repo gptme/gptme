@@ -206,6 +206,54 @@ def test_unsigned_thinking_without_tool_call_is_kept_verbatim():
     assert "The answer is 4." in dumped, assistant
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize(
+    ("signature", "framed"), [("", False), ("SIG123", False), ("SIG123", True)]
+)
+def test_interleaved_thinking_preserves_tool_call_boundaries(
+    tag: str, signature: str, framed: bool
+) -> None:
+    """Thinking follows streamed tool JSON without a leading newline."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    signature_comment = f"\n<!-- think-sig: {signature} -->" if signature else ""
+    if framed:
+        footer = llm_anthropic._thinking_footer(signature, "Next file")
+        signature_comment = f"\n{footer}"
+    content = (
+        '\n@save(call_1): {"path": "a.txt", "content": "x"}'
+        f"<{tag}>\nNext file{signature_comment}\n</{tag}>\n\n"
+        '\n@save(call_2): {"path": "b.txt", "content": "y"}'
+    )
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Save both files"),
+        Message(role="assistant", content=content),
+        Message(role="system", content="Saved a.txt", call_id="call_1"),
+        Message(role="system", content="Saved b.txt", call_id="call_2"),
+        Message(role="user", content="Thanks"),
+    ]
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    calls = [p for p in parts if p["type"] == "tool_use"]
+    assert [p["id"] for p in calls] == ["call_1", "call_2"], parts
+    assert [p["input"] for p in calls] == [
+        {"path": "a.txt", "content": "x"},
+        {"path": "b.txt", "content": "y"},
+    ]
+    assert not any("@save" in p["text"] for p in parts if p["type"] == "text")
+    thinking = [p for p in parts if p["type"] == "thinking"]
+    assert thinking == (
+        [{"type": "thinking", "thinking": "Next file", "signature": signature}]
+        if signature
+        else []
+    )
+
+
 def test_same_line_text_after_tool_call_is_not_parsed_as_call():
     """Text after a call's JSON is mid-line, so a call-like example in it
     stays text instead of becoming a second call."""
