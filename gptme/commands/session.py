@@ -3,6 +3,7 @@ Session management commands: log, undo, edit, rename, fork, delete, exit, restar
 """
 
 import os
+import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -165,14 +166,10 @@ def cmd_delete(ctx: CommandContext) -> None:
     # earlier versions accepted. Only the edges are parsed, so a name that
     # contains a flag keeps it.
     #
-    # The id is never trimmed here. The TUI creates conversation directories
-    # without applying the naming rules (``gptme-tui -n "draft "`` mkdirs the
-    # name as given), so a chat id may legitimately end with whitespace; a
-    # forced delete of ``draft\xa0`` must not trim down to ``draft`` and remove
-    # a different chat. The exact remainder is therefore the first candidate,
-    # and the trimmed forms are only fallbacks — for an ordinary trailing
-    # ``--force`` token (where the whitespace is a separator) and for a stray
-    # trailing space typed next to a real id.
+    # The TUI creates conversation directories without applying the naming
+    # rules (``gptme-tui -n "draft "`` mkdirs the name as given), so a chat id
+    # may legitimately end with whitespace. The exact remainder is therefore the
+    # first candidate; trimmed forms are fallbacks that never skip the prompt.
     candidates = [raw]
     body = raw
     while True:
@@ -191,7 +188,9 @@ def cmd_delete(ctx: CommandContext) -> None:
             break
         if not body:
             break
-    for candidate in (body, body.rstrip()):
+    # Before a consumed trailing flag, one whitespace character is the separator.
+    separated = body[:-1] if body != raw else body
+    for candidate in (separated, body, body.rstrip()):
         if candidate and candidate not in candidates:
             candidates.append(candidate)
     conv_id = next(
@@ -221,10 +220,19 @@ def cmd_delete(ctx: CommandContext) -> None:
         print("   Start a new conversation first, then delete this one.")
         return
 
-    # Confirm deletion unless --force
-    if not force:
+    # --force skips the prompt only when the id is exactly what was typed: the
+    # flags, one separator character next to the id, and the id. An id reached
+    # by trimming whitespace is a guess (``draft\xa0`` -> ``draft``), so ask.
+    flag = r"(?:--force|-f)"
+    typed_exactly = re.fullmatch(
+        rf"(?:\s*(?:{flag}\s+)*{flag}\s)?{re.escape(conv_id)}"
+        rf"(?:\s(?:{flag}\s+)*{flag}\s*)?",
+        ctx.full_args,
+    )
+    if not (force and typed_exactly):
+        # repr() makes a stray or non-breaking space in the id visible
         response = input(
-            f"Delete conversation '{conv_id}'? This cannot be undone. [y/N] "
+            f"Delete conversation {conv_id!r}? This cannot be undone. [y/N] "
         )
         confirmed = response.lower().strip() in ("y", "yes")
         if not confirmed:

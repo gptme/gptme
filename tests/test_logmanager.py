@@ -1953,13 +1953,66 @@ def test_delete_prefers_the_exact_id_over_its_trimmed_form(
     # Only the exact id may be deleted; the trimmed prefix must survive.
     assert (logs / "draft").exists()
 
-    # A stray trailing space next to a real id still resolves to that id.
-    cmd = Message("user", "/delete --force draft ", quiet=True)
+    # With that chat gone, the same command only matches ``draft`` by trimming,
+    # so --force no longer applies: it asks, and "n" keeps the chat.
+    prompts: list[str] = []
+    answers = iter(["n", "y"])
+
+    def answer(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", answer)
+    for line in ("/delete --force draft\u00a0", "/delete --force  draft"):
+        cmd = Message("user", line, quiet=True)
+        manager.append(cmd)
+        execute_cmd(cmd, manager)
+        assert prompts[-1].startswith("Delete conversation 'draft'?")
+        # "n" for the first guess, "y" for the second.
+        assert (logs / "draft").exists() == (len(prompts) == 1)
+    assert len(prompts) == 2
+
+
+@pytest.mark.parametrize(
+    ("line", "deleted"),
+    [
+        ("/delete old --force", "old"),
+        ("/delete old  --force", "old "),
+        ("/delete old --force -f", "old"),
+        ("/delete -f --force old", "old"),
+        ("/delete --force old --force", "old"),
+        ("/delete old --force\n", "old"),
+        ("/delete    --force old", "old"),
+    ],
+)
+def test_delete_force_removes_exactly_the_typed_id(
+    tmp_path: Path, monkeypatch, line: str, deleted: str
+):
+    """One separator belongs to the flag; the rest of the whitespace is the id."""
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    for name in ("old", "old "):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    def no_prompt(prompt: str) -> str:
+        raise AssertionError(f"unexpected prompt: {prompt}")
+
+    monkeypatch.setattr("builtins.input", no_prompt)
+    cmd = Message("user", line, quiet=True)
     manager.append(cmd)
     execute_cmd(cmd, manager)
-    out = capsys.readouterr().out
-    assert "Deleted conversation: draft" in out
-    assert not (logs / "draft").exists()
+
+    assert {p.name for p in logs.iterdir()} == {"current-conv", "old", "old "} - {
+        deleted
+    }
 
 
 def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
