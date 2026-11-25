@@ -10,6 +10,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+from io import FileIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -69,6 +71,50 @@ def _setup_cli_mocks(
         raise chat_raises
 
     monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", _raise)
+
+
+def _provider_error(
+    message: str, *, status_code: int | None = None, response: Any = None
+) -> Exception:
+    attrs: dict[str, Any] = {}
+    if status_code is not None:
+        attrs["status_code"] = status_code
+    if response is not None:
+        attrs["response"] = response
+    exc_cls = type("ProviderError", (Exception,), attrs)
+    return exc_cls(message)
+
+
+def _read_line_with_timeout(proc: subprocess.Popen[str], timeout: float = 15.0) -> str:
+    """Read one stdout line from ``proc`` with a cross-platform deadline."""
+    assert proc.stdout is not None
+    lines: list[str] = []
+
+    def _reader() -> None:
+        assert proc.stdout is not None
+        lines.append(proc.stdout.readline())
+
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if reader.is_alive():
+        proc.kill()
+        _, stderr = proc.communicate(timeout=5)
+        pytest.fail(
+            f"Child process timed out after {timeout}s waiting for readiness: {stderr}"
+        )
+    return lines[0].strip() if lines else ""
+
+
+def _stop_child(proc: subprocess.Popen[str], timeout: float = 5.0) -> None:
+    """Stop a stdin-waiting helper child cleanly, falling back to kill."""
+    if proc.poll() is not None:
+        return
+    try:
+        proc.communicate("\n", timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        proc.kill()
+        proc.wait(timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +301,30 @@ def _setup_cli_mocks(
             "auth_error",
             cli.EXIT_AUTH_ERROR,
         ),
+        # Structured provider status_code / response.status_code attributes
+        (
+            _provider_error("bad token", status_code=401),
+            "auth_error",
+            cli.EXIT_AUTH_ERROR,
+        ),
+        (
+            _provider_error(
+                "HTTP 401 upstream hint",
+                response=SimpleNamespace(status_code=503),
+            ),
+            "model_unavailable",
+            cli.EXIT_MODEL_UNAVAIL,
+        ),
+        (
+            _provider_error("rate limit exceeded", status_code=429),
+            "rate_limit",
+            cli.EXIT_RATE_LIMIT,
+        ),
+        (
+            _provider_error("HTTP 401", status_code=500),
+            "generic",
+            1,
+        ),
     ],
 )
 def test_classify_fatal_error(
@@ -326,6 +396,213 @@ def test_write_terminal_error_missing_logdir_is_silent(tmp_path: Path) -> None:
     logdir = tmp_path / "nonexistent"
     cli._write_terminal_error_to_log(logdir, "generic", 1, "boom")
     # Should complete without raising
+
+
+def test_write_terminal_error_skips_when_lifecycle_lock_held(tmp_path: Path) -> None:
+    """Writer must not race conversation startup before .lock is created."""
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    original_content = '{"role":"user","content":"existing"}\n'
+    log_file.write_text(original_content)
+
+    holder_code = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from gptme.logmanager.locking import conversation_lifecycle_lock\n"
+        "with conversation_lifecycle_lock(Path(sys.argv[1])):\n"
+        "    print('LOCKED', flush=True)\n"
+        "    sys.stdin.readline()\n"
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_code, str(logdir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        ready = _read_line_with_timeout(holder)
+        if ready != "LOCKED":
+            holder.kill()
+            _, stderr = holder.communicate(timeout=5)
+            pytest.fail(f"Lifecycle lock holder failed to start ({ready!r}): {stderr}")
+
+        # No .lock exists yet, simulating failure before LogManager.load.
+        assert not (logdir / ".lock").exists()
+        cli._write_terminal_error_to_log(logdir, "generic", 1, "should not race")
+        assert log_file.read_text() == original_content
+    finally:
+        _stop_child(holder)
+
+    # Once the lifecycle gate is released, writing succeeds.
+    cli._write_terminal_error_to_log(logdir, "generic", 1, "after release")
+    lines = log_file.read_text().strip().splitlines()
+    assert len(lines) == 2
+
+
+def test_write_terminal_error_holds_lifecycle_lock_through_append(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lifecycle lock must stay held across stale-.lock check and append."""
+    from contextlib import contextmanager
+
+    import gptme.logmanager.locking as locking_mod
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    (logdir / ".lock").write_text("999999")
+
+    events: list[str] = []
+    real_lock = locking_mod.conversation_lifecycle_lock
+
+    @contextmanager
+    def _tracking_lifecycle_lock(path: Path, *, blocking: bool = True):
+        events.append(f"enter:{blocking}")
+        with real_lock(path, blocking=blocking):
+            yield
+        events.append("exit")
+
+    monkeypatch.setattr(
+        locking_mod, "conversation_lifecycle_lock", _tracking_lifecycle_lock
+    )
+
+    real_open = open
+
+    def _tracking_open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if Path(file) == log_file and "a" in mode:
+            events.append("append")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", _tracking_open)
+
+    cli._write_terminal_error_to_log(logdir, "generic", 1, "stale lock append")
+    assert events == ["enter:False", "append", "exit"]
+    assert log_file.exists()
+
+
+def test_write_terminal_error_respects_windows_msvcrt_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the Windows _msvcrt locking path on every platform."""
+    from gptme.logmanager import manager as logmanager_mod
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    original_content = '{"role":"user","content":"active"}\n'
+    log_file.write_text(original_content)
+    lockfile = logdir / ".lock"
+    lockfile.write_text(str(os.getpid() + 1))
+    lock_stat = lockfile.stat()
+    lock_id = (lock_stat.st_dev, lock_stat.st_ino)
+
+    calls: list[tuple[tuple[int, int], int]] = []
+    lock_held_by_other = True
+
+    class _FakeMsvcrt:
+        LK_NBLCK = 2
+        LK_UNLCK = 0
+
+        @staticmethod
+        def locking(fd: int, mode: int, nbytes: int) -> None:
+            st = os.fstat(fd)
+            fid = (st.st_dev, st.st_ino)
+            calls.append((fid, mode))
+            if lock_held_by_other and mode == _FakeMsvcrt.LK_NBLCK and fid == lock_id:
+                raise PermissionError("locked by another Windows process")
+
+    monkeypatch.setattr(logmanager_mod, "fcntl", None)
+    monkeypatch.setattr(logmanager_mod, "_msvcrt", _FakeMsvcrt)
+
+    # Held by another Windows process -> must refuse to append.
+    cli._write_terminal_error_to_log(logdir, "generic", 1, "must not write")
+    assert log_file.read_text() == original_content
+    assert any(fid == lock_id and mode == _FakeMsvcrt.LK_NBLCK for fid, mode in calls)
+
+    # Same-process Windows owner in _windows_lock_owners -> must allow append
+    # even when a second handle cannot lock or read byte 0.
+    calls.clear()
+    dummy_fd = FileIO(lockfile, "r+")
+    lock_key = lockfile.resolve()
+    try:
+        with logmanager_mod._windows_lock_owners_guard:
+            logmanager_mod._windows_lock_owners[lock_key] = (
+                logmanager_mod._WindowsLockState(dummy_fd)
+            )
+        cli._write_terminal_error_to_log(logdir, "auth_error", 76, "same-process win")
+        lines = log_file.read_text().strip().splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[1])["metadata"]["error_class"] == "auth_error"
+    finally:
+        with logmanager_mod._windows_lock_owners_guard:
+            logmanager_mod._windows_lock_owners.pop(lock_key, None)
+        dummy_fd.close()
+
+    # Unlocked Windows .lock -> acquires and unlocks both gate and .lock, then writes.
+    calls.clear()
+    lock_held_by_other = False
+    cli._write_terminal_error_to_log(logdir, "rate_limit", 75, "unlocked win")
+    lines = log_file.read_text().strip().splitlines()
+    assert len(lines) == 3
+    assert (lock_id, _FakeMsvcrt.LK_NBLCK) in calls
+    assert (lock_id, _FakeMsvcrt.LK_UNLCK) in calls
+
+
+def test_write_terminal_error_refuses_when_no_locking_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If neither fcntl nor msvcrt is available, fail closed instead of appending."""
+    from gptme.logmanager import manager as logmanager_mod
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    original_content = '{"role":"user","content":"active"}\n'
+    log_file.write_text(original_content)
+    (logdir / ".lock").write_text(str(os.getpid() + 1))
+
+    monkeypatch.setitem(sys.modules, "fcntl", None)
+    monkeypatch.setattr(logmanager_mod, "fcntl", None)
+    monkeypatch.setattr(logmanager_mod, "_msvcrt", None)
+
+    cli._write_terminal_error_to_log(logdir, "generic", 1, "must not write")
+    assert log_file.read_text() == original_content
+
+
+@pytest.mark.parametrize(
+    "raw_lock_bytes",
+    [
+        b"\xff\xfe",  # invalid UTF-8 -> UnicodeDecodeError
+        "²".encode(),  # str.isdigit() is True, int() raises ValueError
+        b"not-a-pid",
+    ],
+)
+def test_write_terminal_error_corrupt_lock_pid_skips_without_raising(
+    tmp_path: Path, raw_lock_bytes: bytes
+) -> None:
+    """Corrupt/unreadable .lock content must skip the write and never mask the error."""
+    from gptme.logmanager import LogManager
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    log_file = logdir / "conversation.jsonl"
+    original_content = '{"role":"user","content":"active"}\n'
+    log_file.write_text(original_content)
+    lockfile = logdir / ".lock"
+    lockfile.write_bytes(raw_lock_bytes)
+
+    holder_fd = FileIO(lockfile, "r+")
+    try:
+        holder_fd.seek(0)
+        LogManager._platform_lock(holder_fd)
+        cli._write_terminal_error_to_log(logdir, "generic", 1, "must not write")
+    finally:
+        LogManager._platform_unlock(holder_fd)
+        holder_fd.close()
+
+    assert log_file.read_text() == original_content
 
 
 # ---------------------------------------------------------------------------
@@ -474,26 +751,28 @@ def test_lock_refusal_with_live_holder_leaves_conversation_log_untouched(
     log_file.write_text(original_content)
 
     holder_code = (
-        "import sys, time; "
+        "import sys; "
         "from pathlib import Path; "
         "from gptme.logmanager import LogManager; "
         "m = LogManager(logdir=Path(sys.argv[1]), lock=True); "
         "print('LOCKED', flush=True); "
-        "time.sleep(30)"
+        "sys.stdin.readline(); "
+        "m._release_lock()"
     )
     holder = subprocess.Popen(
         [sys.executable, "-c", holder_code, str(logdir)],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         env=env,
     )
     try:
-        assert holder.stdout is not None
-        ready = holder.stdout.readline().strip()
-        assert ready == "LOCKED", (
-            f"Lock holder failed to start: {holder.stderr.read() if holder.stderr else ''}"
-        )
+        ready = _read_line_with_timeout(holder)
+        if ready != "LOCKED":
+            holder.kill()
+            _, stderr = holder.communicate(timeout=5)
+            pytest.fail(f"Lock holder failed to start ({ready!r}): {stderr}")
 
         # Direct call to _write_terminal_error_to_log must also respect the live lock.
         cli._write_terminal_error_to_log(logdir, "generic", 1, "should not be written")
@@ -516,10 +795,10 @@ def test_lock_refusal_with_live_holder_leaves_conversation_log_untouched(
             text=True,
             env=env,
             check=False,
+            timeout=30,
         )
         assert proc.returncode == 1, proc.stderr
         assert "Another gptme instance" in proc.stderr
         assert log_file.read_text() == original_content
     finally:
-        holder.terminate()
-        holder.wait(timeout=5)
+        _stop_child(holder)

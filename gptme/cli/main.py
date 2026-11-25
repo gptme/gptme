@@ -1861,10 +1861,15 @@ def _write_terminal_error_to_log(
     ``conversation.jsonl`` that callers inspect for assistant output, instead
     of silently ending the log at the user prompt.
 
-    Refuses to append when another process holds ``logdir/.lock``.
+    Refuses to append when another process holds ``logdir/.lock`` or is
+    currently starting up / cleaning up ``logdir``.
     """
-    log_file = logdir / "conversation.jsonl"
-    if not logdir.exists():
+    from io import FileIO
+
+    from ..logmanager import manager as logmanager_mod
+    from ..logmanager.locking import conversation_lifecycle_lock
+
+    if not logdir.is_dir():
         return
     event = {
         "role": "system",
@@ -1876,44 +1881,48 @@ def _write_terminal_error_to_log(
             "exit_code": exit_code,
         },
     }
-    lock_fd = None
-    locked_here = False
-    fcntl_mod = None
+    log_file = logdir / "conversation.jsonl"
     lockfile = logdir / ".lock"
     try:
-        if lockfile.exists():
+        with conversation_lifecycle_lock(logdir, blocking=False):
+            if not logdir.is_dir():
+                return
+            lock_fd: FileIO | None = None
+            locked_here = False
             try:
-                fcntl_mod = importlib.import_module("fcntl")
-            except ImportError:
-                fcntl_mod = None
-            if fcntl_mod is not None:
-                try:
-                    lock_fd = open(lockfile, "rb")
-                    fcntl_mod.flock(lock_fd, fcntl_mod.LOCK_EX | fcntl_mod.LOCK_NB)
-                    locked_here = True
-                except (BlockingIOError, OSError):
-                    if lock_fd is not None:
-                        lock_fd.close()
-                        lock_fd = None
-                    try:
-                        pid_str = lockfile.read_text().strip()
-                        lock_pid = int(pid_str) if pid_str.isdigit() else None
-                    except OSError:
-                        lock_pid = None
-                    if lock_pid != os.getpid():
-                        return
-        with open(log_file, "a") as f:
-            f.write(json.dumps(event) + "\n")
+                if lockfile.exists():
+                    lock_key = lockfile.resolve()
+                    with logmanager_mod._windows_lock_owners_guard:
+                        owned_by_self = lock_key in logmanager_mod._windows_lock_owners
+                    if not owned_by_self:
+                        try:
+                            lock_fd = FileIO(lockfile, "r+")
+                            lock_fd.seek(0)
+                            logmanager_mod.LogManager._platform_lock(lock_fd)
+                            locked_here = True
+                        except OSError:
+                            if lock_fd is not None:
+                                lock_fd.close()
+                                lock_fd = None
+                            try:
+                                pid_str = lockfile.read_text(encoding="utf-8").strip()
+                                lock_pid = int(pid_str) if pid_str.isdigit() else None
+                            except (OSError, ValueError):
+                                lock_pid = None
+                            if lock_pid != os.getpid():
+                                return
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(event) + "\n")
+            finally:
+                if lock_fd is not None:
+                    if locked_here:
+                        try:
+                            logmanager_mod.LogManager._platform_unlock(lock_fd)
+                        except (OSError, ValueError):
+                            pass
+                    lock_fd.close()
     except OSError:
         pass  # best-effort — don't mask the original failure
-    finally:
-        if lock_fd is not None:
-            if locked_here and fcntl_mod is not None:
-                try:
-                    fcntl_mod.flock(lock_fd, fcntl_mod.LOCK_UN)
-                except OSError:
-                    pass
-            lock_fd.close()
 
 
 def _read_stdin() -> str:
