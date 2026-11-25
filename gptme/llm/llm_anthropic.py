@@ -1231,6 +1231,7 @@ def _stream_with_client(
     from .recovery import reserve_recovery_request  # fmt: skip
 
     saw_message_stop = False
+    stop_reason: str | None = None
     native_pending: list[str] | None = None
     # Whether the current tool_use block streamed any argument JSON; a
     # no-argument call (e.g. ``complete``) may stream none at all.
@@ -1238,7 +1239,7 @@ def _stream_with_client(
 
     def _emit(text: str) -> Generator[str, None, None]:
         # Preserve order after the first native call, withholding executable
-        # syntax until message_stop confirms the message was not truncated.
+        # syntax until message_stop and stop_reason confirm completed tool use.
         if native_pending is not None:
             native_pending.append(text)
         else:
@@ -1357,6 +1358,7 @@ def _stream_with_client(
                         )
                 case "message_delta":
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
+                    stop_reason = chunk.delta.stop_reason
                     # Record usage from message_delta which contains the final/cumulative usage
                     # and capture metadata for message attachment
                     captured_metadata = _record_usage(
@@ -1374,6 +1376,11 @@ def _stream_with_client(
             "Anthropic stream ended without terminal message_stop"
         )
     if native_pending:
+        if stop_reason != "tool_use":
+            raise RemoteProtocolError(
+                f"Anthropic tool stream ended with stop_reason={stop_reason!r}; "
+                "withholding unfinished tool calls"
+            )
         yield "".join(native_pending)
 
     # Return the captured metadata (accessible via StopIteration.value)

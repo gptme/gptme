@@ -9,7 +9,9 @@
 """
 
 import json
+from copy import deepcopy
 from types import SimpleNamespace
+from typing import Any
 
 import anthropic
 import httpx2 as httpx
@@ -39,7 +41,7 @@ EVENTS = [
             "stop_sequence": None,
             "usage": {
                 "input_tokens": 1200,
-                "cache_creation_input_tokens": 0,
+                "cache_creation_input_tokens": 200,
                 "cache_read_input_tokens": 5000,
                 "output_tokens": 1,
             },
@@ -99,7 +101,12 @@ def test_stream_metadata_keeps_message_start_input_tokens(monkeypatch):
     usage = metadata["usage"]
     assert usage["output_tokens"] == 15
     # Input/cache counts from message_start must not be lost.
-    assert usage.get("cache_read_tokens") == 5000, usage
+    assert usage == {
+        "input_tokens": 1200,
+        "output_tokens": 15,
+        "cache_read_tokens": 5000,
+        "cache_creation_tokens": 200,
+    }
 
 
 def test_merge_stream_usage_prefers_delta_values_when_present():
@@ -123,7 +130,7 @@ def test_merge_stream_usage_prefers_delta_values_when_present():
     assert llm_anthropic._merge_stream_usage(None, delta) is delta
 
 
-NOARG_EVENTS = [
+NOARG_EVENTS: list[dict[str, Any]] = [
     {
         "type": "message_start",
         "message": {
@@ -162,12 +169,20 @@ NOARG_EVENTS = [
 ]
 
 
-def test_streamed_no_arg_tool_call_is_parseable(monkeypatch):
+@pytest.mark.parametrize("partial_json", ["", "{}"])
+@pytest.mark.parametrize("stop_reason", ["tool_use", "max_tokens", "end_turn", None])
+def test_streamed_tool_call_requires_tool_use_stop(
+    monkeypatch, partial_json, stop_reason
+):
+    events = deepcopy(NOARG_EVENTS)
+    events[2]["delta"]["partial_json"] = partial_json
+    events[4]["delta"]["stop_reason"] = stop_reason
+
     def handler(request):
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
-            content=_sse(NOARG_EVENTS),
+            content=_sse(events),
         )
 
     client = anthropic.Anthropic(
@@ -177,26 +192,41 @@ def test_streamed_no_arg_tool_call_is_parseable(monkeypatch):
     )
     monkeypatch.setattr(llm_anthropic, "_anthropic", client)
 
-    text = "".join(
-        llm_anthropic.stream(
-            [Message("system", "sys"), Message("user", "you are done")],
-            "claude-sonnet-4-6",
-            None,
-        )
+    gen = llm_anthropic.stream(
+        [Message("system", "sys"), Message("user", "you are done")],
+        "claude-sonnet-4-6",
+        None,
     )
+    parts: list[str] = []
+    if stop_reason != "tool_use":
+        with pytest.raises(httpx.RemoteProtocolError, match="stop_reason"):
+            parts.extend(gen)
+        assert not list(ToolUse.iter_from_content("".join(parts), "tool"))
+        return
+
+    parts.extend(gen)
+    text = "".join(parts)
     calls = list(ToolUse.iter_from_content(text, "tool"))
     assert [(c.tool, c.call_id, c.kwargs) for c in calls] == [
         ("complete", "toolu_01", {})
     ], repr(text)
 
 
-@pytest.mark.parametrize("max_tokens", [300, 800, 1200])
-def test_clamped_thinking_budget_respects_api_minimum(max_tokens):
+@pytest.mark.parametrize(
+    ("max_tokens", "expected"),
+    [
+        (300, None),
+        (800, None),
+        (1200, None),
+        (1279, None),
+        (1280, {"type": "enabled", "budget_tokens": 1024}),
+    ],
+)
+def test_clamped_thinking_budget_respects_api_minimum(max_tokens, expected):
     """A clamped budget below Anthropic's 1024 minimum disables thinking."""
     model = "claude-sonnet-4-5"  # budget_tokens (non-adaptive) thinking
     budget, use_thinking = llm_anthropic._adjust_thinking_budget(
         max_tokens, 16000, True, model
     )
     param = llm_anthropic._build_thinking_param(model, use_thinking, budget)
-    if param is not None and param["type"] == "enabled":
-        assert 1024 <= param["budget_tokens"] < max_tokens, param
+    assert param == expected
