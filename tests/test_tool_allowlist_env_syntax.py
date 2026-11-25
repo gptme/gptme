@@ -7,6 +7,17 @@ import pytest
 from gptme.config import setup_config_from_cli
 
 
+@pytest.fixture(autouse=True)
+def isolate_tool_env(monkeypatch):
+    for key in (
+        "TOOL_ALLOWLIST",
+        "GPTME_TOOL_ALLOWLIST",
+        "TOOL_FORMAT",
+        "GPTME_TOOL_FORMAT",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 @pytest.mark.parametrize(
     ("value", "check"),
     [

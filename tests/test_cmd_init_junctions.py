@@ -81,3 +81,28 @@ def test_force_rejects_mount_point_reparse_tag(tmp_path, monkeypatch):
     assert result.exit_code != 0
     assert "junction directory" in result.output
     assert (tasks / "README.md").read_text() == "preserve me\n"
+
+
+@pytest.mark.parametrize("copy_instructions", [False, True])
+def test_scaffold_uses_utf8_on_legacy_locale(tmp_path, monkeypatch, copy_instructions):
+    """Model Windows' cp1252 default even when tests run on a UTF-8 host."""
+    import io
+
+    original_text_encoding = io.text_encoding
+
+    def legacy_text_encoding(encoding, stacklevel=2):
+        return original_text_encoding(encoding or "cp1252", stacklevel)
+
+    monkeypatch.setattr(io, "text_encoding", legacy_text_encoding)
+    if copy_instructions:
+
+        def no_symlinks(*args, **kwargs):
+            raise OSError("Symlinks unavailable")
+
+        monkeypatch.setattr(Path, "symlink_to", no_symlinks)
+    target = tmp_path / "proj"
+    result = CliRunner().invoke(main, [str(target), "--name", "项目", "--ci"])
+    assert result.exit_code == 0, result.output
+    for filename in ("gptme.toml", "AGENTS.md", "README.md", "CLAUDE.md"):
+        assert "项目" in (target / filename).read_text(encoding="utf-8")
+    assert "backlog → todo" in (target / "tasks/README.md").read_text(encoding="utf-8")

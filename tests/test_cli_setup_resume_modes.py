@@ -27,7 +27,9 @@ def isolate(tmp_path_factory, monkeypatch):
             "MODEL",
             "GPTME_MODEL",
             "TOOL_FORMAT",
+            "GPTME_TOOL_FORMAT",
             "TOOL_ALLOWLIST",
+            "GPTME_TOOL_ALLOWLIST",
             "GPTME_CONTEXT_LENGTH",
         ):
             monkeypatch.delenv(k, raising=False)

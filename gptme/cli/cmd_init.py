@@ -214,7 +214,7 @@ def _create_file(path: Path, content: str, *, target: Path) -> None:
         path.unlink()
     elif path.exists():
         logger.warning("Overwriting existing file: %s", path)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     click.echo(f"  Created {path.relative_to(target)}")
 
 
@@ -318,7 +318,9 @@ def _scaffold_project(
             click.echo(f"  Created {claude_path.name} -> AGENTS.md")
         except OSError:
             # Symlinks may fail on some platforms; copy instead
-            claude_path.write_text(agents_path.read_text())
+            claude_path.write_text(
+                agents_path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
             click.echo(f"  Created {claude_path.name} (copy)")
 
     # Optional: GitHub Actions CI

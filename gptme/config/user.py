@@ -650,6 +650,8 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         runtime_raw = runtime_doc.unwrap()
         if "providers" in runtime_raw:
             _parse_providers(runtime_raw["providers"], strict=True)
+        if "env" in runtime_raw:
+            _stringify_env(_pop_object_section(runtime_raw, "env"))
     writable_keys = set(main_config)
     config = (
         _merge_config_data(runtime_doc.unwrap(), main_config)
@@ -708,7 +710,14 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
             user_identity, about=about, response_preference=resp_pref
         )
 
-    env = _stringify_env(_pop_object_section(config, "env"))
+    env_data = _pop_object_section(config, "env")
+    # A stray compound user/local value must not prevent every invocation
+    # from starting. Runtime defaults were validated strictly before merging.
+    for key, value in list(env_data.items()):
+        if isinstance(value, (dict, list)):
+            logger.warning("env.%s must be a scalar value (skipped)", key)
+            del env_data[key]
+    env = _stringify_env(env_data)
 
     # Parse [mcp] and [[providers]]. Runtime overlays are admin-managed: if
     # config.runtime.toml itself defines mcp/providers, those entries fail
