@@ -578,6 +578,7 @@ def api_conversation_step(conversation_id: str):
         session.interrupted = False
         session.step_seq += 1
         step_seq = session.step_seq
+        SessionManager.clear_pending_continuations(conversation_id, branch=branch)
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -896,6 +897,9 @@ def api_conversation_tool_confirm(conversation_id: str):
             # /interrupt + rerun).
             session.step_seq += 1
             skip_step_seq = session.step_seq
+            SessionManager.clear_pending_continuations(
+                conversation_id, branch=current_tool.branch
+            )
             try:
                 current_tool.status = ToolStatus.SKIPPED
                 session.finish_skill_turn("abandoned")
@@ -1328,6 +1332,7 @@ def api_conversation_interrupt(conversation_id: str):
     interrupted = False
     with SessionManager.conversation_lock(conversation_id):
         has_elicitation = bool(list_pending_elicitations(conversation_id))
+        SessionManager.clear_pending_continuations(conversation_id)
         for sess in SessionManager.get_sessions_for_conversation(conversation_id):
             with sess.step_lock:
                 active = bool(

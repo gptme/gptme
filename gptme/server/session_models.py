@@ -116,6 +116,20 @@ class ToolExecution:
 
 
 @dataclass
+class PendingToolContinuation:
+    """Deferred per-branch tool continuation waiting for the conversation to go idle."""
+
+    session: "ConversationSession"
+    model: str
+    workspace: Path
+    branch: str
+    step_seq: int
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+
+
+@dataclass
 class ConversationSession(BaseSession):
     """Session for a conversation.
 
@@ -334,6 +348,13 @@ class SessionManager:
     # Slash commands may perform slow LLM/tool work outside the conversation lock.
     # This reservation keeps generation and mutations from racing that work.
     _active_commands: set[str] = set()
+    # Deferred per-branch tool continuations waiting for another active session,
+    # tool, or command on the same conversation to finish. Keyed by
+    # conversation_id -> branch so same-branch completions coalesce while
+    # distinct branches keep their follow-up replies.
+    _pending_continuations: dict[str, dict[str, PendingToolContinuation]] = defaultdict(
+        dict
+    )
     _lock = threading.Lock()
     # Captured at server startup / default-model persist so background
     # watch-wake threads can resolve a model without Flask request context
@@ -381,7 +402,10 @@ class SessionManager:
         # stays asleep until the next manual step. Never let a retry failure
         # surface through the command finally-block.
         try:
-            cls.retry_deferred_watch_wakes(conversation_id)
+            from .session_step import _drain_pending_tool_continuations
+
+            if not _drain_pending_tool_continuations(conversation_id):
+                cls.retry_deferred_watch_wakes(conversation_id)
         except Exception:
             logger.warning(
                 "Could not retry deferred watch wakes after command release for %s",
@@ -480,6 +504,59 @@ class SessionManager:
             session._executing_tools
             for session in cls.get_sessions_for_conversation(conversation_id)
         )
+
+    @classmethod
+    def queue_tool_continuation(
+        cls, conversation_id: str, continuation: PendingToolContinuation
+    ) -> None:
+        """Queue a deferred tool continuation for ``continuation.branch``."""
+        with cls._lock:
+            cls._pending_continuations[conversation_id][continuation.branch] = (
+                continuation
+            )
+
+    @classmethod
+    def clear_pending_continuations(
+        cls, conversation_id: str, branch: str | None = None
+    ) -> None:
+        """Drop queued tool continuations for a conversation (or a single branch)."""
+        with cls._lock:
+            if branch is None:
+                cls._pending_continuations.pop(conversation_id, None)
+                return
+            per_branch = cls._pending_continuations.get(conversation_id)
+            if per_branch is not None:
+                per_branch.pop(branch, None)
+                if not per_branch:
+                    cls._pending_continuations.pop(conversation_id, None)
+
+    @classmethod
+    def pop_pending_continuation(
+        cls, conversation_id: str
+    ) -> PendingToolContinuation | None:
+        """Pop the oldest queued per-branch continuation for ``conversation_id``."""
+        with cls._lock:
+            per_branch = cls._pending_continuations.get(conversation_id)
+            if not per_branch:
+                return None
+            branch, continuation = next(iter(per_branch.items()))
+            del per_branch[branch]
+            if not per_branch:
+                cls._pending_continuations.pop(conversation_id, None)
+            return continuation
+
+    @classmethod
+    def _drop_session_pending_continuations_locked(
+        cls, conversation_id: str, session: ConversationSession
+    ) -> None:
+        """Drop queued continuations owned by ``session``; caller holds ``_lock``."""
+        per_branch = cls._pending_continuations.get(conversation_id)
+        if per_branch is None:
+            return
+        for br in [b for b, cont in per_branch.items() if cont.session is session]:
+            del per_branch[br]
+        if not per_branch:
+            cls._pending_continuations.pop(conversation_id, None)
 
     @classmethod
     def add_event(cls, conversation_id: str, event: EventType) -> None:
@@ -940,6 +1017,7 @@ class SessionManager:
                         del cls._conversation_sessions[conversation_id]
 
                 acp_rt = session.acp_runtime
+                cls._drop_session_pending_continuations_locked(conversation_id, session)
                 del cls._sessions[session_id]
                 deferred.append((conversation_id, is_last, acp_rt, session))
 
@@ -1006,6 +1084,7 @@ class SessionManager:
                     del cls._conversation_sessions[conversation_id]
 
             acp_rt = session.acp_runtime
+            cls._drop_session_pending_continuations_locked(conversation_id, session)
             del cls._sessions[session_id]
 
         # Phase 2: outside lock — long-running side-effects
@@ -1069,6 +1148,7 @@ class SessionManager:
                 return
             if conversation_id in cls._active_commands:
                 return
+            cls._pending_continuations.pop(conversation_id, None)
             if logdir is None:
                 logdir = get_logs_dir() / conversation_id
             CostTracker.end_session(session_id_for_logdir(logdir))
