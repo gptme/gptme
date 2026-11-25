@@ -59,6 +59,7 @@ describe('useConversation', () => {
         onReconnectState?: (state: {
           generating: boolean;
           latestUserTimestamp?: string;
+          reconnectAttempt?: number;
           pendingTools: {
             tool_id: string;
             tooluse: { tool: string; content: string };
@@ -491,6 +492,48 @@ describe('useConversation', () => {
     });
     expect(conv$.data.log.get().map((message) => message.content)).not.toContain('stale older');
     expect(conv$.logOffset.get()).toBe(10);
+  });
+
+  it('re-syncs when the first handshake follows a failed connection attempt (#5145)', async () => {
+    // The load succeeded but the first EventSource attempt failed before its
+    // handshake, so events persisted in between are never replayed.
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const resync = primaryClient.resyncLogAfterReconnect as jest.Mock;
+    act(() =>
+      eventHandlers!.onReconnectState!({
+        generating: false,
+        pendingTools: [],
+        reconnectAttempt: 1,
+      })
+    );
+    expect(resync).toHaveBeenCalledTimes(1);
+    expect(resync).toHaveBeenCalledWith('chat-placeholder');
+  });
+
+  it('keeps synthetic notices that share a timestamp but differ in content (#5158)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const timestamp = '2026-11-25T00:00:00.000Z';
+    const notice = (content: string): Message => ({
+      role: 'system',
+      content,
+      timestamp,
+      _synthetic: true,
+    });
+    act(() => {
+      eventHandlers!.onMessageAdded!(notice('subagent A finished'));
+      eventHandlers!.onMessageAdded!(notice('subagent B finished'));
+      // An identical replay (e.g. after a reconnect resync restored the row)
+      // still dedupes.
+      eventHandlers!.onMessageAdded!(notice('subagent A finished'));
+    });
+    const synthetic = conversations$
+      .get('chat-placeholder')!
+      .data.log.get()
+      .filter((message) => message._synthetic)
+      .map((message) => message.content);
+    expect(synthetic).toEqual(['subagent A finished', 'subagent B finished']);
   });
 
   it('re-syncs on the first handshake when re-subscribing a cached conversation (#5145)', async () => {

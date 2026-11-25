@@ -59,7 +59,11 @@ describe('resyncLogAfterReconnect (#5145)', () => {
 
     await client.resyncLogAfterReconnect(ID);
 
-    expect(get).toHaveBeenCalledWith(ID, { limit: 50 }, { detached: true });
+    expect(get).toHaveBeenCalledWith(
+      ID,
+      { limit: 50 },
+      expect.objectContaining({ detached: true, signal: expect.any(AbortSignal) })
+    );
     expect(state().data.log.get()).toEqual([user, reply, toolOutput]);
   });
 
@@ -344,6 +348,19 @@ describe('mergeReconnectSnapshot', () => {
     expect(log).toEqual([user, { ...reply, timestamp: partial.timestamp }]);
   });
 
+  it('drops a partial whose saved reply the server already finished', () => {
+    // The reply finished and a tool ran during the outage, so the server is
+    // generating a later message whose `generation_started` is never replayed.
+    // Folding the stale prefix into the finished reply would hand it the
+    // stream's timestamp and let the new reply overwrite it.
+    const partial = { ...streaming, content: 'Hel' };
+    const { log } = mergeReconnectSnapshot([user, partial], [user, reply, toolOutput], {
+      ...opts,
+      generating: true,
+    });
+    expect(log).toEqual([user, reply, toolOutput]);
+  });
+
   it('keeps client-synthesized rows the server never stores', () => {
     const notice: Message = {
       role: 'system',
@@ -426,6 +443,47 @@ describe('resyncLogAfterReconnect in-flight races (#5145)', () => {
     await resync;
 
     expect(state().data.log.get()).toEqual([user, completed]);
+  });
+
+  it('cancels a stalled history request instead of blocking later reconnects', async () => {
+    replaceLog(ID, [user, streaming]);
+    setGenerating(ID, false);
+    let calls = 0;
+    const get = jest
+      .spyOn(client, 'getConversation')
+      .mockImplementation(
+        (
+          _logfile: string,
+          _params?: { limit?: number; before?: number },
+          options?: { detached?: boolean; signal?: AbortSignal }
+        ) => {
+          calls += 1;
+          if (calls === 1) {
+            // Stalls forever unless the resync's own controller cancels it.
+            return new Promise((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () =>
+                reject(new DOMException('aborted', 'AbortError'))
+              );
+            });
+          }
+          return Promise.resolve(response([user, reply]));
+        }
+      );
+
+    jest.useFakeTimers();
+    try {
+      const resync = client.resyncLogAfterReconnect(ID);
+      // A reconnect while the first request is stalled queues a rerun behind it.
+      const queued = client.resyncLogAfterReconnect(ID);
+      await jest.advanceTimersByTimeAsync(60_000);
+      await resync;
+      await queued;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(state().data.log.get()).toEqual([user, reply]);
   });
 
   it('drops an attachment removed while the stream was down', async () => {

@@ -547,9 +547,19 @@ export function useConversation(conversationId: string, serverId?: string) {
             onMessageAdded: (message) => {
               // A reconnect resync may already have restored this saved row,
               // possibly followed by later rows: match by identity across the log.
+              // Timestamp-only identity is too coarse for client-synthesized
+              // notices (e.g. two subagents finishing in the same millisecond
+              // share role and timestamp), so those must also match content.
               const messages$ = conversation$?.data.log;
               const log = (messages$?.peek() ?? []) as Message[];
-              if (log.some((entry) => sameLogMessage(entry, message))) {
+              if (
+                log.some(
+                  (entry) =>
+                    sameLogMessage(entry, message) &&
+                    (!message._synthetic ||
+                      (entry._synthetic === true && entry.content === message.content))
+                )
+              ) {
                 return;
               }
               // Check if this message already exists (ignoring timestamp)
@@ -901,7 +911,10 @@ export function useConversation(conversationId: string, serverId?: string) {
               // The server starts a reconnected stream at its current event
               // count, so anything persisted during the outage is never
               // replayed. Re-fetch the log to recover it (#5145).
-              if (handshakes++ > 0) {
+              // A retried first attempt is a reconnect too: the handshake can
+              // arrive long after the load, so events persisted in between are
+              // missing even though this page never saw an earlier handshake.
+              if (handshakes++ > 0 || (state.reconnectAttempt ?? 0) > 0) {
                 api.resyncLogAfterReconnect(conversationId).catch((error) => {
                   console.warn('[useConversation] Failed to re-sync log after reconnect:', error);
                 });

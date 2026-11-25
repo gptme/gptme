@@ -151,6 +151,13 @@ interface LogResync {
 const RECONNECT_RESYNC_LIMIT = 50;
 
 /**
+ * Deadline for the reconnect resync's history request. A stalled server or
+ * proxy must not hold the recovery (and every later reconnect queued behind
+ * it) open indefinitely; the next reconnect retries the resync.
+ */
+const RECONNECT_RESYNC_TIMEOUT_MS = 10_000;
+
+/**
  * Merge a fresh server window into the local log after an event-stream
  * reconnect. Messages persisted while the stream was down are never replayed
  * (the server starts the new stream at its current event count), so the
@@ -167,8 +174,11 @@ const RECONNECT_RESYNC_LIMIT = 50;
  *   prompts or the last `arrivedCount` rows, which arrived over the new stream
  *   while the request was in flight. An incomplete assistant survives only
  *   while generation is still running; otherwise the server has finished (or
- *   dropped) it. Any other absent complete row was deleted by another client
- *   and is dropped rather than resurrected at a fabricated position.
+ *   dropped) it. An incomplete partial whose saved reply the server already
+ *   finished (a later row follows it) is dropped: the server moved on, and
+ *   keeping the prefix would show the reply twice. Any other absent complete
+ *   row was deleted by another client and is dropped rather than resurrected
+ *   at a fabricated position.
  */
 export function mergeReconnectSnapshot(
   local: Message[],
@@ -197,8 +207,18 @@ export function mergeReconnectSnapshot(
   // Pair the partial with that row so it keeps the stream's identity instead
   // of surviving next to it and being completed into a duplicate.
   const folded = new Map<number, Message>();
+  // A partial whose saved copy the server already finished and moved past: a
+  // tool ran (or a later turn was written) after it, so the local copy is a
+  // stale prefix and keeping it would show the reply twice.
+  const superseded = new Set<Message>();
   if (options.generating) {
     const lastAssistant = snapshot.map((entry) => entry.role).lastIndexOf('assistant');
+    // Only the tail can be the reply the server is still writing. Anything
+    // after the saved assistant means it is complete and generation moved on
+    // to a new message, which the resync does not observe (`generation_started`
+    // for it is not replayed), so folding would hand the partial's timestamp to
+    // a finished row and let the new reply's tokens overwrite it.
+    const isTail = lastAssistant === snapshot.length - 1;
     local.forEach((entry, index) => {
       if (lastAssistant < 0 || entry.role !== 'assistant' || !isIncomplete(entry)) return;
       if (snapshot.some((saved) => matches(entry, saved))) return;
@@ -208,7 +228,9 @@ export function mergeReconnectSnapshot(
       // The saved reply must come after the row the partial followed locally.
       const before = index > 0 ? snapshot.findIndex((row) => matches(local[index - 1], row)) : -1;
       if (index > 0 && before < 0) return;
-      if (before < lastAssistant) folded.set(lastAssistant, entry);
+      if (before >= lastAssistant) return;
+      if (isTail) folded.set(lastAssistant, entry);
+      else superseded.add(entry);
     });
   }
   const foldedRows = new Set(folded.values());
@@ -251,6 +273,7 @@ export function mergeReconnectSnapshot(
   const startFloor = startRows ? local.findIndex((entry) => startRows.has(entry)) : -1;
   const survives = (entry: Message, index: number) =>
     !inSnapshot(entry) &&
+    !superseded.has(entry) &&
     (options.generating || !isIncomplete(entry)) &&
     (entry._status === 'pending' ||
       entry._status === 'failed' ||
@@ -664,6 +687,9 @@ export class ApiClient {
   // `epoch` is bumped by closeEventStream: a request started under an older
   // epoch no longer owns the conversation (it may now be open on another server).
   private logResyncs = new Map<string, LogResync>();
+  // In-flight resync requests, so closeEventStream can cancel one whose stream
+  // is gone instead of letting it run to its own deadline.
+  private logResyncAborts = new Map<string, AbortController>();
   private eventCallbacks = new Map<string, Parameters<ApiClient['subscribeToEvents']>[1]>();
   // Slow background retries for streams whose fast reconnect budget ran out.
   private deadStreamRetries = new Map<string, { attempt: number; timer?: number }>();
@@ -763,9 +789,13 @@ export class ApiClient {
     const dead = this.deadStreamRetries.get(conversationId);
     if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
     console.log(`[ApiClient] Re-opening event stream for ${conversationId}`);
-    this.subscribeToEvents(conversationId, callbacks, 0).catch((err) => {
-      console.error('[ApiClient] Re-opening event stream failed:', err);
-    });
+    // A revived stream is never the first attempt: the handshake must tell the
+    // consumer that events may have been lost meanwhile.
+    this.subscribeToEvents(conversationId, callbacks, Math.max(1, dead?.attempt ?? 1)).catch(
+      (err) => {
+        console.error('[ApiClient] Re-opening event stream failed:', err);
+      }
+    );
     return true;
   }
 
@@ -1267,6 +1297,11 @@ export class ApiClient {
       onReconnectState?: (state: {
         generating: boolean;
         latestUserTimestamp?: string;
+        /** Connection attempts made before this handshake (0 = first try).
+         *  A non-zero value means events may have been lost between the
+         *  initial load and the handshake, even though it is the first
+         *  handshake this page sees. */
+        reconnectAttempt?: number;
         pendingTools: Array<{
           tool_id: string;
           tooluse: ToolUse;
@@ -1573,6 +1608,7 @@ export class ApiClient {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
                 latestUserTimestamp: data.latest_user_timestamp ?? undefined,
+                reconnectAttempt,
                 pendingTools: data.pending_tools ?? [],
                 // Absent on servers that predate the replay: leave state alone.
                 pendingElicitations: Array.isArray(data.pending_elicitations)
@@ -1727,6 +1763,7 @@ export class ApiClient {
       resync.rerun = false;
       resync.epoch += 1;
     }
+    this.logResyncAborts.get(conversationId)?.abort();
     const dead = this.deadStreamRetries.get(conversationId);
     if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
     this.deadStreamRetries.delete(conversationId);
@@ -1854,7 +1891,7 @@ export class ApiClient {
   async getConversation(
     logfile: string,
     params?: { limit?: number; before?: number },
-    options?: { detached?: boolean }
+    options?: { detached?: boolean; signal?: AbortSignal }
   ): Promise<ConversationResponse> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
@@ -1868,9 +1905,11 @@ export class ApiClient {
         url = `${url}?${qs.toString()}`;
       }
       // A detached request (the reconnect resync) must not share the last
-      // step()'s controller: the next step() aborts it first thing.
+      // step()'s controller: the next step() aborts it first thing. It passes
+      // its own signal instead, so a stalled history request cannot outlive
+      // the recovery attempt (see resyncLogOnce).
       const response = await this.fetchJson<ConversationResponse>(url, {
-        signal: options?.detached ? undefined : this.controller?.signal,
+        signal: options?.signal ?? (options?.detached ? undefined : this.controller?.signal),
       });
       return response;
     } catch (error) {
@@ -2059,11 +2098,29 @@ export class ApiClient {
     const lengthAtStart = logAtStart.length;
     const pendingAtStart = logAtStart.filter((message) => message._status === 'pending');
     const offsetAtStart = state.logOffset.peek();
-    const data = await this.getConversation(
-      conversationId,
-      { limit: RECONNECT_RESYNC_LIMIT },
-      { detached: true }
-    );
+    // The resync has its own cancellation, independent of `step()`: a stalled
+    // history request would otherwise block every later reconnect (they wait
+    // on this promise) and keep its result applied after the stream closed.
+    const abort = new AbortController();
+    this.logResyncAborts.set(conversationId, abort);
+    const timeout = setTimeout(() => abort.abort(), RECONNECT_RESYNC_TIMEOUT_MS);
+    let data: ConversationResponse;
+    try {
+      data = await this.getConversation(
+        conversationId,
+        { limit: RECONNECT_RESYNC_LIMIT },
+        { detached: true, signal: abort.signal }
+      );
+    } catch (error) {
+      // A cancelled attempt recovers nothing; the next reconnect retries it.
+      if (abort.signal.aborted) return;
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      if (this.logResyncAborts.get(conversationId) === abort) {
+        this.logResyncAborts.delete(conversationId);
+      }
+    }
     if (
       entry.epoch !== epoch ||
       !state.peek() ||
