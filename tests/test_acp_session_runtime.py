@@ -1388,10 +1388,21 @@ def test_runtime_cancelled_sync_close_uses_process_fallback(monkeypatch, tmp_pat
     _run(runtime.start())
     loop_thread = runtime._loop_thread
     errors = []
+    close_futures = []
+    submit = asyncio.run_coroutine_threadsafe
+
+    def track_close(coro, loop):
+        future = submit(coro, loop)
+        close_futures.append(future)
+        return future
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", track_close)
 
     def terminate():
         try:
-            runtime.terminate_subprocess_sync(timeout=5)
+            # Longer than the test's entire deadline: timeout must not be what
+            # releases this thread after the runtime loop is stopped.
+            runtime.terminate_subprocess_sync(timeout=60)
         except BaseException as exc:
             errors.append(exc)
 
@@ -1407,6 +1418,8 @@ def test_runtime_cancelled_sync_close_uses_process_fallback(monkeypatch, tmp_pat
     assert not thread.is_alive()
     assert loop_thread is not None and not loop_thread.is_alive()
     assert errors == []
+    assert len(close_futures) == 1
+    assert close_futures[0].cancelled()
     assert fallback == [_BlockingCloseClient._process]
     assert runtime._client is None
     assert runtime.session_id is None
