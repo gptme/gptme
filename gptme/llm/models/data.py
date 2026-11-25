@@ -393,24 +393,11 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "diff",
         },
         "gemini-2.5-pro": {
-            # https://ai.google.dev/gemini-api/docs/pricing (verified 2026-11-24):
-            # $1.25/$10 up to a 200k-token prompt, $2.50/$15 above it, cache
-            # $0.125/$0.25. Deprecated: from 2026-12-01 requests route to
-            # gemini-3.8-flash at Flash rates, so the tier only applies before that.
-            "deprecated": True,
             "context": 1_048_576,
             "max_output": 65_536,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
             "price_input": 1.25,
             "price_output": 10,
-            "price_cache_read": 0.125,
-            "price_tiers": (
-                PriceTier(
-                    min_prompt_tokens=200_000,
-                    price_input=2.5,
-                    price_output=15,
-                    price_cache_read=0.25,
-                ),
-            ),
             "supports_vision": True,
             "supports_reasoning": True,
             "preferred_edit_format": "diff",

@@ -906,15 +906,3 @@ def test_gpt4o_alias_prices_match_published_rates():
     assert meta.price_input == pytest.approx(2.5)
     assert meta.price_output == pytest.approx(10)
     assert meta.max_output == 16_384
-
-
-def test_gemini_25_pro_long_context_prices_use_tiers():
-    """gemini-2.5-pro bills >200k-token prompts at 2x input / 1.5x output.
-
-    Google's pricing page (verified 2026-11-24): $1.25/$10 up to 200k prompt
-    tokens, $2.50/$15 above it, with cache $0.125/$0.25. The old flat entries
-    under-charged long-context calls.
-    """
-    meta = get_model("gemini/gemini-2.5-pro")
-    assert meta.effective_prices(100_000) == pytest.approx((1.25, 10.0, 0.125))
-    assert meta.effective_prices(200_001) == pytest.approx((2.5, 15.0, 0.25))
