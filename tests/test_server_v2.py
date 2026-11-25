@@ -6441,6 +6441,46 @@ def test_v2_conversation_config_patch_duplicate_server_names_keep_own_secrets(
     assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
 
 
+@pytest.mark.parametrize("credential_field", ["env", "headers"])
+@pytest.mark.parametrize("other_key", [None, "OTHER_TOKEN"])
+def test_v2_conversation_config_patch_duplicate_credential_keys_allow_rename(
+    client: FlaskClient, credential_field, other_key
+):
+    """Secret key names distinguish otherwise identical same-name servers."""
+    from gptme.config.models import MCPServerConfig
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+    config = ChatConfig.from_logdir(logdir)
+    assert config.mcp is not None
+    config.mcp.servers = [
+        MCPServerConfig(name="dup", command="uvx"),
+        MCPServerConfig(name="dup", command="uvx"),
+    ]
+    setattr(config.mcp.servers[0], credential_field, {"API_KEY": "first"})
+    setattr(
+        config.mcp.servers[1],
+        credential_field,
+        {other_key: "second"} if other_key else {},
+    )
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["chat"]["name"] = "renamed"
+    data["mcp"]["servers"].reverse()
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.name == "renamed"
+    assert stored.mcp is not None
+    assert [getattr(s, credential_field) for s in stored.mcp.servers] == [
+        {other_key: "second"} if other_key else {},
+        {"API_KEY": "first"},
+    ]
+
+
 def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
     client: FlaskClient,
 ):

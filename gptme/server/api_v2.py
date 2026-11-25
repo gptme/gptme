@@ -681,9 +681,13 @@ def _mcp_server_signature(server: dict | object) -> tuple:
             return ()
         return tuple(
             sorted(
-                (str(key), str(value))
+                (
+                    str(key),
+                    _REDACT_SENTINEL
+                    if _MCP_SECRET_KEY_RE.search(str(key))
+                    else str(value),
+                )
                 for key, value in values.items()
-                if not _MCP_SECRET_KEY_RE.search(str(key))
             )
         )
 
