@@ -45,3 +45,25 @@ def test_valid_unicode_identifiers() -> None:
         response, status = result
         assert status == 400
         assert response.get_json() == {"error": "branch name too long"}
+
+
+def test_non_breaking_space_is_a_legal_name_and_lookup() -> None:
+    """A TUI-created chat with a non-breaking space must stay readable.
+
+    ``str.isprintable()`` is False for U+00A0, but it is a legal filename
+    character, so both naming and lookup validation must accept it.
+    """
+    from gptme.util.conversation_ids import conversation_id_lookup_error
+
+    name = "draft\u00a0notes"
+    assert conversation_id_error(name) is None
+    assert conversation_id_lookup_error(name) is None
+
+
+@pytest.mark.parametrize("name", ["bad\x00name", "zero\u200bwidth"])
+def test_control_and_invisible_format_characters_still_rejected(name: str) -> None:
+    """Only space separators were relaxing the rule, not control/format chars."""
+    from gptme.util.conversation_ids import conversation_id_lookup_error
+
+    assert conversation_id_error(name) is not None
+    assert conversation_id_lookup_error(name) is not None

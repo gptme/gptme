@@ -1825,3 +1825,28 @@ def test_get_conversation_meta_direct_finds_names_with_embedded_dots(
     assert meta.id == "draft..notes"
 
 
+def test_get_conversation_meta_direct_finds_names_with_non_breaking_space(
+    tmp_path: Path,
+):
+    """A TUI-created chat with U+00A0 in its name is readable by id.
+
+    Regression: ``str.isprintable()`` is False for non-breaking space, so the
+    lookup rule hid the conversation from ``chats read`` even though the TUI
+    could create and list it.
+    """
+    from gptme.logmanager.conversations import get_conversation_meta_direct
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    conv_id = "draft\u00a0notes"
+    logdir = logs / conv_id
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+
+    meta = get_conversation_meta_direct(conv_id, logs_dir=logs)
+    assert meta is not None
+    assert meta.id == conv_id
+
+
