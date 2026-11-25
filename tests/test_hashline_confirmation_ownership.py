@@ -1,5 +1,6 @@
 """Run the actual writer across the user-confirmation boundary."""
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,14 @@ from gptme.tools._hashline_snapshot import (
     store_snapshot,
 )
 from gptme.tools.hashline_edit import execute_hashline_edit
+
+# The hashline writer now goes through write_text_preserving_original, which
+# refuses to replace an existing file on macOS (ACLs) and Windows (security
+# descriptors), like save/patch/morph (#4622). Every test here replaces a file.
+pytestmark = pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="atomic writer refuses ACL platforms",
+)
 
 
 @pytest.mark.parametrize(

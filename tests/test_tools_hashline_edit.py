@@ -34,6 +34,15 @@ from gptme.tools.hashline_edit import (
 )
 from gptme.tools.read import _read_text_bounded, execute_read
 
+# The hashline writer goes through write_text_preserving_original, which refuses
+# to replace an existing file on macOS (ACLs) and Windows (security descriptors),
+# like save/patch/morph (#4622). Tests that only exercise pure parsing/apply
+# logic stay unmarked; every test that drives a write is skipped there.
+skip_if_replacement_refused = pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="atomic writer refuses ACL platforms",
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -212,6 +221,17 @@ class TestApplyOperations:
         content = "a\nb\nc\nd\n"
         ops = [HashlineOp(kind="replace", start=2, end=3, text="X\nY")]
         assert _apply_operations(content, ops) == "a\nX\nY\nd\n"
+
+    def test_replace_inherits_terminator_of_last_replaced_line(self):
+        """A replace keeps the physical terminator of the line it replaces.
+
+        ``str.splitlines()`` treats a lone ``\r`` as a line break, so a CR inside
+        a string literal is its own physical line. Substituting ``\n`` there
+        would turn ``bar = "a\rb"`` into two LF lines and corrupt the literal.
+        """
+        content = 'bar = "a\rb"\n'
+        ops = [HashlineOp(kind="replace", start=1, end=1, text='bar = "c')]
+        assert _apply_operations(content, ops) == 'bar = "c\rb"\n'
 
     def test_insert_before(self):
         content = "alpha\nbeta\n"
@@ -540,6 +560,7 @@ class TestRegisterOperations:
 
     # ---- Full execution tests ----
 
+    @skip_if_replacement_refused
     def test_execute_cut_capture_and_paste(self, tmp_path: Path):
         """End-to-end: CUT @fn to capture function, PUT >N @fn to paste at end."""
         f = tmp_path / "module.txt"
@@ -552,6 +573,7 @@ class TestRegisterOperations:
         # The function should be moved after the footer
         assert result == "# header\n# footer\ndef foo():\n    pass\n"
 
+    @skip_if_replacement_refused
     def test_execute_paste_before_register(self, tmp_path: Path):
         """End-to-end: CUT @r followed by PUT <N @r (paste before)."""
         f = tmp_path / "f.txt"
@@ -696,6 +718,7 @@ class TestMutationAdmission:
 
 
 class TestExecuteHashlineEdit:
+    @skip_if_replacement_refused
     def test_basic_replace(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\ngamma\n")
@@ -706,6 +729,7 @@ class TestExecuteHashlineEdit:
         assert f.read_text() == "alpha\nBETA\ngamma\n"
 
     @pytest.mark.parametrize("eol", [b"\n", b"\r\n"])
+    @skip_if_replacement_refused
     def test_preserves_line_endings(self, tmp_path: Path, eol: bytes):
         f = tmp_path / "f.txt"
         f.write_bytes(eol.join([b"alpha", b"beta", b"gamma", b""]))
@@ -716,6 +740,7 @@ class TestExecuteHashlineEdit:
         assert f.read_bytes() == eol.join([b"alpha", b"BETA", b"gamma", b""])
 
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    @skip_if_replacement_refused
     def test_preserves_file_mode(self, tmp_path: Path):
         f = tmp_path / "run.sh"
         f.write_text("#!/bin/sh\necho a\n")
@@ -727,6 +752,7 @@ class TestExecuteHashlineEdit:
         assert f.read_text() == "#!/bin/sh\necho b\n"
         assert stat.S_IMODE(f.stat().st_mode) == 0o755
 
+    @skip_if_replacement_refused
     def test_tag_mismatch_rejected(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\n")
@@ -737,6 +763,7 @@ class TestExecuteHashlineEdit:
         assert "mismatch" in msgs[0].lower() or "snapshot" in msgs[0].lower()
         assert f.read_text() == "alpha\nbeta\n"
 
+    @skip_if_replacement_refused
     def test_no_snapshot_rejected(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\n")
@@ -746,6 +773,7 @@ class TestExecuteHashlineEdit:
         assert "no snapshot" in msgs[0].lower()
         assert f.read_text() == "alpha\n"
 
+    @skip_if_replacement_refused
     def test_insert_before(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\n")
@@ -754,6 +782,7 @@ class TestExecuteHashlineEdit:
         _msgs(execute_hashline_edit(block, [str(f)], None))
         assert f.read_text() == "zero\nalpha\nbeta\n"
 
+    @skip_if_replacement_refused
     def test_insert_after(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\n")
@@ -762,6 +791,7 @@ class TestExecuteHashlineEdit:
         _msgs(execute_hashline_edit(block, [str(f)], None))
         assert f.read_text() == "alpha\none-half\nbeta\n"
 
+    @skip_if_replacement_refused
     def test_cut_delete(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\ngamma\n")
@@ -770,6 +800,7 @@ class TestExecuteHashlineEdit:
         _msgs(execute_hashline_edit(block, [str(f)], None))
         assert f.read_text() == "alpha\ngamma\n"
 
+    @skip_if_replacement_refused
     def test_multiple_ops(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("a\nb\nc\nd\n")
@@ -778,6 +809,7 @@ class TestExecuteHashlineEdit:
         _msgs(execute_hashline_edit(block, [str(f)], None))
         assert f.read_text() == "A\nb\nd\n"
 
+    @skip_if_replacement_refused
     def test_snapshot_updated_after_edit(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\n")
@@ -789,16 +821,19 @@ class TestExecuteHashlineEdit:
         expected_tag = compute_tag(f.read_text())
         assert new_tag == expected_tag
 
+    @skip_if_replacement_refused
     def test_no_path_error(self):
         msgs = _msgs(execute_hashline_edit("[f.py#A1B2C3D4]\nCUT 1.=1\n", None, None))
         assert "no path" in msgs[0].lower()
 
+    @skip_if_replacement_refused
     def test_empty_block_error(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("hello\n")
         msgs = _msgs(execute_hashline_edit("", [str(f)], None))
         assert "empty" in msgs[0].lower()
 
+    @skip_if_replacement_refused
     def test_nonexistent_file(self, tmp_path: Path):
         f = tmp_path / "nope.txt"
         msgs = _msgs(
@@ -806,6 +841,7 @@ class TestExecuteHashlineEdit:
         )
         assert "not found" in msgs[0].lower()
 
+    @skip_if_replacement_refused
     def test_no_ops_error(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("hello\n")
@@ -814,6 +850,7 @@ class TestExecuteHashlineEdit:
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
         assert "no operations" in msgs[0].lower()
 
+    @skip_if_replacement_refused
     def test_kwargs_path(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("hello\n")
@@ -823,6 +860,7 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower()
         assert f.read_text() == "world\n"
 
+    @skip_if_replacement_refused
     def test_native_kwargs_edit(self, tmp_path: Path):
         """A native tool call carries the edit block as a kwarg, with no code."""
         f = tmp_path / "f.txt"
@@ -833,6 +871,7 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower(), msgs
         assert f.read_text() == "world\n"
 
+    @skip_if_replacement_refused
     def test_insert_into_empty_file(self, tmp_path: Path):
         """PUT <1: should work on an empty file (P2 fix: empty-file insertion)."""
         f = tmp_path / "empty.txt"
@@ -843,6 +882,7 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower(), msgs
         assert f.read_text() == "first line"
 
+    @skip_if_replacement_refused
     def test_confirmation_edit_uses_edited_content(self, tmp_path: Path):
         """When confirmation hook returns EDIT, the edited content is written (P1 fix)."""
         from unittest.mock import patch
@@ -862,6 +902,7 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower(), msgs
         assert f.read_text() == edited
 
+    @skip_if_replacement_refused
     def test_live_file_changed_after_snapshot(self, tmp_path: Path):
         """Phase 2: clean 3-way merge when file changed externally since read."""
         f = tmp_path / "f.txt"
@@ -879,6 +920,7 @@ class TestExecuteHashlineEdit:
         # Merged result preserves both the edit and the external change
         assert f.read_text() == "ALPHA\nbeta\nextra-line\n"
 
+    @skip_if_replacement_refused
     def test_content_mismatch_via_merge_recovery(self, tmp_path: Path):
         """Phase 2: content mismatch triggers merge; non-conflicting result is written.
 
@@ -940,6 +982,7 @@ class TestReadIntegration:
         expected_tag = compute_tag(content)
         assert f"#{expected_tag}]" in msgs[0].content
 
+    @skip_if_replacement_refused
     def test_read_then_edit_roundtrip(self, tmp_path: Path):
         f = tmp_path / "greet.py"
         f.write_text("def greet(name):\n    msg = 'Hello, ' + name\n    print(msg)\n")
@@ -1297,6 +1340,7 @@ class TestBlockReplace:
         result = _apply_operations(content, ops)
         assert result == "x = 99\ny = 2\n"
 
+    @skip_if_replacement_refused
     def test_execute_put_block(self, tmp_path: Path):
         f = tmp_path / "example.py"
         f.write_text(
@@ -1364,6 +1408,7 @@ class TestBlockReplace:
 class TestMergeRecovery:
     """Phase 2: 3-way merge when the live file changed since the snapshot."""
 
+    @skip_if_replacement_refused
     def test_clean_merge_preserves_concurrent_change(self, tmp_path: Path):
         """Non-conflicting external change is preserved alongside the model's edit."""
         f = tmp_path / "code.py"
@@ -1381,6 +1426,7 @@ class TestMergeRecovery:
         assert "return 'foo'" in result  # our edit applied
         assert "return 1" in result  # external change preserved
 
+    @skip_if_replacement_refused
     def test_conflicting_merge_reports_markers(self, tmp_path: Path):
         """When both sides edit the same lines, conflict markers are reported."""
         f = tmp_path / "conflict.txt"
@@ -1397,6 +1443,7 @@ class TestMergeRecovery:
         # File is left unchanged so the user can resolve manually
         assert f.read_text() == "EXTERNAL_CHANGE\nline2\n"
 
+    @skip_if_replacement_refused
     def test_merge_recovery_note_absent_on_clean_apply(self, tmp_path: Path):
         """When file is unchanged, success message has no merge-recovery note."""
         f = tmp_path / "f.txt"
@@ -1407,6 +1454,7 @@ class TestMergeRecovery:
         assert "applied" in msgs[0].lower(), msgs
         assert "3-way merge" not in msgs[0].lower()
 
+    @skip_if_replacement_refused
     def test_merge_snapshot_updated_after_recovery(self, tmp_path: Path):
         """After a successful merge recovery, the snapshot reflects the new content."""
         f = tmp_path / "f.txt"
@@ -1426,6 +1474,7 @@ class TestMergeRecovery:
 
         assert new_tag == compute_tag(new_content)
 
+    @skip_if_replacement_refused
     def test_merge_invokes_git_via_resolved_path(self, tmp_path: Path):
         """merge-file must run git through GIT_CMD, not a bare "git" that
         CreateProcess would resolve against the (workspace) CWD on Windows.
@@ -1456,6 +1505,7 @@ class TestMergeRecovery:
         assert merge_cmds, seen
         assert merge_cmds[0][0] == GIT_CMD
 
+    @skip_if_replacement_refused
     def test_operational_merge_failure_high_exit_code(self, tmp_path: Path):
         """git merge-file returning exit > 127 is reported as an operational error."""
         from subprocess import CompletedProcess
@@ -1486,6 +1536,7 @@ class TestMergeRecovery:
             msgs
         )
 
+    @skip_if_replacement_refused
     def test_conflict_with_stderr_warning_shows_markers(self, tmp_path: Path):
         """A real conflict that also emits a warning to stderr shows conflict markers, not an error."""
         from subprocess import CompletedProcess
@@ -1519,6 +1570,7 @@ class TestMergeRecovery:
         # File should be left untouched so the user can resolve.
         assert f.read_text() == "alpha\nbeta\nextra\n"
 
+    @skip_if_replacement_refused
     def test_git_not_found_raises_informative_error(self, tmp_path: Path):
         """FileNotFoundError from git being absent surfaces a clear diagnostic, not a traceback."""
         from unittest.mock import patch
@@ -1539,6 +1591,7 @@ class TestMergeRecovery:
         # File must be left untouched.
         assert f.read_text() == "alpha\nbeta\nextra\n"
 
+    @skip_if_replacement_refused
     def test_signal_killed_git_is_treated_as_error(self, tmp_path: Path):
         """git merge-file killed by a signal (negative returncode) must not write partial output."""
         from subprocess import CompletedProcess
@@ -1570,6 +1623,7 @@ class TestMergeRecovery:
         # File must be left untouched.
         assert f.read_text() == "alpha\nbeta\nextra\n"
 
+    @skip_if_replacement_refused
     def test_edit_confirmation_race_aborts_on_concurrent_change(self, tmp_path: Path):
         """EDIT confirmation path must abort when the live file changes during the dialog."""
         from unittest.mock import patch
@@ -1687,6 +1741,7 @@ class TestLineFidelity:
         _, _, ops = _parse_operations("[f#AAAAAAAA]\nCUT 1.=1 @r\nPUT >3 @r\n")
         assert _apply_operations("a\x0cb\nc\nd\n", ops) == "b\nc\na\x0cd\n"
 
+    @skip_if_replacement_refused
     def test_execute_keeps_lone_carriage_return(self, tmp_path: Path):
         f = tmp_path / "progress.py"
         f.write_bytes(b'one\nbar = "a\rb"\ntwo\n')
@@ -1701,6 +1756,7 @@ class TestLineFidelity:
         assert "applied" in msgs[0].lower(), msgs
         assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'
 
+    @skip_if_replacement_refused
     def test_execute_refuses_hardlinked_target(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("a\nb\n")
@@ -1714,6 +1770,25 @@ class TestLineFidelity:
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
         assert "write failed" in msgs[0], msgs
         assert alias.read_text() == f.read_text() == "a\nb\n"
+
+    def test_execute_refuses_acl_platform_replacement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """On macOS hashline refuses like save/patch/morph, never truncates.
+
+        The Windows branch is covered at the writer level in
+        tests/test_file_publication.py; flipping ``os.name`` here would make
+        pathlib construct a WindowsPath and fail before the write is attempted.
+        """
+        f = tmp_path / "f.txt"
+        original = "alpha\nbeta\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+ALPHA\n"
+        monkeypatch.setattr(sys, "platform", "darwin")
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert any("Cannot safely preserve macOS ACL" in m for m in msgs), msgs
+        assert f.read_text() == original
 
 
 def test_3way_merge_keeps_lone_carriage_returns_in_untouched_text():

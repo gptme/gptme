@@ -618,11 +618,14 @@ def test_morph_refusal_on_acl_platforms_keeps_file(
     original = "def foo():\n    pass\n"
     f.write_text(original)
     monkeypatch.setattr(sys, "platform", platform)
-    if platform == "win32":
-        monkeypatch.setattr(os, "name", "nt")
+    # Pin both platform signals so each case exercises the intended check: on a
+    # Windows runner the darwin case would otherwise hit the `os.name == "nt"`
+    # branch first and pass for the wrong reason.
+    monkeypatch.setattr(os, "name", "nt" if platform == "win32" else "posix")
+    reason = "Windows security descriptor" if platform == "win32" else "macOS ACL"
 
     with pytest.raises(
-        ValueError, match="Morph failed: Cannot safely preserve (macOS ACL|Windows)"
+        ValueError, match=f"Morph failed: Cannot safely preserve {reason}"
     ):
         list(execute_morph_impl("def foo():\n    return 1\n", f, original))
 

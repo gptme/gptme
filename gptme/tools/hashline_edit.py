@@ -654,8 +654,15 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
                 new_lines = op.text.split("\n") if op.text else []
             new_endings = [None] * len(new_lines)
         if op.kind == "replace":
+            replaced_endings = endings[s:e]
             file_lines[s:e] = new_lines
             endings[s:e] = new_endings
+            # New content inherits the terminator of the line it replaces. Without
+            # this, replacing the last of a CR/FF-terminated run would substitute
+            # "\n" at join time and silently change the file's physical structure
+            # (e.g. turning a lone "\r" inside a string literal into "\n").
+            if new_lines and new_endings[-1] is None and replaced_endings:
+                endings[s + len(new_lines) - 1] = replaced_endings[-1]
         elif op.kind == "insert_before":
             file_lines[s:s] = new_lines
             endings[s:s] = new_endings
