@@ -303,6 +303,27 @@ class TestConfigPatchModelValidation:
         )
         assert resp.status_code == 200, resp.get_json()
 
+    def test_rename_keeps_padded_saved_model_and_effort(self, client: FlaskClient):
+        """Before #5187 PATCH saved the model untrimmed; a padded stored model
+        is still the unchanged pair, so a rename must not revalidate it."""
+        import tomlkit
+
+        from gptme.dirs import get_logs_dir
+
+        cid = _create_conv(client)
+        config_path = get_logs_dir() / cid / "config.toml"
+        doc = tomlkit.parse(config_path.read_text())
+        chat = doc.setdefault("chat", tomlkit.table())
+        chat["model"] = "retired-provider/old "
+        chat["reasoning_effort"] = "high"
+        config_path.write_text(tomlkit.dumps(doc))
+
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"name": "renamed"}},
+        )
+        assert resp.status_code == 200, resp.get_json()
+
     def test_effort_is_rechecked_when_the_resolved_model_changes(
         self, client: FlaskClient, monkeypatch
     ):
@@ -320,10 +341,19 @@ class TestConfigPatchModelValidation:
         doc.setdefault("chat", tomlkit.table())["reasoning_effort"] = "high"
         config_path.write_text(tomlkit.dumps(doc))
 
-        # Saved config resolves to o3; after the patch it resolves to gpt-4o.
-        resolved = iter(["openai/o3", "openai/gpt-4o"])
+        # The inherited MODEL depends on the workspace: o3 in the current one,
+        # gpt-4o in ws-b. Keyed on the config, not on call order, so the test
+        # fails if either lookup ignores the workspace the PATCH switches to.
+        new_workspace = get_logs_dir() / cid / "ws-b"
+        new_workspace.mkdir()
         monkeypatch.setattr(
-            api_v2, "_effective_model_for_effort_validation", lambda cfg: next(resolved)
+            api_v2,
+            "_effective_model_for_effort_validation",
+            lambda cfg: (
+                "openai/gpt-4o"
+                if cfg.workspace.resolve() == new_workspace.resolve()
+                else "openai/o3"
+            ),
         )
 
         def reject(model, level):
@@ -331,7 +361,8 @@ class TestConfigPatchModelValidation:
 
         monkeypatch.setattr(effort, "validate_reasoning_effort", reject)
         resp = client.patch(
-            f"/api/v2/conversations/{cid}/config", json={"chat": {"name": "x"}}
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"workspace": str(new_workspace)}},
         )
         assert resp.status_code == 400, resp.get_json()
         assert "gpt-4o" in resp.get_json()["error"]

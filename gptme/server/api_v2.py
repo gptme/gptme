@@ -3342,8 +3342,15 @@ def api_conversation_config_patch(conversation_id: str):
             # model may no longer be known, and that must not block other edits.
             # The resolved model counts too: a workspace change can swap the
             # inherited MODEL without touching the saved fields.
+            # The saved model is compared stripped: older PATCHes stored it
+            # untrimmed, and an omitted model keeps that padded value here.
+            current_model = (
+                chat_config.model.strip()
+                if isinstance(chat_config.model, str)
+                else chat_config.model
+            )
             pair_changed = (
-                chat_config.model,
+                current_model,
                 chat_config.reasoning_effort,
                 effective_model,
             ) != (saved_model, saved_effort, saved_effective)
