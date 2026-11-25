@@ -1,7 +1,10 @@
 """Atomic conversation renames retain config ownership before staging contents."""
 
+import errno
 import os
 import stat
+import struct
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -44,6 +47,70 @@ def test_rename_retains_private_group(config: Path) -> None:
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
     assert stat.S_IMODE(after.st_mode) == 0o640
     assert 'name = "new"' in config.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux POSIX ACL xattrs")
+@pytest.mark.parametrize("explicit_acl", [False, True])
+def test_rename_preserves_access_acl(config: Path, explicit_acl: bool) -> None:
+    """Restoring group mode must not activate inherited named-user access."""
+
+    # Linux's version-2 POSIX ACL wire format: owner, named user, owning group,
+    # mask, other. Use a numeric user distinct from the owner (no user required).
+    def acl(named_user: int) -> bytes:
+        return struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, permissions, identifier)
+            for tag, permissions, identifier in [
+                (1, 6, 0xFFFFFFFF),
+                (2, 4, named_user),
+                (4, 4, 0xFFFFFFFF),
+                (16, 4, 0xFFFFFFFF),
+                (32, 0, 0xFFFFFFFF),
+            ]
+        )
+
+    try:
+        os.setxattr(config.parent, "system.posix_acl_default", acl(65534))
+        if explicit_acl:
+            os.setxattr(config, "system.posix_acl_access", acl(65533))
+    except OSError as exc:
+        if exc.errno in (errno.ENOTSUP, errno.EOPNOTSUPP):
+            pytest.skip("filesystem does not support POSIX ACLs")
+        raise
+
+    assert conversations.rename_conversation("conv", "new")
+
+    if explicit_acl:
+        assert os.getxattr(config, "system.posix_acl_access") == acl(65533)
+    else:
+        with pytest.raises(OSError, match=os.strerror(errno.ENODATA)) as error:
+            os.getxattr(config, "system.posix_acl_access")
+        assert error.value.errno == errno.ENODATA
+    assert stat.S_IMODE(config.stat().st_mode) == 0o640
+    assert 'name = "new"' in config.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux POSIX ACL xattrs")
+@pytest.mark.parametrize("operation", ["getxattr", "setxattr", "removexattr"])
+def test_rename_acl_failure_leaves_original(
+    config: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    original = config.read_bytes()
+    inode = config.stat().st_ino
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise PermissionError("cannot preserve config ACL")
+
+    if operation == "setxattr":
+        monkeypatch.setattr(os, "getxattr", lambda *args: b"acl")
+    monkeypatch.setattr(os, operation, refuse)
+
+    with pytest.raises(PermissionError, match="cannot preserve config ACL"):
+        conversations.rename_conversation("conv", "new")
+
+    assert config.read_bytes() == original
+    assert config.stat().st_ino == inode
+    assert stat.S_IMODE(config.stat().st_mode) == 0o640
+    assert not list(config.parent.glob(".config.*.toml.tmp"))
 
 
 @pytest.mark.parametrize("refuse_ownership", [False, True])

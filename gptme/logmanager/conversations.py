@@ -4,6 +4,7 @@ Provides read-only conversation discovery (get_conversations, list_conversations
 and mutation operations (rename, delete) that work on persisted conversation logs.
 """
 
+import errno
 import functools
 import json
 import logging
@@ -625,6 +626,25 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
                 f.flush()
                 os.fsync(f.fileno())
             if info is not None:
+                # A new inode can inherit a directory's default ACL even though
+                # the original config has no ACL. Do not activate those grants
+                # when restoring its group mode. Propagate preservation errors
+                # rather than publish a more permissive replacement.
+                if sys.platform == "linux":
+                    try:
+                        acl = os.getxattr(target, "system.posix_acl_access")
+                    except OSError as exc:
+                        if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                            raise
+                        acl = None
+                    if acl is not None:
+                        os.setxattr(tmp_name, "system.posix_acl_access", acl)
+                    else:
+                        try:
+                            os.removexattr(tmp_name, "system.posix_acl_access")
+                        except OSError as exc:
+                            if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                                raise
                 os.chmod(tmp_name, stat.S_IMODE(info.st_mode))
             os.replace(tmp_name, target)
         finally:
