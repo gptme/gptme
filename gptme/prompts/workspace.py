@@ -498,11 +498,13 @@ def prompt_workspace(
     if project and project.exclude:
         before_count = len(context_files)
 
+        workspace_bases = (workspace, workspace.absolute(), workspace_resolved)
+
         def _is_excluded(f: Path, patterns: list[str]) -> bool:
             # Glob matches are relative to the workspace as given, which may
             # be a symlink or relative path, so try both spellings.
             rels: list[str] = []
-            for base in (workspace, workspace.absolute(), workspace_resolved):
+            for base in workspace_bases:
                 try:
                     rels.append(str(f.relative_to(base)))
                 except ValueError:
