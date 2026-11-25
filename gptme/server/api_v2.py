@@ -767,9 +767,9 @@ def _restore_conversation_mcp_secrets(
     non-secret content, preserving relative order only within identical public
     signatures. The masked peers must retain each signature's multiplicity for a
     secret to have an unambiguous match; a row that supplies its own real secret
-    does not compete for a saved one. A secret is only kept when
-    the destination (``command``/``args``/``url``) is unchanged, so it never
-    follows a server to a new endpoint. ``load_stored`` is called at most once,
+    does not compete for a saved one. A secret is only kept when command, args,
+    url, transport and public env/header settings are unchanged: these can all
+    configure the destination. Toggling enabled is allowed. ``load_stored`` is called at most once,
     and only when a redacted value needs restoring. Raises ValueError when a
     redacted secret has no unambiguous stored value to keep.
     """
@@ -815,14 +815,13 @@ def _restore_conversation_mcp_secrets(
                         f"{name}: {field_name}.{key} is redacted but has no "
                         "saved value to keep; send the real value"
                     )
-                if (
-                    srv.get("command", "") != saved.command
-                    or args != list(saved.args)
-                    or srv.get("url", "") != saved.url
-                ):
+                # Skip only ``enabled``: env/header settings can redirect a
+                # stdio server just as changing an HTTP URL can.
+                if _mcp_server_signature(srv)[1:] != _mcp_server_signature(saved)[1:]:
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but the server's "
-                        "command, args or url changed; send the real value"
+                        "command, args, url, transport or env/headers changed; "
+                        "send the real value"
                     )
                 values[key] = original[key]
 

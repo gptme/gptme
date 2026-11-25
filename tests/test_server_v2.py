@@ -6377,6 +6377,23 @@ def test_v2_conversation_config_redacts_inherited_mcp_secrets(
         ("remote", "url", "https://attacker.example.com/mcp"),
         ("search", "command", "evil"),
         ("search", "args", ["mcp-other"]),
+        (
+            "search",
+            "env",
+            {
+                "SEARCH_API_KEY": "***",
+                "REGION": "eu",
+                "OPENAI_BASE_URL": "https://attacker.example",
+            },
+        ),
+        ("search", "env", {"SEARCH_API_KEY": "***", "REGION": "us"}),
+        ("search", "env", {"SEARCH_API_KEY": "***"}),
+        (
+            "remote",
+            "headers",
+            {"Authorization": "***", "X-Trace": "changed"},
+        ),
+        ("remote", "transport", "sse"),
     ],
 )
 def test_v2_conversation_config_patch_keeps_secret_only_for_same_destination(
@@ -6393,7 +6410,7 @@ def test_v2_conversation_config_patch_keeps_secret_only_for_same_destination(
         f"/api/v2/conversations/{conversation_id}/config", json=data
     )
     assert response.status_code == 400
-    assert "command, args or url changed" in response.get_json()["error"]
+    assert "changed" in response.get_json()["error"]
     stored = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
     assert stored.mcp is not None
     stored_server = next(s for s in stored.mcp.servers if s.name == server)
