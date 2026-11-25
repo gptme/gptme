@@ -227,10 +227,11 @@ class TestOnCwdChanged:
             assert any("Still loaded." in c for c in contents), contents
             # The display path may be ~/-relative, so check the attached files.
             loaded = [
-                Path(f).resolve()
+                f.resolve()
                 for m in msgs
                 if isinstance(m, Message)
                 for f in m.files
+                if isinstance(f, Path)
             ]
             assert (sub / "AGENTS.md").resolve() in loaded, loaded
             assert bad_file.resolve() not in loaded, loaded
