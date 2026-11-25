@@ -1974,6 +1974,46 @@ describe('useConversation', () => {
     }
   );
 
+  it('refreshes approvals when a generation boundary overtakes a deferred Skip', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise<ToolConfirmResult>((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    // Skip clears the card optimistically, so the skipped tool's own
+    // step_complete now closes the turn and bumps generationRevision.
+    act(() => eventHandlers!.onStepComplete!());
+    await act(async () => {
+      finish(deferredSkip);
+      await skipping;
+    });
+    // The stale snapshot must not be restored, but the server still holds the
+    // remaining approval: without a refresh it stays hidden forever.
+    expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    act(() =>
+      eventHandlers!.onToolState!({
+        generating: false,
+        pendingTools: [
+          {
+            tool_id: 'elder-tool',
+            tooluse: { tool: 'shell', args: [], content: 'pwd' },
+            auto_confirm: false,
+          },
+        ],
+      })
+    );
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('elder-tool');
+  });
+
   it('ignores a late Skip failure after a new approval arrives', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());

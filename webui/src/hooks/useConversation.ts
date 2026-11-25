@@ -1343,6 +1343,14 @@ export function useConversation(conversationId: string, serverId?: string) {
             ) {
               refreshApprovals();
             }
+          } else if (action === 'skip' && !continuationStarted) {
+            // A generation boundary can land between the request and this
+            // deferred response: Skip clears the card optimistically, and the
+            // skipped tool's own step_complete then bumps generationRevision.
+            // Drop the stale snapshot, but not the server's remaining
+            // approvals — without a refresh the batch stays hidden here and
+            // the turn cannot continue.
+            refreshApprovals();
           }
           return;
         }
