@@ -386,16 +386,29 @@ export function useConversation(conversationId: string, serverId?: string) {
             (message) => message.role === 'assistant' && message.timestamp === streamingTimestamp
           );
           if (index >= 0) return conversation$?.data.log[index];
-          // A reconnect merge can drop or replace the partial: its saved copy
-          // was already finished, or it was folded into a row that kept the
-          // server timestamp. That later generation's `generation_started` was
-          // never replayed, so rebind to the last assistant row instead of
-          // dropping every following token and completion.
-          const lastAssistant = messages.map((message) => message.role).lastIndexOf('assistant');
-          if (lastAssistant < 0) return undefined;
-          const rebound = conversation$?.data.log[lastAssistant];
-          streamingTimestamp = rebound?.timestamp.get();
-          return rebound;
+          // Only an incomplete row can own the ongoing generation. A saved
+          // reply followed by tool output belongs to an earlier generation;
+          // its successor's generation_started may have been lost in the outage.
+          const lastAssistant = messages
+            .map(
+              (message) =>
+                message.role === 'assistant' && 'isComplete' in message && !message.isComplete
+            )
+            .lastIndexOf(true);
+          if (lastAssistant >= 0) {
+            const rebound = conversation$?.data.log[lastAssistant];
+            streamingTimestamp = rebound?.timestamp.get();
+            return rebound;
+          }
+          const placeholder: StreamingMessage = {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            isComplete: false,
+          };
+          addMessage(conversationId, placeholder);
+          streamingTimestamp = placeholder.timestamp;
+          return conversation$?.data.log[conversation$.data.log.length - 1];
         };
 
         // Connect to event stream. Record the client generation that owns the

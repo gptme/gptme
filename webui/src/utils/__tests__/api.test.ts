@@ -1131,11 +1131,9 @@ describe('ApiClient event stream reconnection', () => {
     await Promise.resolve();
     MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
 
-    expect(onReconnectState).toHaveBeenCalledWith(
-      // Non-zero is the signal that events may have been lost; the exact
-      // count is the slow-retry counter's, not this connection's fast budget.
-      expect.objectContaining({ reconnectAttempt: expect.any(Number) })
-    );
+    expect(onReconnectState).toHaveBeenCalledTimes(1);
+    // Zero would skip history recovery on this first revived handshake.
+    expect(onReconnectState.mock.calls[0][0].reconnectAttempt).toBeGreaterThan(0);
     client.dispose();
   });
 

@@ -2191,6 +2191,20 @@ export class ApiClient {
       pendingAtStart,
       startRows: logAtStart,
     });
+    // Branch arrays are full histories: setCurrentBranch restores them at
+    // offset zero. Never put the paginated display window in branches.main.
+    if (data.branches?.main) {
+      const main = mergeReconnectSnapshot(local, data.branches.main, {
+        generating: state.isGenerating.peek(),
+        localOffset: state.logOffset.peek(),
+        snapshotOffset: 0,
+        snapshotHasMore: false,
+        arrivedCount,
+        pendingAtStart,
+        startRows: logAtStart,
+      }).log;
+      updateBranches(conversationId, { ...data.branches, main });
+    }
     const logOffset = window ? window.logOffset : state.logOffset.peek();
     const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();
     if (
@@ -2201,12 +2215,6 @@ export class ApiClient {
       return;
     }
     replaceLogWindow(conversationId, log, logOffset, hasMoreBefore);
-    // The window is not the only copy of the log: switching branches replaces
-    // it with `branches[branch]`. Leaving the pre-outage arrays in place made a
-    // recovered reply vanish on the next switch to another branch and back,
-    // and marked that stale window hydrated so the gap was never refetched.
-    // `main` takes the merged log (it holds rows the server has not saved yet).
-    updateBranches(conversationId, { ...(data.branches ?? {}), main: log });
   }
 
   /**

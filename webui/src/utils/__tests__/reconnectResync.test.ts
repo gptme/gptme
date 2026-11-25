@@ -10,6 +10,7 @@ import {
   prependLogPage,
   replaceLog,
   setGenerating,
+  setCurrentBranch,
   updateConversationData,
 } from '@/stores/conversations';
 import type { ConversationResponse } from '@/types/api';
@@ -546,6 +547,26 @@ describe('resyncLogAfterReconnect in-flight races (#5145)', () => {
     // Switching away and back replaces the window with `branches[branch]`; a
     // stale array would hide the recovered reply and mark the gap hydrated.
     expect(state().data.branches.get().main).toEqual([user, reply]);
+  });
+
+  it('keeps full branch history when reconnect refreshes only a window', async () => {
+    const older: Message = { role: 'user', content: 'older', timestamp: '2026-11-24T09:00:00Z' };
+    updateConversationData(ID, response([user], { before: 1, has_more: true }));
+    jest.spyOn(client, 'getConversation').mockResolvedValue(
+      response([user, reply], {
+        before: 1,
+        has_more: true,
+        branches: { main: [older, user, reply], alt: [older] },
+      })
+    );
+
+    await client.resyncLogAfterReconnect(ID);
+    expect(state().logOffset.get()).toBe(1);
+    setCurrentBranch(ID, 'alt');
+    setCurrentBranch(ID, 'main');
+    expect(state().data.log.get()).toEqual([older, user, reply]);
+    expect(state().logOffset.get()).toBe(0);
+    expect(state().data.log.get()[1]).toEqual(user);
   });
 
   it('retries a timed-out history request instead of losing the recovery', async () => {
