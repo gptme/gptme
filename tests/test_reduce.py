@@ -842,10 +842,16 @@ def test_limit_log_leaves_room_for_output() -> None:
     model = get_model("openai/gpt-4")  # 8192-token window, max_output=None
     token = _default_model_var.set(model)
     try:
-        msgs = [Message("system", "You are a helpful assistant.")]
-        for i in range(40):
-            role = "user" if i % 2 == 0 else "assistant"
-            msgs.append(Message(role, " ".join(f"word{i}_{j}" for j in range(150))))
+        msgs = [
+            Message("system", "You are a helpful assistant."),
+            *(
+                Message(
+                    "user" if i % 2 == 0 else "assistant",
+                    " ".join(f"word{i}_{j}" for j in range(150)),
+                )
+                for i in range(40)
+            ),
+        ]
         assert len_tokens(msgs, model.model) > 2 * model.context
 
         kept = limit_log(msgs)
@@ -862,10 +868,16 @@ def test_limit_log_respects_max_output_and_caps_full_window_reserve() -> None:
     """Explicit max_output is reserved, while full-window max_output does not starve input."""
     from gptme.llm.models.resolution import _default_model_var
 
-    msgs = [Message("system", "You are a helpful assistant.")]
-    for i in range(100):
-        role = "user" if i % 2 == 0 else "assistant"
-        msgs.append(Message(role, " ".join(f"tok{i}_{j}" for j in range(250))))
+    msgs = [
+        Message("system", "You are a helpful assistant."),
+        *(
+            Message(
+                "user" if i % 2 == 0 else "assistant",
+                " ".join(f"tok{i}_{j}" for j in range(250)),
+            )
+            for i in range(100)
+        ),
+    ]
 
     # Model with explicit max_output (e.g. 16k window, 4k max_output).
     explicit_model = ModelMeta(
@@ -893,3 +905,83 @@ def test_limit_log_respects_max_output_and_caps_full_window_reserve() -> None:
         assert kept_tokens >= 8_000
     finally:
         _default_model_var.reset(token)
+
+
+def test_limit_log_reserves_configured_max_tokens_above_max_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configured max_tokens above model.max_output must shrink the input budget.
+
+    Regression test: 128k window with model.max_output=16k and configured
+    max_tokens=32k used to reserve only 16k in _input_token_limit, keeping
+    ~111k input tokens so input + 32k output overflowed the 128k window.
+    """
+    from gptme.config import ChatConfig, Config, UserConfig, get_config, set_config
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.util.reduce import _input_token_limit
+
+    monkeypatch.delenv("GPTME_MAX_TOKENS", raising=False)
+    previous_cfg = get_config()
+    model = ModelMeta(
+        provider="openai", model="gpt-4o", context=128_000, max_output=16_000
+    )
+    token = _default_model_var.set(model)
+    try:
+        set_config(Config(user=UserConfig(), chat=ChatConfig(max_tokens=32_000)))
+
+        input_limit = _input_token_limit(model)
+        assert input_limit == 128_000 - 32_000 - 1_000
+        assert input_limit + 32_000 <= model.context
+
+        # Build a ~120k-token log so limit_log must truncate to the shrunk budget.
+        chunk = "alpha beta gamma delta " * 500
+        msgs = [
+            Message("system", "You are a helpful assistant."),
+            *(
+                Message("user" if i % 2 == 0 else "assistant", f"turn {i}: {chunk}")
+                for i in range(60)
+            ),
+        ]
+        assert len_tokens(msgs, model.model) > 115_000
+
+        kept = limit_log(msgs)
+        kept_tokens = len_tokens(kept, model.model)
+        assert kept_tokens > 0
+        assert kept_tokens + 32_000 <= model.context, (
+            f"limit_log kept {kept_tokens} input tokens + 32000 output tokens "
+            f"> {model.context}-token window"
+        )
+    finally:
+        _default_model_var.reset(token)
+        set_config(previous_cfg)
+
+
+def test_input_token_limit_respects_openrouter_default_and_env_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenRouter's 16k default and GPTME_MAX_TOKENS env override apply to _input_token_limit."""
+    from gptme.config import Config, UserConfig, get_config, set_config
+    from gptme.util.reduce import _input_token_limit
+
+    monkeypatch.delenv("GPTME_MAX_TOKENS", raising=False)
+    previous_cfg = get_config()
+    model = ModelMeta(
+        provider="openrouter",
+        model="openai/gpt-4o-mini",
+        context=128_000,
+        max_output=8_192,
+    )
+    try:
+        set_config(Config(user=UserConfig()))
+        # Default OpenRouter request sends _OPENROUTER_DEFAULT_MAX_TOKENS (16_000).
+        default_limit = _input_token_limit(model)
+        assert default_limit == 128_000 - 16_000 - 1_000
+        assert default_limit + 16_000 <= model.context
+
+        # Explicit GPTME_MAX_TOKENS above max_output shrinks the ceiling further.
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "32000")
+        env_limit = _input_token_limit(model)
+        assert env_limit == 128_000 - 32_000 - 1_000
+        assert env_limit + 32_000 <= model.context
+    finally:
+        set_config(previous_cfg)

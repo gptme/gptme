@@ -42,6 +42,80 @@ _DEFAULT_LONG_WINDOW_CAP = 256_000
 MIN_BUDGET = 1000
 
 
+def resolve_safe_input_ceiling(
+    model_context: int,
+    *,
+    max_output: int | None = DEFAULT_MAX_OUTPUT,
+    headroom: int = DEFAULT_HEADROOM,
+    model_id: str | None = None,
+) -> int:
+    """Return the maximum safe input tokens for a model context window.
+
+    Resolves the completion output reserve from model metadata and the outgoing
+    request cap (CLI/chat ``max_tokens`` > provider env/config > provider
+    default such as OpenRouter's 16k), caps window-shaped metadata so input is
+    not starved, subtracts ``headroom``, and applies the tiny-window floor when
+    the remaining budget is non-positive.
+
+    Shared by :func:`get_context_budget` and ``limit_log`` so compaction and
+    hard truncation enforce the same input ceiling.
+    """
+    from ..config import get_config  # fmt: skip
+
+    cfg = get_config()
+    request_output = cfg.chat.max_tokens if cfg.chat is not None else None
+    if model_id is not None and "/" in model_id:
+        from ..llm import _resolve_max_tokens  # fmt: skip
+
+        # Use the same CLI/chat > provider env/config > default precedence as
+        # the outgoing request. Never shrink a real request reservation.
+        request_output = _resolve_max_tokens(model_id, request_output)
+
+    reserve = DEFAULT_MAX_OUTPUT if max_output is None else max_output
+    # Some providers advertise max_output as nearly or equal to the whole
+    # window (e.g. DeepSeek 943k/1M, xai/moonshot/Codex max_output == context),
+    # meaning "output may use whatever the prompt leaves". Reserving all of it
+    # starves input. Cap window-shaped metadata when:
+    # - we know the actual request allowance (request_output is resolved), OR
+    # - metadata is unset (fell back to DEFAULT_MAX_OUTPUT), OR
+    # - the metadata allowance and local headroom leave no room for input
+    #   (without changing the outgoing request).
+    # Standalone callers without model_id keep their explicit reservation, and
+    # providers with sub-window metadata and no resolved cap (e.g. Anthropic)
+    # keep their full metadata reservation.
+    leaves_no_input = reserve + headroom >= model_context
+    if (
+        model_id is not None
+        and reserve > model_context // 2
+        and (request_output is not None or max_output is None or leaves_no_input)
+    ):
+        window_cap = max(
+            min(DEFAULT_MAX_OUTPUT, model_context // 4), model_context // 8
+        )
+        reserve = min(reserve, window_cap)
+
+    if request_output is not None:
+        reserve = max(reserve, request_output)
+
+    safe_ceiling = model_context - reserve - headroom
+    if safe_ceiling <= 0:
+        # Clamp instead of raising so env/config overrides still resolve on
+        # small local models. Never clamp above the model window itself: a
+        # 1000-token floor on a 500-token model would make the budget larger
+        # than the window, so compaction would never fire before the provider
+        # rejects the request.
+        safe_ceiling = max(1, min(MIN_BUDGET, model_context))
+        logger.warning(
+            "Model context %d does not exceed reserved output (%d) + headroom "
+            "(%d); clamping context budget to %d",
+            model_context,
+            reserve,
+            headroom,
+            safe_ceiling,
+        )
+    return safe_ceiling
+
+
 def get_context_budget(
     model_context: int,
     *,
@@ -66,47 +140,12 @@ def get_context_budget(
     from ..config import get_config  # fmt: skip
 
     cfg = get_config()
-    request_output = cfg.chat.max_tokens if cfg.chat is not None else None
-    if model_id is not None:
-        from ..llm import _resolve_max_tokens  # fmt: skip
-
-        # Use the same CLI/chat > provider env/config > default precedence as
-        # the outgoing request. Never shrink a real request reservation.
-        request_output = _resolve_max_tokens(model_id, request_output)
-        # Some providers advertise max_output as nearly the whole window,
-        # meaning "output may use whatever the prompt leaves". Reserving all
-        # 943,718 advertised tokens on DeepSeek's 1,048,576 window left ~104k
-        # for input and caused compaction every few tool calls.
-        # Only reduce metadata when we know the actual request allowance;
-        # other providers may fill in their own max_tokens from metadata.
-        # If the metadata allowance and local headroom leave no room for
-        # input, bound the reserve used for compaction too, without changing
-        # the outgoing request. xai, moonshot and Codex models advertise
-        # max_output == context and would otherwise clamp the budget to 1000,
-        # compacting every turn.
-        leaves_no_input = max_output + headroom >= model_context
-        if (
-            request_output is not None or leaves_no_input
-        ) and max_output > model_context // 2:
-            max_output = min(max_output, max(DEFAULT_MAX_OUTPUT, model_context // 8))
-    if request_output is not None:
-        max_output = max(max_output, request_output)
-    safe_ceiling = model_context - max_output - headroom
-    if safe_ceiling <= 0:
-        # Clamp instead of raising so env/config overrides still resolve on
-        # small local models. Never clamp above the model window itself: a
-        # 1000-token floor on a 500-token model would make the budget larger
-        # than the window, so compaction would never fire before the provider
-        # rejects the request.
-        safe_ceiling = max(1, min(MIN_BUDGET, model_context))
-        logger.warning(
-            "Model context %d does not exceed reserved output (%d) + headroom "
-            "(%d); clamping context budget to %d",
-            model_context,
-            max_output,
-            headroom,
-            safe_ceiling,
-        )
+    safe_ceiling = resolve_safe_input_ceiling(
+        model_context,
+        max_output=max_output,
+        headroom=headroom,
+        model_id=model_id,
+    )
 
     def resolve(value: float | int) -> int | None:
         parsed = float(value)

@@ -249,7 +249,6 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
 def test_retained_estimate_tracks_compacted_log(tmp_path):
     """Compaction replacing a log (even with more messages) resets the count."""
     import re
-    from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
     from gptme.hooks.token_awareness import (
@@ -274,7 +273,7 @@ def test_retained_estimate_tracks_compacted_log(tmp_path):
         big = [_msg(i, 2000) for i in range(10)]
         list(
             add_token_usage_warning(
-                ToolExecutePostData(log=SimpleNamespace(messages=big), workspace=ws)  # type: ignore[arg-type]
+                ToolExecutePostData(log=Log(messages=big), workspace=ws)
             )
         )
         # Compaction replaces the log with a much shorter one (more messages, fewer tokens).
@@ -283,13 +282,11 @@ def test_retained_estimate_tracks_compacted_log(tmp_path):
         ]
         out = list(
             add_token_usage_warning(
-                ToolExecutePostData(
-                    log=SimpleNamespace(messages=compacted),
-                    workspace=ws,  # type: ignore[arg-type]
-                )
+                ToolExecutePostData(log=Log(messages=compacted), workspace=ws)
             )
         )
     assert out
+    assert isinstance(out[0], Message)
     actual = len_tokens(compacted, "gpt-4")
     match = re.search(r"estimate: (\d+)/", out[0].content)
     assert match is not None
@@ -302,7 +299,6 @@ def test_retained_estimate_tracks_compacted_log(tmp_path):
 def test_retained_estimate_tracks_shrunk_and_trimmed_log(tmp_path):
     """In-place trim compaction and message-count shrinks recount accurately."""
     import re
-    from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
     from gptme.hooks.token_awareness import (
@@ -327,26 +323,27 @@ def test_retained_estimate_tracks_shrunk_and_trimmed_log(tmp_path):
         initial = [_msg(i, 2000) for i in range(6)]
         list(
             add_token_usage_warning(
-                ToolExecutePostData(log=SimpleNamespace(messages=initial), workspace=ws)  # type: ignore[arg-type]
+                ToolExecutePostData(log=Log(messages=initial), workspace=ws)
             )
         )
         # Same message count, but earlier messages stubbed in-place (trim compaction).
         trimmed = [Message("system", "[stub]") for _ in range(4)] + initial[4:]
         out_trimmed = list(
             add_token_usage_warning(
-                ToolExecutePostData(log=SimpleNamespace(messages=trimmed), workspace=ws)  # type: ignore[arg-type]
+                ToolExecutePostData(log=Log(messages=trimmed), workspace=ws)
             )
         )
         # Fewer messages (resume compaction).
         shrunk = [Message("system", "summary"), _msg(50, 3000)]
         out_shrunk = list(
             add_token_usage_warning(
-                ToolExecutePostData(log=SimpleNamespace(messages=shrunk), workspace=ws)  # type: ignore[arg-type]
+                ToolExecutePostData(log=Log(messages=shrunk), workspace=ws)
             )
         )
 
     for out, msgs in ((out_trimmed, trimmed), (out_shrunk, shrunk)):
         assert out
+        assert isinstance(out[0], Message)
         match = re.search(r"estimate: (\d+)/", out[0].content)
         assert match is not None
         assert int(match.group(1)) == len_tokens(msgs, "gpt-4")

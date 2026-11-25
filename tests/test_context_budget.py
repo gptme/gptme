@@ -442,3 +442,28 @@ def test_explicit_config_budget_not_clamped_up_to_ceiling():
         cfg.user.models.overrides = {}
         cfg.user.context.budget = 0.25
         assert get_context_budget(500, max_output=0, headroom=0) == 125
+
+
+def test_resolve_safe_input_ceiling_matches_context_budget_and_reduce(monkeypatch):
+    """get_context_budget and _input_token_limit share the exact ceiling formula."""
+    from gptme.llm.models.types import ModelMeta
+    from gptme.util.context_budget import resolve_safe_input_ceiling
+    from gptme.util.reduce import _input_token_limit
+
+    monkeypatch.setenv("GPTME_CONTEXT_BUDGET", "1.0")
+    model = ModelMeta(
+        provider="openai", model="gpt-4o", context=128_000, max_output=16_000
+    )
+    set_config(Config(user=UserConfig(), chat=ChatConfig(max_tokens=32_000)))
+
+    ceiling = resolve_safe_input_ceiling(
+        model.context, max_output=model.max_output, model_id=model.full
+    )
+    assert ceiling == 95_000
+    assert _input_token_limit(model) == ceiling
+    assert (
+        get_context_budget(
+            model.context, max_output=model.max_output or 8192, model_id=model.full
+        )
+        == ceiling
+    )
