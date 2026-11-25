@@ -204,6 +204,7 @@ def test_streamed_tool_call_requires_tool_use_stop(
     )
     parts: list[str] = []
     if stop_reason != "tool_use":
+        error_type: type[httpx.RemoteProtocolError] | type[anthropic.APIError]
         if stop_reason is None:
             # A missing terminal reason is still an incomplete protocol stream.
             monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", "1")
