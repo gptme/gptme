@@ -1439,6 +1439,57 @@ def test_extract_thinking_content_unsigned_before_signed() -> None:
     )
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_handle_tools_unsigned_reasoning_mentioning_tags(tag: str) -> None:
+    """History from another provider keeps leading reasoning out of the answer."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    reasoning = (
+        f"Use <{tag}> as a marker, closed by </{tag}> later.\n"
+        '@shell(quoted): {"command": "echo example"}'
+    )
+    tool_call = '@shell(call-1): {"command": "echo real"}'
+    content = f"<{tag}>\n{reasoning}\n</{tag}>\n\nAnswer.\n{tool_call}"
+
+    result = list(_handle_tools([{"role": "assistant", "content": content}]))
+
+    parts = result[0]["content"]
+    assert [part["type"] for part in parts] == ["text", "tool_use"]
+    assert parts[0]["text"].strip() == "Answer."
+    assert parts[1]["id"] == "call-1"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("separator", [" tags wrap reasoning.", "\nplan"])
+def test_extract_thinking_content_leading_opener_closed_in_tool_call(
+    tag: str, separator: str
+) -> None:
+    """A closing tag inside tool JSON cannot close a leading literal opener."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        f"<{tag}>{separator} Check:\n"
+        f'@shell(call-1): {{"command": "grep -c \'</{tag}>\' log"}}'
+    )
+
+    assert _extract_thinking_content(content) == ([], content)
+
+
+def test_extract_thinking_content_legacy_quoted_signature_comment() -> None:
+    """Without a length, a quoted comment drops the block instead of mis-signing it."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    reasoning = "Logs store <!-- think-sig: example --> comments."
+    content = f"<think>\n{reasoning}\n<!-- think-sig: real -->\n</think>\nAnswer."
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert [signature for _, signature in blocks] == [""]
+    assert cleaned == "Answer."
+
+
 def test_extract_thinking_content_many_literal_blocks() -> None:
     from gptme.llm.llm_anthropic import _extract_thinking_content
 
@@ -1453,8 +1504,9 @@ def test_extract_thinking_content_many_literal_blocks() -> None:
 @pytest.mark.parametrize("tag", ["think", "thinking"])
 @pytest.mark.parametrize("example_opener", ["<{tag}>\n", "Write <{tag}>\n"])
 @pytest.mark.parametrize("later_framed", [False, True])
+@pytest.mark.parametrize("gap", ["\nThen: ", "\n", ""])
 def test_extract_thinking_content_example_comment_before_call(
-    tag: str, example_opener: str, later_framed: bool
+    tag: str, example_opener: str, later_framed: bool, gap: str
 ) -> None:
     """A quoted signature comment must not borrow a later block's closing tag."""
     from gptme.llm.llm_anthropic import _extract_thinking_content
@@ -1462,15 +1514,14 @@ def test_extract_thinking_content_example_comment_before_call(
     prose = (
         example_opener.format(tag=tag)
         + "<!-- think-sig: example -->\n"
-        + '@shell(real-call): {"command": "echo real"}\n'
-        + "Then: "
+        + '@shell(real-call): {"command": "echo real"}'
+        + gap
     )
     framing = "\n<!-- think-sig: chars=9 -->" if later_framed else ""
     signed = f"<{tag}>\nreasoning\n<!-- think-sig: realSig -->{framing}\n</{tag}>"
-    # A legacy block is only told apart from a quoted opener if it starts a line.
-    separator = "" if later_framed else "\n"
 
-    assert _extract_thinking_content(prose + separator + signed) == (
+    # Streamed history can open the later block directly after the call's JSON.
+    assert _extract_thinking_content(prose + signed) == (
         [("reasoning", "realSig")],
         prose.strip(),
     )

@@ -1418,17 +1418,25 @@ def _extract_thinking_content(
 
     # Legacy signed blocks lack a length (and an edited block's length no longer
     # matches); accept inline quoted tags and calls, but a whole-line opener
-    # remains ambiguous with a subsequent real block. Neither a whole-line nor a
-    # length-framed opener can be crossed, so legacy/literal openers cannot
-    # consume the signature belonging to a later block.
+    # remains ambiguous with a subsequent real block. The first signature comment
+    # must be the footer: neither it, a whole-line opener, nor a length-framed
+    # opener can be crossed, so legacy/literal openers cannot consume the
+    # signature belonging to a later block.
     signed_pattern = re.compile(
         r"<(think|thinking)>\n"
-        r"(?:((?:(?!\n<(?:think|thinking)>\n).)*?)\n)?"
+        r"(?:((?:(?!<!-- think-sig: |\n<(?:think|thinking)>\n).)*?)\n)?"
         rf"{signature_comment}"
         r"(?:\n<!-- think-sig: chars=[0-9]+ -->)?\n</\1>\s*",
         re.DOTALL,
     )
-    unsigned_pattern = re.compile(
+    # Leading unsigned reasoning may mention tags and quote calls. A closer on
+    # its own line cannot sit inside tool-call JSON, so that form only stops at
+    # another block opener. Any other form stops at the next tag or tool call.
+    unsigned_block_pattern = re.compile(
+        r"<(think|thinking)>\n((?:(?!<(?:think|thinking)>\n).)*?)\n</\1>\s*",
+        re.DOTALL,
+    )
+    unsigned_inline_pattern = re.compile(
         r"<(think|thinking)>((?:(?!<(?:think|thinking)>).)*?)</\1>\s*",
         re.DOTALL,
     )
@@ -1489,7 +1497,8 @@ def _extract_thinking_content(
             # Remove only the framing newline, never strip signed whitespace.
             block, signature = match.group(2) or "", match.group(3).strip()
         elif leading and (
-            match := unsigned_pattern.match(text_content, opener.start())
+            match := unsigned_block_pattern.match(text_content, opener.start())
+            or unsigned_inline_pattern.match(text_content, opener.start(), call_start)
         ):
             block, signature = match.group(2).strip(), ""
         else:
