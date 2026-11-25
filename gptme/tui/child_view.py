@@ -3,7 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from rich.text import Text
 from textual import events
@@ -14,6 +14,9 @@ from textual.widgets import Button, Collapsible, Static
 from ..message import Message, MessageMetadata
 from ..tools.subagent import SubagentSnapshot
 from .app import MAX_INITIAL_MESSAGES, ChatInput, ChatScroll, GptmeApp, message_widget
+
+if TYPE_CHECKING:
+    from textual.timer import Timer
 
 
 def read_child_messages(logdir: Path) -> tuple[list[Message], str | None]:
@@ -163,6 +166,7 @@ class ChildView(Vertical):
         self.highlight = highlight
         self._messages: list[Message] = []
         self._refreshing = False
+        self._refresh_timer: Timer | None = None
         self._parent_seen = 0
 
     def compose(self) -> ComposeResult:
@@ -183,7 +187,7 @@ class ChildView(Vertical):
             editor.text, editor.selection, editor._pastes = saved
         editor.focus()
         await self.refresh_snapshot()
-        self.set_interval(1.0, self.refresh_snapshot)
+        self._refresh_timer = self.set_interval(1.0, self.refresh_snapshot)
 
     def update_parent_status(self) -> None:
         assert isinstance(self.app, GptmeApp)
@@ -253,7 +257,10 @@ class ChildView(Vertical):
         messages, error = await asyncio.to_thread(
             read_child_messages, self.child.logdir
         )
-        if not self.is_attached:
+        # The periodic refresh can outlive app shutdown: mounting or removing
+        # chat widgets while Textual prunes the DOM cancels their tasks and
+        # raises CancelledError from the prune (gptme/gptme#5261).
+        if not self.is_attached or not self.app.is_running:
             return
         # Append-only refresh preserves existing child scroll and expansions.
         shown = [m for m in messages if not m.hide]
@@ -273,7 +280,12 @@ class ChildView(Vertical):
             # read_child_messages admits only roles with a message widget.
             dropped = len(self._messages) - overlap
             for dropped_widget in list(chat.children)[:dropped]:
-                await dropped_widget.remove()
+                # Textual cancels this widget's timers before pruning children.
+                # AwaitRemove gathers the removed widget's message-pump task:
+                # don't let cancellation of this tick cancel that teardown too.
+                await asyncio.shield(dropped_widget.remove())
+                if not self.is_attached or not self.app.is_running:
+                    return
             self._messages = self._messages[-overlap:] if overlap else []
         for msg in shown[len(self._messages) :]:
             widget = message_widget(
@@ -281,6 +293,8 @@ class ChildView(Vertical):
             )
             if widget is not None:
                 await chat.mount(widget)
+                if not self.is_attached or not self.app.is_running:
+                    return
         self._messages = shown
         self._update_banner()
         if error:
