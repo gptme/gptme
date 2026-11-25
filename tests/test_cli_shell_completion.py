@@ -122,7 +122,13 @@ def test_generated_script_runs_in_shell(tmp_path, shell):
         check=False,
         text=True,
         capture_output=True,
-        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"},
+        env={
+            **os.environ,
+            "HOME": str(tmp_path / "home"),
+            "XDG_CONFIG_HOME": str(tmp_path / "config"),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        },
         timeout=15,
     )
     assert result.returncode == 0, result.stderr
@@ -277,7 +283,13 @@ def test_argparse_completion_runs_in_shell_without_running_cli(
         text=True,
         capture_output=True,
         cwd=cwd,
-        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        env={
+            **os.environ,
+            "HOME": str(tmp_path / "home"),
+            "XDG_CONFIG_HOME": str(tmp_path / "config"),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        },
         timeout=15,
     )
     assert result.returncode == 0, result.stderr
@@ -656,12 +668,12 @@ def test_setup_reports_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
         "load_parser",
         lambda prog: None if prog == "gptme-convert" else load(prog),
     )
-    directory = tmp_path / "data/bash-completion/completions"
+    directory = tmp_path / "data[dim]/bash-completion/completions"
     directory.mkdir(parents=True)
     stale = directory / "gptme-convert"
     stale.write_text(f"# bash completion, {argparse_completion.ARGPARSE_MARKER}\n")
     foreign = directory / "gptme-eval-trends"
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data[dim]"))
     monkeypatch.setattr("gptme.cli.setup.console.width", 1000)
     monkeypatch.setattr("gptme.cli.setup.Confirm.ask", lambda *a, **kw: True)
     _install_click_completions("bash")
@@ -670,4 +682,74 @@ def test_setup_reports_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
     assert foreign.exists()  # regenerated: its parser still loads
     out = capsys.readouterr().out
     assert "Skipped gptme-convert" in out
-    assert "Existing completion left in place" in out
+    assert f"Existing completion left in place: {stale}" in out
+
+
+def test_fish_completion_ignores_user_configuration(tmp_path, monkeypatch):
+    home = tmp_path / "user-home"
+    config = home / ".config/fish"
+    completions = config / "completions"
+    completions.mkdir(parents=True)
+    (config / "config.fish").write_text("echo USER_CONFIG_LOADED\n")
+    (completions / "gptme-convert.fish").write_text(
+        "complete -c gptme-convert -e\n"
+        "complete -c gptme-convert -f -a USER_COMPLETION_LOADED\n"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    test_argparse_completion_runs_in_shell_without_running_cli(
+        tmp_path,
+        "fish",
+        "gptme-convert",
+        [],
+        "",
+        {"convert", "check-tools", "list-formats"},
+        {"USER_CONFIG_LOADED", "USER_COMPLETION_LOADED"},
+    )
+
+
+def test_bash_filename_handling_is_scoped_to_paths(tmp_path):
+    """Readline must not append '/' to a choice that also names a directory."""
+    parser = load_parser("gptme-convert")
+    assert parser is not None
+    script = generate_argparse_completion("bash", "gptme-convert", parser)
+    assert script is not None
+    source = tmp_path / "completion"
+    source.write_text(script)
+    # compopt requires an active readline completion. Record its effective
+    # setting here, including resetting it on the next non-file completion.
+    code = f"""
+source {source}
+mode=plain
+[[ $(complete -p gptme-convert) == *'-o filenames'* ]] && mode=files
+compopt() {{
+    case "$*" in
+        '-o filenames') mode=files;;
+        '+o filenames') mode=plain;;
+        *) return 1;;
+    esac
+}}
+COMP_WORDS=(gptme-convert con); COMP_CWORD=1
+_gptme_convert_completion
+printf '%s:%s\\n' "$mode" "${{COMPREPLY[*]}}"
+COMP_WORDS=(gptme-convert convert --input in); COMP_CWORD=3
+_gptme_convert_completion
+printf '%s:%s\\n' "$mode" "${{COMPREPLY[*]}}"
+COMP_WORDS=(gptme-convert convert --quality m); COMP_CWORD=3
+_gptme_convert_completion
+printf '%s:%s\\n' "$mode" "${{COMPREPLY[*]}}"
+"""
+    (tmp_path / "input dir").mkdir()
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-c", code],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "plain:convert",
+        "files:input dir",
+        "plain:medium",
+    ]

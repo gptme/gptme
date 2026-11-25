@@ -147,6 +147,7 @@ def _bash(prog: str, scope: _Scope) -> str:
     reply = 'COMPREPLY=($(compgen -W "%s" -- "$cur"))'
     # One candidate per line, so a path with spaces stays one completion.
     files = (
+        "compopt -o filenames 2>/dev/null || :; "
         'COMPREPLY=(); while IFS= read -r candidate; do COMPREPLY+=("$candidate"); '
         'done < <(compgen -f -- "$cur")'
     )
@@ -166,6 +167,9 @@ def _bash(prog: str, scope: _Scope) -> str:
 {func}() {{
     local cur="${{COMP_WORDS[COMP_CWORD]}}" prev="${{COMP_WORDS[COMP_CWORD-1]}}"
     local sub="" dd="" i candidate
+    COMPREPLY=()
+    # Filename handling belongs only to path results, not options or choices.
+    compopt +o filenames 2>/dev/null || :
     # COMP_WORDBREAKS splits --opt=value into "--opt" "=" "value".
     if [[ "$cur" == "=" ]]; then
         cur=""
@@ -187,7 +191,7 @@ def _bash(prog: str, scope: _Scope) -> str:
         {nl.join(_scope_cases(scope, positionals))}
     esac
 }}
-complete -o filenames -F {func} {prog}
+complete -F {func} {prog}
 """
 
 

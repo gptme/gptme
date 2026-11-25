@@ -7,6 +7,7 @@ import shlex
 import shutil
 from pathlib import Path
 
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
@@ -180,7 +181,7 @@ def _install_click_completions(shell: str) -> None:
                 destination.unlink()
             destination.write_text(script)
     console.print(
-        f"[green]✅ {shell.capitalize()} completions up to date[/green] [dim]({path_with_tilde(directory)})[/dim]"
+        f"[green]✅ {shell.capitalize()} completions up to date[/green] [dim]({escape(str(path_with_tilde(directory)))})[/dim]"
     )
     if skipped:
         console.print(
@@ -188,7 +189,7 @@ def _install_click_completions(shell: str) -> None:
         )
         for path in stale:
             console.print(
-                f"   [yellow]Existing completion left in place: {path_with_tilde(path)}[/yellow]"
+                f"   [yellow]Existing completion left in place: {escape(str(path_with_tilde(path)))}[/yellow]"
                 " [dim](delete it if it is stale)[/dim]"
             )
     if shell == "zsh":
