@@ -77,8 +77,11 @@ jobs:
             - '.github/workflows/build.yml'
           docker:
             - 'scripts/Dockerfile'
+            - 'scripts/Dockerfile.dockerignore'
             - 'scripts/Dockerfile.server'
+            - 'scripts/Dockerfile.server.dockerignore'
             - 'scripts/Dockerfile.eval'
+            - 'scripts/Dockerfile.eval.dockerignore'
             - '.dockerignore'
             - 'pyproject.toml'
             - 'uv.lock'
