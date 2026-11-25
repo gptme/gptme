@@ -11,6 +11,7 @@ import locale
 import logging
 import os
 import re
+import stat
 from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -126,7 +127,15 @@ def _back_up_before_reencoding(path: str | Path) -> None:
         return
     staged = Path(f"{path}.orig.tmp")
     try:
-        staged.write_bytes(Path(path).read_bytes())
+        original = Path(path).read_bytes()
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        # Owner-only until written: the umask default could expose a private
+        # config (an [env] table can hold API keys). Then match the original.
+        staged.unlink(missing_ok=True)
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(original)
+        os.chmod(staged, mode)
         staged.replace(backup)
     except OSError as e:
         staged.unlink(missing_ok=True)

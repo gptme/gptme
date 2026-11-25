@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import stat
+import sys
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -34,7 +36,20 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize(
     "bad_row",
-    ["[]", "1", '"x"', "null", '{"type": "undo"}', '{"seq": true}', '{"seq": "3"}'],
+    [
+        "[]",
+        "1",
+        '"x"',
+        "null",
+        '{"type": "undo"}',
+        '{"seq": true}',
+        '{"seq": "3"}',
+        # integer seq, but the payload recovery indexes is missing or wrong
+        '{"seq": 2, "type": "message_append"}',
+        '{"seq": 2, "type": "checkpoint"}',
+        '{"seq": 2, "type": "message_edit", "payload": []}',
+        '{"seq": 2, "type": "undo", "payload": []}',
+    ],
 )
 def test_wrong_shape_event_rows_are_skipped(tmp_path: Path, bad_row: str) -> None:
     msg = Message("user", "hello")
@@ -179,6 +194,53 @@ def test_rename_reads_utf8_config_under_legacy_default_codec(tmp_path: Path) -> 
     text = (conv_dir / "config.toml").read_bytes().decode("utf-8")
     assert 'workspace = "/w/café"' in text
     assert 'name = "new"' in text
+
+
+def _rename(conv_dir: Path) -> None:
+    class Conv:
+        path = str(conv_dir / "conversation.jsonl")
+
+    with patch(
+        "gptme.logmanager.conversations.get_conversation_by_id",
+        return_value=Conv(),
+    ):
+        assert rename_conversation("conv", "new")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes and symlinks")
+def test_rename_keeps_mode_and_symlink(tmp_path: Path) -> None:
+    conv_dir = tmp_path / "conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text("")
+    real = tmp_path / "shared-config.toml"
+    real.write_text('[chat]\nname = "old"\n')
+    real.chmod(0o640)
+    (conv_dir / "config.toml").symlink_to(real)
+
+    _rename(conv_dir)
+
+    assert (conv_dir / "config.toml").is_symlink()
+    assert 'name = "new"' in real.read_text()
+    assert stat.S_IMODE(real.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_reencoding_backup_keeps_private_mode(tmp_path: Path) -> None:
+    from gptme.config import user
+
+    conv_dir = tmp_path / "conv"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text("")
+    config = conv_dir / "config.toml"
+    config.write_text('[chat]\nname = "old"\n[env]\nKEY = "secret"\n')
+    config.chmod(0o600)
+    user._encoding_unverified.add(str(config.resolve()))
+
+    _rename(conv_dir)
+
+    backup = conv_dir / "config.toml.orig"
+    assert "secret" in backup.read_text()
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
 
 
 # ── 4. write() must not clobber branches other managers appended to ──

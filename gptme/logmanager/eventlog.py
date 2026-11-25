@@ -237,7 +237,28 @@ def _parse_event(line: str) -> dict[str, Any] | None:
     seq = event.get("seq")
     if not isinstance(seq, int) or isinstance(seq, bool):
         return None
+    if not _payload_shape_ok(event.get("type"), event.get("payload")):
+        return None
     return event
+
+
+def _payload_shape_ok(event_type: Any, payload: Any) -> bool:
+    """Check the payload fields recovery and compaction index, per event type."""
+    if event_type == EVENT_MESSAGE_APPEND:
+        return isinstance(payload, dict) and isinstance(payload.get("message"), dict)
+    if event_type in (EVENT_CHECKPOINT, EVENT_MESSAGE_EDIT):
+        if not isinstance(payload, dict):
+            return False
+        messages = payload.get("messages")
+        return isinstance(messages, list) and all(isinstance(m, dict) for m in messages)
+    if event_type == EVENT_UNDO:
+        if payload is None:
+            return True
+        if not isinstance(payload, dict):
+            return False
+        n = payload.get("n", 1)
+        return isinstance(n, int) and not isinstance(n, bool)
+    return True
 
 
 def read_events(logdir: Path) -> list[dict[str, Any]]:

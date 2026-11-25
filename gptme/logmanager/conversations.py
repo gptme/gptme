@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from collections.abc import Generator
@@ -602,15 +603,24 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
         _back_up_before_reencoding(config_path)
         # Replace atomically (like ChatConfig.save): a failure mid-dump must
         # not truncate the workspace/model/agent settings already on disk.
+        # Write through a symlink to its target, and keep the existing mode
+        # (mkstemp creates 0600).
+        target = config_path.resolve()
+        try:
+            mode: int | None = stat.S_IMODE(target.stat().st_mode)
+        except FileNotFoundError:
+            mode = None
         fd, tmp_name = tempfile.mkstemp(
-            dir=conv_dir, prefix=".config.", suffix=".toml.tmp"
+            dir=target.parent, prefix=".config.", suffix=".toml.tmp"
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 tomlkit.dump(config_data, f)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_name, config_path)
+            if mode is not None:
+                os.chmod(tmp_name, mode)
+            os.replace(tmp_name, target)
         finally:
             with suppress(FileNotFoundError):
                 os.unlink(tmp_name)
