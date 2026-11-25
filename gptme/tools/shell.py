@@ -964,6 +964,7 @@ class ShellSession:
         timeout: float | None = None,
         *,
         capture: BackgroundJob | None = None,
+        _commands: list[str] | None = None,
     ) -> tuple[int | None, str, str]:
         """Runs a command in the shell and returns the output."""
         # Establish ownership before parsing, which can outlast promotion.
@@ -974,7 +975,8 @@ class ShellSession:
         result: tuple[int | None, str, str] | None = None
         error_text: str | None = None
         try:
-            result = self._run_commands(code, output=output, timeout=timeout)
+            commands = split_commands(code) if _commands is None else _commands
+            result = self._run_commands(commands, output=output, timeout=timeout)
             return result
         except BaseException as exc:
             # Finalization seals the capture before a promoted worker publishes.
@@ -1007,9 +1009,8 @@ class ShellSession:
             self._capture_segments = None
 
     def _run_commands(
-        self, code: str, output: bool, timeout: float | None
+        self, commands: list[str], output: bool, timeout: float | None
     ) -> tuple[int | None, str, str]:
-        commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
         for cmd in commands:
@@ -1028,19 +1029,22 @@ class ShellSession:
         # trailing/leading newlines may be meaningful inside the combined stream.
         return res_code, trim_blank_lines(res_stdout), trim_blank_lines(res_stderr)
 
-    def _needs_tty(self, command: str) -> bool:
+    def _can_use_tty(self) -> bool:
+        # TTY commands run outside the persistent shell's sandbox.
+        return (
+            not _is_windows
+            and sys.stdin.isatty()
+            and not SandboxConfig.from_env().enabled
+        )
+
+    def _needs_tty(self, command: str, *, _commands: list[str] | None = None) -> bool:
         """Check if a command needs a TTY (e.g. sudo password prompt) and we're interactive."""
-        return any(self._command_needs_tty(cmd) for cmd in split_commands(command))
+        commands = split_commands(command) if _commands is None else _commands
+        return any(self._command_needs_tty(cmd) for cmd in commands)
 
     def _command_needs_tty(self, command: str) -> bool:
         """Check whether one command is routed through the interactive TTY path."""
-        if _is_windows:
-            return False  # No /dev/tty on Windows
-        if not sys.stdin.isatty():
-            return False
-        if SandboxConfig.from_env().enabled:
-            # _run_with_tty launches a separate host process, outside the persistent
-            # sandbox. Keep sandboxed commands on the isolated shell instead.
+        if not self._can_use_tty():
             return False
         # Check for sudo without -S (stdin password) or -n (non-interactive)
         try:
@@ -1317,7 +1321,7 @@ class ShellSession:
         self, command: str, output=True, tries=0, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
         # Use TTY-based execution for interactive sudo commands
-        if self._needs_tty(command):
+        if self._command_needs_tty(command):
             return self._run_with_tty(
                 command, output=output, timeout=timeout, trim_output=False
             )
@@ -3228,8 +3232,12 @@ def execute_shell_impl(
     allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
+    # Classify interactive commands before choosing how to run them. Without a
+    # usable TTY, leave parsing inside run() so promotion can cover its cost.
+    commands = split_commands(cmd) if shell._can_use_tty() else None
+    needs_tty = commands is not None and shell._needs_tty(cmd, _commands=commands)
     capture = None
-    if logdir is not None and not _is_windows and not shell._needs_tty(cmd):
+    if logdir is not None and not _is_windows and not needs_tty:
         from uuid import uuid4
 
         capture = BackgroundJob(
@@ -3256,7 +3264,7 @@ def execute_shell_impl(
         not _is_windows
         and foreground_timeout is not None
         and (timeout is None or foreground_timeout < timeout)
-        and not shell._needs_tty(cmd)
+        and not needs_tty
     )
     if promoted:
         result: dict[str, tuple[int | None, str, str]] = {}
@@ -3265,7 +3273,11 @@ def execute_shell_impl(
         def run_foreground() -> None:
             try:
                 result["value"] = shell.run(
-                    cmd, output=False, timeout=timeout, capture=capture
+                    cmd,
+                    output=False,
+                    timeout=timeout,
+                    capture=capture,
+                    _commands=commands,
                 )
             except BaseException as exc:
                 error.append(exc)
@@ -3391,7 +3403,7 @@ def execute_shell_impl(
     else:
         try:
             returncode, stdout, stderr = shell.run(
-                cmd, timeout=timeout, capture=capture
+                cmd, timeout=timeout, capture=capture, _commands=commands
             )
         except KeyboardInterrupt as e:
             # Extract partial output and handle subprocess termination
