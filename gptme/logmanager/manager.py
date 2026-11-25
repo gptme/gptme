@@ -366,28 +366,21 @@ class LogManager:
         if (self.logdir / "conversation.jsonl").exists():
             _branch = "main"
             if _branch not in self._branches:
-                branch_log = Log.read_jsonl(self.logdir / "conversation.jsonl")
-                self._branches[_branch] = branch_log.replace(
-                    messages=self.snapshot_message_files(branch_log.messages)
+                self._branches[_branch] = self._load_snapshotted(
+                    self.logdir / "conversation.jsonl"
                 )
         for file in self.logdir.glob("branches/*.jsonl"):
             if file.name == self.logdir.name:
                 continue
             _branch = file.stem
             if _branch not in self._branches:
-                branch_log = Log.read_jsonl(file)
-                self._branches[_branch] = branch_log.replace(
-                    messages=self.snapshot_message_files(branch_log.messages)
-                )
+                self._branches[_branch] = self._load_snapshotted(file)
 
         # Load lossless snapshot (written by manual compaction to preserve full history)
         self._lossless_log: Log | None = None
         lossless_path = self.logdir / "lossless.jsonl"
         if lossless_path.exists():
-            lossless_log = Log.read_jsonl(lossless_path)
-            self._lossless_log = lossless_log.replace(
-                messages=self.snapshot_message_files(lossless_log.messages)
-            )
+            self._lossless_log = self._load_snapshotted(lossless_path)
 
         # Non-main archives belong to the branch, never the shared main history.
         self._branch_lossless_logs: dict[str, Log] = {}
@@ -402,10 +395,7 @@ class LogManager:
             for archive in self.logdir.glob("branch-archives/*.jsonl")
         )
         for branch, archive in archives.items():
-            branch_log = Log.read_jsonl(archive)
-            self._branch_lossless_logs[branch] = branch_log.replace(
-                messages=self.snapshot_message_files(branch_log.messages)
-            )
+            self._branch_lossless_logs[branch] = self._load_snapshotted(archive)
 
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
@@ -413,10 +403,7 @@ class LogManager:
         if views_dir.exists():
             for file in views_dir.glob("*.jsonl"):
                 view_name = file.stem
-                view_log = Log.read_jsonl(file)
-                self._views[view_name] = view_log.replace(
-                    messages=self.snapshot_message_files(view_log.messages)
-                )
+                self._views[view_name] = self._load_snapshotted(file)
                 logger.debug(f"Loaded view branch: {view_name}")
 
         # Restore the last active view unless the caller selected one.
@@ -791,6 +778,20 @@ class LogManager:
             return msg
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)
+
+    def _load_snapshotted(self, path: Path) -> Log:
+        """Read a transcript and snapshot its attachments.
+
+        Snapshotting can replace a message object (a legacy row without file
+        hashes, or a deleted store entry) without changing what is on disk, so
+        the snapshotted objects are the unchanged-since-load baseline. Keeping
+        the raw reads there would make an untouched log look modified, and
+        write() would rewrite it from this stale copy over other managers'
+        appends.
+        """
+        log = Log.read_jsonl(path)
+        messages = self.snapshot_message_files(log.messages)
+        return log.replace(messages=messages, persisted=tuple(messages))
 
     def snapshot_message_files(self, msgs: list[Message]) -> list[Message]:
         """Snapshot message attachments while preserving valid existing hashes."""

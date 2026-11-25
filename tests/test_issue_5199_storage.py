@@ -182,8 +182,11 @@ def test_rename_reads_utf8_config_under_legacy_default_codec(tmp_path: Path) -> 
     conv_dir = tmp_path / "conv"
     conv_dir.mkdir()
     (conv_dir / "conversation.jsonl").write_text("")
+    # "Á" is UTF-8 c3 81, and cp1252 has no character for 0x81: a default-codec
+    # read fails outright instead of round-tripping mojibake back to the same
+    # bytes (as "é" -> "Ã©" -> c3 a9 would), so this distinguishes the fix.
     (conv_dir / "config.toml").write_bytes(
-        '[chat]\nname = "old"\nworkspace = "/w/café"\n'.encode()
+        '[chat]\nname = "old"\nworkspace = "/w/Ácme"\n'.encode()
     )
 
     class Conv:
@@ -206,7 +209,7 @@ def test_rename_reads_utf8_config_under_legacy_default_codec(tmp_path: Path) -> 
         assert rename_conversation("conv", "new")
 
     text = (conv_dir / "config.toml").read_bytes().decode("utf-8")
-    assert 'workspace = "/w/café"' in text
+    assert 'workspace = "/w/Ácme"' in text
     assert 'name = "new"' in text
 
 
@@ -301,3 +304,35 @@ def test_other_branch_append_does_not_rewrite_sibling_branch(tmp_path: Path) -> 
         "feat1",
         "feat2",
     ]
+
+
+def test_branch_append_does_not_rewrite_main_with_unsnapshotted_attachment(
+    tmp_path: Path,
+) -> None:
+    """Loading re-snapshots an attachment whose stored copy is missing (legacy
+    logs, deleted store entries), which replaces the message object. That must
+    not make an unchanged main look locally modified and get rewritten."""
+    import shutil
+
+    logdir = tmp_path / "conv"
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("hello")
+    setup = LogManager(logdir=logdir, lock=False)
+    setup.append(Message("user", "m1", files=[attachment]))
+    setup.branch("dev")
+    setup.append(Message("user", "d1"))
+    shutil.rmtree(logdir / "files")
+    # A legacy log: written before attachments carried content hashes.
+    for path in (logdir / "conversation.jsonl", logdir / "branches" / "dev.jsonl"):
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        for row in rows:
+            row.pop("file_hashes", None)
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    a = LogManager.load(logdir, lock=False)
+    b = LogManager.load(logdir, branch="dev", lock=False)
+    a.append(Message("user", "m2"))
+    b.append(Message("user", "d2"))
+
+    assert _contents(logdir / "conversation.jsonl") == ["m1", "m2"]
+    assert _contents(logdir / "branches" / "dev.jsonl") == ["m1", "d1", "d2"]
