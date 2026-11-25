@@ -2791,6 +2791,26 @@ class TestRerunEndpoint:
         finally:
             session.pending_tools.clear()
 
+    def test_rerun_rejects_pending_approvals(self, conv, client: FlaskClient):
+        """A second rerun must not leave approvals from two turns live."""
+        conversation_id = conv["conversation_id"]
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "assistant", "content": "```shell\npwd\n```"},
+        )
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        url = f"/api/v2/conversations/{conversation_id}/rerun"
+        first = client.post(url, json={"session_id": session.id})
+        assert first.status_code == 200
+        pending = dict(session.pending_tools)
+        epoch = session.step_seq
+        second = client.post(url, json={"session_id": session.id})
+        assert second.status_code == 409
+        assert "pending" in second.get_json()["error"].lower()
+        assert session.pending_tools == pending
+        assert session.step_seq == epoch
+
     def test_rerun_nonexistent_conversation(self, conv, client: FlaskClient):
         """Rerun on nonexistent conversation returns 404."""
         response = client.post(

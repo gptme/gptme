@@ -1312,7 +1312,23 @@ export function useConversation(conversationId: string, serverId?: string) {
           action,
           options
         );
-        if (!isCurrent()) return;
+        if (!isCurrent()) {
+          // A sibling event invalidates the HTTP snapshot but need not expose
+          // the next approval. Reconnect for an authoritative snapshot rather
+          // than restoring a possibly canceled tool from this response.
+          if (
+            action === 'skip' &&
+            !continuationStarted &&
+            !conversation$?.pendingTool.peek() &&
+            conversation$?.generationRevision.peek() === generationRevision &&
+            generationEpochRef.current === generationEpoch &&
+            conversation$?.serverId.peek() === owner &&
+            conversation$?.streamClientGeneration.peek() === clientGeneration
+          ) {
+            api.refreshEventState(conversationId);
+          }
+          return;
+        }
         // Normally onToolExecuting owns the transition. A duplicate may arrive
         // after completion, with no new event forthcoming; clear only that ID.
         if (

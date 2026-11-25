@@ -626,6 +626,11 @@ export class ApiClient {
     document.removeEventListener('visibilitychange', wake);
   }
 
+  /** Refresh the authoritative tool/generation snapshot using the existing listener. */
+  refreshEventState(conversationId: string): void {
+    this.reviveEventStream(conversationId);
+  }
+
   /** Re-open a stream the app still wants but whose connection gave up. */
   private reviveEventStream(conversationId: string): boolean {
     const callbacks = this.eventCallbacks.get(conversationId);

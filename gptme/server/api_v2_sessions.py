@@ -1077,6 +1077,14 @@ def api_conversation_rerun(conversation_id: str):
                 {"error": "Cannot rerun while generation is in progress"}
             ), 409
 
+        if any(
+            owner.pending_tools
+            for owner in SessionManager.get_sessions_for_conversation(conversation_id)
+        ):
+            return flask.jsonify(
+                {"error": "Cannot rerun while tool approvals are pending"}
+            ), 409
+
         # Load conversation and find the last assistant message
         try:
             manager = LogManager.load(conversation_id, lock=False)

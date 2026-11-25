@@ -103,6 +103,7 @@ describe('useConversation', () => {
     confirmTool: confirmToolApi,
     respondToElicitation: respondToElicitationApi,
     closeEventStream,
+    refreshEventState: jest.fn(),
     getConversation: jest.fn(),
     reconcileLateUploadOrder: jest.fn().mockResolvedValue(undefined),
     getChatConfig,
@@ -1830,6 +1831,51 @@ describe('useConversation', () => {
     expect(conv$.pendingTool.get()?.id).toBe(before.pendingId);
     expect(conv$.isGenerating.get()).toBe(before.generating);
   });
+
+  it.each(['executing', 'complete'])(
+    'refreshes hidden approvals after sibling %s overtakes Skip',
+    async (event) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+      let finish!: (value: ToolConfirmResult) => void;
+      confirmToolApi.mockReturnValueOnce(
+        new Promise<ToolConfirmResult>((resolve) => {
+          finish = resolve;
+        })
+      );
+      let skipping!: Promise<void>;
+      act(() => {
+        skipping = result.current.confirmTool('skip');
+      });
+      act(() => {
+        if (event === 'executing') eventHandlers!.onToolExecuting!('running-sibling');
+        else eventHandlers!.onToolComplete!('running-sibling', 1, true);
+      });
+      await act(async () => {
+        finish(deferredSkip);
+        await skipping;
+      });
+      expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+      // The old HTTP payload is never restored. The fresh connected snapshot
+      // reveals the third tool, which was not represented by the sibling event.
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+      act(() =>
+        eventHandlers!.onReconnectState!({
+          generating: false,
+          pendingTools: [
+            {
+              tool_id: 'third-tool',
+              tooluse: { tool: 'shell', content: 'pwd' },
+              auto_confirm: false,
+            },
+          ],
+        })
+      );
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('third-tool');
+      expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(false);
+    }
+  );
 
   it('ignores a late Skip failure after a new approval arrives', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));

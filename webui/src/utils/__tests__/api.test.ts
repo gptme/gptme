@@ -1322,6 +1322,36 @@ describe('ApiClient event stream reconnection', () => {
     expect(onReconnectState.mock.calls.at(-1)![0].pendingElicitations).toBeUndefined();
   });
 
+  it('refreshes tool state through the existing stream callbacks', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const onReconnectState = jest.fn();
+    await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onReconnectState });
+    const oldStream = MockEventSource.instances[0];
+    oldStream.emitMessage({ type: 'connected', session_id: 's1' });
+    client.refreshEventState('conv-1');
+    await Promise.resolve();
+    expect(oldStream.close).toHaveBeenCalled();
+    expect(MockEventSource.instances).toHaveLength(2);
+    MockEventSource.instances[1].emitMessage({
+      type: 'connected',
+      session_id: 's1',
+      generating: false,
+      pending_tools: [
+        { tool_id: 'third', tooluse: { tool: 'shell', content: 'pwd' }, auto_confirm: false },
+      ],
+    });
+    expect(onReconnectState).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        generating: false,
+        pendingTools: [expect.objectContaining({ tool_id: 'third' })],
+      })
+    );
+    client.closeEventStream('conv-1');
+    client.refreshEventState('conv-1');
+    expect(MockEventSource.instances).toHaveLength(2);
+  });
+
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();
