@@ -292,12 +292,19 @@ def require_auth(f):
         # re-encode a header token via latin-1 to recover what the client sent;
         # cookies and query args are already UTF-8 decoded by werkzeug.
         token_bytes = token.encode()
+        expected = [server_token.encode()]
         if token_from_header:
             try:
                 token_bytes = token.encode("latin-1")
             except UnicodeEncodeError:
                 pass  # not a PEP 3333 header value; keep the UTF-8 encoding
-        if not secrets.compare_digest(token_bytes, server_token.encode()):
+            # Clients disagree on header encoding: browsers (fetch ByteString)
+            # and requests/http.client send latin-1, others send UTF-8.
+            try:
+                expected.append(server_token.encode("latin-1"))
+            except UnicodeEncodeError:
+                pass  # code points above U+00FF: only UTF-8 can carry it
+        if not any(secrets.compare_digest(token_bytes, e) for e in expected):
             logger.warning("Invalid or expired token")
             return jsonify({"error": "Invalid or expired token"}), 401
 

@@ -252,3 +252,63 @@ def test_non_ascii_server_token_accepts_matching_bearer_header(monkeypatch):
             headers={"Authorization": wsgi_header("Bearer tökén-x")},
         )
         assert wrong.status_code == 401
+
+
+def test_non_ascii_server_token_accepts_latin1_bearer_header(monkeypatch):
+    """Browsers and requests send header code points <= U+00FF as one byte each.
+
+    ``fetch`` header values are ByteStrings and ``http.client`` encodes header
+    strings as latin-1, so ``Bearer tökén-é`` arrives as latin-1 bytes; the
+    PEP 3333 environ value is then the token string itself.
+    """
+    import gptme.server.auth
+    from gptme.server.app import create_app
+
+    monkeypatch.delenv("GPTME_DISABLE_AUTH", raising=False)
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", "tökén-é")
+    monkeypatch.setattr(gptme.server.auth, "_server_token", None)
+    monkeypatch.setattr(
+        gptme.server.auth, "_auth_enabled", gptme.server.auth._auth_enabled
+    )
+    gptme.server.auth.init_auth("0.0.0.0")
+
+    app = create_app()
+    with app.test_client() as client:
+        ok = client.get(
+            "/api/v2/conversations", headers={"Authorization": "Bearer tökén-é"}
+        )
+        assert ok.status_code == 200
+        wrong = client.get(
+            "/api/v2/conversations", headers={"Authorization": "Bearer tökén-x"}
+        )
+        assert wrong.status_code == 401
+
+
+def test_server_token_above_latin1_accepts_utf8_bearer_header(monkeypatch):
+    """A token outside latin-1 (``€``) can only travel as UTF-8 header bytes."""
+    import gptme.server.auth
+    from gptme.server.app import create_app
+
+    monkeypatch.delenv("GPTME_DISABLE_AUTH", raising=False)
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", "tok€n")
+    monkeypatch.setattr(gptme.server.auth, "_server_token", None)
+    monkeypatch.setattr(
+        gptme.server.auth, "_auth_enabled", gptme.server.auth._auth_enabled
+    )
+    gptme.server.auth.init_auth("0.0.0.0")
+
+    def wsgi_header(value: str) -> str:
+        return value.encode("utf-8").decode("latin-1")
+
+    app = create_app()
+    with app.test_client() as client:
+        ok = client.get(
+            "/api/v2/conversations",
+            headers={"Authorization": wsgi_header("Bearer tok€n")},
+        )
+        assert ok.status_code == 200
+        wrong = client.get(
+            "/api/v2/conversations",
+            headers={"Authorization": wsgi_header("Bearer tok€x")},
+        )
+        assert wrong.status_code == 401
