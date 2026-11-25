@@ -10,7 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .matcher import LessonMatcher, MatchContext, MatchResult, _match_keyword
+from .matcher import (
+    LessonMatcher,
+    MatchContext,
+    MatchResult,
+    _match_keyword,
+    _skill_name_pattern,
+)
 from .parser import Lesson
 
 logger = logging.getLogger(__name__)
@@ -440,19 +446,13 @@ class HybridLessonMatcher(LessonMatcher):
                     score += 1.0
                     matched_by.append(f"pattern:{pattern[:30]}...")
 
-            # Skill name matching (Anthropic format) — parity with LessonMatcher.match
-            if lesson.metadata.name:
-                name_lower = lesson.metadata.name.lower()
-                name_variants = [
-                    name_lower,
-                    name_lower.replace("-", " "),
-                    name_lower.replace("-", ""),
-                ]
-                for variant in name_variants:
-                    if variant in message_lower:
-                        score += 1.5
-                        matched_by.append(f"skill:{lesson.metadata.name}")
-                        break
+            # Skill name matching (Anthropic format) — parity with LessonMatcher.match:
+            # word boundaries, never a raw substring ("end" must not fire on "send").
+            if lesson.metadata.name and _skill_name_pattern(
+                lesson.metadata.name
+            ).search(message_lower):
+                score += 1.5
+                matched_by.append(f"skill:{lesson.metadata.name}")
 
             if context.tools_used and lesson.metadata.tools:
                 tools_lower = {t.lower() for t in context.tools_used}
