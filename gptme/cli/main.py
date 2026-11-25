@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import codecs
+import contextlib
 import importlib
 import importlib.metadata as _ilm
 import json
@@ -1839,6 +1840,62 @@ def _write_terminal_error_to_log(
         pass  # best-effort — don't mask the original failure
 
 
+def _read_first_chunk_windows(
+    fd: int, timeout: float
+) -> tuple[bool, bytes | None]:  # pragma: no cover - Windows
+    """Bounded initial read on Windows using ``PeekNamedPipe`` for pipes."""
+    if sys.platform != "win32":
+        return False, None
+
+    import ctypes
+    import msvcrt
+
+    file_type_disk = 0x0001
+    file_type_pipe = 0x0003
+    error_broken_pipe = 109
+
+    try:
+        handle = msvcrt.get_osfhandle(fd)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetFileType.argtypes = [ctypes.c_void_p]
+        kernel32.GetFileType.restype = ctypes.c_uint32
+        file_type = kernel32.GetFileType(handle)
+        if file_type == file_type_disk:
+            return False, os.read(fd, 4096)
+        if file_type != file_type_pipe:
+            return True, None
+
+        kernel32.PeekNamedPipe.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_void_p,
+        ]
+        kernel32.PeekNamedPipe.restype = ctypes.c_int
+
+        deadline = time.monotonic() + timeout
+        avail = ctypes.c_uint32(0)
+        while True:
+            if kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(avail), None):
+                if avail.value > 0:
+                    return False, os.read(fd, 4096)
+            else:
+                return (
+                    False,
+                    b"" if ctypes.get_last_error() == error_broken_pipe else None,
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return True, None
+            time.sleep(min(0.01, remaining))
+    except TimeoutError:
+        raise
+    except (OSError, ValueError):
+        return False, None
+
+
 def _read_first_chunk_with_timeout(
     fd: int, timeout: float
 ) -> tuple[bool, bytes | None]:
@@ -1846,47 +1903,37 @@ def _read_first_chunk_with_timeout(
 
     Used when ``select.select`` is unsupported on ``fd`` (e.g. Windows pipes,
     or POSIX fds above ``FD_SETSIZE``) so an open idle pipe still returns
-    promptly instead of blocking forever in ``os.read``.
+    promptly without leaving a background reader blocking on ``fd`` and
+    swallowing late bytes.
 
     Returns ``(timed_out, chunk)``. When ``timed_out`` is False, ``chunk`` is
     the bytes read (``b""`` on EOF) or ``None`` if reading failed.
     """
-    import threading
+    if sys.platform == "win32":  # pragma: no cover - Windows
+        return _read_first_chunk_windows(fd, timeout)
 
+    changed_blocking = False
+    deadline = time.monotonic() + timeout
     try:
-        probe_fd = os.dup(fd)
+        if os.get_blocking(fd):
+            os.set_blocking(fd, False)
+            changed_blocking = True
+        while True:
+            try:
+                return False, os.read(fd, 4096)
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return True, None
+                time.sleep(min(0.01, remaining))
+    except TimeoutError:
+        raise
     except (OSError, ValueError):
         return False, None
-
-    result: list[bytes | None] = []
-    done = threading.Event()
-    deadline = time.monotonic() + timeout
-
-    def _probe() -> None:
-        try:
-            while True:
-                try:
-                    result.append(os.read(probe_fd, 4096))
-                    return
-                except BlockingIOError:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        return
-                    time.sleep(min(0.01, remaining))
-        except (OSError, ValueError):
-            result.append(None)
-        finally:
-            try:
-                os.close(probe_fd)
-            except OSError:
-                pass
-            done.set()
-
-    thread = threading.Thread(target=_probe, daemon=True)
-    thread.start()
-    if not done.wait(timeout) or not result:
-        return True, None
-    return False, result[0]
+    finally:
+        if changed_blocking:
+            with contextlib.suppress(OSError):
+                os.set_blocking(fd, True)
 
 
 def _wait_for_fd_readable(fd: int, timeout: float | None) -> bool:
@@ -1902,12 +1949,7 @@ def _wait_for_fd_readable(fd: int, timeout: float | None) -> bool:
         raise
     except (OSError, ValueError):
         # select() unsupported on this fd; sleep briefly before retrying os.read.
-        if timeout is not None:
-            if timeout <= 0:
-                return False
-            time.sleep(min(0.01, timeout))
-        else:
-            time.sleep(0.01)
+        time.sleep(0.01 if timeout is None else min(0.01, timeout))
         return True
 
 
