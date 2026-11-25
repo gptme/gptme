@@ -6405,16 +6405,14 @@ def test_v2_conversation_config_patch_keeps_secret_only_for_same_destination(
     conversation_id = create_conversation(client)["conversation_id"]
     data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
     next(s for s in data["mcp"]["servers"] if s["name"] == server)[field] = value
+    before = ChatConfig.from_logdir(get_logs_dir() / conversation_id).mcp
 
     response = client.patch(
         f"/api/v2/conversations/{conversation_id}/config", json=data
     )
     assert response.status_code == 400
     assert "changed" in response.get_json()["error"]
-    stored = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
-    assert stored.mcp is not None
-    stored_server = next(s for s in stored.mcp.servers if s.name == server)
-    assert getattr(stored_server, field) != value
+    assert ChatConfig.from_logdir(get_logs_dir() / conversation_id).mcp == before
 
 
 def _save_duplicate_name_mcp_servers(conversation_id: str) -> Path:

@@ -834,8 +834,8 @@ def _restore_conversation_mcp_secrets(
                 ) or _changes_mcp_secret(srv, saved):
                     raise ValueError(
                         f"{name}: {field_name}.{key} is redacted but the server's "
-                        "command, args, url, transport or env/headers changed; "
-                        "send the real value"
+                        "command, args, url, transport or env/headers (other "
+                        "secrets included) changed; send every real value"
                     )
                 values[key] = original[key]
 
