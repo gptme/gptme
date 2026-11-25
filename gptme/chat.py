@@ -95,6 +95,12 @@ def _start_auto_naming_thread(
     on_named: Callable[[str], None] | None = None,
 ) -> None:
     """Start at most one auto-naming worker for *logdir*."""
+    from .llm.request_limits import strict_request_bounds_active
+
+    # The worker starts in a fresh Context; its auxiliary generation would
+    # otherwise escape a bounded conversation's provider-send allowance.
+    if strict_request_bounds_active():
+        return
 
     def _run() -> None:
         try:

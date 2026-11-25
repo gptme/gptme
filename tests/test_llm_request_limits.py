@@ -1,5 +1,6 @@
 """Strict, opt-in selector request bounds; no live provider requests."""
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
@@ -11,7 +12,8 @@ from gptme.message import Message
 
 
 @pytest.fixture(autouse=True)
-def isolated_hooks():
+def isolated_hooks(monkeypatch):
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
     clear_hooks()
     yield
     clear_hooks()
@@ -114,6 +116,24 @@ def provider_client(request, monkeypatch):
                     },
                 }
             )
+            if provider == "openrouter" and status.get("tool_call"):
+                body["choices"][0]["message"] = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_offline",
+                            "type": "function",
+                            "function": {
+                                "name": "shell",
+                                "arguments": '{"command":"echo hello"}',
+                            },
+                        }
+                    ],
+                }
+                body["choices"][0]["finish_reason"] = "tool_calls"
+                if status.get("tool_call_once"):
+                    status["tool_call"] = False
             return transport_module.Response(200, json=body)
         return transport_module.Response(
             status["code"],
@@ -361,3 +381,360 @@ def test_calls_outside_recovery_keep_redirect_behavior(provider_client):
     assert len(sent) == 2
     assert sent[1].url.host == "unapproved.invalid"
     assert not client.is_closed()
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_native_tool_round_trip_shares_budget_and_bounds_output(provider_client):
+    import json
+
+    from gptme.llm.request_limits import request_limits
+    from gptme.tools import get_tool, init_tools
+
+    _, model, sent, status = provider_client
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell is not None
+    tools = [shell]
+    status.update(code=200, tool_call=True)
+    messages = [Message("system", "Use the tool"), Message("user", "say hello")]
+    with request_limits(model, 20000, 2, max_tokens=64, native_tools=True):
+        answer = llm.reply(messages, model, tools=tools)
+        assert "call_offline" in answer.content
+        messages += [answer, Message("system", "hello", call_id="call_offline")]
+        status["tool_call"] = False
+        assert llm.reply(messages, model, tools=tools, max_tokens=32).content == "ok"
+        with pytest.raises(ValueError, match="request budget exhausted"):
+            llm.reply(messages, model, tools=tools)
+    assert len(sent) == 2
+    first, second = [json.loads(request.content) for request in sent]
+    assert first["max_tokens"] == 64
+    assert second["max_tokens"] == 32
+    assert first["tools"]
+    assert second["messages"][-2]["tool_calls"][0]["id"] == "call_offline"
+    assert second["messages"][-1]["role"] == "tool"
+    assert second["messages"][-1]["tool_call_id"] == "call_offline"
+    assert second["provider"]["require_parameters"] is True
+    # Scope cleanup restores legacy one-reply accounting.
+    assert strict_reply(model).content == "ok"
+    assert len(sent) == 3
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_native_schema_overhead_rejected_before_http(provider_client):
+    from gptme.llm.request_limits import request_limits
+    from gptme.tools.base import Parameter, ToolSpec
+
+    _, model, sent, status = provider_client
+    status["code"] = 200
+    tool = ToolSpec(
+        name="save",
+        desc="short",
+        parameters=[
+            Parameter(name="x", type="string", description="x" * 3000, required=True)
+        ],
+    )
+    with (
+        request_limits(model, 1024, 1, max_tokens=64, native_tools=True),
+        pytest.raises(ValueError, match="serialized input byte"),
+    ):
+        llm.reply([Message("user", "a")], model, tools=[tool])
+    assert not sent
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_retries_spend_remaining_conversation_budget(provider_client):
+    from gptme.llm.request_limits import request_limits
+
+    _, model, sent, status = provider_client
+    with request_limits(model, 4096, 3, max_tokens=64, native_tools=True):
+        status["code"] = 200
+        llm.reply([Message("user", "first")], model)
+        status["code"] = 503
+        with pytest.raises(Exception, match="unavailable"):
+            llm.reply([Message("user", "second")], model)
+        assert len(sent) == 3
+        with pytest.raises(ValueError, match="request budget exhausted"):
+            llm.reply([Message("user", "third")], model)
+    assert len(sent) == 3
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"stream": True},
+        {"max_tokens": 65},
+        {"max_tokens": True},
+        {"output_schema": dict},
+        {"max_input_bytes": 4096, "max_provider_requests": 10},
+        {"model": "openrouter/anthropic/claude-sonnet-4"},
+        {"model": "anthropic/claude-haiku-4-5"},
+        {"messages": [Message("user", "a", files=[Path(__file__)])]},
+    ],
+)
+def test_native_scope_rejects_unsupported_replies_before_provider(monkeypatch, kwargs):
+    from gptme.llm.request_limits import request_limits
+
+    init = Mock()
+    monkeypatch.setattr(llm, "init_llm", init)
+    model = "openrouter/anthropic/claude-haiku-4.5"
+    with (
+        request_limits(model, 4096, 2, max_tokens=64, native_tools=True),
+        pytest.raises(ValueError, match="strict request"),
+    ):
+        llm.reply(**{"messages": [Message("user", "a")], "model": model, **kwargs})
+    init.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("model", "tokens", "requests"),
+    [
+        ("anthropic/claude-haiku-4-5", 64, 1),
+        ("openrouter/model", None, 1),
+        ("openrouter/model", 0, 1),
+        ("openrouter/model", True, 1),
+        ("openrouter/model", 64, True),
+    ],
+)
+def test_native_scope_rejects_invalid_configuration(model, tokens, requests):
+    from gptme.llm.request_limits import request_limits
+
+    with (
+        pytest.raises(ValueError, match="strict request"),
+        request_limits(model, 4096, requests, max_tokens=tokens, native_tools=True),
+    ):
+        pytest.fail("invalid scope admitted")
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_cli_scopes_provider_budget_and_cleans_up(
+    provider_client, monkeypatch, tmp_path
+):
+    import importlib
+
+    from click.testing import CliRunner
+
+    from gptme.llm.request_limits import strict_request_bounds_active
+
+    cli = importlib.import_module("gptme.cli.main")
+    _, model, sent, status = provider_client
+    status["code"] = 200
+
+    def chat(*args, **kwargs):
+        assert strict_request_bounds_active()
+        assert args[5] is False
+        for _ in range(2):
+            assert llm.reply([Message("user", "a")], model).content == "ok"
+        with pytest.raises(ValueError, match="request budget exhausted"):
+            llm.reply([Message("user", "a")], model)
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", chat)
+    from gptme.tools import clear_tools
+
+    clear_tools()
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--no-stream",
+            "--tool-format",
+            "tool",
+            "--model",
+            model,
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "shell",
+            "--max-input-bytes",
+            "4096",
+            "--max-provider-requests",
+            "2",
+            "--max-tokens",
+            "64",
+            "hello",
+        ],
+    )
+    assert result.exit_code == 0, (
+        result.output,
+        result.exception,
+        importlib.import_module("gptme.config").get_config().chat.tools,
+    )
+    assert len(sent) == 2
+    assert not strict_request_bounds_active()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [],
+        ["--no-stream"],
+        ["--no-stream", "--tool-format", "tool", "--model", "mock/test"],
+    ],
+)
+def test_cli_rejects_unsupported_strict_route_before_setup(monkeypatch, extra):
+    import importlib
+
+    from click.testing import CliRunner
+
+    cli = importlib.import_module("gptme.cli.main")
+    setup = Mock()
+    monkeypatch.setattr(
+        importlib.import_module("gptme.config"), "setup_config_from_cli", setup
+    )
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "--max-input-bytes",
+            "4096",
+            "--max-provider-requests",
+            "2",
+            "--max-tokens",
+            "64",
+            *extra,
+            "hello",
+        ],
+    )
+    assert result.exit_code == 2
+    setup.assert_not_called()
+
+
+def test_strict_conversation_disables_background_naming(tmp_path, monkeypatch):
+    import importlib
+
+    from gptme.config import ChatConfig
+    from gptme.llm.request_limits import request_limits
+
+    chat = importlib.import_module("gptme.chat")
+    start = Mock()
+    monkeypatch.setattr(chat.threading, "Thread", start)
+    with request_limits("openrouter/test", 4096, 2, max_tokens=64, native_tools=True):
+        chat._start_auto_naming_thread(
+            tmp_path,
+            ChatConfig(_logdir=tmp_path),
+            [Message("user", "a")],
+            "openrouter/test",
+        )
+    start.assert_not_called()
+    assert tmp_path not in chat._naming_threads
+
+
+def test_strict_native_rejects_subagent_before_provider(monkeypatch):
+    from gptme.llm.request_limits import request_limits
+    from gptme.tools import ToolSpec
+
+    init = Mock()
+    monkeypatch.setattr(llm, "init_llm", init)
+    with (
+        request_limits("openrouter/test", 4096, 2, max_tokens=64, native_tools=True),
+        pytest.raises(ValueError, match="support only shell"),
+    ):
+        llm.reply(
+            [Message("user", "a")],
+            "openrouter/test",
+            tools=[ToolSpec(name="subagent", desc="delegate")],
+        )
+    init.assert_not_called()
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_cli_native_tool_execution_and_exhaustion(
+    provider_client, tmp_path, monkeypatch
+):
+    import importlib
+    import json
+
+    from click.testing import CliRunner
+
+    from gptme.llm.request_limits import strict_request_bounds_active
+    from gptme.tools import clear_tools
+
+    cli = importlib.import_module("gptme.cli.main")
+    importlib.import_module("gptme.chat")
+    clear_tools()
+    _, model, sent, status = provider_client
+    from gptme.llm.models import set_default_model
+
+    set_default_model(model)
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    status.update(code=200, tool_call=True, tool_call_once=True)
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--no-stream",
+            "--tool-format",
+            "tool",
+            "--model",
+            model,
+            "--workspace",
+            str(tmp_path),
+            "--tools",
+            "shell",
+            "--system",
+            "Use shell once then finish.",
+            "--no-workspace",
+            "--max-input-bytes",
+            "65536",
+            "--max-provider-requests",
+            "2",
+            "--max-tokens",
+            "64",
+            "--",
+            "Say hello.",
+        ],
+    )
+    assert len(sent) == 2, (result.output, result.exception)
+    second = json.loads(sent[1].content)
+    assert any(
+        message.get("role") == "tool" and message.get("tool_call_id") == "call_offline"
+        for message in second["messages"]
+    )
+    assert "provider request budget exhausted" in result.output
+    assert result.exit_code != 0
+    assert not strict_request_bounds_active()
+
+
+@pytest.mark.parametrize("prompt", ["search", "llm"])
+def test_cli_bounds_cannot_disappear_through_command_shortcut(prompt):
+    import importlib
+
+    from click.testing import CliRunner
+
+    cli = importlib.import_module("gptme.cli.main")
+    result = CliRunner().invoke(cli.main, ["--max-provider-requests", "1", prompt])
+    assert result.exit_code == 2
+    assert "do not support command shortcuts" in result.output
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_native_scope_pins_concrete_api_model_for_direct_chat(provider_client):
+    from gptme.llm import llm_openai
+    from gptme.llm.request_limits import request_limits
+
+    _, model, sent, status = provider_client
+    status["code"] = 200
+    with (
+        request_limits(model, 4096, 2, max_tokens=64, native_tools=True),
+        pytest.raises(ValueError, match="scoped API model"),
+    ):
+        llm_openai.chat(
+            [Message("user", "a")],
+            "openrouter/anthropic/claude-sonnet-4",
+            None,
+            max_tokens=64,
+        )
+    assert not sent
+
+
+@pytest.mark.parametrize("provider_client", ["openrouter"], indirect=True)
+def test_native_scope_rejects_direct_stream_before_http(provider_client):
+    from gptme.llm import llm_openai
+    from gptme.llm.request_limits import request_limits
+
+    _, model, sent, status = provider_client
+    status["code"] = 200
+    with (
+        request_limits(model, 4096, 2, max_tokens=64, native_tools=True),
+        pytest.raises(ValueError, match="do not support streaming"),
+    ):
+        list(llm_openai.stream([Message("user", "a")], model, None, max_tokens=64))
+    assert not sent

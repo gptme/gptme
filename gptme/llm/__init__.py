@@ -422,6 +422,9 @@ def reply(
     max_input_bytes: int | None = None,
     max_provider_requests: int | None = None,
 ) -> Message:
+    from .request_limits import bounded_max_tokens
+
+    max_tokens = bounded_max_tokens(max_tokens)
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     # Trigger GENERATION_PRE hooks and collect context messages

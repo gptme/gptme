@@ -1388,11 +1388,22 @@ def chat(
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
 
     def _chat_create(relaxed_privacy: bool = False) -> Any:
+        body = extra_body(
+            provider,
+            model_meta,
+            max_tokens=max_tokens,
+            relaxed_privacy=relaxed_privacy,
+        )
         with bounded_client(client, str(provider)) as send_client:
             reserve_request(
                 send_client,
                 str(provider),
-                {"messages": messages_dicts},
+                {
+                    "model": api_model.split("@")[0],
+                    "messages": messages_dicts,
+                    **optional_kwargs,
+                    **(body or {}),
+                },
                 relaxed_parameters=relaxed_privacy,
             )
             from .recovery import reserve_recovery_request
@@ -1402,12 +1413,7 @@ def chat(
                 model=api_model.split("@")[0],
                 messages=cast(list, messages_dicts),
                 extra_headers=extra_headers(provider),
-                extra_body=extra_body(
-                    provider,
-                    model_meta,
-                    max_tokens=max_tokens,
-                    relaxed_privacy=relaxed_privacy,
-                ),
+                extra_body=body,
                 **optional_kwargs,
             )
 
@@ -2009,6 +2015,9 @@ def stream(
     temperature: float | None = None,
     top_p: float | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
+    if strict_request_bounds_active():
+        raise ValueError("strict request bounds do not support streaming")
+
     from . import get_provider_from_model  # fmt: skip
 
     provider = get_provider_from_model(model)

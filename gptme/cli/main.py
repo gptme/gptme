@@ -761,6 +761,24 @@ def _same_env_executable(name: str) -> str | None:
     help="Stream responses",
 )
 @click.option(
+    "--max-input-bytes",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Strict per-request serialized input bound; requires both other bounds, --no-stream and --tool-format tool.",
+)
+@click.option(
+    "--max-provider-requests",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Strict total provider sends across this conversation, including retries (OpenRouter only).",
+)
+@click.option(
+    "--max-tokens",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Strict output-token ceiling per send; requires both other bounds.",
+)
+@click.option(
     "--show-hidden",
     is_flag=True,
     help="Show hidden system messages.",
@@ -844,6 +862,9 @@ def main(
     tool_format: ToolFormat | None,
     prune_tool_output: bool | None,
     stream: bool,
+    max_input_bytes: int | None,
+    max_provider_requests: int | None,
+    max_tokens: int | None,
     verbose: bool,
     no_confirm: bool,
     non_interactive: bool,
@@ -868,6 +889,11 @@ def main(
         "shortcut_dispatch_suppressed", False
     )
 
+    strict_requested = any(
+        value is not None
+        for value in (max_input_bytes, max_provider_requests, max_tokens)
+    )
+
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
     if (
         prompts
@@ -875,6 +901,10 @@ def main(
         and not show_version
         and not dispatch_suppressed
     ):
+        if strict_requested:
+            raise click.UsageError(
+                "Strict request bounds do not support command shortcuts."
+            )
         from ..tools.chats import search_chats  # fmt: skip
 
         query = " ".join(prompts[1:]).strip()
@@ -894,6 +924,10 @@ def main(
         from .util import UTIL_SUBCOMMANDS  # cheap: just a sorted list constant
 
         if prompts[0] in UTIL_SUBCOMMANDS and not dispatch_suppressed:
+            if strict_requested:
+                raise click.UsageError(
+                    "Strict request bounds do not support command shortcuts."
+                )
             if util_exec := _same_env_executable("gptme-util"):
                 env = {**os.environ, "GPTME_PARENT_PROG": "gptme"}
                 sys.exit(subprocess.call([util_exec, *prompts], env=env))
@@ -911,7 +945,32 @@ def main(
     if prompts and not show_version and not dispatch_suppressed:
         plugin = f"gptme-{prompts[0]}"
         if plugin_path := shutil.which(plugin):
+            if strict_requested:
+                raise click.UsageError(
+                    "Strict request bounds do not support plugin commands."
+                )
             sys.exit(subprocess.call([plugin_path, *prompts[1:]]))
+
+    if strict_requested:
+        from ..llm.request_limits import request_limits
+
+        if stream or tool_format != "tool" or output_schema is not None or not model:
+            raise click.UsageError(
+                "Strict request bounds require an explicit OpenRouter --model, "
+                "--no-stream, --tool-format tool and no output schema."
+            )
+        try:
+            ctx.with_resource(
+                request_limits(
+                    model,
+                    max_input_bytes,
+                    max_provider_requests,
+                    max_tokens=max_tokens,
+                    native_tools=True,
+                )
+            )
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
 
     # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
     # (observed to occur in some Click versions when --name "" is passed)
@@ -1431,6 +1490,10 @@ def main(
     logger.debug(f"Using tools: {config.chat.tools}")
     try:
         tools = init_tools(config.chat.tools)
+        if max_provider_requests is not None:
+            from ..llm.request_limits import validate_native_tools
+
+            validate_native_tools(tools)
     except ValueError as e:
         raise click.UsageError(str(e)) from e
 

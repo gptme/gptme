@@ -1,4 +1,4 @@
-"""Opt-in bounds for nonstreaming text selector calls on audited API routes.
+"""Opt-in bounds for nonstreaming generation on audited API routes.
 
 Input bytes bound UTF-8 text after hooks and serialized provider input, not a
 model-independent token count. Currency reservations must also allow for provider
@@ -20,6 +20,9 @@ from ..message import Message
 @dataclass
 class _RequestLimits:
     provider: str
+    model: str
+    max_tokens: int | None
+    native_tools: bool
     input_bytes: int
     requests: int
     used: int = 0
@@ -46,7 +49,17 @@ def validate_limits(
     output_schema: Any,
 ) -> None:
     """Reject unsupported strict calls before provider initialization."""
-    if max_input_bytes is None and max_provider_requests is None:
+    limit = _limits.get()
+    if limit is not None:
+        if max_input_bytes is not None or max_provider_requests is not None:
+            raise ValueError("nested strict request budgets are unsupported")
+        if model != limit.model:
+            raise ValueError("strict request bounds require the scoped model")
+        if limit.used >= limit.requests:
+            raise ValueError("provider request budget exhausted")
+        max_input_bytes = limit.input_bytes
+        max_provider_requests = limit.requests
+    elif max_input_bytes is None and max_provider_requests is None:
         return
     if any(
         type(value) is not int or value <= 0
@@ -60,12 +73,17 @@ def validate_limits(
         raise ValueError(
             "strict request bounds require an explicit supported API provider"
         )
-    if stream or tools or output_schema is not None:
+    native_tools = limit is not None and limit.native_tools
+    if native_tools:
+        validate_native_tools(tools)
+    if stream or (tools and not native_tools) or output_schema is not None:
         raise ValueError(
             "strict request bounds support only nonstreaming text without tools/schema"
         )
     if any(
-        m.files or m.call_id or m.metadata or not isinstance(m.content, str)
+        m.files
+        or (not native_tools and (m.call_id or m.metadata))
+        or not isinstance(m.content, str)
         for m in messages
     ):
         raise ValueError(
@@ -76,19 +94,65 @@ def validate_limits(
         raise ValueError("input byte limit exceeded")
 
 
+def validate_native_tools(tools: Any) -> None:
+    """Reject helpers that can create model workers outside the reply scope."""
+    allowed = {"shell", "save", "append", "patch", "read", "complete"}
+    unsupported = sorted(tool.name for tool in tools or [] if tool.name not in allowed)
+    if unsupported:
+        raise ValueError(
+            "native strict request bounds support only shell/save/append/patch/read/complete tools; "
+            f"unsupported: {', '.join(unsupported)}"
+        )
+
+
 @contextmanager
 def request_limits(
-    model: str, max_input_bytes: int | None, max_provider_requests: int | None
+    model: str,
+    max_input_bytes: int | None,
+    max_provider_requests: int | None,
+    *,
+    max_tokens: int | None = None,
+    native_tools: bool = False,
 ) -> Iterator[None]:
-    """Scope one reply's request allowance; never leak it to the next reply."""
-    if max_input_bytes is None and max_provider_requests is None:
+    """Scope a shared allowance across replies, retries and native tool turns.
+
+    For a bounded OpenRouter conversation, set ``native_tools=True`` and a
+    ``max_tokens`` ceiling, then call ``llm.reply`` without per-reply bounds.
+    The scope supplies the output ceiling when omitted; smaller explicit limits
+    are allowed. The exact model is pinned. Attachments, streaming and structured
+    output are unsupported. This is not a currency or tool-execution budget.
+    """
+    if max_input_bytes is None and max_provider_requests is None and not native_tools:
         yield
         return
+    if any(
+        type(value) is not int or value <= 0
+        for value in (max_input_bytes, max_provider_requests)
+    ):
+        raise ValueError("strict request bounds must be positive integers")
+    provider, slash, name = model.partition("/")
+    if provider not in _ENDPOINTS or not slash or not name:
+        raise ValueError(
+            "strict request bounds require an explicit supported API provider"
+        )
+    if native_tools and (
+        provider != "openrouter" or type(max_tokens) is not int or max_tokens <= 0
+    ):
+        raise ValueError(
+            "native strict request bounds require OpenRouter and positive max_tokens"
+        )
     assert max_input_bytes is not None and max_provider_requests is not None
     if _limits.get() is not None:
         raise ValueError("nested strict request budgets are unsupported")
     token = _limits.set(
-        _RequestLimits(model.split("/", 1)[0], max_input_bytes, max_provider_requests)
+        _RequestLimits(
+            provider,
+            model,
+            max_tokens,
+            native_tools,
+            max_input_bytes,
+            max_provider_requests,
+        )
     )
     try:
         yield
@@ -96,10 +160,26 @@ def request_limits(
         _limits.reset(token)
 
 
+def bounded_max_tokens(max_tokens: int | None) -> int | None:
+    """Apply the conversation ceiling before reply validation and provider setup."""
+    limit = _limits.get()
+    if limit is None or limit.max_tokens is None:
+        return max_tokens
+    if max_tokens is None:
+        return limit.max_tokens
+    if type(max_tokens) is not int or not 0 < max_tokens <= limit.max_tokens:
+        raise ValueError("strict request bounds max_tokens ceiling exceeded")
+    return max_tokens
+
+
 def bounded_attempts(attempts: int) -> int:
     """Avoid retry backoff once a strict call's request allowance is spent."""
     limit = _limits.get()
-    return min(attempts, limit.requests) if limit is not None else attempts
+    return (
+        min(attempts, max(1, limit.requests - limit.used))
+        if limit is not None
+        else attempts
+    )
 
 
 def request_budget_exhausted() -> bool:
@@ -175,6 +255,16 @@ def reserve_request(
         raise ValueError("strict request bounds require HTTP redirects disabled")
     if relaxed_parameters:
         raise ValueError("strict request bounds require parameter support")
+    if limit.native_tools:
+        expected_model = limit.model.split("/", 1)[1].split("@", 1)[0]
+        if inputs.get("model") != expected_model:
+            raise ValueError("strict request bounds require the scoped API model")
+        assert limit.max_tokens is not None
+        output_limit = inputs.get("max_tokens")
+        if type(output_limit) is not int or not 0 < output_limit <= limit.max_tokens:
+            raise ValueError(
+                "strict request bounds require a bounded max_tokens parameter"
+            )
     serialized = json.dumps(inputs, ensure_ascii=False, allow_nan=False).encode("utf-8")
     if len(serialized) > limit.input_bytes:
         raise ValueError("serialized input byte limit exceeded")
