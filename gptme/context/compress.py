@@ -255,7 +255,7 @@ _INLINE_BOUNDARY_RE = re.compile(
 
 def _quoted(content: str, tag: re.Match[str]) -> bool:
     """Whether a tag is quoted on its own (`` `<think>` ``): a literal mention."""
-    return content[: tag.start()].endswith("`") and content[tag.end() :][:1] == "`"
+    return content.startswith("`", tag.end()) and content.endswith("`", 0, tag.start())
 
 
 def _next_tag(content: str, pos: int, name: str) -> re.Match[str] | None:
