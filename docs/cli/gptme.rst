@@ -5,7 +5,7 @@
    :nested: full
 
 Bounded native-tool conversations
---------------------------------
+---------------------------------
 
 For controlled OpenRouter trials, opt in to three bounds together:
 

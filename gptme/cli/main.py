@@ -760,20 +760,25 @@ def _same_env_executable(name: str) -> str | None:
     default=True,
     help="Stream responses",
 )
+# Strict limits require explicit flags. In particular, GPTME_MAX_TOKENS already
+# configures ordinary generation and must not opt the CLI into strict mode.
 @click.option(
     "--max-input-bytes",
+    allow_from_autoenv=False,
     type=click.IntRange(min=1),
     default=None,
     help="Strict per-request serialized input bound; requires both other bounds, --no-stream and --tool-format tool.",
 )
 @click.option(
     "--max-provider-requests",
+    allow_from_autoenv=False,
     type=click.IntRange(min=1),
     default=None,
     help="Strict total provider sends across this conversation, including retries (OpenRouter only).",
 )
 @click.option(
     "--max-tokens",
+    allow_from_autoenv=False,
     type=click.IntRange(min=1),
     default=None,
     help="Strict output-token ceiling per send; requires both other bounds.",

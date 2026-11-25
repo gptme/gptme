@@ -738,3 +738,41 @@ def test_native_scope_rejects_direct_stream_before_http(provider_client):
     ):
         list(llm_openai.stream([Message("user", "a")], model, None, max_tokens=64))
     assert not sent
+
+
+@pytest.mark.parametrize("value", ["64", "invalid"])
+def test_output_token_environment_does_not_enable_strict_cli(monkeypatch, value):
+    import importlib
+
+    from click.testing import CliRunner
+
+    cli = importlib.import_module("gptme.cli.main")
+    monkeypatch.setenv("GPTME_MAX_TOKENS", value)
+    result = CliRunner().invoke(cli.main, ["--version"])
+    assert result.exit_code == 0, result.output
+    # The existing generation override is still owned by the LLM layer.
+    expected = 64 if value == "64" else llm._OPENROUTER_DEFAULT_MAX_TOKENS
+    assert (
+        llm._resolve_max_tokens("openrouter/anthropic/claude-haiku-4.5", None)
+        == expected
+    )
+
+
+def test_output_token_environment_keeps_command_shortcuts(monkeypatch):
+    import importlib
+
+    from click.testing import CliRunner
+
+    cli = importlib.import_module("gptme.cli.main")
+    monkeypatch.setenv("GPTME_MAX_TOKENS", "64")
+    monkeypatch.setattr(cli, "_same_env_executable", lambda name: "/offline/gptme-util")
+    dispatch = Mock(return_value=0)
+    monkeypatch.setattr(cli.subprocess, "call", dispatch)
+    result = CliRunner().invoke(cli.main, ["llm", "generate", "hello"])
+    assert result.exit_code == 0, result.output
+    assert dispatch.call_args.args[0] == [
+        "/offline/gptme-util",
+        "llm",
+        "generate",
+        "hello",
+    ]
