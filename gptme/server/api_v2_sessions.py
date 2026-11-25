@@ -896,8 +896,15 @@ def api_conversation_tool_confirm(conversation_id: str):
             # concurrent tool worker whose my_seq equals the pre-skip value
             # sees a mismatch and stands down (same protocol as /step and
             # /interrupt + rerun).
+            prev_step_seq = session.step_seq
             session.step_seq += 1
             skip_step_seq = session.step_seq
+            # Carry the rest of this batch forward: they still await approval,
+            # and once the skip reply finishes their approvals must block a
+            # second reply instead of being ignored as a stale epoch.
+            for pending in session.pending_tools.values():
+                if pending.step_seq == prev_step_seq:
+                    pending.step_seq = skip_step_seq
             try:
                 current_tool.status = ToolStatus.SKIPPED
                 session.finish_skill_turn("abandoned")

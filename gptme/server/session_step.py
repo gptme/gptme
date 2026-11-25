@@ -1774,11 +1774,16 @@ def start_tool_execution(
                     tool_exec = session.pending_tools.pop(current_tool_id, None)
                     if tool_exec is not None:
                         session.remember_handled_tool(current_tool_id)
-                        # A tool approved after an interrupt runs under the
-                        # worker's epoch, not the one it was queued under.
-                        tool_exec.step_seq = my_seq
+                        # Adopt a tool queued under an older epoch (e.g. one
+                        # approved after an interrupt), but never steal one a
+                        # newer generation owns: it must stay tagged with that
+                        # epoch so the newer reply waits for its result.
+                        if tool_exec.step_seq is None or tool_exec.step_seq <= my_seq:
+                            tool_exec.step_seq = my_seq
                         session._executing_tools.add(current_tool_id)
-                        session._executing_tool_epochs[current_tool_id] = my_seq
+                        session._executing_tool_epochs[current_tool_id] = (
+                            tool_exec.step_seq
+                        )
                 if tool_exec is None:
                     logger.warning(
                         f"Tool {current_tool_id} not found in pending tools "
@@ -1982,10 +1987,15 @@ def start_tool_execution(
                             },
                         )
 
-                    # Chain to next pending auto-confirm tool (serial execution)
+                    # Chain to the next pending auto-confirm tool (serial
+                    # execution). Only tools this worker's epoch may own: a
+                    # newer generation's tool must not be pulled into an older
+                    # chain, or that generation's reply would miss its result.
                     next_auto_id: str | None = None
                     for tid, texec in list(session.pending_tools.items()):
-                        if texec.auto_confirm:
+                        if texec.auto_confirm and (
+                            texec.step_seq is None or texec.step_seq <= my_seq
+                        ):
                             next_auto_id = tid
                             break
 

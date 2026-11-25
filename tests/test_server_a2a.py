@@ -1091,3 +1091,71 @@ def test_rerun_continuation_ignores_stale_executing_tool(v2_conv, monkeypatch):
     kwargs = continuation.call_args.kwargs
     assert kwargs["reserved"] is True
     assert kwargs["step_seq"] == 7
+
+
+def test_tool_chain_does_not_steal_a_newer_epoch_tool(v2_conv, monkeypatch):
+    """An older worker must not chain to a tool a newer generation queued.
+
+    If it did, it would re-tag the tool to its own epoch and the newer turn
+    would reply before that tool's result was saved.
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.interrupted = False
+    session.generating = False
+
+    def execute(code, args, kwargs):
+        # The newer generation starts while this older tool runs.
+        session.step_seq = 6
+        return Message("system", "old tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+
+    old_tool = ToolExecution(
+        tool_id="old-tool",
+        tooluse=ToolUse("test_tool", [], None),
+        auto_confirm=True,
+        step_seq=5,
+    )
+    new_tool = ToolExecution(
+        tool_id="new-tool",
+        tooluse=ToolUse("test_tool", [], None),
+        auto_confirm=True,
+        step_seq=6,
+    )
+    session.pending_tools[old_tool.tool_id] = old_tool
+    session.pending_tools[new_tool.tool_id] = new_tool
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        old_tool.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert new_tool.tool_id in session.pending_tools
+    assert session.pending_tools[new_tool.tool_id].step_seq == 6
+    assert continuation.call_count == 0
