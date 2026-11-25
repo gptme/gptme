@@ -506,6 +506,9 @@ class Subagent:
     context_mode: Literal["full", "selective", "fork"] = "full"
     context_include: list[str] | None = None
     profile: str | None = None
+    # Captured operator boundary; persist it so continuation in another context
+    # cannot turn a restricted child into an unrestricted one.
+    parent_tool_allowlist: list[str] | None = None
     output_schema: "type | dict | None" = None
     use_acp: bool = False
     # Per-call reasoning effort override (e.g. "low"/"medium"/"high"), forwarded
@@ -985,9 +988,13 @@ class Subagent:
         # parsing includes markdown, but XML needs its own parser.
         from ...config.chat import ChatConfig
 
-        child_format = ChatConfig.from_logdir(
-            self.logdir, create_workspace=False
-        ).tool_format
+        try:
+            child_format = ChatConfig.from_logdir(
+                self.logdir, create_workspace=False
+            ).tool_format
+        except (ValueError, OSError):
+            # Old/future configs must not hide an otherwise readable result.
+            child_format = None
         count_format: Literal["xml", "tool"] = (
             "xml" if child_format == "xml" else "tool"
         )

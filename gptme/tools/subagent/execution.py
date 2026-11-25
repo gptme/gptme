@@ -101,6 +101,21 @@ def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
     return _declared_child_tool_format(model)
 
 
+def _capture_subprocess_tools(
+    profile: str | None, parent_tool_allowlist: list[str] | None
+) -> str:
+    """Resolve patterns in the caller's project/chat config, before threading."""
+    from ...profiles import get_profile
+
+    profile_obj = get_profile(profile) if profile else None
+    return _subprocess_tools_arg(
+        list(profile_obj.tools)
+        if profile_obj and profile_obj.tools is not None
+        else None,
+        parent_tool_allowlist,
+    )
+
+
 _SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress", "yield")
 _SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
@@ -182,6 +197,25 @@ def _subprocess_tools_arg(
             if profile_tools is not None
             else [item for item in parent_tool_allowlist if _is_tool_file_entry(item)]
         )
+        if profile_tools is not None:
+            from ..base import load_from_file
+
+            for item in parent_tool_allowlist:
+                if not _is_tool_file_entry(item):
+                    continue
+                exported = load_from_file(Path(item))
+                permitted = [
+                    tool
+                    for tool in exported
+                    if tool_matches_allowlist(tool.name, profile_tools, tool.hints)
+                ]
+                if permitted and len(permitted) != len(exported):
+                    raise ValueError(
+                        f"Profile permits only part of tool file {item}; "
+                        "use thread mode for per-tool file filtering."
+                    )
+                if permitted:
+                    tools.append(item)
         for tool in get_available_tools():
             if not tool_matches_allowlist(tool.name, parent_tool_allowlist, tool.hints):
                 continue
@@ -956,6 +990,7 @@ def _run_subagent_subprocess(
     resume: bool = False,
     writer_lease: BinaryIO | None = None,
     parent_tool_allowlist: list[str] | None = None,
+    tools_arg: str | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
 
@@ -1026,7 +1061,14 @@ def _run_subagent_subprocess(
         profile_obj = get_profile(profile)
         if profile_obj and profile_obj.tools is not None:
             profile_tools = list(profile_obj.tools)
-    cmd.extend(["--tools", _subprocess_tools_arg(profile_tools, parent_tool_allowlist)])
+    cmd.extend(
+        [
+            "--tools",
+            tools_arg
+            if tools_arg is not None
+            else _subprocess_tools_arg(profile_tools, parent_tool_allowlist),
+        ]
+    )
 
     # Map context_window/context_mode/context_include to CLI flags.
     if context_window == 0:
@@ -1905,12 +1947,16 @@ def _run_planner(
                     f"Planner executor {executor_id}: 'redact_secrets=True' has no effect "
                     "in subprocess mode (only thread-mode subagents inherit workspace context)"
                 )
+            tools_arg = _capture_subprocess_tools(
+                resolved_profile, parent_tool_allowlist
+            )
             sa = Subagent(
                 executor_id,
                 executor_prompt,
                 None,
                 logdir,
                 model,
+                parent_tool_allowlist=parent_tool_allowlist,
                 context_mode=context_mode,
                 context_include=context_include,
                 profile=resolved_profile,
@@ -1934,6 +1980,7 @@ def _run_planner(
                 _sa: "Subagent" = sa,
                 _workspace=workspace,
                 _profile=resolved_profile,
+                _tools_arg=tools_arg,
             ):
                 # Bind retry generation at thread birth so test-teardown
                 # interrupts abort backoffs even post-teardown (see retry_abort).
@@ -1951,6 +1998,7 @@ def _run_planner(
                             return
                     try:
                         process = _run_subagent_subprocess(
+                            tools_arg=_tools_arg,
                             parent_tool_allowlist=parent_tool_allowlist,
                             prompt=_sa.prompt,
                             logdir=_sa.logdir,
@@ -2075,6 +2123,7 @@ def _run_planner(
                 t,
                 logdir,
                 model,
+                parent_tool_allowlist=parent_tool_allowlist,
                 context_mode=context_mode,
                 context_include=context_include,
                 profile=resolved_profile,

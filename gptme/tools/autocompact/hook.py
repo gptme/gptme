@@ -32,6 +32,7 @@ from .events import append_compaction_event
 from .handlers import cmd_compact_handler
 from .resume import (
     _apply_native_compaction,
+    _checkpoint_fits,
     _resume_via_llm,
     build_checkpoint_prompt,
 )
@@ -545,8 +546,17 @@ def autocompact_hook(
             # limit. Route overflow directly through the chunked summarizer
             # before that limit can discard early requirements. In-window
             # checkpoints keep their normal tool-capable turn.
-            overflow = m is not None and len_tokens(checkpoint_source, m.model) > (
-                get_context_budget(m.context, model_id=m.full)
+            overflow = m is not None and not _checkpoint_fits(
+                [
+                    *prepare_messages(checkpoint_source, limit=False),
+                    Message(
+                        "user",
+                        build_checkpoint_prompt(
+                            compact_instructions, tool_capable=True
+                        ),
+                    ),
+                ],
+                m,
             )
             if checkpoint_turn is None and not overflow:
                 # Provider-native compaction before queuing the generic

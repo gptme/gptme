@@ -41,7 +41,7 @@ def _without_inprocess_cwd_pin(fn: _F) -> _F:
 
 
 from ...util.workspace import current_workspace, resolve_in_workspace
-from .. import get_session_allowlist
+from .. import get_session_allowlist, set_session_allowlist
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .control import append_control_op, discard_control_ops
@@ -1312,6 +1312,7 @@ def subagent(
         # starts with an empty one and would otherwise load the full default
         # toolset (#3974, #5192).
         parent_tool_allowlist = get_session_allowlist()
+        tools_arg = _exec._capture_subprocess_tools(profile, parent_tool_allowlist)
 
         def _launch_subprocess():
             _sem = get_slot_sem()
@@ -1324,6 +1325,7 @@ def subagent(
                     _exec._cleanup_isolation(sa)
                     return
                 process = _exec._run_subagent_subprocess(
+                    tools_arg=tools_arg,
                     parent_tool_allowlist=parent_tool_allowlist,
                     prompt=prompt,
                     logdir=logdir,
@@ -1403,6 +1405,7 @@ def subagent(
             output_schema=output_schema,
             process=None,
             execution_mode="subprocess",
+            parent_tool_allowlist=parent_tool_allowlist,
             workdir=workspace,
             base_workdir=base_workdir,
             isolated=bool(isolated),
@@ -1590,6 +1593,7 @@ def subagent(
             output_schema=output_schema,
             process=None,
             execution_mode="thread",
+            parent_tool_allowlist=parent_tool_allowlist,
             workdir=workspace,
             base_workdir=base_workdir,
             isolated=bool(isolated),
@@ -2166,7 +2170,12 @@ def subagent_continue(
     # after start_gate fires so the reference is always present by then.
     _continued_ref: list[Subagent] = []
 
-    parent_tool_allowlist = get_session_allowlist()
+    parent_tool_allowlist = sa.parent_tool_allowlist
+    tools_arg = (
+        _exec._capture_subprocess_tools(sa.profile, parent_tool_allowlist)
+        if sa.execution_mode == "subprocess"
+        else None
+    )
 
     def run_continuation() -> None:
         bind_thread_generation()
@@ -2202,6 +2211,7 @@ def subagent_continue(
                     )
                 elif sa.execution_mode == "subprocess":
                     process = _exec._run_subagent_subprocess(
+                        tools_arg=tools_arg,
                         parent_tool_allowlist=parent_tool_allowlist,
                         prompt=message,
                         logdir=sa.logdir,
@@ -2316,6 +2326,7 @@ def subagent_continue(
         workdir=sa.workdir,
         base_workdir=sa.base_workdir,
         execution_mode=sa.execution_mode,
+        parent_tool_allowlist=parent_tool_allowlist,
         isolated=sa.isolated,
         isolation_mode=sa.isolation_mode,
         worktree_path=sa.worktree_path,
@@ -2453,7 +2464,9 @@ def subagent_reply(agent_id: str, reply: str) -> None:
 
     # Re-spawn with the same parameters, augmented prompt.
     # On failure, restore the old state so the caller can retry.
+    caller_allowlist = get_session_allowlist()
     try:
+        set_session_allowlist(sa.parent_tool_allowlist)
         subagent(
             agent_id=agent_id,
             prompt=augmented_prompt,
@@ -2488,6 +2501,9 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = old_result
         raise
+
+    finally:
+        set_session_allowlist(caller_allowlist)
 
     # Respawn succeeded: GC the retained worktree now that the new agent is live
     # (the respawn starts from a fresh isolation, so the old one is superseded).

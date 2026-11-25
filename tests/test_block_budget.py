@@ -330,11 +330,21 @@ class TestHardStop:
         # for a real user message, or the episode (and the block count) resets
         # and the hard stop can be bypassed indefinitely.
         monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
-        stuck = Message(
-            "user",
-            "<system>You appear stuck: repeated.</system>",
-            metadata=_nudge_metadata(),
+        from gptme.tools import init_tools
+        from gptme.tools.complete import stuck_detect_hook
+
+        init_tools(["shell"], include_mcp=False)
+        monkeypatch.setenv("GPTME_STUCK_DETECT", "1")
+        monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "3")
+        repeated = Message("assistant", "```shell\necho repeated\n```")
+        nudges = list(
+            stuck_detect_hook(
+                _manager([PROMPT, repeated, repeated, repeated]),
+                interactive=False,
+                prompt_queue=[],
+            )
         )
+        stuck = next(m for m in nudges if isinstance(m, Message) and m.role == "user")
         msgs = [PROMPT, *_blocks(3), stuck, *_blocks(3)]
         with _chat(interactive=False), pytest.raises(SessionCompleteException):
             list(block_budget_hook(_manager(msgs)))

@@ -98,6 +98,16 @@ the structured checkpoint and no further tool calls.
     return prompt
 
 
+def _checkpoint_fits(messages: list[Message], model: Any) -> bool:
+    """Request fit is independent of the operator's compaction trigger budget."""
+    from ...config import get_config
+
+    cfg = get_config()
+    requested = cfg.chat.max_tokens if cfg.chat is not None else None
+    output = llm._resolve_max_tokens(model.full, requested) or 8192
+    return len_tokens(messages, model.model) + output + 1000 <= model.context
+
+
 def _parse_context_files(content: str) -> list[str]:
     """
     Parse file paths from the LLM-generated resume.
@@ -1388,8 +1398,7 @@ def _resume_via_llm(
     if (
         checkpoint_response is None
         and m.full.startswith("anthropic/")
-        and len_tokens(prepared_msgs, m.model)
-        <= get_context_budget(m.context, model_id=m.full)
+        and _checkpoint_fits(prepared_msgs, m)
     ):
         native_applied = yield from _apply_native_compaction(
             manager,

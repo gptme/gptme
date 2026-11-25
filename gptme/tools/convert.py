@@ -634,10 +634,18 @@ class ImageConverter(Converter):
             from PIL.TiffImagePlugin import PREFIXES
 
             try:
-                # Identify TIFF content before Pillow's pixel-size guard runs.
-                # Non-TIFF inputs only need a best-effort frame count.
                 with src.open("rb") as stream:
                     is_tiff = stream.read(4).startswith(tuple(PREFIXES))
+            except OSError as error:
+                return ConversionResult(
+                    False,
+                    None,
+                    self.name,
+                    error=f"Could not read image header: {error}",
+                )
+            try:
+                # Identify TIFF content before Pillow's pixel-size guard runs.
+                # Non-TIFF inputs only need a best-effort frame count.
                 if is_tiff:
                     with Image.open(src) as image:
                         try:
