@@ -1866,10 +1866,11 @@ class TestSubprocessTimeouts:
 
     @patch("gptme.util.gh.subprocess.run")
     def test_get_github_actions_status_timeout(self, mock_run):
-        """TimeoutExpired on actions status returns None gracefully."""
+        """A timeout must be visible rather than looking like absent checks."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
         result = _get_github_actions_status("owner", "repo", "abc123")
-        assert result is None
+        assert result is not None
+        assert "CI status unavailable" in result
 
     @patch("gptme.util.gh.subprocess.run")
     def test_merge_github_pr_timeout_message(self, mock_run):
