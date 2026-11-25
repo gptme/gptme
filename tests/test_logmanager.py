@@ -1430,3 +1430,135 @@ def test_history_log_reads_branch_lossless_archive(tmp_path: Path):
         *(m.content for m in inherited),
         extra.content,
     ]
+
+
+def test_write_jsonl_preserves_concurrent_appends(tmp_path: Path):
+    """A writer holding a stale snapshot must not drop newer appends.
+
+    The server step loads its ``LogManager`` before a long generation and then
+    appends its reply. A resume/A2A writer can append meanwhile. The stale
+    writer's append fallback must keep that message instead of rewriting the
+    transcript from its pre-generation copy.
+    """
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+
+    # Another writer appends while ``stale`` holds its pre-generation snapshot.
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale = stale.append(Message("assistant", "reply"))
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "reply",
+        "resume",
+    ]
+    # The in-memory log learns about the merged tail too, so the next write or
+    # append does not drop it or duplicate it.
+    assert [m.content for m in stale.messages] == ["prompt", "reply", "resume"]
+    assert stale.persisted_messages == 3
+
+
+def test_write_jsonl_rewrites_when_concurrent_writer_diverges(tmp_path: Path):
+    """A non-append change to the destination keeps the rewrite semantics."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt"), Message("assistant", "old")]).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    # Another writer truncated and replaced the history instead of extending it.
+    Log([Message("user", "rewritten")]).write_jsonl(jsonl_file)
+
+    stale = stale.append(Message("assistant", "reply"))
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "old",
+        "reply",
+    ]
+
+
+def test_write_jsonl_merge_keeps_in_place_edits(tmp_path: Path):
+    """Merging a concurrent tail must not resurrect pre-edit history."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt"), Message("assistant", "first")]).write_jsonl(
+        jsonl_file, append=True
+    )
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale.messages[-1] = stale.messages[-1].replace(content="first (edited)")
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "first (edited)",
+        "resume",
+    ]
+
+
+def test_write_jsonl_retry_does_not_duplicate_own_saved_messages(tmp_path: Path):
+    """A write that landed but raised before updating the cursor must not double.
+
+    ``append`` can fail after a complete line was flushed, and a rewrite can
+    raise in ``sync_directory`` after ``os.replace`` succeeded. The caller keeps
+    its old ``persisted`` cursor, so the retry must recognize the on-disk tail as
+    its own messages instead of merging them back as a concurrent append.
+    """
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    stale = stale.append(Message("assistant", "reply"))
+
+    # Simulate the write having landed while the caller's cursor stayed stale.
+    Log([Message("user", "prompt"), Message("assistant", "reply")]).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+    # A foreign append after our landed write must still be preserved.
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+    stale = stale.write_jsonl(jsonl_file, append=True)
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "reply",
+        "resume",
+    ]
+
+
+def test_append_event_records_the_appended_message_after_a_merge(tmp_path: Path):
+    """The event log must not record a merged concurrent tail as our append."""
+    from gptme.logmanager.eventlog import EVENT_LOG_NAME
+
+    manager = LogManager([Message("user", "prompt")], logdir=tmp_path, lock=False)
+    manager.write()
+
+    # A resume/A2A-style writer appends while this manager holds its snapshot.
+    LogManager.load(tmp_path, lock=False).append(Message("user", "resume"))
+
+    manager.append(Message("assistant", "reply"))
+
+    # The merge must not lose the concurrent append.
+    assert [m.content for m in Log.read_jsonl(tmp_path / "conversation.jsonl")] == [
+        "prompt",
+        "reply",
+        "resume",
+    ]
+    # The append event must describe the message this manager appended.
+    events = [
+        json.loads(line)
+        for line in (tmp_path / EVENT_LOG_NAME).read_text().splitlines()
+        if line.strip()
+    ]
+    appends = [event for event in events if event["type"] == "message_append"]
+    assert appends, "expected message_append events"
+    assert appends[-1]["payload"]["message"]["content"] == "reply"

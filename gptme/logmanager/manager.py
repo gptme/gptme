@@ -213,6 +213,47 @@ class Log:
             return False
         return all(old is new for old, new in zip(prefix, self.messages))
 
+    def _concurrent_tail(self, output: Path) -> tuple[Message, ...]:
+        """Messages another writer appended since our persisted snapshot.
+
+        An append-mode writer that loaded an earlier copy must not drop
+        messages that landed on disk while it was working. When the file is a
+        strict extension of our persisted prefix, the extra messages are
+        concurrent appends: keep them after our own new messages instead of
+        rewriting the transcript without them. Truncation, in-place edits or a
+        different destination are not appends and keep rewrite semantics.
+        """
+        if not self.persisted or self.persisted_path != output.resolve():
+            return ()
+        try:
+            if (
+                self.persisted_size is None
+                or output.stat().st_size <= self.persisted_size
+            ):
+                return ()
+            on_disk = Log.read_jsonl(output).messages
+        except (OSError, ValueError):
+            return ()
+        if len(on_disk) <= len(self.persisted):
+            return ()
+        if any(old != new for old, new in zip(self.persisted, on_disk)):
+            return ()
+        tail = on_disk[len(self.persisted) :]
+        # A failed write can leave our *own* new messages on disk while the
+        # caller keeps its old cursor: a complete appended line flushed before
+        # an error, or a rewrite whose ``os.replace`` succeeded before
+        # ``sync_directory`` failed. Skip that leading run so a retry does not
+        # merge our own messages back as somebody else's tail.
+        own_new = self.messages[len(self.persisted) :]
+        skipped = 0
+        while (
+            skipped < len(tail)
+            and skipped < len(own_new)
+            and tail[skipped] == own_new[skipped]
+        ):
+            skipped += 1
+        return tuple(tail[skipped:])
+
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
         if append and self.persisted_path == output.resolve() and output.exists():
@@ -236,7 +277,15 @@ class Log:
                 return self
         append_safe = append and self._can_append(output)
         start = len(self.persisted) if append_safe else 0
-        lines = (json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:])
+        messages = self.messages
+        if append and not append_safe:
+            # Keep appends that landed after our snapshot. Without this the
+            # size/id mismatch below would rewrite the transcript from our
+            # stale copy and silently drop them (e.g. a resume/A2A append that
+            # arrives while a server step is generating).
+            if tail := self._concurrent_tail(output):
+                messages = [*messages, *tail]
+        lines = (json.dumps(msg.to_dict()) + "\n" for msg in messages[start:])
         if append_safe:
             with open(output, "a", encoding="utf-8") as file:
                 file.writelines(lines)
@@ -277,7 +326,8 @@ class Log:
                     temp_path.unlink(missing_ok=True)
         return self.replace(
             loaded=None,
-            persisted=tuple(self.messages),
+            messages=messages,
+            persisted=tuple(messages),
             persisted_path=output.resolve(),
             persisted_size=output.stat().st_size,
         )
@@ -694,9 +744,13 @@ class LogManager:
             event_dir = self.logdir / "branches" / self.current_branch
         event_dir.mkdir(parents=True, exist_ok=True)
         if event_type == eventlog.EVENT_MESSAGE_APPEND:
-            if not self.log.messages:
-                return
-            message = self.log.messages[-1]
+            # Record the message the caller appended, not ``messages[-1]``: a
+            # concurrent-tail merge can leave another writer's message last.
+            message = extra.get("message")
+            if not isinstance(message, Message):
+                if not self.log.messages:
+                    return
+                message = self.log.messages[-1]
 
             def build_event(seq: int) -> dict[str, object]:
                 return eventlog.build_message_append_event(seq, message)
@@ -764,7 +818,7 @@ class LogManager:
                 )
 
         self.write()
-        self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
+        self._write_event_log(eventlog.EVENT_MESSAGE_APPEND, message=msg)
         if not msg.quiet:
             print_msg(msg, oneline=False)
 

@@ -1124,6 +1124,97 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 2
 
+    def test_reply_commit_keeps_concurrent_resume_append(
+        self, conv, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """A resume/A2A append that lands during generation survives the reply write.
+
+        The step loads its LogManager before generating. A resume append writes
+        the transcript while the step is still generating, so the step's reply
+        commit must merge that append instead of rewriting the file from its
+        pre-generation copy. The append runs under the real
+        ``conversation_lock``, as the A2A route now does.
+        """
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        conversation_id = conv["conversation_id"]
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        started = threading.Event()
+        release = threading.Event()
+        appended = threading.Event()
+
+        def blocking_stream(*_args, **_kwargs):
+            started.set()
+            assert release.wait(timeout=10), "test did not release generation"
+            yield "reply"
+
+        def resume_append():
+            assert started.wait(timeout=10)
+            with SessionManager.conversation_lock(conversation_id):
+                LogManager.load(conversation_id, lock=False).append(
+                    Message("user", "resume")
+                )
+            appended.set()
+            release.set()
+
+        with (
+            patch("gptme.server.session_step._stream", side_effect=blocking_stream),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            worker = threading.Thread(
+                target=step,
+                kwargs={
+                    "conversation_id": conversation_id,
+                    "session": session,
+                    "model": "mock/model",
+                    "workspace": tmp_path,
+                    "step_seq": 1,
+                },
+                daemon=True,
+            )
+            resume = threading.Thread(target=resume_append, daemon=True)
+            worker.start()
+            resume.start()
+            resume.join(timeout=15)
+            worker.join(timeout=15)
+
+        assert appended.is_set(), "resume append never ran"
+        assert not worker.is_alive(), "step thread did not finish"
+
+        contents = [
+            message.content
+            for message in LogManager.load(conversation_id, lock=False).log.messages
+        ]
+        assert "resume" in contents, f"resume append was dropped: {contents}"
+        assert "reply" in contents, f"step reply missing: {contents}"
+
     def test_post_tool_checkpoint_preserves_task_continuation(self, conv):
         from gptme.logmanager import LogManager
         from gptme.message import Message
