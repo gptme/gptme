@@ -272,6 +272,14 @@ def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
             logger.error(f"{skill_md.name} resolves outside the clone or into .git")
             return False
         if target.is_relative_to(source_dir.resolve()):
+            if not target.is_file():
+                logger.error(f"{skill_md.name} does not resolve to a regular file")
+                return False
+            # Anchor the link inside the skill, not to its checkout name or
+            # location. Both frontmatter and --name can rename it on install.
+            relative = target.relative_to(source_dir.resolve())
+            skill_md.unlink()
+            skill_md.symlink_to(relative)
             return True
         if not target.exists() and target.parent != root:
             # Outside the sparse cone: check out the directory holding it.

@@ -212,6 +212,44 @@ def test_metadata_link_within_skill_is_preserved(tmp_path: Path) -> None:
     assert (installed / "SKILL.md").read_text() == skill_md("foo")
 
 
+@pytest.mark.usefixtures("requires_symlinks")
+@pytest.mark.parametrize("registry", [False, True])
+@pytest.mark.parametrize("override", [None, "renamed"])
+def test_metadata_link_is_reanchored_before_installation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    registry: bool,
+    override: str | None,
+) -> None:
+    # This link stays inside foo in the clone, but escapes after name: bar
+    # (or --name) relocates the skill. Never parse the unrelated host metadata.
+    skills = installer.get_skills_dir()
+    host = skills / "foo" / "metadata.md"
+    host.parent.mkdir(parents=True)
+    host.write_text(skill_md("host-secret"))
+    repo = make_repo(
+        tmp_path / "repo",
+        {"skills/foo/metadata.md": skill_md("bar")},
+        {"skills/foo/SKILL.md": "../foo/metadata.md"},
+    )
+    real_parse = installer._parse_skill_frontmatter
+
+    def parse(path: Path) -> dict:
+        assert path.resolve() != host
+        return real_parse(path)
+
+    monkeypatch.setattr(installer, "_parse_skill_frontmatter", parse)
+    if registry:
+        monkeypatch.setattr(installer, "DEFAULT_REGISTRY_REPO", repo.as_uri())
+    source = "foo" if registry else f"{repo.as_uri()}#skills/foo"
+    ok, msg = installer.install_skill(source, name=override)
+    assert ok, msg
+    installed = skills / (override or "bar")
+    assert (installed / "SKILL.md").resolve().is_relative_to(installed)
+    assert (installed / "SKILL.md").read_text() == skill_md("bar")
+    assert host.read_text() == skill_md("host-secret")
+
+
 @pytest.mark.parametrize("failure", ["timeout", "missing-git", "drop-git"])
 def test_git_setup_failure_does_not_publish(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str

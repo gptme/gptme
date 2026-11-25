@@ -499,6 +499,7 @@ def prompt_workspace(
         before_count = len(context_files)
 
         def _is_excluded(f: Path, patterns: list[str]) -> bool:
+            assert workspace is not None
             # Glob matches are relative to the workspace as given, which may
             # be a symlink or relative path, so try both spellings.
             rels: list[str] = []
