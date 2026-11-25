@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from threading import Event
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -16,7 +17,13 @@ from textual.widgets import Collapsible, Static
 from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.tools.subagent import SubagentSnapshot
-from gptme.tui.app import MAX_INITIAL_MESSAGES, ChatInput, ChatScroll, GptmeApp
+from gptme.tui.app import (
+    MAX_INITIAL_MESSAGES,
+    ChatInput,
+    ChatScroll,
+    GptmeApp,
+    UserMessage,
+)
 from gptme.tui.child_view import ChildView
 
 ChildApp = tuple[LogManager, list[SubagentSnapshot]]
@@ -189,6 +196,7 @@ async def test_rolling_tail_keeps_overlapping_expanded_widgets(
         while view._refreshing:
             await pilot.pause()
         chat = view.query_one("#child-chat", ChatScroll)
+        oldest = list(chat.children)[0]
         retained = list(chat.children)[-1]
         block = retained.query_one(Collapsible)
         block.collapsed = False
@@ -197,6 +205,68 @@ async def test_rolling_tail_keeps_overlapping_expanded_widgets(
         await view.refresh_snapshot()
         assert retained.is_attached and not block.collapsed
         assert len(chat.children) == MAX_INITIAL_MESSAGES
+        assert oldest not in chat.children
+        assert view._messages[-1] == Message("user", "next")
+        newest = list(chat.children)[-1]
+        assert isinstance(newest, UserMessage) and newest.content == "next"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["remove", "mount"])
+async def test_refresh_stops_if_shutdown_starts_during_widget_operation(
+    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    manager, children = child_app
+    initial = [Message("user", f"message {i}") for i in range(3)]
+    monkeypatch.setattr(
+        "gptme.tui.child_view.read_child_messages", lambda _: (initial, None)
+    )
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        app.open_child(children[0])
+        await pilot.pause()
+        view = app.query_one(ChildView)
+        assert view._refresh_timer is not None
+        view._refresh_timer.pause()
+        while view._refreshing:
+            await pilot.pause()
+        chat = view.query_one("#child-chat", ChatScroll)
+        updated = initial + [Message("user", "next"), Message("user", "last")]
+        if operation == "remove":
+            updated = updated[2:]
+        monkeypatch.setattr(
+            "gptme.tui.child_view.read_child_messages", lambda _: (updated, None)
+        )
+        operations: list[str] = []
+
+        async def mount_then_shutdown(*widgets: Any, **kwargs: Any) -> None:
+            await original_mount(*widgets, **kwargs)
+            operations.append("mount")
+            app._running = False
+
+        original_mount = chat.mount
+        with monkeypatch.context() as patch:
+            if operation == "mount":
+                patch.setattr(chat, "mount", mount_then_shutdown)
+            else:
+                for widget in list(chat.children)[:2]:
+
+                    async def remove_then_shutdown(remove: Any = widget.remove) -> None:
+                        await remove()
+                        operations.append("remove")
+                        app._running = False
+
+                    patch.setattr(widget, "remove", remove_then_shutdown)
+            banner = Mock(wraps=view._update_banner)
+            patch.setattr(view, "_update_banner", banner)
+            try:
+                await view.refresh_snapshot()
+                assert operations == [operation]
+                banner.assert_not_called()
+                assert not view._refreshing
+            finally:
+                # Restore the running state so run_test can perform real teardown.
+                app._running = True
 
 
 @pytest.mark.asyncio

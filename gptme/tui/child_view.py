@@ -260,7 +260,7 @@ class ChildView(Vertical):
         # The periodic refresh can outlive app shutdown: mounting or removing
         # chat widgets while Textual prunes the DOM cancels their tasks and
         # raises CancelledError from the prune (gptme/gptme#5261).
-        if not self.is_attached or not self.app._running:
+        if not self.is_attached or not self.app.is_running:
             return
         # Append-only refresh preserves existing child scroll and expansions.
         shown = [m for m in messages if not m.hide]
@@ -281,6 +281,8 @@ class ChildView(Vertical):
             dropped = len(self._messages) - overlap
             for dropped_widget in list(chat.children)[:dropped]:
                 await dropped_widget.remove()
+                if not self.is_attached or not self.app.is_running:
+                    return
             self._messages = self._messages[-overlap:] if overlap else []
         for msg in shown[len(self._messages) :]:
             widget = message_widget(
@@ -288,6 +290,8 @@ class ChildView(Vertical):
             )
             if widget is not None:
                 await chat.mount(widget)
+                if not self.is_attached or not self.app.is_running:
+                    return
         self._messages = shown
         self._update_banner()
         if error:
