@@ -43,7 +43,7 @@ GPTME_TO_CLAUDE_CODE_TOOLS: dict[str, tuple[str, ...]] = {
     "shell": ("Bash",),
     "read": ("Read", "Glob", "Grep"),
     "save": ("Write",),
-    "append": ("Edit", "Write"),
+    "append": ("Read", "Edit", "Write"),
     "patch": ("Read", "Edit"),
     "morph": ("Read", "Edit"),
     "browser": ("WebFetch", "WebSearch"),
@@ -75,6 +75,39 @@ def map_tools_to_claude_code(tools: list[str]) -> list[str]:
             unknown,
         )
     return mapped
+
+
+# Pre-approved when the eval sets no tool list. A ``-p`` run cannot answer
+# permission prompts, and with ``--setting-sources ""`` no host allowlist
+# applies, so without this an unrestricted run could not write or run anything.
+UNRESTRICTED_ALLOWED_TOOLS: tuple[str, ...] = tuple(
+    dict.fromkeys(n for names in GPTME_TO_CLAUDE_CODE_TOOLS.values() for n in names)
+)
+
+
+def claude_code_tool_args(
+    tools: list[str] | None, include_user_context: bool
+) -> list[str]:
+    """Isolation and tool flags shared by the local and Docker runs.
+
+    ``tools`` are Claude Code tool names (None: unrestricted, []: none).
+    """
+    args: list[str] = []
+    if not include_user_context:
+        # Keep the host's hooks and permission allowlists out of the eval.
+        args.extend(["--setting-sources", ""])
+    if not include_user_context or tools is not None:
+        # --tools limits only built-in tools; MCP servers add their own, so a
+        # tool-limited eval loads none even when it keeps user settings.
+        args.append("--strict-mcp-config")
+    if tools is None:
+        args.extend(["--allowedTools", ",".join(UNRESTRICTED_ALLOWED_TOOLS)])
+    else:
+        # --tools restricts the built-in set; --allowedTools pre-approves it.
+        args.extend(["--tools", ",".join(tools)])
+        if tools:
+            args.extend(["--allowedTools", ",".join(tools)])
+    return args
 
 
 def is_claude_code_model(model: str) -> bool:
@@ -154,18 +187,9 @@ class ClaudeCodeAgent(Agent):
             str(self.max_turns),
         ]
 
-        if not self.include_user_context:
-            # Keep the host's hooks, MCP servers and permission allowlists out
-            # of the eval: they change both behaviour and available tools.
-            cmd.extend(["--setting-sources", "", "--strict-mcp-config"])
-
-        cc_tools = self._claude_code_tools()
-        if cc_tools is not None:
-            # --tools restricts the built-in set; --allowedTools pre-approves
-            # them so the non-interactive run does not stall on permissions.
-            cmd.extend(["--tools", ",".join(cc_tools)])
-            if cc_tools:
-                cmd.extend(["--allowedTools", ",".join(cc_tools)])
+        cmd.extend(
+            claude_code_tool_args(self._claude_code_tools(), self.include_user_context)
+        )
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)

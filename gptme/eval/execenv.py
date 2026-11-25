@@ -996,16 +996,13 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             str(max_turns),
         ]
 
-        if not include_user_context:
-            cmd_parts.extend(
-                ["--setting-sources", shlex.quote(""), "--strict-mcp-config"]
-            )
+        # Imported here: the agents package imports this module.
+        from .agents.claude_code import claude_code_tool_args
 
-        if tools is not None:
-            # --tools restricts the built-in set; --allowedTools pre-approves it.
-            cmd_parts.extend(["--tools", shlex.quote(",".join(tools))])
-            if tools:
-                cmd_parts.extend(["--allowedTools", shlex.quote(",".join(tools))])
+        cmd_parts.extend(
+            shlex.quote(arg)
+            for arg in claude_code_tool_args(tools, include_user_context)
+        )
 
         command = " ".join(cmd_parts)
 

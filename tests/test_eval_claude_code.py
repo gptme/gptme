@@ -410,9 +410,33 @@ def test_agent_only_unknown_tools_disables_all_tools():
 
 
 def test_agent_no_tools_means_no_restriction():
+    """No tool list: the built-in set stays unrestricted and is pre-approved.
+
+    ``-p`` cannot answer permission prompts and host allowlists are isolated
+    by default, so without pre-approval Write/Edit/Bash would be denied.
+    """
     cmd = _local_cmd(ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6"))
     assert "--tools" not in cmd
-    assert "--allowedTools" not in cmd
+    allowed = cmd[cmd.index("--allowedTools") + 1].split(",")
+    assert {"Bash", "Read", "Write", "Edit"} <= set(allowed)
+
+
+def test_agent_append_only_can_read_before_editing():
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", tools=["append"])
+    cmd = _local_cmd(agent)
+    assert cmd[cmd.index("--tools") + 1] == "Read,Edit,Write"
+
+
+def test_agent_tool_limit_excludes_mcp_with_user_context():
+    """--tools limits only built-ins, so a tool-limited run loads no MCP servers."""
+    agent = ClaudeCodeAgent(
+        model="claude-code/claude-sonnet-4-6",
+        tools=["save"],
+        include_user_context=True,
+    )
+    cmd = _local_cmd(agent)
+    assert "--setting-sources" not in cmd
+    assert "--strict-mcp-config" in cmd
 
 
 def test_agent_isolates_user_settings_by_default():
