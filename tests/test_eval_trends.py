@@ -381,8 +381,10 @@ def test_at_format_in_model_name(tmp_path):
                 "rows": [("model-a@tool", "", "hello", "true")],
             },
             {
+                # The newer layout: format in its own column. Both layouts must
+                # feed the same history for the regression to be seen.
                 "dir": "20260102_000000Z",
-                "rows": [("model-a@tool", "", "hello", "false")],
+                "rows": [("model-a", "tool", "hello", "false")],
             },
         ],
     )
@@ -390,3 +392,86 @@ def test_at_format_in_model_name(tmp_path):
     trends = compute_trends(results)
     assert len(trends["regressions"]) == 1
     assert trends["regressions"][0]["model"] == "model-a@tool"
+
+
+def test_single_recent_failure_is_regression_not_flaky(tmp_path):
+    """One status change after stable passes is a regression, even over 4+ runs."""
+    rows = ["true", "true", "true", "false"]
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": f"2026010{i + 1}_000000Z",
+                "rows": [("model-a", "markdown", "hello", passed)],
+            }
+            for i, passed in enumerate(rows)
+        ],
+    )
+    trends = compute_trends(load_all_results(tmp_path))
+    assert [e["test"] for e in trends["regressions"]] == ["hello"]
+    assert trends["flaky"] == []
+
+
+def _trends_for(tmp_path, rows):
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": f"2026010{i + 1}_000000Z",
+                "rows": [("model-a", "markdown", "hello", passed)],
+            }
+            for i, passed in enumerate(rows)
+        ],
+    )
+    trends = compute_trends(load_all_results(tmp_path))
+    return {k for k, v in trends.items() if any(e["test"] == "hello" for e in v)}
+
+
+def test_two_status_flips_are_flaky(tmp_path):
+    """A failure followed by recovery is flaky, not stable."""
+    assert _trends_for(tmp_path, ["true", "false", "true", "true"]) == {"flaky"}
+
+
+def test_earlier_single_flip_keeps_its_direction(tmp_path):
+    """One flip before the last two runs is still a regression or improvement."""
+    assert _trends_for(tmp_path / "r", ["true", "true", "false", "false"]) == {
+        "regressions"
+    }
+    assert _trends_for(tmp_path / "i", ["false", "false", "true", "true"]) == {
+        "improvements"
+    }
+
+
+def test_single_flip_reports_the_runs_around_the_change(tmp_path):
+    """[pass, pass, fail, fail]: previous/latest are both failures, so the
+    entry also names the runs on either side of the change."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": f"2026010{i + 1}_000000Z",
+                "rows": [("model-a", "markdown", "hello", passed)],
+            }
+            for i, passed in enumerate(["true", "true", "false", "false"])
+        ],
+    )
+    (entry,) = compute_trends(load_all_results(tmp_path))["regressions"]
+    assert entry["previous_passed"] is False
+    assert entry["changed_from_run"] == "20260102_000000Z"
+    assert entry["changed_to_run"] == "20260103_000000Z"
+
+
+def test_provider_pinned_model_keeps_at_suffix(tmp_path):
+    """An OpenRouter provider pin (`model@provider`) is part of the model name."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "20260101_000000Z",
+                "rows": [("openrouter/z-ai/glm-5@z-ai", "tool", "hello", "true")],
+            },
+        ],
+    )
+    results = load_all_results(tmp_path)
+    assert results[0]["model"] == "openrouter/z-ai/glm-5@z-ai"
+    assert results[0]["format"] == "tool"

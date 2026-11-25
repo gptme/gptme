@@ -87,6 +87,23 @@ def _derive_test_sets() -> tuple[frozenset[str], frozenset[str]]:
 BASIC_TESTS, PRACTICAL_TESTS = _derive_test_sets()
 
 
+def _split_provider_pin(model: str) -> tuple[str, str]:
+    """Split a provider-pinned model name into ``(base, pin)``.
+
+    ``parse_model_format`` keeps a non-format ``@suffix`` in the name, because
+    an OpenRouter provider pin (``z-ai/glm-5@z-ai``) is part of the identity.
+    The replacements table below only knows the base name, so display resolves
+    the base and keeps the pin as a readable tag.
+    """
+    if "@" in model:
+        base, suffix = model.rsplit("@", 1)
+        if suffix in TOOL_FORMATS:
+            return base, ""
+        if suffix:
+            return base, suffix
+    return model, ""
+
+
 def normalize_model(model: str) -> str:
     """Normalize model names for cleaner display."""
     replacements = {
@@ -161,7 +178,14 @@ def normalize_model(model: str) -> str:
         # Model IDs without date suffix
         "anthropic/claude-sonnet-4-5": "Claude Sonnet 4.5",
     }
-    return replacements.get(model, model)
+    base, pin = _split_provider_pin(model)
+    name = replacements.get(base, base)
+    return f"{name} (@{pin})" if pin else name
+
+
+# Values of gptme.tools.base.ToolFormat. Kept literal so the leaderboard stays
+# importable without loading the tool registry; test_eval_leaderboard pins them.
+TOOL_FORMATS = ("markdown", "xml", "tool")
 
 
 def parse_model_format(model: str, fmt: str) -> tuple[str, str]:
@@ -172,7 +196,10 @@ def parse_model_format(model: str, fmt: str) -> tuple[str, str]:
     """
     if "@" in model:
         base, embedded_fmt = model.rsplit("@", 1)
-        return base, embedded_fmt
+        # Same rule as ModelConfig.from_spec: only a valid tool format is a
+        # separator; anything else (OpenRouter 'z-ai/glm-5@z-ai') is the name.
+        if embedded_fmt in TOOL_FORMATS:
+            return base, embedded_fmt
     return model, fmt
 
 
