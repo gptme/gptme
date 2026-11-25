@@ -2,6 +2,7 @@
 
 import importlib.metadata
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -283,13 +284,7 @@ def test_argparse_completion_runs_in_shell_without_running_cli(
         text=True,
         capture_output=True,
         cwd=cwd,
-        env={
-            **os.environ,
-            "HOME": str(tmp_path / "home"),
-            "XDG_CONFIG_HOME": str(tmp_path / "config"),
-            "XDG_DATA_HOME": str(tmp_path / "data"),
-            "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        },
+        env=_isolated_shell_env(tmp_path, bin_dir),
         timeout=15,
     )
     assert result.returncode == 0, result.stderr
@@ -658,7 +653,10 @@ def test_first_prompt_word_offers_paths_with_subcommands():
     assert lines.index("file") < lines.index("models"), lines
 
 
-def test_setup_reports_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("under_home", [False, True])
+def test_setup_reports_own_stale_argparse_script(
+    tmp_path, monkeypatch, capsys, under_home
+):
     from gptme.cli import argparse_completion
     from gptme.cli.setup import _install_click_completions
 
@@ -667,6 +665,9 @@ def test_setup_reports_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
         argparse_completion,
         "load_parser",
         lambda prog: None if prog == "gptme-convert" else load(prog),
+    )
+    monkeypatch.setattr(
+        Path, "home", lambda: tmp_path if under_home else tmp_path / "home"
     )
     directory = tmp_path / "data[dim]/bash-completion/completions"
     directory.mkdir(parents=True)
@@ -682,12 +683,35 @@ def test_setup_reports_own_stale_argparse_script(tmp_path, monkeypatch, capsys):
     assert foreign.exists()  # regenerated: its parser still loads
     out = capsys.readouterr().out
     assert "Skipped gptme-convert" in out
-    assert f"Existing completion left in place: {stale}" in out
+    expected_path = (
+        f"~/data[dim]/bash-completion/completions/{stale.name}"
+        if under_home
+        else str(stale)
+    )
+    assert f"Existing completion left in place: {expected_path}" in out
 
 
-def test_fish_completion_ignores_user_configuration(tmp_path, monkeypatch):
+def _isolated_shell_env(tmp_path: Path, bin_dir: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        "HOME": str(tmp_path / "home"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+    }
+
+
+@pytest.mark.parametrize("config_source", ["home", "xdg"])
+def test_fish_completion_ignores_user_configuration(
+    tmp_path, monkeypatch, config_source
+):
+    if not shutil.which("fish"):
+        pytest.skip("fish is not installed")
     home = tmp_path / "user-home"
-    config = home / ".config/fish"
+    config_home = (
+        home / ".config" if config_source == "home" else tmp_path / "user-config"
+    )
+    config = config_home / "fish"
     completions = config / "completions"
     completions.mkdir(parents=True)
     (config / "config.fish").write_text("echo USER_CONFIG_LOADED\n")
@@ -696,15 +720,46 @@ def test_fish_completion_ignores_user_configuration(tmp_path, monkeypatch):
         "complete -c gptme-convert -f -a USER_COMPLETION_LOADED\n"
     )
     monkeypatch.setenv("HOME", str(home))
-    test_argparse_completion_runs_in_shell_without_running_cli(
-        tmp_path,
-        "fish",
-        "gptme-convert",
-        [],
-        "",
-        {"convert", "check-tools", "list-formats"},
-        {"USER_CONFIG_LOADED", "USER_COMPLETION_LOADED"},
+    if config_source == "xdg":
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    else:
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "user-data"))
+    parser = load_parser("gptme-convert")
+    assert parser is not None
+    source = tmp_path / "completion"
+    script = generate_argparse_completion("fish", "gptme-convert", parser)
+    assert script is not None
+    source.write_text(script)
+    # Positive control: the inherited HOME/XDG location really is observable.
+    control = subprocess.run(
+        ["fish", "-c", "complete -C 'gptme-convert '"],
+        env=dict(os.environ),
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=15,
     )
+    assert "USER_CONFIG_LOADED" in control.stdout
+    assert "USER_COMPLETION_LOADED" in control.stdout
+    result = subprocess.run(
+        [
+            "fish",
+            "-c",
+            f"source {shlex.quote(str(source))}; complete -C 'gptme-convert '",
+        ],
+        env=_isolated_shell_env(tmp_path, tmp_path / "bin"),
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=15,
+    )
+    assert "USER_CONFIG_LOADED" not in result.stdout
+    assert "USER_COMPLETION_LOADED" not in result.stdout
+    candidates = {line.split("\t")[0] for line in result.stdout.splitlines()}
+    assert {"convert", "check-tools", "list-formats"} <= candidates
 
 
 def test_bash_filename_handling_is_scoped_to_paths(tmp_path):
@@ -753,3 +808,55 @@ printf '%s:%s\\n' "$mode" "${{COMPREPLY[*]}}"
         "files:input dir",
         "plain:medium",
     ]
+
+
+@pytest.mark.parametrize("has_compopt", [False, True])
+def test_bash_registers_filename_fallback_without_compopt(tmp_path, has_compopt):
+    parser = load_parser("gptme-convert")
+    assert parser is not None
+    source = tmp_path / "completion"
+    source.write_text(generate_argparse_completion("bash", "gptme-convert", parser))
+    code = (
+        "compopt() { :; }; "
+        if has_compopt
+        else "unset -f compopt; enable -n compopt 2>/dev/null || :; "
+    ) + (f"source {source}; complete -p gptme-convert")
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-c", code],
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=15,
+    )
+    assert ("-o filenames" in result.stdout) is not has_compopt
+
+
+def test_zsh_completion_autoloads_from_installed_filename(tmp_path):
+    if not shutil.which("zsh"):
+        pytest.skip("zsh is not installed")
+    parser = load_parser("gptme-convert")
+    assert parser is not None
+    script = generate_argparse_completion("zsh", "gptme-convert", parser)
+    assert script is not None
+    (tmp_path / "_gptme-convert").write_text(script)
+    code = f"""
+fpath=({shlex.quote(str(tmp_path))} $fpath)
+autoload -Uz compinit
+compinit -D -i
+[[ $_comps[gptme-convert] == _gptme-convert ]] || exit 1
+# Keep compinit's registration and autoload; replace only readline output.
+compadd() {{ [[ $1 == -- ]] && shift; print -l -- "$@"; }}
+words=(gptme-convert con); CURRENT=2
+_gptme-convert
+"""
+    result = subprocess.run(
+        ["zsh", "-f", "-c", code],
+        cwd=tmp_path,
+        env=_isolated_shell_env(tmp_path, tmp_path / "bin"),
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=15,
+    )
+    assert not result.stderr
+    assert set(result.stdout.splitlines()) == {"convert", "check-tools", "list-formats"}

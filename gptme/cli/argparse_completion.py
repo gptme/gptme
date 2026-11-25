@@ -191,7 +191,12 @@ def _bash(prog: str, scope: _Scope) -> str:
         {nl.join(_scope_cases(scope, positionals))}
     esac
 }}
-complete -F {func} {prog}
+# Bash 3.2 has no compopt: register filename quoting as a fallback.
+if type compopt >/dev/null 2>&1; then
+    complete -F {func} {prog}
+else
+    complete -o filenames -F {func} {prog}
+fi
 """
 
 
