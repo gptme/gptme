@@ -11,7 +11,7 @@ from gptme.llm.openai_responses import (
     _messages_to_responses_input,
     _pair_missing_tool_results,
 )
-from gptme.message import Message
+from gptme.message import Message, MessageMetadata
 from gptme.tools import ToolUse
 
 
@@ -235,7 +235,7 @@ def test_tool_output_kept_as_text_without_tools(tools) -> None:
     from gptme.llm.llm_openai import _prepare_messages_for_responses_api
 
     output = "UNIQUE-TOOL-OUTPUT-42: 3 tests failed in test_foo.py"
-    _, items, responses_tools = _prepare_messages_for_responses_api(
+    instructions, items, responses_tools = _prepare_messages_for_responses_api(
         [
             Message("system", "You are gptme."),
             Message("user", "run the tests"),
@@ -248,4 +248,83 @@ def test_tool_output_kept_as_text_without_tools(tools) -> None:
     )
     assert responses_tools is None
     assert not any(i.get("type") == "function_call_output" for i in items)
-    assert any(output in str(i.get("content")) for i in items), items
+    # Tool output must not gain instruction/developer priority.
+    assert output not in (instructions or "")
+    assert not any(
+        i.get("role") == "developer" and output in str(i.get("content")) for i in items
+    )
+    result_items = [i for i in items if output in str(i.get("content"))]
+    assert len(result_items) == 1, items
+    assert result_items[0]["role"] == "user"
+    assert result_items[0]["content"].startswith("Tool result:\n")
+
+
+def test_native_replayed_call_keeps_its_result_without_tools() -> None:
+    """A result paired with a replayed native call stays a function_call_output."""
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+    from gptme.llm.responses_phase import _digest
+
+    content = 'Running.\n@shell(call_abc): {"command": "pytest"}'
+    output = "UNIQUE-TOOL-OUTPUT-42: 3 tests failed in test_foo.py"
+    metadata: MessageMetadata = {
+        "responses_output": {
+            "content_digest": _digest(content),
+            "items": [
+                {"type": "message", "text": "Running.\n"},
+                {"type": "function_call", "call_id": "call_abc"},
+            ],
+        }
+    }
+    _, items, responses_tools = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run the tests"),
+            Message("assistant", content, metadata=metadata),
+            Message("system", output, call_id="call_abc"),
+            Message("user", "Summarize the conversation so far."),
+        ],
+        "openai/gpt-5",
+        [],
+    )
+    assert responses_tools is None
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert [i["call_id"] for i in outputs] == ["call_abc"]
+    assert outputs[0]["output"] == output
+    assert not any("Tool result:" in str(i.get("content")) for i in items)
+
+
+def test_extra_result_for_one_replayed_call_stays_as_text() -> None:
+    """A second result for one call must reach the summary, not be dropped."""
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+    from gptme.llm.responses_phase import _digest
+
+    content = 'Running.\n@shell(call_abc): {"command": "pytest"}'
+    first = "first result"
+    second = "SECOND-RESULT-42: more output"
+    metadata: MessageMetadata = {
+        "responses_output": {
+            "content_digest": _digest(content),
+            "items": [
+                {"type": "message", "text": "Running.\n"},
+                {"type": "function_call", "call_id": "call_abc"},
+            ],
+        }
+    }
+    _, items, _ = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run the tests"),
+            Message("assistant", content, metadata=metadata),
+            Message("system", first, call_id="call_abc"),
+            Message("system", second, call_id="call_abc"),
+            Message("user", "Summarize the conversation so far."),
+        ],
+        "openai/gpt-5",
+        [],
+    )
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert [i["output"] for i in outputs] == [first]
+    texts = [i for i in items if second in str(i.get("content"))]
+    assert len(texts) == 1, items
+    assert texts[0]["role"] == "user"
+    assert texts[0]["content"] == f"Tool result:\n{second}"
