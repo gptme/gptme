@@ -184,6 +184,10 @@ def test_non_ascii_token_is_rejected_with_401(auth_token, request_kwargs):
     with app.test_client() as client:
         response = client.get("/api/v2/conversations", **request_kwargs)
         assert response.status_code == 401
+        # 401 alone is also what "no credentials" returns; the error body proves
+        # the token reached the comparison instead of being dropped upstream.
+        assert response.json is not None
+        assert response.json["error"] == "Invalid or expired token"
 
 
 def test_non_ascii_cookie_token_is_rejected_with_401(auth_token):
@@ -194,6 +198,10 @@ def test_non_ascii_cookie_token_is_rejected_with_401(auth_token):
         client.set_cookie("gptme_auth", "é", path="/api/")
         response = client.get("/api/v2/conversations")
         assert response.status_code == 401
+        # The cookie jar can silently drop a non-ASCII value; this body proves
+        # the cookie was sent and compared.
+        assert response.json is not None
+        assert response.json["error"] == "Invalid or expired token"
 
 
 def test_non_ascii_server_token_accepts_matching_token(monkeypatch):
