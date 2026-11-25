@@ -386,86 +386,6 @@ _EXEC_LANGS = frozenset(
 _SHELL_LANGS = _EXEC_LANGS - {"ipython"}
 
 
-def _closes_outer_fence(
-    lines: list[str],
-    i: int,
-    line_fence_len: int,
-    fence_len: int,
-    lang: str,
-    streaming: bool,
-) -> bool:
-    """Whether the bare fence ``lines[i]`` (*line_fence_len* wide) closes a depth-1 block.
-
-    The exact opener width always qualifies. CommonMark also accepts a longer
-    closer; exec blocks honor that, since a bare fence is never a nested opener
-    there, but only when a blank line or the end of the message confirms it — a
-    wider fence followed by more code stays literal content. Other blocks (save,
-    patch, ...) keep requiring the exact width: their content may hold literal
-    fences of other widths.
-    """
-    if line_fence_len == fence_len:
-        return True
-    if line_fence_len < fence_len or lang not in _EXEC_LANGS:
-        return False
-    if i + 1 >= len(lines):
-        return not streaming
-    if lines[i + 1].strip():
-        return False
-    # In streaming mode a trailing "" from split("\n") is not a real blank line.
-    return not (streaming and i + 1 == len(lines) - 1)
-
-
-def _six_backtick_closer_after(lines: list[str]) -> list[bool]:
-    """Per line, whether a six-backtick opener there would have a closer below.
-
-    Only computed for lines that look like a glued closer+opener (six backticks
-    plus a tag); every other entry is False. Scanning forward from such a line:
-
-    - a bare fence of exactly six backticks closes it, unless it sits inside a
-      tagged triple-fence block opened after the line (then it is that block's
-      literal content, e.g. a later ```` ```shell ```` block printing a fence);
-    - a bare fence wider than six is literal content of the six-wide block;
-    - a tagged fence of six or more is a separate opener, so there is no closer.
-
-    Inside the scan, a tagged fence of three to five backticks opens an inner
-    block and a bare one closes the innermost open one; a bare fence with no
-    inner block open is literal content.
-    """
-    result = [False] * len(lines)
-    for i, line in enumerate(lines):
-        if not re.match(r"^`{6}[^`\s]", line):
-            continue
-        inner = 0
-        for nxt in lines[i + 1 :]:
-            wide = re.match(r"^(`{6,})(.*)$", nxt)
-            if wide:
-                if wide.group(2).strip():
-                    break
-                if len(wide.group(1)) == 6 and inner == 0:
-                    result[i] = True
-                    break
-                continue
-            narrow = re.match(r"^`{3,5}(.*)$", nxt)
-            if narrow:
-                if narrow.group(1).strip():
-                    inner += 1
-                elif inner:
-                    inner -= 1
-    return result
-
-
-def _is_joined_fence(line: str, i: int, six_closer_after: list[bool]) -> bool:
-    """Whether a depth-0 line of six backticks plus a tag is a joined closer+opener.
-
-    Models sometimes glue a closer to the next opener ("``````shell" instead of
-    a closing fence line followed by "```shell"). A genuine six-backtick opener
-    is closed by the next six-backtick fence below it; only without one is the
-    line split into two triple fences. *six_closer_after* is from
-    :func:`_six_backtick_closer_after`.
-    """
-    return bool(re.match(r"^`{6}[^`\s]", line)) and not six_closer_after[i]
-
-
 def _line_fence_states(
     text: str, streaming: bool = False
 ) -> list[tuple[int, bool, str]]:
@@ -512,10 +432,9 @@ def _line_fence_states(
     heredoc_terminator: str | None = None
     # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
     ambiguous_fence_kept = False
-    six_closer_after = _six_backtick_closer_after(lines)
     for i, line in enumerate(lines):
         if depth == 0:
-            scan = line[3:] if _is_joined_fence(line, i, six_closer_after) else line
+            scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
             fence_match = re.match(r"^(`{3,})", scan)
             if fence_match:
                 fence_len = len(fence_match.group(1))
@@ -582,9 +501,7 @@ def _line_fence_states(
         if line_fence_match:
             line_fence_len = len(line_fence_match.group(1))
             is_bare_fence = line.strip() == "`" * line_fence_len
-            is_outer_close = is_bare_fence and _closes_outer_fence(
-                lines, i, line_fence_len, fence_len, outer_lang, streaming
-            )
+            is_outer_close = is_bare_fence and line_fence_len == fence_len
             if is_outer_close or (is_bare_fence and depth > 1):
                 if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
                     states.append((depth, False, outer_lang))
@@ -1136,7 +1053,6 @@ def _extract_codeblocks(
 
     lines = markdown.split("\n")
     outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
-    six_closer_after = _six_backtick_closer_after(lines)
     i = 0
 
     while i < len(lines):
@@ -1146,9 +1062,8 @@ def _extract_codeblocks(
         # next one opens on the same line, e.g. "``````patch file.py" instead of
         # "```\n```patch file.py". ToolUse._to_markdown always emits triple fences,
         # so six leading backticks followed immediately by a language tag is a good
-        # signal that the first three backticks belong to the previous block —
-        # unless a later bare fence can close a genuine six-backtick block.
-        if _is_joined_fence(line, i, six_closer_after):
+        # signal that the first three backticks belong to the previous block.
+        if re.match(r"^`{6}[^`\s]", line):
             line = line[3:]
             lines[i] = line
 
@@ -1306,12 +1221,9 @@ def _extract_codeblocks(
                     line_fence_len = len(line_fence_match.group(1))
                     # Check if this is a bare fence (only backticks on the line)
                     is_bare_fence = line.strip() == "`" * line_fence_len
-                    # For closing the outer block, need exact match of opening fence
-                    # length (or at least as long, for exec langs).
+                    # For closing the outer block, need exact match of opening fence length
                     # For inner nested blocks, any bare fence can close them
-                    is_outer_close = is_bare_fence and _closes_outer_fence(
-                        lines, i, line_fence_len, fence_len, lang, streaming
-                    )
+                    is_outer_close = is_bare_fence and line_fence_len == fence_len
                     if is_outer_close or (is_bare_fence and nesting_depth > 1):
                         # Bare fence - determine if opening or closing based on context
                         # A fence inside an open quoted string or a Python
