@@ -880,6 +880,11 @@ to that UI’s origin and enable the Compose <code class="docutils literal notra
 important part: without them nginx buffers the SSE stream and the chat appears
 to hang until each full response is ready, instead of streaming token by
 token.</p>
+<p><code class="docutils literal notranslate"><span class="pre">X-Forwarded-Proto</span></code> matters too: the server uses it to mark the auth
+cookie <code class="docutils literal notranslate"><span class="pre">Secure</span></code> and to recognize <code class="docutils literal notranslate"><span class="pre">https://</span></code> requests from the bundled UI
+as same-origin. Keep <code class="docutils literal notranslate"><span class="pre">Host</span></code> set to the hostname (and port, if it is not
+the default) that browsers use, or cookie-authenticated uploads from the UI
+are rejected as cross-origin.</p>
 </div>
 <p><strong>Local-only access.</strong> If you only want the server reachable from the host
 itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
@@ -969,10 +974,28 @@ server access:</p>
 <p>A malicious web page cannot send credentialed cross-origin JSON requests
 to the local server because the browser’s CORS preflight blocks them: the
 server does not return <code class="docutils literal notranslate"><span class="pre">Access-Control-Allow-Origin</span></code> headers for arbitrary
-origins (only for the configured <code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code>). Plain forms can POST
-without CORS, but cannot set <code class="docutils literal notranslate"><span class="pre">Content-Type:</span> <span class="pre">application/json</span></code>, so the
-server rejects them as malformed.</p>
-<p><strong>2. DNS Rebinding</strong></p>
+origins (only for the configured <code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code>).</p>
+<p>Preflight alone is not enough. <code class="docutils literal notranslate"><span class="pre">multipart/form-data</span></code> and <code class="docutils literal notranslate"><span class="pre">text/plain</span></code>
+requests need no preflight, and the <code class="docutils literal notranslate"><span class="pre">SameSite=Lax</span></code> auth cookie is still sent
+by <em>same-site</em> pages, which includes any other port on the same host (for
+example an agent-started dev server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8888</span></code>). So every
+state-changing request (<code class="docutils literal notranslate"><span class="pre">POST</span></code>/<code class="docutils literal notranslate"><span class="pre">PUT</span></code>/<code class="docutils literal notranslate"><span class="pre">PATCH</span></code>/<code class="docutils literal notranslate"><span class="pre">DELETE</span></code>) authenticated
+only by the cookie is checked if it includes an <code class="docutils literal notranslate"><span class="pre">Origin</span></code> or <code class="docutils literal notranslate"><span class="pre">Referer</span></code>.
+The server checks <code class="docutils literal notranslate"><span class="pre">Origin</span></code> first and falls back to <code class="docutils literal notranslate"><span class="pre">Referer</span></code> if <code class="docutils literal notranslate"><span class="pre">Origin</span></code>
+is absent. If the source does not match the server’s own origin or a named
+<code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code>, the server returns <code class="docutils literal notranslate"><span class="pre">403</span></code>. Requests with neither source
+header are allowed for non-browser clients. Requests with an
+<code class="docutils literal notranslate"><span class="pre">Authorization</span></code> header are also exempt from this check, since a forged
+browser request cannot set one; an empty or invalid bearer token is rejected
+rather than falling back to the cookie.</p>
+<p><strong>2. Clickjacking</strong></p>
+<p>The bundled UI is served with <code class="docutils literal notranslate"><span class="pre">X-Frame-Options:</span> <span class="pre">SAMEORIGIN</span></code> and
+<code class="docutils literal notranslate"><span class="pre">Content-Security-Policy:</span> <span class="pre">frame-ancestors</span> <span class="pre">'self'</span></code> (plus any named
+<code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code>), so other origins cannot frame an authenticated UI.</p>
+<p>The public <code class="docutils literal notranslate"><span class="pre">/api/docs/</span></code> page loads Swagger UI from unpkg pinned with
+Subresource Integrity and a restrictive Content-Security-Policy, so a
+compromised CDN cannot run script on the origin that owns the auth cookie.</p>
+<p><strong>3. DNS Rebinding</strong></p>
 <p>A malicious site can re-resolve its hostname to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> after the page
 loads and thereby bypass CORS. Bearer authentication still blocks access to
 capability-bearing routes because the page does not possess the token. If an
