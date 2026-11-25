@@ -1631,3 +1631,60 @@ def test_manual_rerun_after_interrupt_continues_once(
     assert not session.interrupted
     assert session.step_seq == interrupted_seq + 2  # rerun, then reply
     assert not session.pending_tools
+
+
+def test_a2a_turn_leaving_approvals_does_not_block_webui_step(
+    v2_conv, client, monkeypatch
+):
+    """End-to-end: an A2A turn that calls a tool must not block the web UI.
+
+    ``_run_task_blocking`` starts the step with ``auto_confirm=False``, so a
+    reply containing a tool call leaves it awaiting confirmation in
+    ``session.pending_tools``. That state must not make the next web-UI
+    ``/step`` (the user replying instead of approving) fail with 409.
+    """
+    import unittest.mock
+
+    import gptme.server.session_step as step_mod
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    def fake_chat_complete(*args, **kwargs):
+        return "Checking the working directory.\n\n```shell\npwd\n```\n", None
+
+    monkeypatch.setattr(step_mod, "_chat_complete", fake_chat_complete)
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "10")
+
+    a2a_api._run_task_blocking(conversation_id, session)
+
+    # The A2A turn's tool call is left awaiting confirmation, as documented.
+    assert session.pending_tools, "A2A turn with a tool call left no approval"
+    assert not any(tool.auto_confirm for tool in session.pending_tools.values())
+    stale_ids = set(session.pending_tools)
+
+    # Replying from the web UI must supersede the unanswered batch, not 409.
+    with unittest.mock.patch(
+        "gptme.server.api_v2_sessions._start_step_thread"
+    ) as start:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session.id, "model": "openai/mock-model"},
+        )
+
+    assert response.status_code == 200
+    start.assert_called_once()
+    assert not (stale_ids & set(session.pending_tools))
+    late = client.post(
+        f"/api/v2/conversations/{conversation_id}/tool/confirm",
+        json={
+            "session_id": session.id,
+            "tool_id": min(stale_ids),
+            "action": "confirm",
+        },
+    )
+    assert late.get_json()["message"] == "Tool already handled"
