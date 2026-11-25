@@ -52,10 +52,17 @@ def offline(monkeypatch):
     return chat, calls
 
 
-def _run_step(chat, messages, headless: bool):
+def _run_step(chat, messages, headless: bool, output_schema: type | None = None):
     token = chat._headless_run.set(headless)
     try:
-        return list(chat.step(list(messages), stream=True, model="openai/gpt-4o"))
+        return list(
+            chat.step(
+                list(messages),
+                stream=True,
+                model="openai/gpt-4o",
+                output_schema=output_schema,
+            )
+        )
     finally:
         chat._headless_run.reset(token)
 
@@ -140,6 +147,26 @@ def test_multi_step_tool_turn_ends_on_empty_reply(offline):
 
     assert len(calls) == 1
     assert msgs[0].metadata == {"session_stop_outcome": "completed"}
+
+
+def test_structured_output_request_keeps_replaying(offline):
+    """An empty reply cannot satisfy an `output_schema` request.
+
+    Ending the run here would return silent success with no schema-conforming
+    answer, so the empty reply must stay a provider error.
+    """
+    from pydantic import BaseModel
+
+    class Pick(BaseModel):
+        summary: str
+
+    chat, calls = offline
+    init_tools(allowlist=["shell"])
+
+    with pytest.raises(EmptyStreamError):
+        _run_step(chat, AFTER_TOOL, headless=True, output_schema=Pick)
+
+    assert len(calls) > 1
 
 
 def test_complete_tool_loaded_keeps_replaying(offline):
@@ -454,3 +481,18 @@ def test_billed_visible_output_is_not_a_normal_finish(usage, normal):
         {"model": "gpt-5.6"} if usage is None else {"usage": usage}
     )
     assert EmptyStreamError("gpt-5.6", metadata).normal_finish is normal
+
+
+def test_billed_blank_reply_that_arrived_is_a_normal_finish():
+    """Billed output that streamed as whitespace is not lost output.
+
+    A provider can bill a trailing newline after the last tool result. That
+    reply did arrive, so replaying it only repeats the same blank answer.
+    """
+    metadata: MessageMetadata = {"usage": {"output_tokens": 3}}
+
+    assert EmptyStreamError("gpt-5.6", metadata).normal_finish is False
+    assert (
+        EmptyStreamError("gpt-5.6", metadata, received_output=True).normal_finish
+        is True
+    )

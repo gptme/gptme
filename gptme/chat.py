@@ -90,7 +90,9 @@ _idle_autowake_blocked: ContextVar[bool] = ContextVar(
 _headless_run: ContextVar[bool] = ContextVar("headless_run", default=False)
 
 
-def _empty_reply_ends_turn(messages: list[Message]) -> bool:
+def _empty_reply_ends_turn(
+    messages: list[Message], output_schema: type | None = None
+) -> bool:
     """Whether an empty reply right now is the model ending a headless run.
 
     Without the `complete` tool, a headless run ends on any reply without tool
@@ -99,8 +101,11 @@ def _empty_reply_ends_turn(messages: list[Message]) -> bool:
     request returns the same empty answer until the recovery budget is spent
     and the run fails. With `complete` loaded, an empty reply stays an error:
     the auto-reply nudge would otherwise read it as a finished turn (#4222).
+    A structured-output request (`output_schema`) also stays an error: an empty
+    reply cannot satisfy it, and ending the run would hand the caller silent
+    success with no schema-conforming answer.
     """
-    if not _headless_run.get() or has_tool("complete"):
+    if not _headless_run.get() or has_tool("complete") or output_schema is not None:
         return False
     if not messages or messages[-1].role != "system":
         return False
@@ -1698,7 +1703,7 @@ def step(
         # GENERATION_PRE hooks, so tool/hook failures still propagate.
         from .llm.recovery import empty_reply_ends_turn
 
-        empty_ends_turn = _empty_reply_ends_turn(log.messages)
+        empty_ends_turn = _empty_reply_ends_turn(log.messages, output_schema)
         try:
             with (
                 terminal_state_title("🤔 generating"),

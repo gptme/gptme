@@ -1391,7 +1391,7 @@ def step(
                 # normally with nothing usable must take the provider-error
                 # path, not be persisted as an empty assistant turn.
                 # Interrupted output carries " [INTERRUPTED]" and is non-empty.
-                err = EmptyStreamError(model, metadata)
+                err = EmptyStreamError(model, metadata, received_output=bool(output))
                 mark_llm_reply_origin(err, output_emitted=bool(output))
                 raise err
 
