@@ -596,8 +596,30 @@ class GptmeAgent:
             else None
         )
 
+        async def send_until_cancelled(coro: Coroutine[Any, Any, Any]) -> Any:
+            request = asyncio.create_task(coro)
+            try:
+                if turn.cancelled.is_set():
+                    return False
+                if turn.cancel_waiter is None:
+                    return await request
+                await asyncio.wait(
+                    {request, turn.cancel_waiter},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if turn.cancelled.is_set():
+                    return False
+                return request.result()
+            finally:
+                # Cancel only this request, never the turn's shared waiter.
+                # This also prevents a late allow-always from caching a policy.
+                request.cancel()
+                await asyncio.gather(request, return_exceptions=True)
+
         def send(coro: Coroutine[Any, Any, Any], timeout: float) -> Any:
-            future = asyncio.run_coroutine_threadsafe(coro, turn.loop)
+            future = asyncio.run_coroutine_threadsafe(
+                send_until_cancelled(coro), turn.loop
+            )
             try:
                 return future.result(timeout=timeout)
             finally:
@@ -1021,6 +1043,12 @@ class GptmeAgent:
                 await loop.run_in_executor(
                     None, lambda: [client.close() for client in old_clients.values()]
                 )
+            # Stop may have arrived while old clients were closing. Do not
+            # publish replacement tools or a second writer after that await.
+            if self._session_is_finishing(session_id):
+                if session_clients:
+                    await self._close_mcp_clients(list(session_clients.values()))
+                raise RuntimeError(f"Session {session_id} is still finishing its turn")
             self._session_tools[session_id] = session_tools
             self._session_mcp_clients[session_id] = session_clients
         self._session_models[session_id] = session_model
