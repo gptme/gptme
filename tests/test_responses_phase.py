@@ -282,6 +282,26 @@ def test_fenced_phase_whitespace_roundtrip(indent: str, ending: str) -> None:
     assert replay_responses_output(stripped + "edited", output) is None
 
 
+def test_phase_digest_trims_all_edge_prose_lines() -> None:
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    content = ' \n \nBefore\n@shell(call_1): {"command":"pwd"}\n<think>private</think>After\n \n '
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(" \n \nBefore\n", "commentary"))
+    capture.output_item(1, {"type": "function_call", "call_id": "call_1"})
+    capture.output_item(
+        2, _message("<think>private</think>After\n \n ", "final_answer")
+    )
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    stripped, _ = strip_reasoning(content)
+    replay = replay_responses_output(stripped, metadata["responses_output"])
+    assert replay is not None
+    assert replay[0]["phase"] == "commentary"
+    assert replay[2]["phase"] == "final_answer"
+
+
 def test_adjacent_phased_messages_survive_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -226,10 +226,19 @@ class ResponsesPhaseCapture:
             # Match autocompact's fence-aware edge rules, but do not run another
             # reasoning-removal pass over the assembled native argument JSON.
             segments = _reasoning_segments(stripped)
-            if segments and segments[0][0] == "text":
-                segments[0] = ("text", segments[0][1].lstrip())
-            if segments and segments[-1][0] == "text":
-                segments[-1] = ("text", segments[-1][1].rstrip())
+            for i, (kind, text) in enumerate(segments):
+                if kind != "text":
+                    break
+                segments[i] = (kind, text.lstrip())
+                if text.strip():
+                    break
+            for i in range(len(segments) - 1, -1, -1):
+                kind, text = segments[i]
+                if kind != "text":
+                    break
+                segments[i] = (kind, text.rstrip())
+                if text.strip():
+                    break
             output["reasoning_stripped_digest"] = _digest(
                 "".join(text for _, text in segments)
             )
