@@ -242,9 +242,30 @@ class TestApplyOperations:
         """
         content = "a\rb\n\nc\n"
         ops = [HashlineOp(kind="replace", start=2, end=2, text=None, text_lines=[""])]
-        result = _apply_operations(content, ops)
-        assert result == "a\r\n\nc\n"
-        assert result.count("\n") == content.count("\n")
+        with pytest.raises(ValueError, match="collapse.*CRLF"):
+            _apply_operations(content, ops)
+
+    @pytest.mark.parametrize(
+        ("original", "operation"),
+        [(b"a\rb\n", "PUT >1:"), (b"a\rb\n\nc\n", "PUT 2.=2:")],
+    )
+    def test_execute_rejects_collapsing_blank_after_cr(
+        self, tmp_path: Path, monkeypatch, original: bytes, operation: str
+    ):
+        from unittest.mock import Mock
+
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(original)
+        snapshot = read_text_lf(f)
+        tag = store_snapshot(str(f.resolve()), snapshot)
+        confirm = Mock()
+        monkeypatch.setattr("gptme.hooks.get_confirmation", confirm)
+        block = f"[{f.resolve()}#{tag}]\n{operation}\n+\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert any("collapse" in msg and "CRLF" in msg for msg in msgs), msgs
+        confirm.assert_not_called()
+        assert f.read_bytes() == original
+        assert lookup_snapshot(str(f.resolve()), tag) == (True, read_text_lf(f))
 
     def test_insert_before(self):
         content = "alpha\nbeta\n"

@@ -689,6 +689,17 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             # New lines, and an unterminated last line that is no longer last,
             # get "\n".
             parts.append(line + (ending or "\n"))
+    # Adjacent CR and LF from distinct logical lines become one CRLF break.
+    # Reject rather than rewrite an untouched separator or lose a blank line
+    # when the writer normalizes CRLF. Existing CRLF within a part is valid.
+    if any(
+        left.endswith("\r") and right.startswith("\n")
+        for left, right in zip(parts, parts[1:])
+    ):
+        raise ValueError(
+            "Edit would collapse separate line endings into CRLF; "
+            "include the preceding line in the replacement with explicit line breaks"
+        )
     return "".join(parts)
 
 

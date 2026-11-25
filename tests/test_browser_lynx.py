@@ -406,7 +406,7 @@ def test_read_url_cookies_stay_scoped_to_requested_host():
     cookie_contents: list[str] = []
 
     def mock_run(cmd, **kwargs):
-        if "-head" in cmd:
+        if "-mime_header" in cmd:
             if "start.example.com" in cmd[-1]:
                 return CompletedProcess(
                     cmd,
@@ -450,11 +450,11 @@ def test_read_url_redirect_chain_shares_one_deadline():
     def mock_run(cmd, **kwargs):
         timeouts.append(kwargs["timeout"])
         clock[0] += 25  # each request is slow but individually valid
-        if "-head" in cmd and not cmd[-1].endswith("/final"):
+        if "-mime_header" in cmd and not cmd[-1].endswith("/final"):
             return CompletedProcess(
                 cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /final\n", stderr=""
             )
-        if "-head" in cmd:
+        if "-mime_header" in cmd:
             return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
         return CompletedProcess(cmd, 0, stdout="page", stderr="")
 
@@ -472,8 +472,9 @@ def test_read_url_redirect_chain_shares_one_deadline():
 
 
 @pytest.mark.skipif(not lynx_available, reason="lynx not installed")
-def test_read_url_checks_get_redirect_when_head_is_rejected():
-    """A server that answers HEAD with 405 still has its redirects checked."""
+@pytest.mark.parametrize("head_status", [200, 400, 403, 404, 405, 501])
+def test_read_url_checks_get_redirect_regardless_of_head_response(head_status):
+    """HEAD responses cannot predict the redirects followed by a GET request."""
     import http.server
     import threading
 
@@ -483,7 +484,7 @@ def test_read_url_checks_get_redirect_when_head_is_rejected():
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_HEAD(self):
-            self.send_response(405)
+            self.send_response(head_status)
             self.end_headers()
 
         def do_GET(self):
@@ -511,9 +512,9 @@ def test_read_url_checks_get_redirect_when_head_is_rejected():
     ports.append(server.server_port)
     try:
         set_session_allow_hosts(["127.0.0.1"])
+        assert "PUBLIC" in read_url(f"http://127.0.0.1:{ports[0]}/to-same")
         with pytest.raises(ValueError, match="localhost"):
             read_url(f"http://127.0.0.1:{ports[0]}/to-other")
-        assert "PUBLIC" in read_url(f"http://127.0.0.1:{ports[0]}/to-same")
     finally:
         set_session_allow_hosts(None)
         server.shutdown()
@@ -533,7 +534,7 @@ def test_read_url_redirect_probes_send_cookies():
     probe_cookies: list[str] = []
 
     def mock_run(cmd, **kwargs):
-        if "-head" in cmd:
+        if "-mime_header" in cmd:
             cookie_arg = next((a for a in cmd if a.startswith("-cookie_file=")), None)
             assert cookie_arg is not None, f"probe without cookies: {cmd}"
             assert "-accept_all_cookies" in cmd

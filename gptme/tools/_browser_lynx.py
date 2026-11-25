@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 _MAX_REDIRECT_HOPS = 10
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-# Servers that reject HEAD; their redirects are read from a GET probe instead.
-_HEAD_UNSUPPORTED_STATUSES = frozenset({405, 501})
 # One budget for the whole fetch: redirect probes plus the final request.
 _FETCH_TIMEOUT = 60.0
 
@@ -38,7 +36,7 @@ def _remaining(deadline: float) -> float:
 
 
 def _redirect_target(head_dump: str, url: str) -> str | None:
-    """Return the absolute redirect target from ``lynx -head -dump`` output."""
+    """Return the absolute redirect target from a lynx HTTP header block."""
     if _status_code(head_dump) not in _REDIRECT_STATUSES:
         return None
     for line in head_dump.splitlines()[1:]:
@@ -69,28 +67,24 @@ def _resolve_allowlisted_redirects(
     deadline: float | None = None,
     cookie_args: list[str] | None = None,
 ) -> str:
-    """Follow redirects with HEAD probes, allowlist-checking every hop first.
+    """Follow redirects with GET probes, allowlist-checking every hop first.
 
     lynx follows redirects to any host on its own, so with a host allowlist the
-    real fetch runs with ``-noredir`` against the URL resolved here. A server
-    that rejects HEAD is probed with GET, whose header block lynx prints with
-    ``-mime_header``. All probes share ``deadline``. ``cookie_args`` go to every
-    probe: a server may redirect differently without them (Google sends
-    cookie-less requests to its consent page).
+    real fetch runs with ``-noredir`` against the URL resolved here. Probes use
+    GET because servers may handle HEAD differently; lynx prints the header
+    block with ``-mime_header``. All probes share ``deadline``. ``cookie_args``
+    go to every probe: a server may redirect differently without them (Google
+    sends cookie-less requests to its consent page).
     """
     if deadline is None:
         deadline = time.monotonic() + _FETCH_TIMEOUT
     extra = cookie_args or []
     for _ in range(_MAX_REDIRECT_HOPS):
         dump = _probe_headers(
-            ["lynx", "-head", "-dump", "-noredir", *extra, url], env, deadline
+            ["lynx", "-mime_header", "-source", "-noredir", *extra, url],
+            env,
+            deadline,
         )
-        if _status_code(dump) in _HEAD_UNSUPPORTED_STATUSES:
-            dump = _probe_headers(
-                ["lynx", "-mime_header", "-source", "-noredir", *extra, url],
-                env,
-                deadline,
-            )
         target = _redirect_target(dump, url)
         if target is None:
             return url
