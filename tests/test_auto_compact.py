@@ -1131,7 +1131,14 @@ def test_load_context_files_rejects_credential_symlinks(
 @pytest.mark.parametrize("xdg", ["cfg", ""])
 @pytest.mark.parametrize(
     "secret_name",
-    ["auth/gptme-cloud-example.json", "config.toml.20261125.bak", "config.toml.orig"],
+    [
+        "auth/gptme-cloud-example.json",
+        "config.toml.20261125.bak",
+        "config.toml.orig",
+        "config.toml~",
+        "credentials.toml~",
+        ".credentials.toml.swp",
+    ],
 )
 def test_load_context_files_skips_config_tokens_and_backups(
     tmp_path, monkeypatch, xdg, secret_name
@@ -1152,8 +1159,12 @@ def test_load_context_files_skips_config_tokens_and_backups(
 
 @pytest.mark.parametrize("xdg", ["cfg", ""])
 @pytest.mark.parametrize("credential_is_link", [True, False])
+@pytest.mark.parametrize(
+    "credential_name",
+    ["credentials.toml", "config.toml~", "credentials.toml~", ".credentials.toml.swp"],
+)
 def test_load_context_files_skips_relocated_config_symlinks(
-    tmp_path, monkeypatch, xdg, credential_is_link
+    tmp_path, monkeypatch, xdg, credential_is_link, credential_name
 ):
     from gptme.tools.autocompact import _load_context_files
 
@@ -1161,7 +1172,7 @@ def test_load_context_files_skips_relocated_config_symlinks(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / xdg) if xdg else "")
     store = tmp_path / xdg / "gptme"
     store.mkdir(parents=True)
-    credential = store / "credentials.toml"
+    credential = store / credential_name
     ordinary = tmp_path / "ordinary.txt"
     link, target = (
         (credential, ordinary) if credential_is_link else (ordinary, credential)
@@ -1231,17 +1242,23 @@ def test_load_context_files_handles_source_resolution_error(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     resolve = Path.resolve
+    attempted_source_resolution = []
 
     def resolve_with_loop(path, *args, **kwargs):
         if path == tmp_path / "gptme":
+            attempted_source_resolution.append(path)
             raise error
         return resolve(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "resolve", resolve_with_loop)
     (tmp_path / "notes.md").write_text("ordinary\n")
-    assert _load_context_files(["notes.md"], workspace=tmp_path) == [
-        ("notes.md", "ordinary\n")
-    ]
+    store = tmp_path / "cfg" / "gptme"
+    store.mkdir(parents=True)
+    (store / "notes.md").write_text("private token\n")
+    assert _load_context_files(
+        ["cfg/gptme/notes.md", "notes.md"], workspace=tmp_path
+    ) == [("notes.md", "ordinary\n")]
+    assert attempted_source_resolution
 
 
 def test_load_context_files_protects_process_cwd_store_from_other_workspace(

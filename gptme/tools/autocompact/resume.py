@@ -206,6 +206,15 @@ _CONFIG_SECRET_FILES = frozenset(
 _CONFIG_SECRET_DIRS = frozenset({"auth", "oauth", "mcp-oauth"})
 
 
+def _is_config_secret_name(filename: str) -> bool:
+    """Known secret files and their backups, including editor tilde/swap files."""
+    filename = filename.lower().removeprefix(".")
+    return any(
+        filename in (name, name + "~") or filename.startswith(name + ".")
+        for name in _CONFIG_SECRET_FILES
+    )
+
+
 def _gptme_config_dirs() -> list[Path]:
     """gptme's resolved config/credential directories, wherever XDG puts them.
 
@@ -251,10 +260,7 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
             relative = path_parts[len(dir_parts) :]
             if relative and relative[0] in _CONFIG_SECRET_DIRS:
                 return True
-            if len(relative) == 1 and any(
-                relative[0] == name or relative[0].startswith(name + ".")
-                for name in _CONFIG_SECRET_FILES
-            ):
+            if len(relative) == 1 and _is_config_secret_name(relative[0]):
                 return True
 
         # A credential writer follows symlinks. Reject a direct suggestion of
@@ -262,12 +268,7 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
         try:
             secret_paths = [d / name for name in _CONFIG_SECRET_FILES]
             secret_paths.extend(
-                p
-                for p in d.glob("*.toml.*")
-                if any(
-                    p.name.lower().startswith(name + ".")
-                    for name in _CONFIG_SECRET_FILES
-                )
+                p for p in d.glob("*") if _is_config_secret_name(p.name)
             )
             if any(path_parts == parts(p.resolve()) for p in secret_paths):
                 return True
