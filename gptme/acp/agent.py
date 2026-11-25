@@ -15,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -49,7 +50,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine
 
     from ..message import Message
 
@@ -82,6 +83,16 @@ class _AcpTurn:
         self.cancelled.set()
         if self.cancel_waiter is not None and not self.cancel_waiter.done():
             self.cancel_waiter.set_result(None)
+
+    async def send_unless_cancelled(self, send: Callable[[], Awaitable[Any]]) -> Any:
+        """Start a queued client send, unless Stop arrived first.
+
+        cancel() runs on the event loop, so only a check made there, right
+        before the send starts, cannot race it. Returns None if not sent.
+        """
+        if self.cancelled.is_set():
+            return None
+        return await send()
 
 
 class _TurnCancelled(BaseException):
@@ -601,8 +612,8 @@ class GptmeAgent:
             else None
         )
 
-        async def send_until_cancelled(coro: Coroutine[Any, Any, Any]) -> Any:
-            request = asyncio.create_task(coro)
+        async def send_until_cancelled(start: Callable[[], Awaitable[Any]]) -> Any:
+            request = asyncio.create_task(turn.send_unless_cancelled(start))
             try:
                 if turn.cancelled.is_set():
                     return False
@@ -621,9 +632,9 @@ class GptmeAgent:
                 request.cancel()
                 await asyncio.gather(request, return_exceptions=True)
 
-        def send(coro: Coroutine[Any, Any, Any], timeout: float) -> Any:
+        def send(start: Callable[[], Awaitable[Any]], timeout: float) -> Any:
             future = asyncio.run_coroutine_threadsafe(
-                send_until_cancelled(coro), turn.loop
+                send_until_cancelled(start), turn.loop
             )
             try:
                 return future.result(timeout=timeout)
@@ -645,13 +656,13 @@ class GptmeAgent:
                 },
             )
             try:
-                send(self._report_tool_call(session_id, tool_call), 5.0)
+                send(partial(self._report_tool_call, session_id, tool_call), 5.0)
             except Exception:
                 logger.debug("Failed to report tool call", exc_info=True)
 
         try:
             allowed = send(
-                self._request_tool_permission(session_id, tool_call),
+                partial(self._request_tool_permission, session_id, tool_call),
                 _PERMISSION_TIMEOUT_S,
             )
             reason = "Permission denied by the ACP client"
@@ -668,7 +679,8 @@ class GptmeAgent:
             return ConfirmationResult.confirm()
         try:
             send(
-                self._update_tool_call(
+                partial(
+                    self._update_tool_call,
                     session_id,
                     tool_call.tool_call_id,
                     ToolCallStatus.FAILED,
@@ -1532,13 +1544,14 @@ class GptmeAgent:
                     return
                 batch_text = "".join(batch_buffer)
                 chunk = update_agent_message(text_block(batch_text))
+                send_chunk = partial(
+                    self._conn.session_update,
+                    session_id=session_id,
+                    update=chunk,
+                    source="gptme-stream",
+                )
                 future = asyncio.run_coroutine_threadsafe(
-                    self._conn.session_update(
-                        session_id=session_id,
-                        update=chunk,
-                        source="gptme-stream",
-                    ),
-                    loop,
+                    turn.send_unless_cancelled(send_chunk), loop
                 )
                 try:
                     # Timeout matches flush interval to bound worst-case stall per attempt
@@ -1588,13 +1601,11 @@ class GptmeAgent:
                 ) and (now - last_attempt[0]) >= FLUSH_INTERVAL:
                     _flush_batch()
 
-            def _send_from_worker(coro: Coroutine[Any, Any, None]) -> None:
+            def _send_from_worker(send: Callable[[], Awaitable[None]]) -> None:
                 """Send an ACP update from the executor thread, bounded so a stalled client cannot hang the turn."""
-                if turn.cancelled.is_set():
-                    # No updates for a cancelled turn.
-                    coro.close()
-                    return
-                future = asyncio.run_coroutine_threadsafe(coro, loop)
+                future = asyncio.run_coroutine_threadsafe(
+                    turn.send_unless_cancelled(send), loop
+                )
                 try:
                     future.result(timeout=5.0)
                 except Exception:
@@ -1632,7 +1643,9 @@ class GptmeAgent:
                 )
                 step_tool_calls[index] = tool_call.tool_call_id
                 turn.calls.append((tool_use, tool_call.tool_call_id))
-                _send_from_worker(self._report_tool_call(session_id, tool_call))
+                _send_from_worker(
+                    partial(self._report_tool_call, session_id, tool_call)
+                )
                 # The flush and report can each wait seconds on a slow client;
                 # a cancel arriving meanwhile must still keep the tool from
                 # starting (tools without confirmation have no other check).
@@ -1677,8 +1690,12 @@ class GptmeAgent:
                     # A failed send is retried at end of turn with the same
                     # stored content (_update_tool_call keeps it on the call).
                     _send_from_worker(
-                        self._update_tool_call(
-                            session_id, tool_call_id, status, content or None
+                        partial(
+                            self._update_tool_call,
+                            session_id,
+                            tool_call_id,
+                            status,
+                            content or None,
                         )
                     )
                     delivered_as_content.update(id(m) for m in outputs.get(index, []))
@@ -1748,6 +1765,10 @@ class GptmeAgent:
                         step_log.extend(pre_msgs)
                         response_msgs.extend(pre_msgs)
                         turn.completed = list(response_msgs)
+                    # Stop may have arrived while a slow hook ran: do not
+                    # start a generation after it.
+                    if turn.cancelled.is_set():
+                        raise _TurnCancelled
 
                     # ACP has no preview-reset protocol: replay would concatenate
                     # failed output with the replacement response. Bind in this
@@ -1828,49 +1849,27 @@ class GptmeAgent:
                 _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
                 return _PromptResponse(stop_reason="cancelled")
 
-            async def await_final_update(coro: Coroutine[Any, Any, None]) -> None:
-                # Do not cancel a transport write mid-message. On Stop, leave
-                # that one send alive but release the prompt immediately.
-                send = self._create_background_task(coro)
-                assert turn.cancel_waiter is not None
-                await asyncio.wait(
-                    {send, turn.cancel_waiter}, return_when=asyncio.FIRST_COMPLETED
-                )
-                if send.done():
-                    send.result()
-                    return
-                # A terminal tool update may still mutate per-session state.
-                # Keep replacement sessions out until that send has finished.
-                self._draining_sessions.add(session_id)
-
-                def sent(done: asyncio.Task[None]) -> None:
-                    self._draining_sessions.discard(session_id)
-                    if not done.cancelled() and done.exception() is not None:
-                        logger.debug(
-                            "Final ACP update failed after cancel: %r", done.exception()
-                        )
-
-                send.add_done_callback(sent)
-
             # Final flush: a cancelled prompt must not wait for a blocked
             # transport, but its already-started write is allowed to finish.
             if batch_buffer and self._conn and not turn.cancelled.is_set():
                 batch_text = "".join(batch_buffer)
                 final_chunk = update_agent_message(text_block(batch_text))
-                await await_final_update(
-                    self._conn.session_update(
+                await self._send_until_cancelled(
+                    turn,
+                    partial(
+                        self._conn.session_update,
                         session_id=session_id,
                         update=final_chunk,
                         source="gptme-stream",
-                    )
+                    ),
                 )
                 batch_buffer.clear()  # Only clear after confirmed successful send
 
             # Settle any call whose outcome no step observed.
-            if not turn.cancelled.is_set():
-                await await_final_update(
-                    self._complete_pending_tool_calls(session_id, turn=turn)
-                )
+            await self._send_until_cancelled(
+                turn,
+                partial(self._complete_pending_tool_calls, session_id, turn=turn),
+            )
 
             # Process response messages: add to log and forward non-assistant messages.
             # Assistant messages were already streamed incrementally via on_token,
@@ -1890,14 +1889,16 @@ class GptmeAgent:
                     content = gptme_message_to_acp_content(response_msg)
                     for block in content:
                         text = block.get("text", "")
-                        if text and self._conn and not turn.cancelled.is_set():
+                        if text and self._conn:
                             chunk = update_agent_message(text_block(text))
-                            await await_final_update(
-                                self._conn.session_update(
+                            await self._send_until_cancelled(
+                                turn,
+                                partial(
+                                    self._conn.session_update,
                                     session_id=session_id,
                                     update=chunk,
                                     source="gptme",
-                                )
+                                ),
                             )
                     log.append(response_msg)
 
@@ -1913,23 +1914,39 @@ class GptmeAgent:
             if batch_buffer and self._conn:
                 try:
                     batch_text = "".join(batch_buffer)
-                    await self._conn.session_update(
-                        session_id=session_id,
-                        update=update_agent_message(text_block(batch_text)),
-                        source="gptme-stream",
+                    await self._send_until_cancelled(
+                        active_turn,
+                        partial(
+                            self._conn.session_update,
+                            session_id=session_id,
+                            update=update_agent_message(text_block(batch_text)),
+                            source="gptme-stream",
+                        ),
                     )
                     batch_buffer.clear()  # Only clear after confirmed successful send
                 except Exception:
                     logger.debug("Failed to flush token buffer on error", exc_info=True)
             # Phase 2: Mark tool calls as failed on error
-            await self._complete_pending_tool_calls(session_id, success=False)
+            await self._send_until_cancelled(
+                active_turn,
+                partial(
+                    self._complete_pending_tool_calls,
+                    session_id,
+                    success=False,
+                    turn=active_turn,
+                ),
+            )
             # Send error message
             error_chunk = update_agent_message(text_block(f"Error: {e}"))
             if self._conn:
-                await self._conn.session_update(
-                    session_id=session_id,
-                    update=error_chunk,
-                    source="gptme",
+                await self._send_until_cancelled(
+                    active_turn,
+                    partial(
+                        self._conn.session_update,
+                        session_id=session_id,
+                        update=error_chunk,
+                        source="gptme",
+                    ),
                 )
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
             return _PromptResponse(stop_reason="cancelled")
@@ -1939,6 +1956,46 @@ class GptmeAgent:
                 and self._active_turns.get(session_id) is active_turn
             ):
                 del self._active_turns[session_id]
+
+    async def _send_until_cancelled(
+        self, turn: _AcpTurn | None, send: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Await one update from prompt() itself, releasing it on session/cancel.
+
+        Nothing new is sent for a cancelled turn. A write already started is
+        not cancelled mid-message: it is left to finish in the background, and
+        its failure no longer matters. Without a turn there is nothing to stop.
+        """
+        if turn is None or turn.cancel_waiter is None:
+            await send()
+            return
+        if turn.cancelled.is_set():
+            return
+        # Stop can still run before the task takes its first step.
+        task = self._create_background_task(turn.send_unless_cancelled(send))
+        await asyncio.wait(
+            {task, turn.cancel_waiter}, return_when=asyncio.FIRST_COMPLETED
+        )
+
+        def log_failure(done: asyncio.Task[None]) -> None:
+            if not done.cancelled() and done.exception() is not None:
+                logger.debug("ACP update failed after cancel: %r", done.exception())
+
+        if task.done():
+            if turn.cancelled.is_set():
+                log_failure(task)
+            else:
+                task.result()
+            return
+        # A terminal tool update may still mutate per-session state. Keep
+        # replacement sessions out until that send has finished.
+        self._draining_sessions.add(turn.session_id)
+
+        def sent(done: asyncio.Task[None]) -> None:
+            self._draining_sessions.discard(turn.session_id)
+            log_failure(done)
+
+        task.add_done_callback(sent)
 
     async def _await_turn(
         self,

@@ -2297,6 +2297,253 @@ class TestPromptCancel:
 
         _run(scenario())
 
+    @pytest.mark.parametrize("update_kind", ["tool_report", "text_flush"])
+    def test_update_queued_before_cancel_is_not_sent(self, monkeypatch, update_kind):
+        """Stop runs between the worker queueing an update and the loop starting it."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        agent, _ = _make_prompt_agent()
+        queued = threading.Event()
+        submit = asyncio.run_coroutine_threadsafe
+
+        def tracking_submit(coro, loop):
+            future = submit(coro, loop)
+            queued.set()
+            return future
+
+        monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", tracking_submit)
+
+        def fake_step(log, on_token=None, on_tool_execution=None, **kwargs):
+            turn = agent._active_turns["s1"]
+            blocking = threading.Event()
+
+            def stop_once_queued():
+                # Holds the loop, so the update cannot start before Stop.
+                blocking.set()
+                queued.wait(timeout=2.0)
+                turn.cancel()
+                agent._cleanup_session("s1")
+
+            turn.loop.call_soon_threadsafe(stop_once_queued)
+            assert blocking.wait(timeout=2.0)
+            if update_kind == "tool_report":
+                on_tool_execution(0, ToolUse("read", [], "x.txt"))
+            else:
+                time.sleep(0.11)  # past FLUSH_INTERVAL, so this token flushes
+                on_token("x" * 60)
+            return iter([])
+
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            return await asyncio.wait_for(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"),
+                timeout=3.0,
+            )
+
+        result = _run(scenario())
+
+        assert queued.is_set()
+        assert result.stop_reason == "cancelled"
+        agent._conn.session_update.assert_not_called()
+        assert "s1" not in agent._tool_calls
+
+    def test_final_send_not_started_before_cancel_is_not_sent(self, monkeypatch):
+        """Stop runs between prompt() scheduling a final send and the send starting."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.message import Message
+
+        agent, _ = _make_prompt_agent()
+        create_task = agent._create_background_task
+        stopped: list[bool] = []
+
+        def create_then_stop(coro):
+            task = create_task(coro)
+            if turn := agent._active_turns.get("s1"):
+                stopped.append(True)
+                turn.cancel()
+            return task
+
+        monkeypatch.setattr(agent, "_create_background_task", create_then_stop)
+
+        def fake_step(log, on_token=None, **kwargs):
+            on_token("short")
+            yield Message("assistant", "short")
+
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            result = await asyncio.wait_for(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"),
+                timeout=3.0,
+            )
+            await asyncio.sleep(0.05)  # let the scheduled send run
+            return result
+
+        result = _run(scenario())
+
+        assert stopped
+        assert result.stop_reason == "cancelled"
+        agent._conn.session_update.assert_not_called()
+        assert not agent._draining_sessions
+
+    def test_permission_send_not_started_before_cancel_is_not_sent(self, monkeypatch):
+        """The same ordering for the confirmation path's report and request."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        agent, _ = _make_prompt_agent()
+
+        async def scenario():
+            loop = asyncio.get_running_loop()
+            turn = _AcpTurn(
+                agent=agent,
+                session_id="s1",
+                loop=loop,
+                cancel_waiter=loop.create_future(),
+            )
+            agent._active_turns["s1"] = turn
+            create_task = asyncio.create_task
+
+            def create_then_stop(coro, **kwargs):
+                loop.call_soon(turn.cancel)  # queued ahead of the new task
+                return create_task(coro, **kwargs)
+
+            monkeypatch.setattr(asyncio, "create_task", create_then_stop)
+            result = await loop.run_in_executor(
+                None, agent._confirm_tool_use, turn, ToolUse("shell", [], "echo x")
+            )
+            assert result.action == ConfirmAction.SKIP
+
+        _run(scenario())
+
+        agent._conn.session_update.assert_not_called()
+        agent._conn.request_permission.assert_not_called()
+
+    def test_cancel_during_step_pre_hook_starts_no_generation(self, monkeypatch):
+        """A hook that outlasts Stop must not be followed by a provider request."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.hooks import HookType
+
+        agent, _ = _make_prompt_agent()
+        generations: list[str] = []
+
+        def trigger_hook(hook_type, **kwargs):
+            if hook_type == HookType.STEP_PRE:
+                turn = agent._active_turns["s1"]
+                asyncio.run_coroutine_threadsafe(
+                    agent.cancel(session_id="s1"), turn.loop
+                ).result(timeout=2.0)
+            return iter([])
+
+        def fake_step(log, **kwargs):
+            generations.append("started")
+            return iter([])
+
+        monkeypatch.setattr(
+            importlib.import_module("gptme.hooks.registry"),
+            "trigger_hook",
+            trigger_hook,
+        )
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            return await asyncio.wait_for(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"),
+                timeout=3.0,
+            )
+
+        result = _run(scenario())
+
+        assert result.stop_reason == "cancelled"
+        assert generations == []
+
+    def test_final_send_failing_as_cancel_lands_answers_cancelled(self, monkeypatch):
+        """A cancelled turn ignores the failed write and still saves every message."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.message import Message
+
+        agent, log = _make_prompt_agent()
+        sends = 0
+
+        async def update(**kwargs):
+            nonlocal sends
+            sends += 1
+            if sends > 1:
+                await asyncio.Event().wait()  # any retry would hang the prompt
+            agent._active_turns["s1"].cancel()
+            raise ConnectionError("client went away")
+
+        def fake_step(log, **kwargs):
+            return iter(
+                [
+                    Message("assistant", "done"),
+                    Message("system", "note A"),
+                    Message("system", "note B"),
+                ]
+            )
+
+        agent._conn.session_update = AsyncMock(side_effect=update)
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            return await asyncio.wait_for(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"),
+                timeout=3.0,
+            )
+
+        result = _run(scenario())
+
+        assert result.stop_reason == "cancelled"
+        assert sends == 1
+        persisted = [c.args[0].content for c in log.append.call_args_list]
+        assert persisted == ["go", "done", "note A", "note B"]
+
+    def test_cancel_returns_while_error_report_is_blocked(self, monkeypatch):
+        """Stop also releases a prompt that is reporting a failed turn."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        agent, _ = _make_prompt_agent()
+        sending = asyncio.Event()
+        release = asyncio.Event()
+
+        async def update(**kwargs):
+            sending.set()
+            await release.wait()
+
+        def fake_step(log, **kwargs):
+            raise RuntimeError("provider failed")
+
+        agent._conn.session_update = AsyncMock(side_effect=update)
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+            )
+            try:
+                await asyncio.wait_for(sending.wait(), 2.0)
+                await agent.cancel(session_id="s1")
+                result = await asyncio.wait_for(asyncio.shield(task), 0.5)
+                assert result.stop_reason == "cancelled"
+            finally:
+                release.set()
+                await asyncio.gather(task, return_exceptions=True)
+
+        _run(scenario())
+
     def test_cancel_wakes_unanswered_permission(self, monkeypatch):
         """Stop releases the worker without a client permission answer."""
         if not _import_acp():
