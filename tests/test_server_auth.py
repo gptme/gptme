@@ -292,8 +292,11 @@ def test_non_ascii_server_token_accepts_latin1_bearer_header(monkeypatch):
         assert wrong.status_code == 401
 
 
-def test_server_token_above_latin1_accepts_utf8_bearer_header(monkeypatch):
-    """A token outside latin-1 (``€``) can only travel as UTF-8 header bytes."""
+@pytest.mark.parametrize("wsgi_encoded", [True, False], ids=["wsgi", "direct-unicode"])
+def test_server_token_above_latin1_accepts_utf8_bearer_header(
+    monkeypatch, wsgi_encoded
+):
+    """Accept UTF-8 wire headers and Unicode headers supplied directly by clients."""
     import gptme.server.auth
     from gptme.server.app import create_app
 
@@ -306,7 +309,9 @@ def test_server_token_above_latin1_accepts_utf8_bearer_header(monkeypatch):
     gptme.server.auth.init_auth("0.0.0.0")
 
     def wsgi_header(value: str) -> str:
-        return value.encode("utf-8").decode("latin-1")
+        # WSGI exposes latin-1-decoded wire bytes; in-process clients can also
+        # supply Unicode directly, exercising the UTF-8 fallback.
+        return value.encode("utf-8").decode("latin-1") if wsgi_encoded else value
 
     app = create_app()
     with app.test_client() as client:
