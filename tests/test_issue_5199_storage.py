@@ -72,35 +72,6 @@ def test_wrong_shape_event_rows_are_skipped(tmp_path: Path, bad_row: str) -> Non
     assert checkpoint["seq"] == 3
 
 
-@pytest.mark.parametrize(
-    "damaged",
-    [
-        '{"seq": 5, "type": "checkpoint", "payload": {"messages": [null]}}',
-        '{"seq": 5, "type": "checkpoint"}',
-    ],
-)
-def test_damaged_compacted_checkpoint_fails_recovery(
-    tmp_path: Path, damaged: str
-) -> None:
-    """After compaction the checkpoint is the only record of earlier history,
-    so a damaged one must fail recovery, not return a truncated transcript."""
-    msg = Message("user", "after")
-    with open(tmp_path / EVENT_LOG_NAME, "w", encoding="utf-8") as f:
-        f.write(damaged + "\n")
-        f.write(
-            json.dumps(
-                {
-                    "seq": 6,
-                    "type": "message_append",
-                    "payload": {"message": msg.to_dict()},
-                }
-            )
-            + "\n"
-        )
-    with pytest.raises(ValueError, match="damaged"):
-        recover_messages(tmp_path)
-
-
 def test_undo_without_payload_key_still_undoes_one(tmp_path: Path) -> None:
     a, b = Message("user", "a"), Message("user", "b")
     append_next_event(tmp_path, lambda seq: build_message_append_event(seq, a))

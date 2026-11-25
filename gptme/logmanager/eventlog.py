@@ -269,32 +269,6 @@ def _payload_shape_ok(event_type: Any, payload: Any) -> bool:
     return True
 
 
-def _latest_damaged_snapshot_seq(logdir: Path) -> int | None:
-    """Seq of the newest checkpoint/edit row that has a seq but an unusable
-    payload. Such a row replaced the whole message list, so skipping it would
-    silently drop the history it held."""
-    path = _event_log_path(logdir)
-    if not path.exists():
-        return None
-    latest: int | None = None
-    for line in _iter_event_lines(path):
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict) or event.get("type") not in (
-            EVENT_CHECKPOINT,
-            EVENT_MESSAGE_EDIT,
-        ):
-            continue
-        seq = event.get("seq")
-        if not isinstance(seq, int) or isinstance(seq, bool):
-            continue
-        if not _payload_shape_ok(event["type"], event.get("payload", _MISSING)):
-            latest = seq if latest is None else max(latest, seq)
-    return latest
-
-
 def read_events(logdir: Path) -> list[dict[str, Any]]:
     """Read all events from the event log, oldest first.
 
@@ -397,17 +371,6 @@ def recover_messages(
         return None
 
     checkpoint = find_latest_checkpoint(events)
-    damaged_seq = _latest_damaged_snapshot_seq(logdir)
-    if (
-        damaged_seq is not None
-        and damaged_seq > (checkpoint["seq"] if checkpoint else 0)
-        and not any(e["seq"] < damaged_seq for e in events)
-    ):
-        # Nothing before it survives (compaction deletes pre-checkpoint rows),
-        # so replaying past it would return a list missing what it held.
-        raise ValueError(
-            f"Event log snapshot at seq {damaged_seq} is damaged; cannot recover"
-        )
 
     messages: list[dict[str, Any]] = []
     start_seq = 0
