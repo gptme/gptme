@@ -90,6 +90,11 @@ class ToolExecution:
     temperature: float | None = None
     top_p: float | None = None
     workspace: Path | None = None
+    # Generation epoch this tool belongs to. The continuation election only
+    # waits for outstanding tools from its own epoch: a tool queued before a
+    # newer turn must not block that turn's reply, and a stale tool must not
+    # start one.
+    step_seq: int | None = None
 
     def __post_init__(self) -> None:
         if self.tooluse.tool == "memory":
@@ -156,6 +161,9 @@ class ConversationSession(BaseSession):
     # results. Used to prevent the continuation step from starting before all
     # concurrent tool threads have finished writing.
     _executing_tools: set[str] = field(default_factory=set)
+    # Epoch each executing tool was queued under (see ToolExecution.step_seq).
+    # Guard with conversation_lock, alongside _executing_tools.
+    _executing_tool_epochs: dict[str, int] = field(default_factory=dict)
     # Bounded, conversation-local approval receipts. Guard with conversation_lock;
     # duplicates must not schedule another worker or masquerade as missing tools.
     handled_tools: dict[str, None] = field(default_factory=dict)

@@ -1025,5 +1025,69 @@ def test_stale_tool_worker_does_not_start_continuation(v2_conv, monkeypatch):
     thread.join(timeout=5)
     assert not thread.is_alive()
 
+    assert session.step_seq == 6  # the fake tool really ran
     assert continuation.call_count == 0
     assert not session.generating
+
+
+def test_rerun_continuation_ignores_stale_executing_tool(v2_conv, monkeypatch):
+    """A rerun must not lose its reply because a tool from the previous turn still runs.
+
+    Only outstanding tools from the current generation epoch block a reply. A
+    stale worker cannot start one (``owns_epoch``), so waiting on it would drop
+    the rerun's continuation entirely.
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 6
+    session.interrupted = False
+    session.generating = True  # /rerun reserved this epoch
+    session._executing_tools.add("old-tool")
+    session._executing_tool_epochs["old-tool"] = 5
+
+    def execute(code, args, kwargs):
+        return Message("system", "rerun tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+
+    tool_exec = ToolExecution(
+        tool_id="rerun-tool",
+        tooluse=ToolUse("test_tool", [], None),
+        step_seq=6,
+    )
+    session.pending_tools[tool_exec.tool_id] = tool_exec
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        tool_exec.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+        reserved=True,
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert continuation.call_count == 1
+    kwargs = continuation.call_args.kwargs
+    assert kwargs["reserved"] is True
+    assert kwargs["step_seq"] == 7

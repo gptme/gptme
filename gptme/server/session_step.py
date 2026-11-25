@@ -1525,6 +1525,7 @@ def step(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=top_p,
+                step_seq=my_step_seq,
             )
             session.pending_tools[tool_id] = tool_exec
 
@@ -1773,7 +1774,11 @@ def start_tool_execution(
                     tool_exec = session.pending_tools.pop(current_tool_id, None)
                     if tool_exec is not None:
                         session.remember_handled_tool(current_tool_id)
+                        # A tool approved after an interrupt runs under the
+                        # worker's epoch, not the one it was queued under.
+                        tool_exec.step_seq = my_seq
                         session._executing_tools.add(current_tool_id)
+                        session._executing_tool_epochs[current_tool_id] = my_seq
                 if tool_exec is None:
                     logger.warning(
                         f"Tool {current_tool_id} not found in pending tools "
@@ -1844,6 +1849,7 @@ def start_tool_execution(
                     logger.info(f"Tool {current_tool_id} executing")
                 except BaseException:
                     session._executing_tools.discard(current_tool_id)
+                    session._executing_tool_epochs.pop(current_tool_id, None)
                     raise
 
                 claimed_tool_id = current_tool_id
@@ -1995,6 +2001,7 @@ def start_tool_execution(
                     # bookkeeping state as quiescent.
                     with SessionManager.conversation_lock(conversation_id):
                         session._executing_tools.discard(claimed_tool_id)
+                        session._executing_tool_epochs.pop(claimed_tool_id, None)
 
             # Compact after tool results, before the continuation provider call.
             # Serialize with the same conversation lock as tool-result appends
@@ -2034,6 +2041,23 @@ def start_tool_execution(
                 # of the newer turn, replaying an answer the client already saw
                 # (or resurrecting a task that was reported completed).
                 owns_epoch = session.step_seq == my_seq
+                # Only outstanding tools from *this* epoch block the reply.
+                # A tool left over from an older epoch is already excluded by
+                # ``owns_epoch`` when it finishes, so waiting on it here would
+                # drop the current epoch's reply (e.g. a /rerun that finishes
+                # while a manually approved tool from the previous turn still
+                # runs).
+                # An untagged tool predates epoch tracking; treat it as ours so
+                # a legacy/out-of-band pending tool still blocks the reply
+                # rather than being silently skipped.
+                own_pending = any(
+                    tool.step_seq is None or tool.step_seq == my_seq
+                    for tool in session.pending_tools.values()
+                )
+                own_executing = any(
+                    seq == my_seq for seq in session._executing_tool_epochs.values()
+                )
+                quiescent = not own_pending and not own_executing
                 if session.interrupted or not owns_epoch:
                     logger.debug(
                         "Skipping tool continuation: interrupted=%s, seq %d→%d",
@@ -2041,7 +2065,7 @@ def start_tool_execution(
                         my_seq,
                         session.step_seq,
                     )
-                elif not session.pending_tools and not session._executing_tools:
+                elif quiescent:
                     if reserved or (
                         not SessionManager.conversation_generating(conversation_id)
                         and not SessionManager.command_is_active(conversation_id)

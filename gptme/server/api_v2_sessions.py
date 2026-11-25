@@ -1059,14 +1059,17 @@ def api_conversation_rerun(conversation_id: str):
             default_model.full if default_model else "anthropic"
         )
 
+        rerun_tool_ids: list[str] = []
         for tooluse in tooluses:
             tool_id = str(uuid.uuid4())
+            rerun_tool_ids.append(tool_id)
             tool_exec = ToolExecution(
                 tool_id=tool_id,
                 tooluse=tooluse,
                 workspace=chat_config.workspace,
                 auto_confirm=session.auto_confirm_count > 0,
                 assistant_msg_timestamp=last_assistant.timestamp,
+                step_seq=session.step_seq,
             )
             session.pending_tools[tool_id] = tool_exec
 
@@ -1096,6 +1099,8 @@ def api_conversation_rerun(conversation_id: str):
             # interrupt marker and advance the generation epoch before queueing it.
             session.interrupted = False
             session.step_seq += 1
+            for rerun_tool_id in rerun_tool_ids:
+                session.pending_tools[rerun_tool_id].step_seq = session.step_seq
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
             start_tool_execution(
