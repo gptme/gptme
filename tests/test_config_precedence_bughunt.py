@@ -136,3 +136,19 @@ def test_user_config_env_not_a_table_is_a_clear_error(isolated: Path):
     isolated.write_text("env = []\n")
     with pytest.raises(ValueError, match="env must be an object"):
         load_user_config(str(isolated))
+
+
+# --- Greptile P1 (review 2026-11-25T18:19Z) -----------------------------
+def test_malformed_user_env_entry_keeps_runtime_default(isolated: Path):
+    """A table-valued [env] entry in the user file must not delete a valid
+    lower-priority runtime default. Dropping it after the merge deleted
+    TOOL_ALLOWLIST entirely, silently re-enabling the default tool set."""
+    from gptme.config.user import get_user_config_runtime_path, load_user_config
+
+    isolated.write_text("[env]\nTOOL_ALLOWLIST = { shell = true }\n")
+    runtime = get_user_config_runtime_path(str(isolated))
+    runtime.write_text('[env]\nTOOL_ALLOWLIST = "read,save"\n')
+
+    config = load_user_config(str(isolated))
+
+    assert config.env["TOOL_ALLOWLIST"] == "read,save"
