@@ -1284,7 +1284,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     const confirmedToolId = pendingTool.id;
     const confirmOnce = async (): Promise<void> => {
       try {
-        const alreadyHandled = await api.confirmTool(
+        const { alreadyHandled, continuationStarted, pendingTools } = await api.confirmTool(
           conversationId,
           confirmedToolId,
           action,
@@ -1297,6 +1297,17 @@ export function useConversation(conversationId: string, serverId?: string) {
           conversation$?.pendingTool.get()?.id === confirmedToolId
         ) {
           setPendingTool(conversationId, null, null);
+        }
+        if (action === 'skip' && !alreadyHandled && !continuationStarted) {
+          // The server deferred this turn's reply to a sibling tool, so no
+          // generation started. It returns what still awaits approval; restore
+          // that card instead of leaving the page busy on a reply that will
+          // only start when another tool of the batch resolves.
+          const next = pendingTools[0];
+          if (next) {
+            setGenerating(conversationId, false);
+            setPendingTool(conversationId, next.tool_id, next.tooluse);
+          }
         }
         if (action === 'skip' && alreadyHandled) {
           // No continuation was dispatched for this duplicate. Reconcile with

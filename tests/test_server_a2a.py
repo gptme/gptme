@@ -1250,6 +1250,103 @@ def test_skip_does_not_strand_an_executing_sibling_worker(v2_conv, client, monke
         session._executing_tool_epochs.pop("running-sibling", None)
 
 
+def test_skip_advances_epoch_when_it_elects_the_reply(v2_conv, client, monkeypatch):
+    """The skip that starts the turn's reply must revoke older workers.
+
+    A worker can save its result and leave ``_executing_tool_epochs`` before it
+    elects its continuation. If the skip elected under the same epoch, both it
+    and that worker could start a reply for one turn. Advancing the epoch here
+    (safe: no same-epoch tool remains) makes the stale worker's election fail.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    assert response.status_code == 200
+    assert session.step_seq == 6, "electing the reply is a generation boundary"
+    assert len(dispatches) == 1
+    assert dispatches[0]["step_seq"] == 6
+    assert dispatches[0]["reserved"] is True
+    assert response.get_json()["continuation_started"] is True
+
+
+def test_skip_clears_interrupt_before_dispatching_the_reply(
+    v2_conv, client, monkeypatch
+):
+    """A skip that elects the reply must not leave a stale interrupt flag.
+
+    ``/rerun`` with only manual tools registers pending calls but does not
+    clear ``interrupted``. Skipping the last one then reserved and dispatched
+    ``step()``, whose entry guard returned before the release ``finally``, so
+    the session stayed generating until the stuck sweep.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = True
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    assert response.status_code == 200
+    assert session.interrupted is False
+    assert session.generating is True
+    assert len(dispatches) == 1
+
+
+def test_skip_reports_deferred_reply_and_remaining_approvals(
+    v2_conv, client, monkeypatch
+):
+    """A deferred skip must tell the client no reply started and what remains.
+
+    The page clears its approval card and marks the chat busy when it sends the
+    skip. If the server defers the reply to a sibling, a bare ``Tool skipped``
+    leaves the page waiting on a generation that has not started, with the next
+    approval hidden.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    session.pending_tools["keeper"] = ToolExecution(
+        tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    body = response.get_json()
+    assert response.status_code == 200
+    assert dispatches == []
+    assert body["continuation_started"] is False
+    assert [tool["tool_id"] for tool in body["pending_tools"]] == ["keeper"]
+
+
 def test_approving_a_sibling_after_a_skip_yields_one_reply(
     v2_conv, client, monkeypatch
 ):

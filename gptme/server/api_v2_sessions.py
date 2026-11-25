@@ -930,9 +930,23 @@ def api_conversation_tool_confirm(conversation_id: str):
                 for seq in session._executing_tool_epochs.values()
             )
             if not own_pending and not own_executing:
+                # The turn's tool phase is over, so this skip elects the
+                # turn's reply. That *is* a generation boundary: advance the
+                # epoch (as the pre-7e61bc skip always did) so a worker that
+                # already released its claim and is between its release and
+                # its own election cannot start a second reply for the same
+                # turn. Siblings of this epoch no longer exist, which is what
+                # makes the advance safe here but not before.
+                session.step_seq += 1
+                skip_step_seq = session.step_seq
+                # The skip is a user decision to continue this turn, so it
+                # clears a previous interrupt exactly like a new user turn
+                # (/step, A2A, /rerun). Without this, step() returns at its
+                # entry guard before the release finally and the session stays
+                # generating until the stuck sweep.
+                session.interrupted = False
                 session.generating = True
                 session.generating_since = datetime.now(tz=timezone.utc)
-                skip_step_seq = session.step_seq
                 # A peer wake may have promoted this session to the conversation
                 # writer. Pin it before unlocking, as request_peer_wake does, so a
                 # session removal in the dispatch gap cannot close the writer lock
@@ -945,7 +959,22 @@ def api_conversation_tool_confirm(conversation_id: str):
             # A sibling of the same batch still owns the turn. Whoever finishes
             # or approves last elects the continuation, so the model sees both
             # that result and the skip notice exactly once.
-            return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
+            #
+            # Report the remaining approvals and the fact that no reply started:
+            # the client clears its approval card and marks the chat busy when
+            # it sends the skip, so without this it waits on a generation that
+            # starts only when another tool of the batch resolves.
+            return flask.jsonify(
+                {
+                    "status": "ok",
+                    "message": f"Tool {action}ed",
+                    "continuation_started": False,
+                    "pending_tools": [
+                        tool.to_pending_dict()
+                        for tool in session.pending_tools.values()
+                    ],
+                }
+            )
 
         # Worker pinning takes step_lock; never dispatch while holding it.
         try:
@@ -969,6 +998,16 @@ def api_conversation_tool_confirm(conversation_id: str):
                         session.generating_since = None
             if writer_pinned:
                 session.release_writer_worker()
+
+        # A skipped tool whose reply could not be dispatched leaves the turn
+        # unowned; the page must stop waiting instead of holding the chat busy.
+        return flask.jsonify(
+            {
+                "status": "ok",
+                "message": f"Tool {action}ed",
+                "continuation_started": continuation_dispatched,
+            }
+        )
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
 
