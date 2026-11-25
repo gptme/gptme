@@ -328,3 +328,40 @@ def test_extra_result_for_one_replayed_call_stays_as_text() -> None:
     assert len(texts) == 1, items
     assert texts[0]["role"] == "user"
     assert texts[0]["content"] == f"Tool result:\n{second}"
+
+
+def test_result_pairs_only_with_a_call_from_its_own_turn() -> None:
+    """A reused call_id in a later text-only turn must not steal an earlier call."""
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+    from gptme.llm.responses_phase import _digest
+
+    first_content = 'Running.\n@shell(call_x): {"command": "echo 1"}'
+    second_content = '@shell(call_x): {"command": "echo 2"}'
+    metadata: MessageMetadata = {
+        "responses_output": {
+            "content_digest": _digest(first_content),
+            "items": [
+                {"type": "message", "text": "Running.\n"},
+                {"type": "function_call", "call_id": "call_x"},
+            ],
+        }
+    }
+    _, items, _ = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run it"),
+            Message("assistant", first_content, metadata=metadata),
+            Message("system", "first result", call_id="call_x"),
+            Message("assistant", second_content),
+            Message("system", "SECOND-RESULT-42", call_id="call_x"),
+            Message("user", "Summarize."),
+        ],
+        "openai/gpt-5",
+        [],
+    )
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert [i["output"] for i in outputs] == ["first result"]
+    second = [i for i in items if "SECOND-RESULT-42" in str(i.get("content"))]
+    assert len(second) == 1, items
+    assert second[0]["role"] == "user"
+    assert second[0]["content"] == "Tool result:\nSECOND-RESULT-42"

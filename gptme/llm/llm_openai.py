@@ -522,13 +522,20 @@ def _prepare_messages_for_responses_api(
         # one call cannot hide the second result from the summary.
         pending_calls: dict[str, int] = {}
         for message in dicts:
-            for item in message.get("responses_items", []):
-                if item.get("type") == "function_call":
-                    replayed_id = item.get("call_id")
-                    if replayed_id:
-                        pending_calls[replayed_id] = (
-                            pending_calls.get(replayed_id, 0) + 1
-                        )
+            if message["role"] == "assistant":
+                # Tool results follow the turn that issued the calls, so calls
+                # left pending from an earlier turn must not consume them: a
+                # reused call_id would otherwise pair a result with the wrong
+                # turn's call.
+                pending_calls.clear()
+                for item in message.get("responses_items", []):
+                    if item.get("type") == "function_call":
+                        replayed_id = item.get("call_id")
+                        if replayed_id:
+                            pending_calls[replayed_id] = (
+                                pending_calls.get(replayed_id, 0) + 1
+                            )
+                continue
             result_call_id = message.get("call_id")
             if message["role"] != "system" or not result_call_id:
                 continue
@@ -538,8 +545,13 @@ def _prepare_messages_for_responses_api(
             message.pop("call_id")
             message["role"] = "user"
             content = message.get("content")
-            if isinstance(content, str):
-                message["content"] = f"Tool result:\n{content}"
+            if isinstance(content, list):
+                message["content"] = [
+                    {"type": "text", "text": "Tool result:"},
+                    *content,
+                ]
+            else:
+                message["content"] = f"Tool result:\n{content or ''}"
     messages_dicts: Iterable[dict[str, Any]] = _process_msgs(dicts, model_meta)
 
     if tools:
