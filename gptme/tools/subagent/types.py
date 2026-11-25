@@ -683,7 +683,11 @@ class Subagent:
             "cache_creation_tokens": None,
         }
         try:
-            conv_fn = self.logdir / "conversation.jsonl"
+            # Manual compaction rewrites conversation.jsonl, but keeps every
+            # original record (and subsequent replies) in lossless.jsonl.
+            conv_fn = self.logdir / "lossless.jsonl"
+            if not conv_fn.exists():
+                conv_fn = self.logdir / "conversation.jsonl"
             if not conv_fn.exists():
                 # Some log layouts use the directory name as the file
                 candidates = list(self.logdir.glob("*.jsonl"))

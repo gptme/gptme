@@ -28,24 +28,26 @@ _RESPONSES_INSTRUCTIONS_TRUNCATION_MARKER = "\n\n[... middle of instructions tru
 
 
 def clamp_responses_instructions(
-    text: str,
+    text: str | list[str],
     limit: int = _RESPONSES_INSTRUCTIONS_MAX_CHARS,
     marker: str = _RESPONSES_INSTRUCTIONS_TRUNCATION_MARKER,
 ) -> str:
     """Keep Responses `instructions` within the API character cap.
 
-    System messages are joined with blank lines before reaching this boundary.
+    Pass separate system messages to preserve their boundaries. A pre-joined
+    string uses paragraphs as a best-effort fallback for direct callers.
     When possible, remove only the overflow from the end of the largest message;
     this preserves every smaller instruction (including trailing guidance) and
     avoids sacrificing roughly half the prompt for a small overflow. If no single
     message can absorb the excess, fall back to retaining both ends of the
     joined text.
     """
+    parts = list(text) if isinstance(text, list) else text.split("\n\n")
+    text = "\n\n".join(parts)
     if len(text) <= limit:
         return text
 
     overflow = len(text) - limit
-    parts = text.split("\n\n")
     largest_index = max(range(len(parts)), key=lambda index: len(parts[index]))
     if len(parts[largest_index]) > overflow:
         parts[largest_index] = parts[largest_index][:-overflow]
@@ -392,9 +394,9 @@ def _messages_dicts_to_responses_input(
             }
         )
 
-    instructions = "\n\n".join(instructions_parts).strip() or None
-    if instructions:
-        instructions = clamp_responses_instructions(instructions)
+    instructions = (
+        clamp_responses_instructions(instructions_parts) if instructions_parts else None
+    )
     return instructions, _pair_missing_tool_results(items)
 
 
@@ -465,9 +467,9 @@ def _messages_to_responses_input(
             }
         )
 
-    instructions = "\n\n".join(instructions_parts).strip() or None
-    if instructions:
-        instructions = clamp_responses_instructions(instructions)
+    instructions = (
+        clamp_responses_instructions(instructions_parts) if instructions_parts else None
+    )
     return instructions, _pair_missing_tool_results(items)
 
 

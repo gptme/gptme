@@ -54,9 +54,9 @@ def is_hint_pattern(pattern: str) -> bool:
 def is_mcp_allowlist_entry(pattern: str) -> bool:
     """Return True for MCP-qualified allowlist entries (``server.tool`` / ``server.*``).
 
-    File paths (``*.py`` or containing a slash) are tool-file entries, not MCP names.
+    Custom tool-file paths are excluded using the same rule as tool setup.
     """
-    if pattern.endswith(".py") or "/" in pattern or "\\" in pattern:
+    if is_tool_file_path(pattern):
         return False
     return "." in pattern
 

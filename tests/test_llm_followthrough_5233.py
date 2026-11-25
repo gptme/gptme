@@ -14,7 +14,8 @@ from gptme.message import Message
 # --- 1: Responses converters must not head-slice instructions (#4206 vs #4166) ---
 
 
-def test_responses_instructions_keep_trailing_system_guidance(monkeypatch):
+@pytest.mark.parametrize("as_dicts", [False, True])
+def test_responses_instructions_keep_trailing_system_guidance(monkeypatch, as_dicts):
     from gptme.llm import openai_responses
 
     # Default args bind at definition time, so pass through the patched cap.
@@ -25,14 +26,19 @@ def test_responses_instructions_keep_trailing_system_guidance(monkeypatch):
         lambda text: original(text, limit=200),
     )
     messages = [
-        Message("system", "x" * 500),
-        Message("system", "WORKSPACE-RULES"),
+        Message("system", "\n\n".join(["context" * 3] * 30)),
+        Message("system", "WORKSPACE-RULES" * 5),
         Message("user", "hi"),
     ]
-    instructions, _ = openai_responses._messages_to_responses_input(messages)
+    if as_dicts:
+        instructions, _ = openai_responses._messages_dicts_to_responses_input(
+            [{"role": m.role, "content": m.content} for m in messages]
+        )
+    else:
+        instructions, _ = openai_responses._messages_to_responses_input(messages)
     assert instructions is not None
     assert len(instructions) <= 200
-    assert instructions.endswith("WORKSPACE-RULES")
+    assert instructions.endswith("WORKSPACE-RULES" * 5)
 
 
 def test_clamp_responses_instructions_falls_back_to_both_ends():
@@ -48,7 +54,8 @@ def test_clamp_responses_instructions_falls_back_to_both_ends():
 # --- 3: fork-mode subagent usage excludes the forked parent history (#4096) ---
 
 
-def test_fork_subagent_usage_skips_parent_messages(tmp_path: Path):
+@pytest.mark.parametrize("compacted", [False, True])
+def test_fork_subagent_usage_skips_parent_messages(tmp_path: Path, compacted):
     from gptme.tools.subagent.types import Subagent
 
     def msg(role, content, inp, out):
@@ -69,6 +76,19 @@ def test_fork_subagent_usage_skips_parent_messages(tmp_path: Path):
     (logdir / "conversation.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in records)
     )
+    if compacted:
+        # Manual summarization preserves the original records in lossless.jsonl,
+        # then appends new messages to both the compacted and lossless logs.
+        after = msg("assistant", "child after compaction", 11, 5)
+        (logdir / "lossless.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in [*records, after])
+        )
+        (logdir / "conversation.jsonl").write_text(
+            "".join(
+                json.dumps(r) + "\n"
+                for r in [{"role": "system", "content": "summary"}, after]
+            )
+        )
     sa = Subagent(
         agent_id="fork-usage",
         prompt="child",
@@ -79,11 +99,14 @@ def test_fork_subagent_usage_skips_parent_messages(tmp_path: Path):
         fork_message_count=2,
     )
     usage = sa._read_usage()
-    assert usage["input_tokens"] == 7
-    assert usage["output_tokens"] == 3
+    assert usage["input_tokens"] == (18 if compacted else 7)
+    assert usage["output_tokens"] == (8 if compacted else 3)
 
 
-def test_max_time_timeout_reports_duration(monkeypatch, tmp_path: Path):
+@pytest.mark.parametrize("clock_backwards", [False, True])
+def test_max_time_timeout_reports_duration(
+    monkeypatch, tmp_path: Path, clock_backwards
+):
     from gptme.tools.subagent import api
 
     started = time.time() - 3.0
@@ -105,6 +128,8 @@ def test_max_time_timeout_reports_duration(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(api, "set_subagent_result_if_absent", fake_set)
     monkeypatch.setattr(api, "notify_completion", lambda *a, **k: None)
+    if clock_backwards:
+        monkeypatch.setattr(api.time, "time", lambda: started - 1.0)
     api._subagents.append(sa)  # type: ignore[arg-type]
     try:
         api._timeout_subagent("slow", 1.0, expected_run=sa)  # type: ignore[arg-type]
@@ -112,7 +137,10 @@ def test_max_time_timeout_reports_duration(monkeypatch, tmp_path: Path):
         api._subagents.remove(sa)  # type: ignore[arg-type]
     result = captured["result"]
     assert result.status == "timeout"
-    assert result.duration_s is not None and result.duration_s >= 3.0
+    if clock_backwards:
+        assert result.duration_s == 0.0
+    else:
+        assert result.duration_s is not None and result.duration_s >= 3.0
 
 
 # --- 8: non-streaming Responses reports status="incomplete" (#4084) ---
@@ -138,6 +166,7 @@ def test_nonstreaming_responses_incomplete_is_not_success(monkeypatch, caplog):
     )
     monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setenv("GPTME_OPENAI_RESPONSES_API", "1")
     record = Mock(return_value=None)
     monkeypatch.setattr(llm_openai, "_record_usage", record)
 
@@ -169,7 +198,7 @@ def test_batch_read_survives_enametoolong(monkeypatch, tmp_path):
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "ok.txt").write_text("hello\n")
-    bad = "a" * 300
+    bad = "bad.txt"
     original_exists = Path.exists
 
     def exists(self, *args, **kwargs):
@@ -178,7 +207,7 @@ def test_batch_read_survives_enametoolong(monkeypatch, tmp_path):
         return original_exists(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "exists", exists)
-    contents = [m.content for m in execute_read(f"ok.txt\n{bad}", [], None)]
+    contents = [m.content for m in execute_read(f"{bad}\nok.txt", [], None)]
     joined = "\n".join(contents)
     assert "hello" in joined
     assert "File name too long" in joined
