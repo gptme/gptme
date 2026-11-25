@@ -526,6 +526,52 @@ def test_recipe_line_calling_include_is_not_an_include(tmp_path: Path) -> None:
     assert discover_verification_command(tmp_path) is None
 
 
+@pytest.mark.parametrize(
+    "makefile",
+    [
+        " \tinclude tests.mk\n",
+        "\tinclude tests.mk\n",
+        "all:\n\t@true\nX := 1\n\tinclude tests.mk\n",
+        "all:\n\t@true\n\n# note\nX = 1\n\tinclude tests.mk\n",
+        "all: X=1\n\tinclude tests.mk\n",
+    ],
+    ids=[
+        "space-tab",
+        "tab-at-top",
+        "tab-after-assignment",
+        "tab-after-comment",
+        "tab-after-target-specific-assignment",
+    ],
+)
+def test_blank_led_include_outside_a_rule_is_an_include(
+    tmp_path: Path, makefile: str
+) -> None:
+    """make reads these as include directives, so their targets must be bound."""
+    (tmp_path / "Makefile").write_text(makefile)
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.reason == "Makefile includes tests.mk, which defines a test target"
+
+
+@pytest.mark.parametrize(
+    "makefile",
+    [
+        "all:\n\n\tinclude tests.mk\n",
+        "all:\n# note\n\tinclude tests.mk\n",
+        "all:\nifdef X\n\tinclude tests.mk\nendif\n",
+        "all: ; @true\n\tinclude tests.mk\n",
+    ],
+    ids=["after-blank", "after-comment", "inside-conditional", "inline-recipe"],
+)
+def test_tab_led_line_inside_a_rule_stays_a_recipe(
+    tmp_path: Path, makefile: str
+) -> None:
+    (tmp_path / "Makefile").write_text(makefile)
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
 def test_make_include_symlink_loop_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

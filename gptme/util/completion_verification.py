@@ -747,8 +747,11 @@ def approved_execution_argv(
     return command.argv, bind
 
 
-# Leading spaces only: a tab-indented line is a recipe, not an include.
-_MAKE_INCLUDE = re.compile(r" *(?:-include|sinclude|include)[ \t]+(.+?)\s*")
+# Any blanks may precede the directive. A tab-led line is a recipe (and never
+# an include) only while a rule is in effect; _make_include_tokens tracks that.
+_MAKE_INCLUDE = re.compile(r"[ \t]*(?:-include|sinclude|include)[ \t]+(.+?)\s*")
+# Conditionals do not end a rule: make keeps reading its recipe across them.
+_MAKE_CONDITIONAL = re.compile(r"[ \t]*(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b")
 # make joins backslash-newline before it strips comments, but only after an
 # odd run of backslashes: an even run is literal and ends the line.
 _MAKE_CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n[ \t]*")
@@ -756,14 +759,39 @@ _MAKE_UNESCAPED_COMMENT = re.compile(r"(?<!\\)#.*")
 _MAKE_MAX_FILES = 16
 
 
+def _is_make_rule(line: str) -> bool:
+    """Whether ``line`` starts a rule, after which tab-led lines are recipes.
+
+    A ``:`` without ``=`` before any inline ``;`` recipe. Assignments
+    (``:=``, ``=``, ...) end a rule instead, and so does a target-specific
+    assignment (``t: V=1``): GNU make 4.3 reads a tab-led ``include`` after
+    one as a directive.
+    """
+    head = line.split(";", 1)[0]
+    return ":" in head and "=" not in head
+
+
 def _make_include_tokens(text: str) -> list[str]:
-    """Return the filenames named by ``include`` lines in ``text``."""
+    """Return the filenames named by ``include`` lines in ``text``.
+
+    Mirrors make's rule context: a tab-led line is a recipe while a rule is in
+    effect, and is otherwise parsed as an ordinary line with the tab skipped,
+    so a tab-led ``include x.mk`` at the top of a file or after an assignment *is* an
+    include. Blank lines, comments and conditionals keep the rule in effect;
+    any other line ends it, and a rule line starts one.
+    """
     tokens: list[str] = []
+    in_rule = False
     for line in _MAKE_CONTINUATION.sub(r"\1 ", text).split("\n"):
+        if line.startswith("\t") and in_rule:
+            continue  # recipe line
         line = _MAKE_UNESCAPED_COMMENT.sub("", line)
+        if not line.strip() or _MAKE_CONDITIONAL.match(line):
+            continue
         match = _MAKE_INCLUDE.fullmatch(line)
         if match:
             tokens += match.group(1).replace("\\#", "#").split()
+        in_rule = not match and _is_make_rule(line)
     return tokens
 
 
