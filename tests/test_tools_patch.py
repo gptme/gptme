@@ -610,9 +610,6 @@ def test_patch_refuse_fifo(tmp_path):
     assert all("successfully" not in m.content for m in messages)
 
 
-@pytest.mark.skipif(
-    sys.platform in ("win32", "darwin"), reason="atomic writer refuses ACL platforms"
-)
 def test_execute_patch_keeps_lone_carriage_return(tmp_path):
     """Patching one line must not turn a lone CR elsewhere into a newline."""
     f = tmp_path / "progress.py"

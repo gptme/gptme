@@ -24,12 +24,6 @@ skip_if_root = pytest.mark.skipif(
     reason="File permission tests are not meaningful on Windows or when running as root",
 )
 
-# Morph writes through write_text_preserving_original, which refuses to replace an
-# existing file on macOS (ACLs) and Windows (security descriptors), like patch/save.
-skip_if_replacement_refused = pytest.mark.skipif(
-    sys.platform in ("win32", "darwin"), reason="atomic writer refuses ACL platforms"
-)
-
 from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.morph import (
@@ -120,7 +114,6 @@ class TestPreviewMorph:
 class TestExecuteMorphImpl:
     """Tests for execute_morph_impl — writes edits with safety checks."""
 
-    @skip_if_replacement_refused
     def test_successful_edit(self, tmp_path: Path):
         """Writes new content and returns diff message."""
         f = tmp_path / "target.py"
@@ -134,7 +127,6 @@ class TestExecuteMorphImpl:
         assert "+    return 42" in msgs[0].content
         assert f.read_text() == "def foo():\n    return 42\n"
 
-    @skip_if_replacement_refused
     def test_successful_edit_preserves_crlf(self, tmp_path: Path):
         """A CRLF file keeps CRLF line endings after an edit."""
         f = tmp_path / "crlf.py"
@@ -144,7 +136,6 @@ class TestExecuteMorphImpl:
         list(execute_morph_impl("def foo():\n    return 42\n", f, original))
         assert f.read_bytes() == b"def foo():\r\n    return 42\r\n"
 
-    @skip_if_replacement_refused
     def test_crlf_in_morph_output_normalized_for_lf_file(self, tmp_path: Path):
         """CRLF in morph output is normalized for an LF file (no mixed endings)."""
         f = tmp_path / "lf.py"
@@ -188,7 +179,6 @@ class TestExecuteMorphImpl:
             list(execute_morph_impl("content", tmp_path / "missing.py", "original"))
 
     @skip_if_root
-    @skip_if_replacement_refused
     def test_permission_denied_raises(self, tmp_path: Path):
         """Raises ValueError when file is not writable."""
         f = tmp_path / "readonly.py"
@@ -200,7 +190,6 @@ class TestExecuteMorphImpl:
         finally:
             f.chmod(0o644)
 
-    @skip_if_replacement_refused
     def test_large_edit(self, tmp_path: Path):
         """Handles large file edits correctly."""
         f = tmp_path / "large.py"
@@ -213,7 +202,6 @@ class TestExecuteMorphImpl:
         assert "Edit successfully applied" in msgs[0].content
         assert "CHANGED_LINE" in f.read_text()
 
-    @skip_if_replacement_refused
     def test_empty_file_edit(self, tmp_path: Path):
         """Handles editing an empty file."""
         f = tmp_path / "empty.py"
@@ -223,7 +211,6 @@ class TestExecuteMorphImpl:
         assert "Edit successfully applied" in msgs[0].content
         assert f.read_text() == "new content\n"
 
-    @skip_if_replacement_refused
     def test_edit_to_empty(self, tmp_path: Path):
         """Handles editing file to empty content."""
         f = tmp_path / "clear.py"
@@ -336,7 +323,6 @@ class TestExecuteMorph:
         # First positional arg should be the edited content
         assert call_kwargs[0][0] == "edited content"
 
-    @skip_if_replacement_refused
     @pytest.mark.parametrize("file_newline", ["\n", "\r\n"])
     @pytest.mark.parametrize(
         "response",
@@ -593,7 +579,6 @@ def test_morph_encode_error_leaves_file_intact(tmp_path: Path):
     assert f.read_text() == original
 
 
-@skip_if_replacement_refused
 def test_morph_keeps_lone_carriage_return(tmp_path: Path):
     """A lone CR inside a line is content, not a line break."""
     f = tmp_path / "target.py"
@@ -606,13 +591,14 @@ def test_morph_keeps_lone_carriage_return(tmp_path: Path):
 
 
 @pytest.mark.parametrize("platform", ["darwin", "win32"])
-def test_morph_refusal_on_acl_platforms_keeps_file(
+def test_morph_writes_existing_file_on_acl_platforms(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
 ):
-    """On macOS/Windows morph refuses like patch/save rather than truncating.
+    """On macOS/Windows morph rewrites the existing file in place.
 
-    Falling back to an in-place write would drop the atomic-replace guarantee;
-    the refusal must surface as an error and leave the target untouched.
+    The shared writer keeps ACLs and the Windows security descriptor by updating
+    the inode instead of replacing it, so an edit succeeds rather than refusing
+    (#5208).
     """
     f = tmp_path / "target.py"
     original = "def foo():\n    pass\n"
@@ -622,11 +608,9 @@ def test_morph_refusal_on_acl_platforms_keeps_file(
     # Windows runner the darwin case would otherwise hit the `os.name == "nt"`
     # branch first and pass for the wrong reason.
     monkeypatch.setattr(os, "name", "nt" if platform == "win32" else "posix")
-    reason = "Windows security descriptor" if platform == "win32" else "macOS ACL"
 
-    with pytest.raises(
-        ValueError, match=f"Morph failed: Cannot safely preserve {reason}"
-    ):
-        list(execute_morph_impl("def foo():\n    return 1\n", f, original))
+    list(execute_morph_impl("def foo():\n    return 1\n", f, original))
 
-    assert f.read_text() == original
+    assert f.read_text() == "def foo():\n    return 1\n"
+    # Nothing is staged beside the target on the in-place path.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.py"]

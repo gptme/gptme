@@ -1,6 +1,5 @@
 """Run the actual writer across the user-confirmation boundary."""
 
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,7 +18,6 @@ from gptme.tools.hashline_edit import execute_hashline_edit
 # refuses to replace an existing file on macOS (ACLs) and Windows (security
 # descriptors), like save/patch/morph (#4622). Only the cases that actually
 # replace a file are skipped there; cancellation and changed-file paths still run.
-ACL_PLATFORM = sys.platform in ("win32", "darwin")
 
 
 @pytest.mark.parametrize(
@@ -28,8 +26,6 @@ ACL_PLATFORM = sys.platform in ("win32", "darwin")
 @pytest.mark.parametrize("action", ["confirm", "edit", "skip"])
 @pytest.mark.parametrize("change", ["unchanged", "text", "deleted", "invalid-utf8"])
 def test_confirmation_preserves_target_ownership(tmp_path, recovered, action, change):
-    if ACL_PLATFORM and change == "unchanged" and action != "skip":
-        pytest.skip("atomic writer refuses ACL platforms")
     clear()
     target = tmp_path / "target.txt"
     original = "alpha\nbeta\ngamma\ndelta\n"
