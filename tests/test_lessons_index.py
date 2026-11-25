@@ -804,14 +804,22 @@ class TestLessonDeduplication:
             assert index.search("Test Lesson")
             assert index.get_by_category("tools") == index.lessons
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "---\n\n# Divider Lesson\n\nBody.\n",
+            "---\n\n# Divider Lesson\n\nBody.\n\n---\n\nMore.\n",
+        ],
+        ids=["one-divider", "two-dividers"],
+    )
     def test_markdown_divider_lesson_does_not_warn(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, content: str
     ) -> None:
         """A valid thematic break must not produce warnings on cold or cached scans."""
         clear_cache()
         lesson_dir = tmp_path / "lessons"
         lesson_dir.mkdir()
-        (lesson_dir / "divider.md").write_text("---\n\n# Divider Lesson\n\nBody.\n")
+        (lesson_dir / "divider.md").write_text(content)
 
         for _ in range(2):
             caplog.clear()
@@ -819,7 +827,9 @@ class TestLessonDeduplication:
             assert [lesson.title for lesson in index.lessons] == ["Divider Lesson"]
             assert not any(record.levelno >= 30 for record in caplog.records)
 
-    @pytest.mark.parametrize("header", ["- list\n", "scalar\n", "null\n"])
+    @pytest.mark.parametrize(
+        "header", ["- list\n", "true\n", "42\n", "null\n", "# Draft notes\nnull\n"]
+    )
     def test_closed_malformed_header_warns(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture, header: str
     ) -> None:
@@ -834,6 +844,7 @@ class TestLessonDeduplication:
             caplog.clear()
             index = LessonIndex([lesson_dir])
             assert [lesson.title for lesson in index.lessons] == ["Bad"]
+            assert index.search("Bad") == index.lessons
             assert any(
                 record.levelno >= 30
                 and "Malformed lesson frontmatter" in record.message

@@ -952,6 +952,18 @@ class TestFrontmatterFenceLines:
         assert lesson.malformed_frontmatter
         assert lesson.body == content
 
+    def test_null_header_comment_does_not_replace_lesson_title(self, tmp_path: Path):
+        lesson_file = tmp_path / "lesson.md"
+        content = "---\n# Draft notes\nnull\n---\n# Real Lesson\n\nReal description.\n"
+        lesson_file.write_text(content)
+
+        lesson = parse_lesson(lesson_file)
+
+        assert lesson.body == content
+        assert not lesson.ambiguous_frontmatter
+        assert lesson.title == "Real Lesson"
+        assert lesson.description == "Real description."
+
     def test_closed_thematic_breaks_keep_entire_body(self, tmp_path: Path):
         lesson_file = tmp_path / "lesson.md"
         content = "---\n\n# Deploy\n\nAlways tag releases\n\n---\n\nMore"
@@ -960,6 +972,7 @@ class TestFrontmatterFenceLines:
         lesson = parse_lesson(lesson_file)
 
         assert lesson.malformed_frontmatter
+        assert lesson.ambiguous_frontmatter
         assert lesson.body == content
         assert lesson.title == "Deploy"
         assert lesson.description == "Always tag releases"
