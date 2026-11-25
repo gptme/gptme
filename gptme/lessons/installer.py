@@ -257,11 +257,21 @@ def _clone_skill_from_git(url: str, skill_path: str | None, tmp: Path) -> Path |
 
 def _copy_shared_skill_md(tmp: Path, source_dir: Path) -> bool:
     """Normalize every metadata candidate before later directory scans select one."""
-    return all(
-        _copy_skill_md_link(tmp, source_dir, path)
-        for path in source_dir.iterdir()
-        if path.name.lower() == "skill.md"
-    )
+    candidates = [p for p in source_dir.iterdir() if p.name.lower() == "skill.md"]
+    if not all(_copy_skill_md_link(tmp, source_dir, path) for path in candidates):
+        return False
+    # Discovery scans every case variant, so they must contain the same skill,
+    # including its instructions, regardless of which one validation selects.
+    if len(candidates) > 1:
+        try:
+            content = candidates[0].read_bytes()
+            if any(path.read_bytes() != content for path in candidates[1:]):
+                logger.error("Conflicting SKILL.md filename variants")
+                return False
+        except OSError as e:
+            logger.error(f"Could not compare SKILL.md filename variants: {e}")
+            return False
+    return True
 
 
 def _copy_skill_md_link(tmp: Path, source_dir: Path, skill_md: Path) -> bool:

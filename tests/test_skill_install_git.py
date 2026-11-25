@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from gptme.lessons import installer
+from gptme.lessons.index import LessonIndex
 
 
 @pytest.fixture(autouse=True)
@@ -140,6 +141,8 @@ def test_skill_md_linked_to_shared_file_in_checkout_is_copied(
         assert (installed / name).read_text() == skill_md("foo")
     # Other links are kept as links.
     assert os.readlink(installed / "common.md") == "../../shared/common.md"
+    index = LessonIndex([installer.get_skills_dir()])
+    assert [lesson.metadata.name for lesson in index.lessons] == ["foo"]
 
 
 @pytest.mark.usefixtures("requires_symlinks")
@@ -243,6 +246,36 @@ def test_all_git_metadata_case_variants_are_checked_before_reading(
     assert installer.get_manifest().skills == {}
     assert list(installer.get_skills_dir().iterdir()) == []
     assert secret.read_text() == skill_md("stolen")
+
+
+@pytest.mark.usefixtures("requires_symlinks")
+@pytest.mark.parametrize("shared_links", [False, True])
+@pytest.mark.parametrize("alternate_name", ["surprise", "foo"])
+def test_conflicting_metadata_variants_do_not_publish_discoverable_skills(
+    tmp_path: Path, shared_links: bool, alternate_name: str
+) -> None:
+    (tmp_path / "case.md").touch()
+    if (tmp_path / "CASE.md").exists():
+        pytest.skip("Requires a case-sensitive filesystem")
+    primary = skill_md("foo")
+    alternate = skill_md(alternate_name) + "\nDifferent instructions.\n"
+    if shared_links:
+        files = {"shared/one.md": primary, "shared/two.md": alternate}
+        links = {
+            "skills/foo/SKILL.md": "../../shared/one.md",
+            "skills/foo/skill.md": "../../shared/two.md",
+        }
+    else:
+        files = {"SKILL.md": primary, "skill.md": alternate}
+        links = {}
+    repo = make_repo(tmp_path / "repo", files, links)
+    suffix = "#skills/foo" if shared_links else ""
+    ok, msg = installer.install_skill(f"{repo.as_uri()}{suffix}")
+    index = LessonIndex([installer.get_skills_dir()])
+    assert not index.lessons, [lesson.metadata.name for lesson in index.lessons]
+    assert not ok, msg
+    assert installer.get_manifest().skills == {}
+    assert list(installer.get_skills_dir().iterdir()) == []
 
 
 @pytest.mark.usefixtures("requires_symlinks")
