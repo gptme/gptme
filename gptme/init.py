@@ -463,11 +463,10 @@ def _maybe_authenticate_gptme_interactively(
     for key in ("GPTME_CLOUD_BASE_URL", "GPTME_CLOUD_MODELS_URL"):
         url = config.get_env(key)
         if url and not is_supabase_service_url(url):
-            console.print(
-                f"[yellow]{key} selects a custom endpoint. Set GPTME_CLOUD_API_KEY "
-                "with a key for that endpoint instead of signing in to gptme.ai.[/yellow]"
-            )
-            return False
+            raise GptmeAuthError(
+                f"{key} selects a custom endpoint. Set GPTME_CLOUD_API_KEY "
+                "with a key for that endpoint instead of signing in to gptme.ai."
+            ) from None
 
     response = console.input(
         "[yellow]No gptme.ai login found.[/yellow] Start device-flow login now? [Y/n] "

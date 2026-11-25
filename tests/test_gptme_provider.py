@@ -1053,14 +1053,18 @@ def test_inline_login_skips_custom_endpoint(
         patch("requests.get") as get,
         patch.object(gptme_init, "is_output_json", return_value=False),
         patch.object(gptme_init.console, "input", return_value="y") as prompt,
-        patch.object(gptme_init.console, "print") as print_message,
+        patch.object(gptme_init, "get_config", return_value=config),
+        patch.object(
+            gptme_init, "init_llm", side_effect=lambda _: llm_gptme.get_api_key(config)
+        ),
         patch.object(llm_openai, "get_config", return_value=config),
     ):
-        assert not gptme_init._maybe_authenticate_gptme_interactively(
-            "gptme", True, config
-        )
+        with pytest.raises(llm_gptme.GptmeAuthError) as error:
+            gptme_init.init_model("gptme/openai/gpt-4o", interactive=True)
+        assert url_key in str(error.value)
+        assert "GPTME_CLOUD_API_KEY" in str(error.value)
+        assert "gptme-auth login" not in str(error.value)
         prompt.assert_not_called()
-        assert "GPTME_CLOUD_API_KEY" in str(print_message.call_args)
         assert not list(tmp_path.iterdir())
         with pytest.raises(llm_gptme.GptmeAuthError):
             llm_openai.get_available_models.__wrapped__("gptme")
