@@ -19,19 +19,42 @@ from gptme.hooks.script import _run_script_hook
 
 
 def _wait_until_dead(pid: int, timeout: float = 5.0) -> bool:
-    """True once ``pid`` no longer exists (killed processes are reaped async)."""
+    """True once the process exits, even if Linux has not reaped it yet."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
+        if sys.platform == "linux":
+            try:
+                with open(f"/proc/{pid}/stat") as stat:
+                    if stat.read().rsplit(")", 1)[1].split()[0] == "Z":
+                        return True
+            except FileNotFoundError:
+                return True
         time.sleep(0.05)
     return False
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux zombie process state")
+def test_wait_until_dead_accepts_unreaped_process():
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    try:
+        # Observe exit without reaping, so kill(pid, 0) still succeeds.
+        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        assert _wait_until_dead(proc.pid, timeout=0.1)
+    finally:
+        proc.wait(timeout=5)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX")
-def test_keyboard_interrupt_kills_script_hook_process_tree(tmp_path, monkeypatch):
+@pytest.mark.parametrize("pid_write_delay", ["", "sleep 0.2;"])
+def test_keyboard_interrupt_kills_script_hook_process_tree(
+    tmp_path, monkeypatch, pid_write_delay
+):
+    tmp_path = tmp_path / "hook workspace"
+    tmp_path.mkdir()
     spawned: list[subprocess.Popen] = []
     child_pid_file = tmp_path / "child.pid"
     real_popen = subprocess.Popen
@@ -49,16 +72,24 @@ def test_keyboard_interrupt_kills_script_hook_process_tree(tmp_path, monkeypatch
                 # Only interrupt once the hook's own child is running, so the
                 # assertions below cannot pass because it never started.
                 deadline = time.monotonic() + 10
-                while time.monotonic() < deadline and not child_pid_file.exists():
+                while time.monotonic() < deadline:
+                    if (
+                        child_pid_file.exists()
+                        and child_pid_file.read_text().strip().isdigit()
+                    ):
+                        raise KeyboardInterrupt
                     time.sleep(0.05)
-                raise KeyboardInterrupt
+                pytest.fail("hook grandchild did not write its PID")
             return super().wait(timeout)
 
     monkeypatch.setattr("gptme.hooks.script.subprocess.Popen", RecordingPopen)
 
     hook = ScriptHookConfig(
         event="session.start",
-        command=f"sleep 30 & echo $! > {child_pid_file}; wait",
+        command=(
+            "sleep 30 & child=$!; : > child.pid; "
+            f"{pid_write_delay} echo $child > child.pid; wait"
+        ),
         timeout=30,
     )
     child_pid = 0
