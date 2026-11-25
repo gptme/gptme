@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -465,24 +466,48 @@ def test_agent_include_user_context_keeps_user_settings():
     assert "--allowedTools" not in cmd
 
 
-def test_agent_omits_strict_mcp_config_under_managed_mcp(tmp_path):
+def test_agent_refuses_isolated_run_under_managed_mcp(tmp_path):
     """Claude Code rejects --strict-mcp-config when an admin-managed MCP config
-    exists, so the run would exit at startup instead of executing the eval.
-    Managed MCP already excludes user servers, so isolation is unchanged."""
+    exists, so an isolated run cannot keep its tool contract: the admin's MCP
+    servers would load even when tools=[] requests none. Fail loudly instead of
+    silently measuring a different tool set."""
     managed = tmp_path / "managed-mcp.json"
     managed.write_text('{"mcpServers": {}}')
     with patch("gptme.eval.agents.claude_code.MANAGED_MCP_CONFIG_PATHS", (managed,)):
-        cmd = _local_cmd(ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6"))
-        limited = _local_cmd(
+        with pytest.raises(RuntimeError, match="Cannot isolate MCP servers"):
+            _local_cmd(ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6"))
+        with pytest.raises(RuntimeError, match="Cannot isolate MCP servers"):
+            _local_cmd(
+                ClaudeCodeAgent(
+                    model="claude-code/claude-sonnet-4-6",
+                    tools=["save"],
+                    include_user_context=True,
+                )
+            )
+        # A run that keeps user settings and requests no tool restriction does
+        # not need MCP isolation, so managed MCP is not a blocker.
+        cmd = _local_cmd(
             ClaudeCodeAgent(
                 model="claude-code/claude-sonnet-4-6",
-                tools=["save"],
                 include_user_context=True,
             )
         )
     assert "--strict-mcp-config" not in cmd
-    assert "--strict-mcp-config" not in limited
-    assert cmd[cmd.index("--setting-sources") + 1] == ""
+
+
+def test_managed_mcp_config_path_is_platform_specific():
+    """Only the current OS's managed-config path is checked. The Windows path is
+    relative on POSIX, so a matching file below the CWD would otherwise disable
+    MCP isolation."""
+    from gptme.eval.agents.claude_code import _MANAGED_MCP_CONFIG_PATH
+
+    if sys.platform == "win32":
+        expected = "C:/Program Files/ClaudeCode/managed-mcp.json"
+    elif sys.platform == "darwin":
+        expected = "/Library/Application Support/ClaudeCode/managed-mcp.json"
+    else:
+        expected = "/etc/claude-code/managed-mcp.json"
+    assert str(_MANAGED_MCP_CONFIG_PATH) == expected
 
 
 def test_docker_tool_args_ignore_host_managed_mcp(tmp_path):

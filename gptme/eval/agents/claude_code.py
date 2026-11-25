@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -88,13 +89,20 @@ UNRESTRICTED_ALLOWED_TOOLS: tuple[str, ...] = tuple(
 )
 
 
-# Admin-managed MCP config locations. When one exists Claude Code takes
-# exclusive MCP control and rejects --strict-mcp-config at startup.
-MANAGED_MCP_CONFIG_PATHS: tuple[Path, ...] = (
-    Path("/etc/claude-code/managed-mcp.json"),
-    Path("/Library/Application Support/ClaudeCode/managed-mcp.json"),
-    Path("C:/Program Files/ClaudeCode/managed-mcp.json"),
+# Admin-managed MCP config location for the current OS. When one exists Claude
+# Code takes exclusive MCP control and rejects --strict-mcp-config at startup.
+# Only the current platform's path is checked: the Windows path is relative on
+# POSIX, so an unrelated file under the CWD with that name would otherwise
+# disable MCP isolation.
+_MANAGED_MCP_CONFIG_PATH = (
+    Path("C:/Program Files/ClaudeCode/managed-mcp.json")
+    if sys.platform == "win32"
+    else Path("/Library/Application Support/ClaudeCode/managed-mcp.json")
+    if sys.platform == "darwin"
+    else Path("/etc/claude-code/managed-mcp.json")
 )
+
+MANAGED_MCP_CONFIG_PATHS: tuple[Path, ...] = (_MANAGED_MCP_CONFIG_PATH,)
 
 
 def _managed_mcp_config_present() -> bool:
@@ -114,14 +122,26 @@ def claude_code_tool_args(
     """
     if managed_mcp is None:
         managed_mcp = _managed_mcp_config_present()
+    isolation_requested = not include_user_context or tools is not None
+    if isolation_requested and managed_mcp:
+        # A managed config takes exclusive MCP control and rejects
+        # --strict-mcp-config, so the eval cannot keep its tool contract: the
+        # admin's MCP servers would load even when tools=[] requests none.
+        # Fail loudly instead of silently measuring a different tool set.
+        raise RuntimeError(
+            "Cannot isolate MCP servers for this Claude Code eval run: an "
+            "admin-managed MCP config is present, which takes exclusive MCP "
+            "control and rejects --strict-mcp-config. Remove the managed config, "
+            "or run the eval in Docker (its environment ignores the host's "
+            "managed config)."
+        )
     args: list[str] = []
     if not include_user_context:
         # Keep the host's hooks and permission allowlists out of the eval.
         args.extend(["--setting-sources", ""])
-    if (not include_user_context or tools is not None) and not managed_mcp:
+    if isolation_requested:
         # --tools limits only built-in tools; MCP servers add their own, so a
-        # tool-limited eval loads none even when it keeps user settings. Under
-        # managed MCP the flag is rejected, and user servers are excluded anyway.
+        # tool-limited eval loads none even when it keeps user settings.
         args.append("--strict-mcp-config")
     if tools is None:
         if include_user_context:
