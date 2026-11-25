@@ -222,7 +222,7 @@ def test_absolute_prompt_files_do_not_crash(tmp_path):
     (workspace / "gptme.toml").write_text(
         f"""
 [prompt]
-files = ["{workspace / "SOUL.md"}", "{outside / "secret.txt"}"]
+files = ["{(workspace / "SOUL.md").as_posix()}", "{(outside / "secret.txt").as_posix()}"]
 """
     )
 
@@ -367,7 +367,7 @@ def test_prompt_workspace_exclude_absolute_file_via_relative_symlinked_workspace
     (real / "gptme.toml").write_text(
         f"""
 [prompt]
-files = ["README.md", "{link / "dist" / "bundle.js"}"]
+files = ["README.md", "{(link / "dist" / "bundle.js").as_posix()}"]
 exclude = ["dist/*"]
 """
     )
