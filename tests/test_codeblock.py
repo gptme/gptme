@@ -3588,6 +3588,11 @@ def test_streaming_holds_heredoc_until_its_terminator_arrives():
     )
     expected = "cat > README.md << 'EOF'\n# Title\n```\npip install x\n```\nEOF"
     assert [b.content for b in Codeblock.iter_from_markdown(full)] == [expected]
+    # The loop below only checks blocks that were emitted, so also require the
+    # finished stream to emit the command (else the tool-use break never fires).
+    assert [b.content for b in Codeblock.iter_from_markdown(full, streaming=True)] == [
+        expected
+    ]
     for cut in range(1, len(full) + 1):
         if full[cut - 1] != "\n":
             continue
@@ -3640,8 +3645,41 @@ def test_streaming_long_heredoc_is_never_truncated():
     body = "\n".join(f"body {i}" for i in range(250))
     full = f"```shell\ncat > README.md <<'EOF'\n{body}\n```\ntail\nEOF\n```\n"
     expected = "cat > README.md <<'EOF'\n" + body + "\n```\ntail\nEOF"
+    assert [b.content for b in Codeblock.iter_from_markdown(full, streaming=True)] == [
+        expected
+    ]
     for cut in range(1, len(full) + 1):
         if full[cut - 1] != "\n":
             continue
         for block in Codeblock.iter_from_markdown(full[:cut], streaming=True):
             assert block.content == expected, f"prefix {full[:cut]!r}"
+
+
+def test_comment_after_control_operator_is_not_a_heredoc():
+    """`#` after `;` starts a comment, so `<< EOF` there opens nothing; an
+    unrelated `EOF` line far below must not confirm it and swallow the closer."""
+    filler = "\n".join(f"echo {i}" for i in range(250))
+    text = "```shell\necho hi;# << EOF\n```\n\n```shell\nls\n```\n" + filler + "\nEOF\n"
+    assert [(b.lang, b.content) for b in Codeblock.iter_from_markdown(text)] == [
+        ("shell", "echo hi;# << EOF"),
+        ("shell", "ls"),
+    ]
+
+
+def test_streaming_phantom_shift_does_not_hold_block_open():
+    """An unconfirmed lower-case, unquoted candidate from an arithmetic shift is
+    not a heredoc while streaming, so the closer still ends the command."""
+    text = "```shell\nlet mask=1<<shift\necho $mask\n```\n"
+    assert [b.content for b in Codeblock.iter_from_markdown(text, streaming=True)] == [
+        "let mask=1<<shift\necho $mask"
+    ]
+
+
+@pytest.mark.parametrize(
+    "opener", ["<<EOF", "<<'eof'", '<<"eof"', "<<\\eof", "<<-END_PY"]
+)
+def test_streaming_pending_heredoc_stays_open(opener: str):
+    """A deliberate-looking heredoc whose terminator has not streamed yet keeps
+    an inner bare fence as content instead of emitting a truncated command."""
+    text = f"```shell\ncat > a.md {opener}\n# x\n```\n"
+    assert list(Codeblock.iter_from_markdown(text, streaming=True)) == []

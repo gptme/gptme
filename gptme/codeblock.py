@@ -198,9 +198,11 @@ def _find_heredoc_terminator(
             c == "#"
             and not in_single
             and not in_double
-            and (i == 0 or line[i - 1].isspace())
+            and (i == 0 or line[i - 1].isspace() or line[i - 1] in ";|&()")
         ):
             # Start of a shell comment - nothing after it is executable syntax.
+            # `#` begins a comment at the start of a word, which includes right
+            # after a control operator (`echo hi;# << EOF`).
             return None, in_single, in_double, in_ansi_c
         elif (
             c == "$"
@@ -266,6 +268,36 @@ def _line_ends_with_continuation(line: str) -> bool:
         n += 1
         i -= 1
     return n % 2 == 1
+
+
+def _accept_heredoc_candidate(
+    line: str, candidate: str, i: int, last_line_of: dict[str, int], streaming: bool
+) -> bool:
+    """Whether a heredoc *candidate* opened on line *i* is taken as real.
+
+    A real terminator can sit arbitrarily far below its opener (a long file
+    write), so a matching standalone line anywhere below confirms it;
+    *last_line_of* maps each stripped line to its last index. While streaming,
+    the terminator may not have arrived yet. An unconfirmed candidate is then
+    kept only if it looks like a deliberate heredoc word: quoted or escaped
+    (``<<'eof'``, ``<<\\eof``), or a conventional upper-case word (``EOF``,
+    ``END_PY``). A phantom from an arithmetic shift (``let m=1<<shift``) would
+    otherwise hold the block open past its closer, so the tool call never
+    fires during streaming.
+    """
+    if last_line_of.get(candidate, -1) > i:
+        return True
+    if not streaming:
+        return False
+    if re.match(r"^[A-Z_][A-Z0-9_-]*$", candidate):
+        return True
+    quoted = r"<<-?\s*(?:'|\"|\\)" + re.escape(candidate)
+    return re.search(quoted, line) is not None
+
+
+def _last_line_index(lines: list[str]) -> dict[str, int]:
+    """Map each stripped line to the index of its last occurrence."""
+    return {line.strip(): idx for idx, line in enumerate(lines)}
 
 
 def _scan_ipython_triple_quote(
@@ -455,6 +487,8 @@ def _line_fence_states(
     ipy_td = ipy_ts = ipy_s = ipy_d = False
     qs_single = qs_double = qs_ansi = False
     heredoc_terminator: str | None = None
+    # Built on the first heredoc candidate; most blocks never need it.
+    last_line_of: dict[str, int] | None = None
     # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
     ambiguous_fence_kept = False
     for i, line in enumerate(lines):
@@ -510,15 +544,13 @@ def _line_fence_states(
                 candidate, qs_single, qs_double, qs_ansi = _find_heredoc_terminator(
                     line, qs_single, qs_double, qs_ansi
                 )
-                # Scan to the end: a real heredoc terminator can sit arbitrarily
-                # far from its opener (a long file write). A bounded window would
-                # give up and let an inner fence close the block, emitting a
-                # truncated command. Openers are rare, so the scan is cheap.
-                if candidate is not None and (
-                    streaming
-                    or any(later.strip() == candidate for later in lines[i + 1 :])
-                ):
-                    heredoc_terminator = candidate
+                if candidate is not None:
+                    if last_line_of is None:
+                        last_line_of = _last_line_index(lines)
+                    if _accept_heredoc_candidate(
+                        line, candidate, i, last_line_of, streaming
+                    ):
+                        heredoc_terminator = candidate
             elif line.strip() == heredoc_terminator:
                 heredoc_terminator = None
                 qs_single = qs_double = qs_ansi = False
@@ -1082,6 +1114,8 @@ def _extract_codeblocks(
         return
 
     lines = markdown.split("\n")
+    # Built on the first heredoc candidate; most blocks never need it.
+    last_line_of: dict[str, int] | None = None
     outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     i = 0
 
@@ -1193,19 +1227,13 @@ def _extract_codeblocks(
                 # writing a markdown file via cat << EOF).  Track open/close so the
                 # fence-termination logic below can distinguish them from block closers.
                 #
-                # A candidate terminator is only trusted once it's confirmed to appear
-                # alone on a later line within a bounded window. Without this check, an
-                # unrelated unquoted `<<` (e.g. an arithmetic shift `x << 2`, or ipython
-                # `x << 2`) sets a phantom terminator that never matches anything, so
-                # heredoc state would stay "open" for the rest of the message -
-                # permanently disabling the bare-fence-is-a-closer rule and swallowing
-                # every block that follows. The window can't stop at the next bare
-                # fence: a real heredoc body legitimately contains fence-like lines
-                # (that's the case this tracking exists to handle), so a fence-bounded
-                # scan would break on the very heredocs it's meant to support. A wide
-                # but finite window instead bounds both the false-confirm blast radius
-                # (an unrelated standalone line matching the candidate far later in the
-                # message) and the O(n^2) worst case on very large documents.
+                # A candidate terminator is only trusted once a later standalone
+                # line confirms it (or, while streaming, once it looks deliberate;
+                # see `_accept_heredoc_candidate`). Without this check, an
+                # unrelated unquoted `<<` (e.g. an arithmetic shift `x << 2`) sets a
+                # phantom terminator that never matches, so heredoc state would stay
+                # "open" for the rest of the message - permanently disabling the
+                # bare-fence-is-a-closer rule and swallowing every later block.
                 if lang in _SHELL_LANGS:
                     if heredoc_terminator is None:
                         candidate, _qs_in_single, _qs_in_double, _qs_in_ansi_c = (
@@ -1213,20 +1241,13 @@ def _extract_codeblocks(
                                 line, _qs_in_single, _qs_in_double, _qs_in_ansi_c
                             )
                         )
-                        # Scan to the end: a real heredoc terminator can sit
-                        # arbitrarily far from its opener (a long file write). A
-                        # bounded window would give up and let an inner fence close
-                        # the block, emitting a truncated command. In streaming the
-                        # terminator may not have arrived yet, so a confirmed opener
-                        # keeps the block open unconditionally.
-                        _confirm_window = lines[i + 1 :]
-                        if candidate is not None and (
-                            streaming
-                            or any(
-                                later.strip() == candidate for later in _confirm_window
-                            )
-                        ):
-                            heredoc_terminator = candidate
+                        if candidate is not None:
+                            if last_line_of is None:
+                                last_line_of = _last_line_index(lines)
+                            if _accept_heredoc_candidate(
+                                line, candidate, i, last_line_of, streaming
+                            ):
+                                heredoc_terminator = candidate
                     elif line.strip() == heredoc_terminator:
                         heredoc_terminator = None
                         # Heredoc body is verbatim text — it doesn't affect the
