@@ -1,6 +1,7 @@
 """ImageMagick must not parse the staging parent's scene/frame syntax."""
 
 import os
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -78,17 +79,20 @@ def test_imagemagick_staging_preserves_delegate_path(
     marker = tmp_path / "delegate-ran"
     # A real child lookup models ImageMagick finding gs, without depending on
     # the host's PDF security policy or Ghostscript installation.
+    python_executable = tmp_path / "python with spaces"
+    python_executable.symlink_to(sys.executable)
     delegate = bin_dir / "gptme-test-delegate"
+    delegate_code = f"from pathlib import Path; Path({str(marker)!r}).touch()"
     delegate.write_text(
-        f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n"
+        "#!/bin/sh\n"
+        f"exec {shlex.quote(str(python_executable))} -c {shlex.quote(delegate_code)}\n"
     )
     delegate.chmod(0o755)
     wrapper = bin_dir / "convert"
     wrapper.write_text(
-        f"#!{sys.executable}\n"
-        "import os, subprocess, sys\n"
-        "subprocess.run(['gptme-test-delegate'], check=True)\n"
-        f"os.execv({executable!r}, [{executable!r}, *sys.argv[1:]])\n"
+        "#!/bin/sh\n"
+        "gptme-test-delegate || exit $?\n"
+        f'exec {shlex.quote(executable)} "$@"\n'
     )
     wrapper.chmod(0o755)
     monkeypatch.setenv("PATH", path_entry)
