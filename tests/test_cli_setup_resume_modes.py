@@ -8,6 +8,7 @@
 """
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -195,3 +196,56 @@ def test_noninteractive_resume_keeps_saved_hint_filter(tmp_path):
     assert cfg.chat is not None
     assert cfg.chat.tools == ["shell", "hint:no-such-hint", "complete"]
     assert ChatConfig.from_logdir(logdir).tools == ["shell", "hint:no-such-hint"]
+
+
+@pytest.mark.parametrize("interactive", [True, False])
+def test_implicit_default_tools_remain_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interactive: bool
+) -> None:
+    """Implicit defaults stay dynamic on resume, including new plugin tools
+    and tools whose optional dependencies have disappeared."""
+    from gptme.tools import get_toolchain
+    from gptme.tools.base import ToolSpec
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    logdir = tmp_path / "logs" / "conv"
+    initial = setup_config_from_cli(
+        workspace=ws,
+        logdir=logdir,
+        model="openai/gpt-4o",
+        interactive=interactive,
+    )
+    assert initial.chat is not None
+    # Implicit defaults stay None in memory and on disk; tool initialization
+    # adds 'complete' without turning the default into an operator boundary
+    # (which would disable ACP delegation).
+    assert initial.chat.tools is None
+    assert ChatConfig.from_logdir(logdir).tools is None
+
+    # Resume after discovery changes: the new plugin is usable and names of
+    # optional tools from the first run no longer become hard requirements.
+    plugin = ToolSpec(name="new_plugin", desc="Newly installed plugin")
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda **_: [plugin])
+    cfg = setup_config_from_cli(workspace=ws, logdir=logdir, interactive=True)
+    assert cfg.chat is not None
+    assert cfg.chat.tools is None
+    assert get_toolchain(cfg.chat.tools) == [plugin]
+    assert ChatConfig.from_logdir(logdir).tools is None
+
+
+def test_interactive_default_setup_does_not_discover_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TUI plugin discovery happens after config setup, so setup cannot cache
+    the tool inventory prematurely when no allowlist was requested."""
+
+    def unexpected_discovery(*args: object, **kwargs: object) -> None:
+        pytest.fail("implicit defaults must be discovered during tool initialization")
+
+    monkeypatch.setattr("gptme.config.cli_setup.get_toolchain", unexpected_discovery)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    cfg = setup_config_from_cli(workspace=ws, logdir=tmp_path / "logs")
+    assert cfg.chat is not None
+    assert cfg.chat.tools is None

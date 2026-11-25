@@ -181,9 +181,21 @@ def _toml_string(value: str) -> str:
     return tomlkit.string(value).as_string()
 
 
+def _create_directory(path: Path, *, target: Path) -> None:
+    """Create scaffold directories without following existing directory links."""
+    current = target
+    for part in path.relative_to(target).parts:
+        current = current / part
+        if current.is_symlink():
+            raise click.ClickException(
+                f"Refusing to write through symlink directory: {current}"
+            )
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def _create_file(path: Path, content: str, *, target: Path) -> None:
     """Create a file with given content."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _create_directory(path.parent, target=target)
     if path.is_symlink():
         # Replace the link itself: writing through it would overwrite the
         # link's target, which may be another project file or outside the project.
@@ -245,8 +257,11 @@ def _scaffold_project(
     if with_skills:
         dirs.append("skills")
 
+    if with_ci:
+        dirs.append(".github/workflows")
+
     for subdir in dirs:
-        (target / subdir).mkdir(parents=True, exist_ok=True)
+        _create_directory(target / subdir, target=target)
 
     # Project files
     _create_file(
@@ -293,7 +308,6 @@ def _scaffold_project(
     # Optional: GitHub Actions CI
     if with_ci:
         ci_dir = target / ".github" / "workflows"
-        ci_dir.mkdir(parents=True, exist_ok=True)
         ci_file = ci_dir / "test.yml"
         ci_content = """\
 name: Test

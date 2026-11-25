@@ -1,5 +1,8 @@
 """`gptme init --force` must not write through existing symlinks."""
 
+from pathlib import Path
+
+import pytest
 from click.testing import CliRunner
 
 import gptme.cli.cmd_init as cmd_init
@@ -37,3 +40,30 @@ def test_force_does_not_clobber_claude_md_through_agents_symlink(tmp_path):
     r = CliRunner().invoke(cmd_init.main, [str(target), "--force"])
     assert r.exit_code == 0, r.output
     assert (target / "CLAUDE.md").read_text() == "MY HAND-WRITTEN INSTRUCTIONS\n"
+
+
+@pytest.mark.parametrize("directory", ["tasks", ".github", ".github/workflows"])
+@pytest.mark.parametrize("dangling", [False, True])
+def test_force_rejects_symlink_directories(
+    tmp_path: Path, directory: str, dangling: bool
+) -> None:
+    target = tmp_path / "proj"
+    target.mkdir()
+    outside = tmp_path / "elsewhere"
+    if not dangling:
+        outside.mkdir()
+        (outside / "README.md").write_text("preserve me\n")
+    link = target / directory
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside, target_is_directory=True)
+
+    result = CliRunner().invoke(cmd_init.main, [str(target), "--force", "--ci"])
+
+    assert result.exit_code != 0
+    assert "symlink directory" in result.output
+    assert link.is_symlink()
+    if dangling:
+        assert not outside.exists()
+    else:
+        assert (outside / "README.md").read_text() == "preserve me\n"
+        assert sorted(p.name for p in outside.iterdir()) == ["README.md"]
