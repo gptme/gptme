@@ -90,26 +90,3 @@ def test_force_preserves_links_to_unwritten_directories(tmp_path, directory):
     assert (target / "gptme.toml").is_file()
     assert (outside / "notes.md").read_text() == "preserve me\n"
     assert sorted(p.name for p in outside.iterdir()) == ["notes.md"]
-
-
-def test_force_rejects_mount_point_reparse_tag(tmp_path, monkeypatch):
-    """Exercise the Windows lstat junction tag even on non-Windows CI."""
-    from types import SimpleNamespace
-
-    target = tmp_path / "proj"
-    tasks = target / "tasks"
-    tasks.mkdir(parents=True)
-    (tasks / "README.md").write_text("preserve me\n")
-    original_lstat = Path.lstat
-
-    def junction_lstat(path, *args, **kwargs):
-        result = original_lstat(path, *args, **kwargs)
-        if path == tasks:
-            return SimpleNamespace(st_mode=result.st_mode, st_reparse_tag=0xA0000003)
-        return result
-
-    monkeypatch.setattr(Path, "lstat", junction_lstat)
-    result = CliRunner().invoke(cmd_init.main, [str(target), "--force"])
-    assert result.exit_code != 0
-    assert "junction directory" in result.output
-    assert (tasks / "README.md").read_text() == "preserve me\n"

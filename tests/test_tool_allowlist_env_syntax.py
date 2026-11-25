@@ -86,7 +86,9 @@ def test_parser_strips_each_exclusion_prefix():
     assert spec[1:].split(",") == ["save", "shell"]
 
 
-@pytest.mark.parametrize("spec", ["+none", "-none", "+NoNe", "+none,shell"])
+@pytest.mark.parametrize(
+    "spec", ["+none", "-none", "+NoNe", "+none,shell", "- none", "+ none", "-\tNoNe"]
+)
 def test_parser_rejects_prefixed_none(spec):
     from gptme.config.cli_setup import parse_tool_specs
 
