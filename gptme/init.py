@@ -453,13 +453,27 @@ def _maybe_authenticate_gptme_interactively(
     if provider != "gptme" or not interactive or is_output_json():
         return False
 
+    from .llm.llm_gptme import (
+        DEFAULT_SERVICE_URL,
+        device_flow_authenticate,
+        is_supabase_service_url,
+    )
+
+    # Managed login cannot supply credentials for a custom chat or model endpoint.
+    for key in ("GPTME_CLOUD_BASE_URL", "GPTME_CLOUD_MODELS_URL"):
+        url = config.get_env(key)
+        if url and not is_supabase_service_url(url):
+            console.print(
+                f"[yellow]{key} selects a custom endpoint. Set GPTME_CLOUD_API_KEY "
+                "with a key for that endpoint instead of signing in to gptme.ai.[/yellow]"
+            )
+            return False
+
     response = console.input(
         "[yellow]No gptme.ai login found.[/yellow] Start device-flow login now? [Y/n] "
     ).strip()
     if response and response.lower() not in {"y", "yes"}:
         return False
-
-    from .llm.llm_gptme import DEFAULT_SERVICE_URL, device_flow_authenticate
 
     # The device flow always authenticates against the default gptme.ai
     # service, and get_api_key() reads the default token path. Keying the

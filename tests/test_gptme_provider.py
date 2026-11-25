@@ -971,11 +971,12 @@ def test_reinit_invalidates_gptme_gateway_client():
 @pytest.mark.parametrize(
     "base_url",
     [
+        None,
         "https://auth.gptme.ai/functions/v1/messages",
-        "https://my-server.example.com/v1",
+        "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1/messages",
     ],
 )
-def test_inline_login_token_is_found_by_provider(tmp_path: Path, base_url: str):
+def test_inline_login_token_is_found_by_provider(tmp_path: Path, base_url: str | None):
     """A successful inline device-flow login must yield a token get_api_key() reads.
 
     With GPTME_CLOUD_BASE_URL set, the token used to be keyed by that URL while
@@ -1004,7 +1005,7 @@ def test_inline_login_token_is_found_by_provider(tmp_path: Path, base_url: str):
         ),
         _resp(200, {"access_token": "fresh-device-token", "expires_in": 3600}),
     ]
-    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": base_url})
+    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": base_url} if base_url else {})
     with (
         patch.object(llm_gptme, "_TOKEN_DIR", tmp_path),
         patch("requests.post", side_effect=posts),
@@ -1014,3 +1015,54 @@ def test_inline_login_token_is_found_by_provider(tmp_path: Path, base_url: str):
     ):
         assert gptme_init._maybe_authenticate_gptme_interactively("gptme", True, config)
         assert llm_gptme.get_api_key(config) == "fresh-device-token"
+        assert llm_gptme.get_base_url(config) == llm_gptme.DEFAULT_BASE_URL
+
+        from gptme.llm import llm_openai
+
+        with (
+            patch.object(llm_openai, "get_config", return_value=config),
+            patch("requests.get") as get,
+        ):
+            get.return_value.json.return_value = {"data": []}
+            assert llm_openai.get_available_models.__wrapped__("gptme") == []
+        get.assert_called_once_with(
+            f"{llm_gptme.DEFAULT_MODELS_BASE_URL}/models",
+            headers={"Authorization": "Bearer fresh-device-token"},
+            timeout=(3, 10),
+        )
+
+
+@pytest.mark.parametrize("url_key", ["GPTME_CLOUD_BASE_URL", "GPTME_CLOUD_MODELS_URL"])
+@pytest.mark.parametrize(
+    "custom_url",
+    ["https://my-server.example.com/v1", "https://auth.gptme.ai.evil.example/v1"],
+)
+def test_inline_login_skips_custom_endpoint(
+    tmp_path: Path, url_key: str, custom_url: str
+):
+    """Custom endpoints must not cause a managed token to be minted or sent."""
+    from gptme import init as gptme_init
+    from gptme.llm import llm_gptme, llm_openai
+
+    config = _mock_config(env={url_key: custom_url})
+    with (
+        patch.object(llm_gptme, "_TOKEN_DIR", tmp_path),
+        patch(
+            "requests.post", side_effect=AssertionError("Must not start managed login")
+        ) as post,
+        patch("requests.get") as get,
+        patch.object(gptme_init, "is_output_json", return_value=False),
+        patch.object(gptme_init.console, "input", return_value="y") as prompt,
+        patch.object(gptme_init.console, "print") as print_message,
+        patch.object(llm_openai, "get_config", return_value=config),
+    ):
+        assert not gptme_init._maybe_authenticate_gptme_interactively(
+            "gptme", True, config
+        )
+        prompt.assert_not_called()
+        assert "GPTME_CLOUD_API_KEY" in str(print_message.call_args)
+        assert not list(tmp_path.iterdir())
+        with pytest.raises(llm_gptme.GptmeAuthError):
+            llm_openai.get_available_models.__wrapped__("gptme")
+        post.assert_not_called()
+        get.assert_not_called()
