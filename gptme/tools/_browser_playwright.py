@@ -84,6 +84,9 @@ NETWORK_IDLE_TIMEOUT_MS = 3_000
 # Interactive navigation is followed only by the ARIA snapshot, so it may use
 # more of the budget. It is set at the shared goto() so replacement tabs get it.
 INTERACTIVE_NAVIGATION_TIMEOUT_MS = 16_000
+# A navigation that timed out has used most of the budget; bound the fallback
+# snapshot to what is left.
+TIMED_OUT_SNAPSHOT_TIMEOUT_MS = 3_000
 
 
 def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
@@ -699,36 +702,54 @@ def _drop_current_page_handle() -> None:
 
 def _goto_and_snapshot(url: str) -> str:
     """Navigate the current interactive page and return its ARIA snapshot."""
-    if _current_page is None:
+    page = _current_page
+    if page is None:
         raise RuntimeError("No page is currently open")
-    url_before = _current_page.url
+    # Playwright's commit signal: fires when the main frame has a new document,
+    # including a reload of the same URL (which a URL comparison would miss).
+    committed = False
+
+    def _on_navigated(frame) -> None:
+        nonlocal committed
+        if frame == page.main_frame:
+            committed = True
+
+    page.on("framenavigated", _on_navigated)
     try:
-        _current_page.goto(url, timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
+        page.goto(url, timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
         # A redirect may land outside the allowlist; reject the final URL.
-        _validate_page_url(_current_page.url)
+        _validate_page_url(page.url)
     except PlaywrightTimeoutError as e:
         # A slow resource can hold the load event past the budget after the
         # document has committed. Closing the session here would log the user
         # out, so keep it: read the committed page (_page_snapshot enforces the
         # allowlist on the live URL), or report the timeout if nothing loaded.
-        if _current_page.url == url_before:
+        if not committed:
             raise RuntimeError(f"Timed out navigating to {url}: {e}") from e
         logger.info(f"Load event for '{url}' timed out; reading committed page")
+        return _page_snapshot(timeout_ms=TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
     except Exception as e:
         _close_current_page()
         if isinstance(e, ValueError):
             raise
         raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
+    finally:
+        page.remove_listener("framenavigated", _on_navigated)
     return _page_snapshot()
 
 
-def _page_snapshot() -> str:
+def _page_snapshot(timeout_ms: float | None = None) -> str:
     """Get ARIA snapshot of the current persistent page."""
     if _current_page is None:
         raise RuntimeError("No page is currently open")
     # Never surface content from a page that has left the allowlist.
     _enforce_current_page_allowlist()
-    snapshot = _current_page.locator("body").aria_snapshot()
+    body = _current_page.locator("body")
+    snapshot = (
+        body.aria_snapshot()
+        if timeout_ms is None
+        else body.aria_snapshot(timeout=timeout_ms)
+    )
     if not snapshot:
         raise RuntimeError("Could not get accessibility snapshot.")
     return _format_snapshot(snapshot, _current_page.url, _current_page.title())

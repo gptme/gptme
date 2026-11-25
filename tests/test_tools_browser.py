@@ -1593,19 +1593,26 @@ class TestOpenPageSessionReuse:
         bp._current_context = ctx
 
         def commit_then_time_out(url, timeout):
-            page.url = url
+            # A reload of the same URL commits a new document without
+            # changing page.url; only the framenavigated signal shows it.
+            handler = page.on.call_args.args[1]
+            handler(page.main_frame)
             raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
 
         page.goto.side_effect = commit_then_time_out
 
         with (
             patch.object(bp, "_browser", None),
-            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            patch.object(bp, "_page_snapshot", return_value="snapshot") as snapshot,
             patch.object(bp, "_close_current_page") as close,
         ):
-            result = bp._open_page(MagicMock(), "https://example.com/slow")
+            result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
+        snapshot.assert_called_once_with(timeout_ms=bp.TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
+        page.remove_listener.assert_called_once_with(
+            "framenavigated", page.on.call_args.args[1]
+        )
         close.assert_not_called()
         ctx.close.assert_not_called()
         assert bp._current_page is page
@@ -1633,6 +1640,38 @@ class TestOpenPageSessionReuse:
         snapshot.assert_not_called()
         close.assert_not_called()
         assert bp._current_context is ctx
+
+    def test_load_timeout_on_blocked_host_closes_session_before_reading(self):
+        """The timeout fallback still enforces the allowlist on the live URL."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        bp._current_page = page
+        bp._current_context = MagicMock()
+
+        def redirect_then_time_out(url, timeout):
+            page.url = "https://evil.example/landing"
+            page.on.call_args.args[1](page.main_frame)
+            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+
+        page.goto.side_effect = redirect_then_time_out
+
+        def block_evil(url):
+            if "evil.example" in url:
+                raise ValueError("blocked host")
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_validate_page_url", side_effect=block_evil),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(ValueError, match="blocked host"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/next")
+
+        close.assert_called_once_with()
+        page.locator.assert_not_called()
 
     def test_non_timeout_navigation_error_still_closes_session(self):
         from gptme.tools import _browser_playwright as bp
