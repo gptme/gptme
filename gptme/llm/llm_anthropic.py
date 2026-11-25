@@ -210,7 +210,14 @@ def _merge_stream_usage(
     return cast(_UsageMetrics, SimpleNamespace(**merged))
 
 
-def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
+# Stop reasons where the output ran out of room mid-reply. Everything up to the
+# cut is usable; only a tool call still being written at the cut is not.
+_TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "model_context_window_exceeded"})
+
+
+def _record_usage(
+    usage: _UsageMetrics, model: str, success: bool = True
+) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
         return None
@@ -232,7 +239,7 @@ def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
     record_llm_request(
         provider="anthropic",
         model=model,
-        success=True,
+        success=success,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_creation_tokens=cache_creation_tokens,
@@ -1245,10 +1252,13 @@ def _stream_with_client(
     # Whether the current tool_use block streamed any argument JSON; a
     # no-argument call (e.g. ``complete``) may stream none at all.
     tool_json_emitted = False
+    # (index into native_pending, tool name) of a tool_use block that no later
+    # block has followed, so a truncated reply may have cut it off.
+    last_tool_call: tuple[int, str] | None = None
 
     def _emit(text: str) -> Generator[str, None, None]:
         # Preserve order after the first native call, withholding executable
-        # syntax until message_stop and stop_reason confirm completed tool use.
+        # syntax until message_stop and stop_reason show which calls completed.
         if native_pending is not None:
             native_pending.append(text)
         else:
@@ -1271,14 +1281,17 @@ def _stream_with_client(
                 case "content_block_start":
                     chunk = cast(anthropic.types.RawContentBlockStartEvent, chunk)
                     block = chunk.content_block
+                    # Blocks are streamed one at a time: a new one means the
+                    # previous tool call was written out in full.
+                    last_tool_call = None
                     if isinstance(block, anthropic.types.ToolUseBlock):
                         tool_use = block
                         if native_pending is None:
                             native_pending = []
                         tool_json_emitted = False
-                        yield from _emit(
-                            f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
-                        )
+                        tool_name = canonical_tool_name(tool_use.name)
+                        last_tool_call = (len(native_pending), tool_name)
+                        yield from _emit(f"\n@{tool_name}({tool_use.id}): ")
                     elif isinstance(block, anthropic.types.ThinkingBlock):
                         yield from _emit("<think>\n")
                     elif isinstance(block, anthropic.types.RedactedThinkingBlock):
@@ -1370,8 +1383,14 @@ def _stream_with_client(
                     stop_reason = chunk.delta.stop_reason
                     # Record usage from message_delta which contains the final/cumulative usage
                     # and capture metadata for message attachment
+                    # A reply whose tool calls are rejected below still
+                    # costs tokens, but is not a successful request.
                     captured_metadata = _record_usage(
-                        _merge_stream_usage(start_usage, chunk.usage), model
+                        _merge_stream_usage(start_usage, chunk.usage),
+                        model,
+                        success=native_pending is None
+                        or stop_reason == "tool_use"
+                        or stop_reason in _TRUNCATED_STOP_REASONS,
                     )
                 case "message_stop":
                     saw_message_stop = True
@@ -1385,8 +1404,25 @@ def _stream_with_client(
             "Anthropic stream ended without terminal message_stop"
         )
     if native_pending:
-        if stop_reason != "tool_use":
-            # A known terminal reason (e.g. max_tokens or refusal) is not a
+        if stop_reason in _TRUNCATED_STOP_REASONS:
+            # Keep the calls that finished, so the turn makes progress, and
+            # tell the model about the one that did not. Raising here would
+            # discard the whole reply, and asking again hits the same limit.
+            if last_tool_call is not None:
+                start, name = last_tool_call
+                logger.warning(
+                    "Anthropic reply hit %s; not running the unfinished %s call",
+                    stop_reason,
+                    name,
+                )
+                notice = (
+                    f"\n[The `{name}` tool call was cut off ({stop_reason}) and "
+                    "was not run. Retry with less output, e.g. split a large "
+                    "write into several calls.]\n"
+                )
+                native_pending[start:] = [notice]
+        elif stop_reason != "tool_use":
+            # Another known terminal reason (e.g. refusal) is not a
             # transport failure: replaying with the same cap can charge for
             # the same unfinished call repeatedly. Missing reasons remain
             # protocol errors, eligible for the normal transport retry policy.

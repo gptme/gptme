@@ -170,9 +170,7 @@ NOARG_EVENTS: list[dict[str, Any]] = [
 
 
 @pytest.mark.parametrize("partial_json", ["", "{}"])
-@pytest.mark.parametrize(
-    "stop_reason", ["tool_use", "max_tokens", "end_turn", "refusal", None]
-)
+@pytest.mark.parametrize("stop_reason", ["tool_use", "end_turn", "refusal", None])
 def test_streamed_tool_call_requires_tool_use_stop(
     monkeypatch, partial_json, stop_reason
 ):
@@ -196,6 +194,12 @@ def test_streamed_tool_call_requires_tool_use_stop(
         max_retries=0,
     )
     monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+    successes: list[bool] = []
+    monkeypatch.setattr(
+        llm_anthropic,
+        "record_llm_request",
+        lambda **kwargs: successes.append(kwargs["success"]),
+    )
 
     gen = llm_anthropic.stream(
         [Message("system", "sys"), Message("user", "you are done")],
@@ -233,6 +237,7 @@ def test_streamed_tool_call_requires_tool_use_stop(
             assert is_llm_reply_error(exc.value)
             assert not is_transient_provider_error(exc.value)
         assert len(requests) == 1
+        assert successes == [False]
         assert not list(ToolUse.iter_from_content("".join(parts), "tool"))
         return
 
@@ -242,6 +247,122 @@ def test_streamed_tool_call_requires_tool_use_stop(
     assert [(c.tool, c.call_id, c.kwargs) for c in calls] == [
         ("complete", "toolu_01", {})
     ], repr(text)
+    assert successes == [True]
+
+
+def _tool_block(index, call_id, name, partial_json):
+    return [
+        {
+            "type": "content_block_start",
+            "index": index,
+            "content_block": {
+                "type": "tool_use",
+                "id": call_id,
+                "name": name,
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "input_json_delta", "partial_json": partial_json},
+        },
+        {"type": "content_block_stop", "index": index},
+    ]
+
+
+def _stream_truncated(monkeypatch, blocks, stop_reason):
+    """Stream ``blocks`` ending in a truncation; return text, requests, successes."""
+    events = [
+        NOARG_EVENTS[0],
+        *blocks,
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": 12},
+        },
+        {"type": "message_stop"},
+    ]
+    requests = []
+    successes: list[bool] = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(events),
+        )
+
+    client = anthropic.Anthropic(
+        api_key="sk-test",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+    monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+    monkeypatch.setattr(
+        llm_anthropic,
+        "record_llm_request",
+        lambda **kwargs: successes.append(kwargs["success"]),
+    )
+    text = "".join(
+        llm_anthropic.stream(
+            [Message("system", "sys"), Message("user", "write files")],
+            "claude-sonnet-4-6",
+            None,
+        )
+    )
+    return text, requests, successes
+
+
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "model_context_window_exceeded"])
+@pytest.mark.parametrize("cut_json", ["", "{}", '{"path": "big.txt", "content": "ab'])
+def test_truncated_reply_keeps_finished_tool_calls(monkeypatch, stop_reason, cut_json):
+    """Only the call being written at the cut is withheld; nothing is retried."""
+    text, requests, successes = _stream_truncated(
+        monkeypatch,
+        [
+            *_tool_block(0, "toolu_01", "shell", '{"command": "ls"}'),
+            *_tool_block(1, "toolu_02", "save", cut_json),
+        ],
+        stop_reason,
+    )
+
+    calls = list(ToolUse.iter_from_content(text, "tool"))
+    assert [(c.tool, c.call_id, c.kwargs) for c in calls] == [
+        ("shell", "toolu_01", {"command": "ls"})
+    ], repr(text)
+    assert "toolu_02" not in text
+    assert f"`save` tool call was cut off ({stop_reason})" in text
+    assert len(requests) == 1
+    assert successes == [True]
+
+
+def test_truncated_text_after_tool_call_keeps_the_call(monkeypatch):
+    """A cut in a later text block leaves the preceding tool call complete."""
+    text, _, _ = _stream_truncated(
+        monkeypatch,
+        [
+            *_tool_block(0, "toolu_01", "shell", '{"command": "ls"}'),
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "Next I will"},
+            },
+            {"type": "content_block_stop", "index": 1},
+        ],
+        "max_tokens",
+    )
+
+    calls = list(ToolUse.iter_from_content(text, "tool"))
+    assert [c.call_id for c in calls] == ["toolu_01"], repr(text)
+    assert text.endswith("Next I will")
+    assert "cut off" not in text
 
 
 @pytest.mark.parametrize(
