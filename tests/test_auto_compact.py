@@ -372,6 +372,27 @@ def test_strip_reasoning_inline_code_is_not_a_fence(ticks: str):
     assert remove_reasoning(content, drop_unclosed=True) == code + "\nAnswer"
 
 
+@pytest.mark.parametrize("slashes", [1, 2, 3, 4])
+def test_strip_reasoning_escaped_backtick_opener(slashes: int) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    prefix = "Example " + "\\" * slashes + "`"
+    content = prefix + "<think>private</think>` done"
+    expected = content if slashes % 2 == 0 else prefix + "` done"
+    assert remove_reasoning(content) == expected
+    assert remove_reasoning(content, drop_unclosed=True) == expected
+
+
+@pytest.mark.parametrize("literal", ["<think>\nexample</think>", "<think>\nexample"])
+def test_strip_reasoning_multiline_inline_code(literal: str) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    code = f"Use `{literal}` in XML."
+    content = code + "\n<think>private</think>Answer"
+    assert remove_reasoning(content) == code + "\nAnswer"
+    assert remove_reasoning(content, drop_unclosed=True) == code + "\nAnswer"
+
+
 def test_strip_reasoning_inline_mention_before_fenced_example():
     from gptme.context.compress import remove_reasoning
 

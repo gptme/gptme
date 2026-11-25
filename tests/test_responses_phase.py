@@ -302,6 +302,69 @@ def test_phase_digest_trims_all_edge_prose_lines() -> None:
     assert replay[2]["phase"] == "final_answer"
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "\n\n```xml\n<think>example</think>\n```\n\n",
+        " \n \nExample: <think>private</think>done\n \n ",
+    ],
+)
+def test_phase_preserves_all_prose_edge_whitespace(text: str) -> None:
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(text, "final_answer"))
+    metadata = capture.metadata(None, text)
+    assert metadata is not None
+    expected = text.replace("<think>private</think>", "")
+    assert replay_responses_output(text, metadata["responses_output"]) == [
+        {"role": "assistant", "content": expected, "phase": "final_answer"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Before<think>private</think>\n\n",
+        "<think>private</think>```xml\n",
+    ],
+)
+def test_phase_strip_digest_uses_original_scan_boundaries(text: str) -> None:
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    raw_call = '@shell(call_1): {"command":"pwd"}'
+    content = text + raw_call
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(text, "commentary"))
+    capture.output_item(1, {"type": "function_call", "call_id": "call_1"})
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    stripped, _ = strip_reasoning(content)
+    replay = replay_responses_output(stripped, metadata["responses_output"])
+    assert replay is not None
+    assert replay[0]["phase"] == "commentary"
+    assert replay[1]["call_id"] == "call_1"
+    assert json.loads(replay[1]["arguments"]) == {"command": "pwd"}
+    assert (
+        replay_responses_output(stripped + "edited", metadata["responses_output"])
+        is None
+    )
+
+
+def test_phase_strip_digest_does_not_rescan_new_fence() -> None:
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    content = "<think>private</think>```xml\n"
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(content, "final_answer"))
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    stripped, _ = strip_reasoning(content)
+    assert replay_responses_output(stripped, metadata["responses_output"]) is not None
+
+
 def test_adjacent_phased_messages_survive_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

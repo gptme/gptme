@@ -241,7 +241,7 @@ def analyze_incremental_compression(
 
 
 _FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
-_INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)")
+_INLINE_CODE_RE = re.compile(r"`+")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
 
@@ -293,9 +293,33 @@ def _reasoning_segments(
         inline = _INLINE_CODE_RE.search(content, pos, line_end)
         opener = _REASONING_OPEN_RE.search(content, pos, line_end)
         if inline and (not opener or inline.start() <= opener.start()):
-            segments.append(("text", content[pos : inline.start()]))
-            segments.append(("code", inline.group(0)))
-            pos, line_start = inline.end(), False
+            start = inline.start()
+            escape_start = start
+            while escape_start > 0 and content[escape_start - 1] == "\\":
+                escape_start -= 1
+            # An escape consumes one backtick, not the entire delimiter run.
+            if (start - escape_start) % 2:
+                start += 1
+            delimiter = content[start : inline.end()]
+            paragraph_end = re.search(r"\r?\n[ \t]*\r?\n", content[inline.end() :])
+            limit = (
+                inline.end() + paragraph_end.start() if paragraph_end else len(content)
+            )
+            closing = (
+                re.compile(r"(?<!`)" + re.escape(delimiter) + r"(?!`)").search(
+                    content, inline.end(), limit
+                )
+                if delimiter
+                else None
+            )
+            segments.append(("text", content[pos:start]))
+            if closing:
+                segments.append(("code", content[start : closing.end()]))
+                pos = closing.end()
+            else:
+                segments.append(("text", content[start : inline.end()]))
+                pos = inline.end()
+            line_start = False
             continue
         if not opener:
             segments.append(("text", content[pos:line_end]))
@@ -328,17 +352,33 @@ def remove_reasoning(
     content (an interrupted reasoning block). ``preserve_edges`` retains the
     original outside whitespace for replay without adding it to code twice.
     """
-    segments = _reasoning_segments(content, drop_unclosed)
-    # Only restore edge whitespace owned by text, not the closing fence's
-    # newline or an inline code span. This also makes repeated replay stable.
+    return _render_reasoning_segments(
+        _reasoning_segments(content, drop_unclosed), preserve_edges
+    )
+
+
+def _render_reasoning_segments(
+    segments: list[tuple[str, str]], preserve_edges: bool = False
+) -> str:
+    """Render the original scan once; removing tags must not create new fences."""
     leading = trailing = ""
-    if preserve_edges and segments:
-        if segments[0][0] == "text":
-            text = segments[0][1]
-            leading = text[: len(text) - len(text.lstrip())]
-        if segments[-1][0] == "text":
-            text = segments[-1][1]
-            trailing = text[len(text.rstrip()) :]
+    if preserve_edges:
+        edge: list[str] = []
+        for kind, text in segments:
+            if kind != "text":
+                break
+            edge.append(text)
+        text = "".join(edge)
+        leading = text[: len(text) - len(text.lstrip())]
+        edge = []
+        for kind, text in reversed(segments):
+            if kind != "text":
+                break
+            edge.append(text)
+        text = "".join(reversed(edge))
+        trailing = text[len(text.rstrip()) :]
+        if all(kind == "text" and not text.strip() for kind, text in segments):
+            trailing = ""  # The same whitespace is already in leading.
     chunks: list[tuple[bool, list[str]]] = []  # (is_code, pieces)
     for kind, text in segments:
         if kind == "reasoning" or not text:
@@ -349,14 +389,19 @@ def remove_reasoning(
         else:
             chunks.append((is_code, [text]))
     joined = [(is_code, "".join(pieces)) for is_code, pieces in chunks]
-    joined = [
-        (is_code, text if is_code else re.sub(r"\n\n\n+", "\n\n", text))
-        for is_code, text in joined
-    ]
-    if joined and not joined[0][0]:
-        joined[0] = (False, leading + joined[0][1].lstrip())
-    if joined and not joined[-1][0]:
-        joined[-1] = (False, joined[-1][1].rstrip() + trailing)
+    for i, (is_code, text) in enumerate(joined):
+        if is_code:
+            continue
+        if i == 0:
+            text = text.lstrip()
+        if i == len(joined) - 1:
+            text = text.rstrip()
+        joined[i] = (
+            False,
+            (leading if i == 0 else "")
+            + re.sub(r"\n\n\n+", "\n\n", text)
+            + (trailing if i == len(joined) - 1 else ""),
+        )
     return "".join(text for _, text in joined)
 
 

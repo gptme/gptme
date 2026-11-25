@@ -217,30 +217,21 @@ class ResponsesPhaseCapture:
         # strings. Every native span is copied byte-for-byte into this anchor.
         normalized = [_prose(text) for text in prose]
         if normalized != prose:
-            stripped = "".join(
-                text + (raw_calls[i] if i < len(raw_calls) else "")
-                for i, text in enumerate(normalized)
+            from ..context.compress import (
+                _reasoning_segments,
+                _render_reasoning_segments,
             )
-            from ..context.compress import _reasoning_segments
 
-            # Match autocompact's fence-aware edge rules, but do not run another
-            # reasoning-removal pass over the assembled native argument JSON.
-            segments = _reasoning_segments(stripped)
-            for i, (kind, text) in enumerate(segments):
-                if kind != "text":
-                    break
-                segments[i] = (kind, text.lstrip())
-                if text.strip():
-                    break
-            for i in range(len(segments) - 1, -1, -1):
-                kind, text = segments[i]
-                if kind != "text":
-                    break
-                segments[i] = (kind, text.rstrip())
-                if text.strip():
-                    break
+            # Scan original prose, not normalized text: removing a reasoning
+            # tag can expose a new fence that autocompact never saw. Native JSON
+            # is opaque code here and must never be scanned or normalized.
+            segments: list[tuple[str, str]] = []
+            for i, text in enumerate(prose):
+                segments.extend(_reasoning_segments(text))
+                if i < len(raw_calls):
+                    segments.append(("code", raw_calls[i]))
             output["reasoning_stripped_digest"] = _digest(
-                "".join(text for _, text in segments)
+                _render_reasoning_segments(segments)
             )
         if replay_responses_output(content, output) is None:
             return metadata
