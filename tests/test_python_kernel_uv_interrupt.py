@@ -161,6 +161,7 @@ def test_interrupt_without_kernel_spec():
         backend.shutdown()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
 def test_uv_workers_use_live_group_when_provisioner_has_no_pgid(monkeypatch):
     from types import SimpleNamespace
 
