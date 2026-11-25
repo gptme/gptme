@@ -1949,6 +1949,19 @@ def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     assert "Deleted conversation: old-chat" in out
     assert not (logs / "old-chat").exists()
 
+    # A newline is a separator too: the flag still applies.
+    conv_dir = logs / "multi-line"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+    cmd = Message("user", "/delete multi-line\n--force", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: multi-line" in out
+    assert not (logs / "multi-line").exists()
+
     # A flag inside the name is still part of it.
     cmd = Message("user", "/delete --force draft --force notes", quiet=True)
     manager.append(cmd)
@@ -1956,6 +1969,30 @@ def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Deleted conversation: draft --force notes" in out
     assert not (logs / "draft --force notes").exists()
+
+
+def test_arguments_still_split_on_unicode_whitespace(tmp_path: Path):
+    """Only the command name needs Unicode separators; args keep the legacy split.
+
+    ``/delete`` reconstructs its id from ``full_args``, so positional args do
+    not need an ASCII-only split. Keeping the legacy Unicode split means
+    ``/undo 2<NBSP>ignored`` still reads the count as 2.
+    """
+    from gptme.commands import execute_cmd
+
+    manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
+    for role, content in [
+        ("user", "q1"),
+        ("assistant", "a1"),
+        ("user", "q2"),
+        ("assistant", "a2"),
+    ]:
+        manager.append(Message(role, content, quiet=True))  # type: ignore[arg-type]
+    cmd = Message("user", "/undo 2\u00a0ignored", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert [m.content for m in manager.log] == ["q1", "a1"]
 
 
 def test_unicode_space_after_command_name_still_separates(

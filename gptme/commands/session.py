@@ -138,25 +138,26 @@ def cmd_delete(ctx: CommandContext) -> None:
     # a conversation name. Parse the raw remainder instead: consume at most one
     # leading ``--force``/``-f`` token, then keep the rest verbatim as the id.
     # A chat whose name merely contains or starts with a flag stays intact.
+    # The edges accept every separator ``handle_cmd`` treats as whitespace, so
+    # a multi-line ``/delete old-chat\n--force`` still works.
+    ws = " \t\n\r\f\v"
     force = False
-    raw = ctx.full_args.lstrip(" \t")
+    raw = ctx.full_args.lstrip(ws)
     for flag in ("--force", "-f"):
         if raw == flag:
             force, raw = True, ""
             break
-        if raw.startswith(flag) and raw[len(flag)] in " \t":
-            force, raw = True, raw[len(flag) :].lstrip(" \t")
+        if raw.startswith(flag) and raw[len(flag)] in ws:
+            force, raw = True, raw[len(flag) :].lstrip(ws)
             break
-    raw = raw.rstrip(" \t")
+    raw = raw.rstrip(ws)
     # Also accept the flag after the id (``/delete old-chat --force``), which
     # earlier versions accepted. Only the edges are parsed, so a name that
     # contains the flag keeps it.
     for flag in ("--force", "-f"):
-        if raw.endswith(flag) and (
-            len(raw) == len(flag) or raw[-len(flag) - 1] in " \t"
-        ):
+        if raw.endswith(flag) and (len(raw) == len(flag) or raw[-len(flag) - 1] in ws):
             force = True
-            raw = raw[: -len(flag)].rstrip(" \t")
+            raw = raw[: -len(flag)].rstrip(ws)
             break
     conv_id = raw
 

@@ -17,11 +17,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ASCII whitespace, the only separators a command line is split on. ``\s`` also
-# matches Unicode whitespace (e.g. the non-breaking space), which is a legal
-# character in a conversation name and must survive tokenization.
-ASCII_WS = r"[ \t\n\r\f\v]"
-
 
 @dataclass
 class CommandContext:
@@ -285,13 +280,14 @@ def handle_cmd(
     # name so it lands in the unknown-command path below instead of crashing
     # on empty-list unpacking.
     # The command name ends at the first whitespace run; Unicode whitespace is a
-    # valid separator after the name (``/undo\xa01``). Arguments are then split
-    # on ASCII whitespace only, because Unicode spaces are legal characters
-    # inside values such as conversation names.
+    # valid separator after the name (``/undo\xa01``). Positional args keep the
+    # legacy Unicode split; a handler that needs an exact remainder (``/delete``)
+    # reads ``full_args`` instead, so a Unicode space inside a name survives
+    # without changing how every other command sees its arguments.
     name_parts = re.split(r"\s+", cmd.strip(), maxsplit=1)
     name = name_parts[0]
     full_args = name_parts[1] if len(name_parts) > 1 else ""
-    args = [s for s in re.split(ASCII_WS, full_args) if s]
+    args = [s for s in re.split(r"\s+", full_args) if s]
 
     # Check if command is registered
     if name in _command_registry:
