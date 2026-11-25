@@ -129,3 +129,33 @@ def test_setup_interrupt_drains_the_setup_request():
     finally:
         backend._kc = None
         backend.shutdown()
+
+
+def test_interrupt_without_kernel_spec():
+    backend = KernelBackend()
+    backend._km = Mock(kernel_spec=None)
+    try:
+        backend.interrupt()
+        backend._km.interrupt_kernel.assert_called_once()
+    finally:
+        backend.shutdown()
+
+
+def test_uv_workers_use_live_group_when_provisioner_has_no_pgid(monkeypatch):
+    from types import SimpleNamespace
+
+    backend = KernelBackend()
+    backend._km = SimpleNamespace(provisioner=SimpleNamespace(pid=100, pgid=None))
+    monkeypatch.setattr(os, "getpgid", lambda pid: 100)
+    run = Mock(
+        return_value=SimpleNamespace(stdout="100 1 100\n101 100 100\n102 101 100\n")
+    )
+    monkeypatch.setattr("gptme.tools.python_kernel.subprocess.run", run)
+    kill = Mock()
+    monkeypatch.setattr(os, "kill", kill)
+    try:
+        backend._interrupt_uv_workers()
+        kill.assert_called_once_with(102, signal.SIGINT)
+    finally:
+        backend._km = None
+        backend.shutdown()

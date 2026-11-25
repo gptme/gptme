@@ -1228,7 +1228,14 @@ class KernelBackend:
         provisioner = getattr(self._km, "provisioner", None)
         pid = getattr(provisioner, "pid", None)
         pgid = getattr(provisioner, "pgid", None)
-        if not pid or not pgid or pgid == os.getpgrp():
+        if not pid:
+            return
+        if not pgid:
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                return
+        if pgid == os.getpgrp():
             return
         try:
             processes = subprocess.run(
@@ -1256,7 +1263,10 @@ class KernelBackend:
         self._bridge.active_cell = None
         if self._km and self._km.is_alive():
             logger.info("Interrupting kernel")
-            if self._km.kernel_spec.interrupt_mode == "message":
+            if (
+                self._km.kernel_spec is not None
+                and self._km.kernel_spec.interrupt_mode == "message"
+            ):
                 self._interrupt_uv_workers()
             self._km.interrupt_kernel()
 
