@@ -508,14 +508,3 @@ def test_managed_mcp_config_path_is_platform_specific():
     else:
         expected = "/etc/claude-code/managed-mcp.json"
     assert str(_MANAGED_MCP_CONFIG_PATH) == expected
-
-
-def test_docker_tool_args_ignore_host_managed_mcp(tmp_path):
-    """The Docker run checks its own container, not the host's managed config."""
-    from gptme.eval.agents.claude_code import claude_code_tool_args
-
-    managed = tmp_path / "managed-mcp.json"
-    managed.write_text("{}")
-    with patch("gptme.eval.agents.claude_code.MANAGED_MCP_CONFIG_PATHS", (managed,)):
-        args = claude_code_tool_args(None, False, managed_mcp=False)
-    assert "--strict-mcp-config" in args

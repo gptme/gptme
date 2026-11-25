@@ -322,22 +322,48 @@ class TestDockerClaudeCodeEnv:
         # Workspace settings are honoured unless the caller isolates them
         assert "--setting-sources" not in command
 
+    @pytest.mark.parametrize(
+        ("tools", "include_user_context"),
+        [(None, False), ([], False), ([], True)],
+    )
     @patch("subprocess.run")
     @patch("subprocess.Popen")
-    def test_run_claude_code_isolates_workspace_settings(self, mock_popen, mock_run):
-        """include_user_context=False keeps workspace settings and MCP out, as locally."""
+    def test_run_claude_code_ignores_host_managed_mcp(
+        self, mock_popen, mock_run, tmp_path, tools, include_user_context
+    ):
+        """Docker isolation must not inherit the host's managed MCP config."""
+        managed = tmp_path / "managed-mcp.json"
+        managed.write_text('{"mcpServers": {"host-only": {"command": "host-tool"}}}')
         mock_run.return_value = MagicMock(stdout="container123\n", returncode=0)
         mock_process = MagicMock()
         mock_process.communicate.return_value = ('{"type":"result"}\n', "")
         mock_process.returncode = 0
         mock_popen.return_value = mock_process
 
-        DockerClaudeCodeEnv().run_claude_code(
-            prompt="p", model="claude-sonnet-4-6", include_user_context=False
-        )
+        with patch(
+            "gptme.eval.agents.claude_code.MANAGED_MCP_CONFIG_PATHS", (managed,)
+        ):
+            env = DockerClaudeCodeEnv()
+            try:
+                env.run_claude_code(
+                    prompt="p",
+                    model="claude-sonnet-4-6",
+                    tools=tools,
+                    include_user_context=include_user_context,
+                )
+            finally:
+                env.cleanup()
 
-        command = mock_popen.call_args[0][0][-1]
-        assert "--setting-sources '' --strict-mcp-config" in command
+        mock_popen.assert_called_once()
+        command = shlex.split(mock_popen.call_args[0][0][-1])
+        assert "--strict-mcp-config" in command
+        if include_user_context:
+            assert "--setting-sources" not in command
+        else:
+            assert command[command.index("--setting-sources") + 1] == ""
+        if tools == []:
+            assert command[command.index("--tools") + 1] == ""
+            assert "--allowedTools" not in command
 
     @patch("subprocess.run")
     @patch("subprocess.Popen")
