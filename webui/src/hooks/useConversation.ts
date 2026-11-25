@@ -431,6 +431,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onMessageComplete: (message) => {
+              updateConversation(conversationId, {
+                toolStateRevision: (conversation$?.toolStateRevision.peek() ?? 0) + 1,
+              });
               messageJustCompleted.current = true;
               lastCompletedMessageRef.current = message;
 
@@ -583,6 +586,11 @@ export function useConversation(conversationId: string, serverId?: string) {
               });
             },
             onToolExecuting: (toolId) => {
+              // A sibling may start while Skip has temporarily hidden the card.
+              // Even without a matching card, its event supersedes the HTTP snapshot.
+              updateConversation(conversationId, {
+                toolStateRevision: (conversation$?.toolStateRevision.peek() ?? 0) + 1,
+              });
               // Agent resumed: any elicitation was answered (possibly in another viewer).
               if (conversation$?.pendingElicitation.peek()) {
                 setPendingElicitation(conversationId, null);
@@ -607,6 +615,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onToolComplete: (toolId, durationMs, success) => {
+              updateConversation(conversationId, {
+                toolStateRevision: (conversation$?.toolStateRevision.peek() ?? 0) + 1,
+              });
               const executingTool = conversation$?.executingTool.get();
               if (!executingTool) {
                 console.warn(
@@ -1282,6 +1293,17 @@ export function useConversation(conversationId: string, serverId?: string) {
       setPendingTool(conversationId, null, null);
     }
     const confirmedToolId = pendingTool.id;
+    const revision = conversation$?.toolStateRevision.peek();
+    const generationRevision = conversation$?.generationRevision.peek();
+    const generationEpoch = generationEpochRef.current;
+    const owner = conversation$?.serverId.peek();
+    const clientGeneration = conversation$?.streamClientGeneration.peek();
+    const isCurrent = () =>
+      conversation$?.toolStateRevision.peek() === revision &&
+      conversation$?.generationRevision.peek() === generationRevision &&
+      generationEpochRef.current === generationEpoch &&
+      conversation$?.serverId.peek() === owner &&
+      conversation$?.streamClientGeneration.peek() === clientGeneration;
     const confirmOnce = async (): Promise<void> => {
       try {
         const { alreadyHandled, continuationStarted, pendingTools } = await api.confirmTool(
@@ -1290,6 +1312,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           action,
           options
         );
+        if (!isCurrent()) return;
         // Normally onToolExecuting owns the transition. A duplicate may arrive
         // after completion, with no new event forthcoming; clear only that ID.
         if (
@@ -1313,9 +1336,8 @@ export function useConversation(conversationId: string, serverId?: string) {
           // No continuation was dispatched for this duplicate. Reconcile with
           // the server instead of waiting for an event that may already have
           // passed, or declaring an actually running peer continuation idle.
-          const revision = conversation$?.generationRevision.peek();
           const sessions = await api.getSessions();
-          if (conversation$?.generationRevision.peek() === revision) {
+          if (isCurrent()) {
             setGenerating(
               conversationId,
               sessions.some(
@@ -1325,6 +1347,8 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
       } catch (error) {
+        // A newer event or owner has already settled this request's UI state.
+        if (!isCurrent()) return;
         console.error('Error confirming tool:', error);
 
         // A rejected Skip never started its continuation; release its reservation

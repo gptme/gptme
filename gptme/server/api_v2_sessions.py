@@ -954,6 +954,12 @@ def api_conversation_tool_confirm(conversation_id: str):
                 if session.writer_manager is not None:
                     session._writer_workers += 1
                     writer_pinned = True
+            else:
+                # Workers claim pending tools under this lock. Materialize the
+                # response here so a claim cannot invalidate its dict iterator.
+                pending_tools = [
+                    tool.to_pending_dict() for tool in session.pending_tools.values()
+                ]
 
         if skip_step_seq is None:
             # A sibling of the same batch still owns the turn. Whoever finishes
@@ -969,10 +975,7 @@ def api_conversation_tool_confirm(conversation_id: str):
                     "status": "ok",
                     "message": f"Tool {action}ed",
                     "continuation_started": False,
-                    "pending_tools": [
-                        tool.to_pending_dict()
-                        for tool in session.pending_tools.values()
-                    ],
+                    "pending_tools": pending_tools,
                 }
             )
 
@@ -1115,10 +1118,14 @@ def api_conversation_rerun(conversation_id: str):
             default_model.full if default_model else "anthropic"
         )
 
-        rerun_tool_ids: list[str] = []
+        # A manual rerun authorizes a new turn too. Clear the stale interrupt
+        # and revoke old workers before tagging any new approvals, even when
+        # no tool is auto-confirmed. Otherwise the last manual worker refuses
+        # to continue after an earlier interrupt.
+        session.interrupted = False
+        session.step_seq += 1
         for tooluse in tooluses:
             tool_id = str(uuid.uuid4())
-            rerun_tool_ids.append(tool_id)
             tool_exec = ToolExecution(
                 tool_id=tool_id,
                 tooluse=tooluse,
@@ -1151,12 +1158,6 @@ def api_conversation_rerun(conversation_id: str):
         # _start_step_thread (reserved=True) when it starts the continuation, or
         # releases it itself if the continuation is not needed.
         if first_auto_id is not None:
-            # Rerun starts a new user-authorized generation chain. Clear the old
-            # interrupt marker and advance the generation epoch before queueing it.
-            session.interrupted = False
-            session.step_seq += 1
-            for rerun_tool_id in rerun_tool_ids:
-                session.pending_tools[rerun_tool_id].step_seq = session.step_seq
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
             start_tool_execution(

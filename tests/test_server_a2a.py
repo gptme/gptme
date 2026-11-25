@@ -1413,3 +1413,146 @@ def test_approving_a_sibling_after_a_skip_yields_one_reply(
     assert continuation.call_args.kwargs["step_seq"] == 6
     assert session.pending_tools == {}
     assert session.step_seq == 6
+
+
+def test_deferred_skip_snapshots_approvals_before_worker_can_claim(
+    v2_conv, client, monkeypatch
+):
+    """A worker cannot mutate the approvals dict while skip serializes it."""
+    import threading
+
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    for tool_id in ("skip-me", "keeper"):
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id, tooluse=ToolUse("shell", [], "echo test")
+        )
+
+    original = ToolExecution.to_pending_dict
+    claims: list[bool] = []
+
+    def serialize(tool):
+        def claim():
+            lock = SessionManager.conversation_lock(v2_conv["conversation_id"])
+            acquired = lock.acquire(blocking=False)
+            claims.append(acquired)
+            if acquired:
+                try:
+                    session.pending_tools.pop(tool.tool_id)
+                finally:
+                    lock.release()
+
+        worker = threading.Thread(target=claim)
+        worker.start()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        return original(tool)
+
+    monkeypatch.setattr(ToolExecution, "to_pending_dict", serialize)
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, [])
+    assert response.status_code == 200
+    assert claims == [False]
+    assert [t["tool_id"] for t in response.json["pending_tools"]] == ["keeper"]
+
+
+@pytest.mark.parametrize("skip_while_running", [False, True])
+def test_manual_rerun_after_interrupt_continues_once(
+    v2_conv, client, monkeypatch, skip_while_running
+):
+    """Approving a rerun after interrupt must resume regardless of skip order."""
+    import threading
+    from unittest.mock import Mock
+
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "role": "assistant",
+            "content": "```shell\necho first\n```\n```shell\necho second\n```",
+        },
+    )
+    assert response.status_code == 200
+    session.generating = True
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/interrupt",
+        json={"session_id": v2_conv["session_id"]},
+    )
+    assert response.status_code == 200
+    assert session.interrupted
+    interrupted_seq = session.step_seq
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/rerun",
+        json={"session_id": v2_conv["session_id"]},
+    )
+    assert response.status_code == 200
+    first_id, second_id = response.json["tool_ids"]
+    started = threading.Event()
+    finish = threading.Event()
+    workers = []
+
+    def execute(code, args, kwargs):
+        started.set()
+        assert finish.wait(timeout=5)
+        return Message("system", "rerun output")
+
+    def start(*args, **kwargs):
+        thread = start_tool_execution(*args, **kwargs)
+        workers.append(thread)
+        return thread
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    monkeypatch.setattr("gptme.server.api_v2_sessions.start_tool_execution", start)
+    continuation = Mock(return_value=True)
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+    skip_dispatches: list[dict] = []
+    try:
+        if not skip_while_running:
+            response = _skip_tool(
+                client, v2_conv, second_id, monkeypatch, skip_dispatches
+            )
+            assert response.status_code == 200
+            assert response.json["continuation_started"] is False
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/tool/confirm",
+            json={
+                "session_id": v2_conv["session_id"],
+                "tool_id": first_id,
+                "action": "confirm",
+            },
+        )
+        assert response.status_code == 200
+        assert started.wait(timeout=5)
+        if skip_while_running:
+            response = _skip_tool(
+                client, v2_conv, second_id, monkeypatch, skip_dispatches
+            )
+            assert response.status_code == 200
+            assert response.json["continuation_started"] is False
+    finally:
+        finish.set()
+        for worker in workers:
+            worker.join(timeout=5)
+            assert not worker.is_alive()
+
+    assert skip_dispatches == []
+    assert continuation.call_count == 1
+    assert not session.interrupted
+    assert session.step_seq == interrupted_seq + 2  # rerun, then reply
+    assert not session.pending_tools

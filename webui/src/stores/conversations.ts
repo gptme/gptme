@@ -77,6 +77,8 @@ export interface ConversationState {
   pendingGenerationPrompt?: string;
   // Terminal SSE/local-stop events invalidate late step HTTP acknowledgments.
   generationRevision?: number;
+  // Shared tool/generation transitions invalidate delayed confirmation snapshots.
+  toolStateRevision?: number;
   connectionStatus: ConversationConnectionStatus;
   reconnectAttempt: number | null;
   reconnectMaxAttempts: number | null;
@@ -187,6 +189,12 @@ export function updateConversation(id: string, update: Partial<ConversationState
       hasMoreBefore: false,
       isWindowHydrated: false,
     });
+  }
+  if ('isGenerating' in update || 'pendingTool' in update || 'executingTool' in update) {
+    update = {
+      ...update,
+      toolStateRevision: (conversations$.get(id)?.toolStateRevision.peek() ?? 0) + 1,
+    };
   }
   // mergeIntoObservable treats an undefined value as "delete this key". `data`
   // is required, so a stray `{ data: undefined }` (e.g. an API call resolving
@@ -358,6 +366,7 @@ export function initConversation(
   options?: { needsInitialStep?: boolean; initialStepStream?: boolean; pendingModel?: string }
 ) {
   const initial: ConversationState = {
+    toolStateRevision: (conversations$.get(id)?.toolStateRevision.peek() ?? 0) + 1,
     data: data || {
       id,
       name: '',
