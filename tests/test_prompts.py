@@ -1032,9 +1032,7 @@ def test_prompt_workspace_survives_non_utf8_agent_file(tmp_path, monkeypatch):
 
     msgs = list(prompt_workspace(workspace, include_runtime_context=False))
     attached = [str(f) for msg in msgs for f in msg.files]
-    assert str(agent_file) in attached or str(agent_file.resolve()) in attached, (
-        attached
-    )
+    assert str(agent_file.resolve()) not in attached
 
 
 def test_prompt_workspace_survives_non_utf8_user_config_agent_file(
@@ -1058,6 +1056,83 @@ def test_prompt_workspace_survives_non_utf8_user_config_agent_file(
 
     msgs = list(prompt_workspace(workspace, include_runtime_context=False))
     attached = [str(f) for msg in msgs for f in msg.files]
-    assert str(agent_file) in attached or str(agent_file.resolve()) in attached, (
-        attached
+    assert str(agent_file.resolve()) not in attached
+
+
+@pytest.mark.parametrize("source", ["tree", "user", "user-alias", "project-alias"])
+def test_unreadable_startup_rules_do_not_grant_trust(
+    tmp_path, monkeypatch, source, request
+):
+    """Only instruction text actually read at startup can grant agent trust."""
+    from gptme.hooks.agents_md_inject import (
+        _prompt_file_roots,
+        inject_agent_instruction_files,
     )
+    from gptme.logmanager import Log
+    from gptme.prompts import _loaded_agent_files_var, prompt_workspace
+
+    fake_home = tmp_path / "home"
+    workspace = fake_home / "project"
+    workspace.mkdir(parents=True)
+    config_dir = fake_home / "config"
+    config_dir.mkdir()
+    agent_root = {
+        "user": config_dir,
+        "user-alias": fake_home / "foreign",
+    }.get(source, workspace)
+    agent_root.mkdir(exist_ok=True)
+    (agent_root / "gptme.toml").write_text('[agent]\nname = "test-agent"\n')
+    agent_file = agent_root / "AGENTS.md"
+    target = workspace / "rules.txt" if source.endswith("alias") else agent_file
+    target.write_bytes(b"caf\xe9 rules\n")
+    _skip_unless_default_decoder_rejects(target)
+    if source.endswith("alias"):
+        request.getfixturevalue("requires_symlinks")
+        agent_file.symlink_to(target)
+
+    patterns = '["rules.txt", "AGENTS.md"]' if source == "project-alias" else "[]"
+    with (workspace / "gptme.toml").open("a") as config:
+        config.write(f"[prompt]\nfiles = {patterns}\n")
+    cfg = SimpleNamespace(
+        user=SimpleNamespace(
+            prompt=SimpleNamespace(
+                files=[str(target), str(agent_file)] if source == "user-alias" else []
+            )
+        )
+    )
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    monkeypatch.setattr("gptme.prompts.workspace.get_config", lambda: cfg)
+    monkeypatch.setattr("gptme.hooks.agents_md_inject.get_config", lambda: cfg)
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path", str(config_dir / "config.toml")
+    )
+    token = _loaded_agent_files_var.set(set())
+    try:
+        msgs = list(
+            prompt_workspace(
+                workspace,
+                include_runtime_context=False,
+                include_user_context=source != "project-alias",
+            )
+        )
+        log = Log(messages=msgs)
+        assert not _prompt_file_roots(log)
+        assert str(target.resolve()) not in (_loaded_agent_files_var.get() or set())
+
+        # Repairing the file must make it eligible for injection: a failed
+        # startup read must not permanently suppress the CWD hook's retry.
+        target.write_text("# Repaired agent rules\n")
+        injected = list(
+            inject_agent_instruction_files(log, [agent_file], workspace=agent_root)
+        )
+        assert any("# Repaired agent rules" in msg.content for msg in injected)
+        readable_msgs = list(
+            prompt_workspace(
+                workspace,
+                include_runtime_context=False,
+                include_user_context=source != "project-alias",
+            )
+        )
+        assert _prompt_file_roots(Log(messages=readable_msgs)) == {agent_root.resolve()}
+    finally:
+        _loaded_agent_files_var.reset(token)

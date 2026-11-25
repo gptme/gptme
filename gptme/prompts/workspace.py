@@ -10,7 +10,7 @@ from ..config import config_path, get_config, get_project_config
 from ..memory import MemoryStore, resolve_roots
 from ..memory.policy import POLICY_FILENAME
 from ..message import Message
-from ..util.context import md_codeblock
+from ..util.context import md_codeblock, textfile_as_codeblock
 from ..util.context_dedup import _content_hash
 from ..util.git_cmd import git_inspect_cmd
 from ..util.tree import get_tree_output
@@ -387,17 +387,15 @@ def prompt_workspace(
             if user_file.exists():
                 resolved = str(user_file.resolve())
                 if resolved not in seen_paths:
+                    try:
+                        content = user_file.read_text()
+                    except (OSError, UnicodeDecodeError) as e:
+                        logger.warning(f"Could not read agent file {user_file}: {e}")
+                        continue
                     agent_files.append(user_file)
                     seen_paths.add(resolved)
                     loaded_agent_files.add(resolved)
-                    try:
-                        loaded_agent_files.add(
-                            f"{_HASH_PREFIX}{_content_hash(user_file.read_text())}"
-                        )
-                    except (OSError, UnicodeDecodeError):
-                        # Undecodable text gets no content hash, so it is
-                        # deduplicated by path only.
-                        pass
+                    loaded_agent_files.add(f"{_HASH_PREFIX}{_content_hash(content)}")
                     logger.debug(f"Loaded user-level agent file: {user_file}")
 
     # 2. Walk from home down to workspace, loading any AGENT_FILES found
@@ -409,15 +407,15 @@ def prompt_workspace(
             workspace_resolved, exclude=seen_paths
         ):
             resolved = str(agent_file.resolve())
+            try:
+                content = agent_file.read_text()
+            except (OSError, UnicodeDecodeError) as e:
+                logger.warning(f"Could not read agent file {agent_file}: {e}")
+                continue
             agent_files.append(agent_file)
             seen_paths.add(resolved)
             loaded_agent_files.add(resolved)
-            try:
-                loaded_agent_files.add(
-                    f"{_HASH_PREFIX}{_content_hash(agent_file.read_text())}"
-                )
-            except (OSError, UnicodeDecodeError):
-                pass
+            loaded_agent_files.add(f"{_HASH_PREFIX}{_content_hash(content)}")
             logger.debug(f"Loaded agent file from tree: {agent_file}")
 
     # Determine which additional file patterns to use (from config or defaults)
@@ -501,6 +499,8 @@ def prompt_workspace(
         before_count = len(context_files)
         workspace_bases = (workspace, workspace.absolute(), workspace_resolved)
 
+        workspace_bases = (workspace, workspace.absolute(), workspace_resolved)
+
         def _is_excluded(f: Path, patterns: list[str]) -> bool:
             # Glob matches are relative to the workspace as given, which may
             # be a symlink or relative path, so try both spellings.
@@ -557,11 +557,19 @@ def prompt_workspace(
             if not isinstance(f, Path):
                 continue
             target = f.resolve()
-            for location in (
+            locations = (
                 *_configured_locations(f),
                 target,
                 *configured_paths.get(target, []),
-            ):
+            )
+            # Configured aliases can name instructions even when the target
+            # is a regular context file. An attachment with no readable text
+            # must not establish startup identity or adoption trust.
+            if not any(_is_agent_instruction_file(loc) for loc in locations):
+                continue
+            if textfile_as_codeblock(f) is None:
+                continue
+            for location in locations:
                 if not _is_agent_instruction_file(location):
                     continue
                 found = _nearest_agent_root(location.parent)
