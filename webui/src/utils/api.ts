@@ -229,7 +229,10 @@ export function mergeReconnectSnapshot(
       ...entry,
       ...clientFields,
       timestamp: previous.timestamp ?? entry.timestamp,
-      ...(options.generating && isIncomplete(previous)
+      // A live partial the server has not saved keeps streaming. A partial
+      // folded into its saved copy takes the saved text: the stream does not
+      // replay generation_complete, so the partial would stay cut off.
+      ...(options.generating && isIncomplete(previous) && !folded.has(snapshotIndex)
         ? { content: previous.content, isComplete: false }
         : {}),
     } as Message;

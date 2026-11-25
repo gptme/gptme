@@ -338,11 +338,10 @@ describe('mergeReconnectSnapshot', () => {
       ...opts,
       generating: true,
     });
-    // The row keeps the stream's timestamp so generation_complete fills it.
-    expect(log).toEqual([
-      user,
-      { ...reply, timestamp: partial.timestamp, content: 'Hello', isComplete: false },
-    ]);
+    // The row takes the saved text (generation_complete is not replayed after
+    // a reconnect) and keeps the stream's timestamp, so a late
+    // generation_complete still targets this row instead of adding another.
+    expect(log).toEqual([user, { ...reply, timestamp: partial.timestamp }]);
   });
 
   it('keeps client-synthesized rows the server never stores', () => {

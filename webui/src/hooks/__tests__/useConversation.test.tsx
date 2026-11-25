@@ -1861,6 +1861,31 @@ describe('useConversation', () => {
     expect(after.find((message) => message.timestamp === b!.timestamp)!._status).toBe('failed');
   });
 
+  it('ignores message_added for rows a reconnect resync already restored', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const prompt = conv$.data.log.get()[0];
+    const reply: Message = {
+      role: 'assistant',
+      content: 'Done',
+      timestamp: '2026-11-25T10:00:01Z',
+    };
+    const output: Message = {
+      role: 'system',
+      content: 'tool output',
+      timestamp: '2026-11-25T10:00:02Z',
+    };
+    // The resync GET added both saved rows before their events arrived.
+    conv$.data.log.set([prompt, reply, output]);
+    act(() => {
+      eventHandlers!.onMessageAdded!({ ...reply, timestamp: '2026-11-25T10:00:01.000000+00:00' });
+      eventHandlers!.onMessageAdded!(output);
+    });
+    expect(conv$.data.log.get()).toEqual([prompt, reply, output]);
+  });
+
   it('keeps Retry when initial HTTP refusal precedes its SSE diagnostic', async () => {
     const log$ = conversations$.get('chat-placeholder')!.data.log;
     log$[0]._retry.set({ persistence: 'saved', options: { stream: false } });

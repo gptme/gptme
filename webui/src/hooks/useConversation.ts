@@ -545,8 +545,14 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onMessageAdded: (message) => {
-              // Check if this message already exists (ignoring timestamp)
+              // A reconnect resync may already have restored this saved row,
+              // possibly followed by later rows: match by identity across the log.
               const messages$ = conversation$?.data.log;
+              const log = (messages$?.peek() ?? []) as Message[];
+              if (log.some((entry) => sameLogMessage(entry, message))) {
+                return;
+              }
+              // Check if this message already exists (ignoring timestamp)
               const lastMessage$ = messages$?.[messages$.length - 1];
               if (
                 lastMessage$?.role.get() === message.role &&
