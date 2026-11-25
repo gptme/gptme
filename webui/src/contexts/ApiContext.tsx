@@ -59,9 +59,10 @@ interface ApiContextType {
   stopAutoConnect: () => void;
   /**
    * Manual "Retry connection": probe the server now. While the auto-connect
-   * loop is still retrying, this runs its next attempt early and keeps the
-   * remaining retries, so a server that is still starting up gets picked up by
-   * a later attempt. Otherwise it is a plain `connect()`.
+   * loop is still retrying, this waits for the probe in flight, or runs the next
+   * attempt early, and keeps the remaining retries, so a server that is still
+   * starting up gets picked up by a later attempt. Otherwise it is a plain
+   * `connect()`.
    */
   retryConnection: () => Promise<void>;
 }
@@ -93,6 +94,10 @@ let autoConnectAttempts = 0;
 // client mid-probe) can detect it is stale and avoid touching shared state —
 // in particular clearing the retry timer a later attempt scheduled.
 let autoConnectGeneration = 0;
+// The auto-connect probe currently waiting on the server, if any. A manual retry
+// that arrives meanwhile joins it: a second probe would discard this one's
+// result and charge the attempt budget twice.
+let pendingAutoProbe: { settled: Promise<unknown>; isManualRetry: boolean } | null = null;
 const MAX_AUTO_CONNECT_ATTEMPTS = 10;
 const INITIAL_RETRY_DELAY = 1000;
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:5700';
@@ -131,6 +136,7 @@ const stopAutoConnect = () => {
   // Invalidate any in-flight probe: if it resolves later it must not set state
   // or clear a retry timer that a newer attempt scheduled.
   autoConnectGeneration++;
+  pendingAutoProbe = null;
   if (autoConnectTimer) {
     clearTimeout(autoConnectTimer);
     autoConnectTimer = null;
@@ -407,13 +413,18 @@ export function ApiProvider({
         `[ApiContext] Auto-connect attempt ${autoConnectAttempts}/${MAX_AUTO_CONNECT_ATTEMPTS}`
       );
 
+      const check = client.checkConnection();
+      const probe = { settled: check.catch(() => false), isManualRetry };
+      pendingAutoProbe = probe;
+
       try {
-        const connected = await client.checkConnection();
+        const connected = await check;
         // A newer attempt may have started while this probe was in flight — a
         // credential change swaps in a fresh client and re-runs the effect. Bail
         // before touching shared state, or this stale attempt would clear the
         // newer attempt's retry timer and leave the active client disconnected.
         if (generation !== autoConnectGeneration) return;
+        pendingAutoProbe = null;
         if (connected) {
           console.log('[ApiContext] Auto-connect successful');
           client.setConnected(true);
@@ -421,13 +432,14 @@ export function ApiProvider({
 
           await queryClient.invalidateQueries();
 
-          if (!isInitialAttempt) {
+          if (!isInitialAttempt || probe.isManualRetry) {
             toast.success('Connected to gptme server');
           }
           return;
         }
       } catch (error) {
         if (generation !== autoConnectGeneration) return;
+        pendingAutoProbe = null;
         console.log(`[ApiContext] Auto-connect attempt ${autoConnectAttempts} failed:`, error);
       }
 
@@ -441,7 +453,7 @@ export function ApiProvider({
       // Only a user-triggered retry needs immediate failure feedback. Keep the
       // scheduled retries silent, and report before classifying permanent errors
       // so every manual failure produces exactly one toast.
-      if (isManualRetry) {
+      if (probe.isManualRetry) {
         let message = 'Could not connect to gptme instance.';
         if (lastResult && !lastResult.ok) {
           message += ` Tried ${lastResult.url}.`;
@@ -459,7 +471,7 @@ export function ApiProvider({
       if (lastResult && !lastResult.ok && lastResult.reason === 'cors') {
         console.log('[ApiContext] CORS/PNA failure — stopping auto-connect (use manual reconnect)');
         stopAutoConnect();
-        if (!isInitialAttempt && !isManualRetry) {
+        if (!isInitialAttempt && !probe.isManualRetry) {
           toast.error('Server blocked the connection (CORS) — check server config');
         }
         return;
@@ -469,7 +481,7 @@ export function ApiProvider({
       if (lastResult && !lastResult.ok && lastResult.status === 401) {
         console.log('[ApiContext] 401 — stopping auto-connect (token required)');
         stopAutoConnect();
-        if (!isInitialAttempt && !isManualRetry) {
+        if (!isInitialAttempt && !probe.isManualRetry) {
           toast.error(
             lastResult.message ||
               'Server is running but requires a bearer token. Paste it in settings.'
@@ -482,7 +494,7 @@ export function ApiProvider({
       // already reported its error; do not schedule a timer just to report it again.
       if (autoConnectAttempts >= MAX_AUTO_CONNECT_ATTEMPTS) {
         stopAutoConnect();
-        if (!isInitialAttempt && !isManualRetry) {
+        if (!isInitialAttempt && !probe.isManualRetry) {
           toast.error('Unable to connect to gptme server after multiple attempts');
         }
         return;
@@ -502,14 +514,20 @@ export function ApiProvider({
   );
 
   const retryConnection = useCallback(async () => {
+    // A probe is already on its way: report its outcome to the user.
+    if (pendingAutoProbe) {
+      pendingAutoProbe.isManualRetry = true;
+      await pendingAutoProbe.settled;
+      return;
+    }
     // Once the automatic budget is spent or the loop is idle, check the
     // server directly instead.
     if (!isAutoConnecting$.get() || autoConnectAttempts >= MAX_AUTO_CONNECT_ATTEMPTS) {
       await connect();
       return;
     }
-    // Run the pending attempt now instead of cancelling the loop. autoConnect
-    // bumps the generation, so an in-flight probe can't schedule a duplicate.
+    // The loop is in its back-off: run the next attempt now instead of
+    // cancelling the loop.
     if (autoConnectTimer) {
       clearTimeout(autoConnectTimer);
       autoConnectTimer = null;

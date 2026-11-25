@@ -242,9 +242,11 @@ export const WelcomeView = () => {
       // Server is already running — just retry the connection below
     }
     try {
-      await connect();
+      // Not connect(): the server may not accept requests yet, and connect()
+      // would cancel the auto-connect loop that picks it up later.
+      await retryConnection();
     } catch {
-      // connect() already shows a toast on failure
+      // The direct-connect fallback already shows toast.error; avoid double-toast
     } finally {
       setIsRestartingServer(false);
     }

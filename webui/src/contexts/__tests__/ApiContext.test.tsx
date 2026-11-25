@@ -723,6 +723,97 @@ describe('ApiProvider mobile auto-connect', () => {
   });
 
   it.each([
+    { attempt: 'initial', connected: true },
+    { attempt: 'initial', connected: false },
+    { attempt: 'tenth', connected: true },
+  ] as const)(
+    'manual retry joins the $attempt probe in flight (connected: $connected)',
+    async ({ attempt, connected }) => {
+      jest.useFakeTimers();
+      setActiveServerBaseUrl('https://bob.example.com');
+      const failProbe = async () => {
+        lastConnectionResult$.set({
+          ok: false,
+          url: 'https://bob.example.com',
+          reason: 'network',
+          message: 'Could not reach server',
+        });
+        return false;
+      };
+      let resolveProbe!: (value: boolean) => void;
+      const holdProbe = () =>
+        new Promise<boolean>((resolve) => {
+          resolveProbe = resolve;
+        });
+      mockCheckConnection.mockImplementation(attempt === 'initial' ? holdProbe : failProbe);
+
+      let retryFromProbe!: () => Promise<void>;
+      let autoConnecting$!: { get: () => boolean };
+      function RetryProbe() {
+        const ctx = useApi();
+        retryFromProbe = ctx.retryConnection;
+        autoConnecting$ = ctx.isAutoConnecting$;
+        return null;
+      }
+      render(
+        <ApiProvider queryClient={new QueryClient()}>
+          <RetryProbe />
+        </ApiProvider>
+      );
+      await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(1));
+
+      if (attempt === 'tenth') {
+        for (let i = 0; i < 8; i++) {
+          await act(async () => {
+            await retryFromProbe();
+          });
+        }
+        mockCheckConnection.mockImplementation(holdProbe);
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(30000);
+        });
+        mockToastError.mockClear();
+      }
+      const probes = attempt === 'initial' ? 1 : 10;
+      expect(mockCheckConnection).toHaveBeenCalledTimes(probes);
+
+      let retried = false;
+      let retry!: Promise<void>;
+      await act(async () => {
+        retry = retryFromProbe().then(() => {
+          retried = true;
+        });
+      });
+      expect(mockCheckConnection).toHaveBeenCalledTimes(probes);
+      expect(retried).toBe(false);
+
+      await act(async () => {
+        if (!connected) await failProbe();
+        resolveProbe(connected);
+        await retry;
+      });
+      if (connected) {
+        expect(mockSetConnected).toHaveBeenCalledWith(true);
+        expect(mockToastSuccess).toHaveBeenCalledTimes(1);
+        expect(mockToastError).not.toHaveBeenCalled();
+        expect(autoConnecting$.get()).toBe(false);
+      } else {
+        expect(mockToastError).toHaveBeenCalledTimes(1);
+        expect(mockToastError).toHaveBeenCalledWith(
+          expect.stringContaining('Could not reach server')
+        );
+        // The loop carries on with its normal first back-off.
+        mockCheckConnection.mockImplementation(failProbe);
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(1000);
+        });
+        expect(mockCheckConnection).toHaveBeenCalledTimes(probes + 1);
+        expect(mockToastError).toHaveBeenCalledTimes(1);
+      }
+    }
+  );
+
+  it.each([
     { reason: 'network', message: 'Could not reach server' },
     { reason: 'timeout', message: 'Connection timed out' },
     { reason: 'http_error', status: 403, message: '403 Forbidden' },

@@ -1001,9 +1001,9 @@ describe('WelcomeView', () => {
       expect(screen.queryByRole('button', { name: /copy start command/i })).not.toBeInTheDocument();
     });
 
-    it('shows "Restart server" button in Tauri that invokes start_server then connect', async () => {
+    it('shows "Restart server" button in Tauri that invokes start_server then retries', async () => {
       mockInvokeTauri.mockResolvedValue(5700);
-      mockConnect.mockResolvedValue(undefined);
+      mockRetryConnection.mockResolvedValue(undefined);
 
       render(
         <SettingsProvider>
@@ -1018,8 +1018,10 @@ describe('WelcomeView', () => {
 
       await waitFor(() => {
         expect(mockInvokeTauri).toHaveBeenCalledWith('start_server');
-        expect(mockConnect).toHaveBeenCalled();
+        expect(mockRetryConnection).toHaveBeenCalled();
       });
+      // connect() would cancel the auto-connect loop while the server boots.
+      expect(mockConnect).not.toHaveBeenCalled();
     });
 
     it('still shows "Retry connection" button alongside "Restart server"', () => {
@@ -1045,9 +1047,9 @@ describe('WelcomeView', () => {
       expect(screen.queryByRole('button', { name: /use gptme\.ai/i })).not.toBeInTheDocument();
     });
 
-    it('falls back to connect-only when start_server says already running', async () => {
+    it('falls back to retry-only when start_server says already running', async () => {
       mockInvokeTauri.mockRejectedValue('Server is already running');
-      mockConnect.mockResolvedValue(undefined);
+      mockRetryConnection.mockResolvedValue(undefined);
 
       render(
         <SettingsProvider>
@@ -1058,8 +1060,9 @@ describe('WelcomeView', () => {
       fireEvent.click(screen.getByRole('button', { name: /restart server/i }));
 
       await waitFor(() => {
-        expect(mockConnect).toHaveBeenCalled();
+        expect(mockRetryConnection).toHaveBeenCalled();
       });
+      expect(mockConnect).not.toHaveBeenCalled();
     });
   });
 });
