@@ -128,15 +128,16 @@ def _im_environment(directory: str | None) -> dict[str, str] | None:
 
 
 def _is_multi_frame(path: Path) -> bool:
-    """Whether Pillow sees more than one frame; uninspectable sources are single."""
+    """Whether a source needs a frame-preserving backend (unknown counts do)."""
     from PIL import Image
 
     try:
         with Image.open(path) as image:
             return getattr(image, "n_frames", 1) > 1
     except Exception:
-        # Keep the previous backend choice when Pillow cannot read the source.
-        return False
+        # Failure to inspect is not evidence that a source is single-frame.
+        # In particular, the pixel-size guard must not cause silent frame loss.
+        return True
 
 
 def _para_to_md(para: object) -> str:
@@ -738,6 +739,9 @@ class ImageConverter(Converter):
                     "-define",
                     "filename:literal=true",
                 ]
+                if multipage_tiff and not is_tiff:
+                    # GIF delta frames need composition before becoming pages.
+                    cmd += ["-coalesce"]
                 if lossy:
                     cmd += ["-quality", str(q)]
                 cmd += [str(dest.absolute()) if directory else _arg(dest)]

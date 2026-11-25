@@ -182,7 +182,7 @@ def _subprocess_tools_arg(
             if profile_tools is not None
             else [item for item in parent_tool_allowlist if _is_tool_file_entry(item)]
         )
-        for tool in get_available_tools(include_mcp=False):
+        for tool in get_available_tools():
             if not tool_matches_allowlist(tool.name, parent_tool_allowlist, tool.hints):
                 continue
             if profile_tools is not None and not tool_matches_allowlist(

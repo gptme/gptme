@@ -1248,7 +1248,18 @@ def set_session_allowlist(allowlist: list[str] | None) -> None:
     ``None`` means unrestricted. An explicit list is the hard cap that
     ``request_tool_change`` enablement must honor.
     """
-    _session_allowlist_var.set(list(allowlist) if allowlist is not None else None)
+    # Pin operator-approved files in the parent's workspace before a child
+    # changes cwd. Re-resolving a relative path there can import another file.
+    _session_allowlist_var.set(
+        [
+            str(Path(item).expanduser().resolve())
+            if item.endswith(".py") or "/" in item or "\\" in item
+            else item
+            for item in allowlist
+        ]
+        if allowlist is not None
+        else None
+    )
 
 
 def unload_tool(tool_name: str) -> ToolSpec:

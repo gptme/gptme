@@ -6046,7 +6046,12 @@ def test_create_tool_result_summary_save_failure_is_honest(tmp_path):
     assert not (tmp_path / "tool-outputs").exists()
 
 
-def test_resume_via_llm_chunks_history_larger_than_window(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "model_name", ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4-5"]
+)
+def test_resume_via_llm_chunks_history_larger_than_window(
+    tmp_path, monkeypatch, model_name
+):
     """A history larger than the window is chunk-summarized, not cut by limit_log.
 
     Regression (#4309 follow-through, #5247 item 2): prepare_messages() applied
@@ -6056,13 +6061,17 @@ def test_resume_via_llm_chunks_history_larger_than_window(tmp_path, monkeypatch)
     """
     from dataclasses import replace as dc_replace
 
-    from gptme.llm.models import get_default_model
+    from gptme.llm.models import get_model
     from gptme.logmanager import LogManager
     from gptme.tools.autocompact.resume import _resume_via_llm
 
-    base = get_default_model()
-    assert base is not None
-    small = dc_replace(base, context=30_000)
+    small = dc_replace(get_model(model_name), context=30_000)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume._apply_native_compaction",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("overflow must chunk before native request")
+        ),
+    )
     for target in (
         "gptme.tools.autocompact.resume.get_default_model",
         "gptme.util.reduce.get_default_model",

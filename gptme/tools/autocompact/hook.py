@@ -540,7 +540,15 @@ def autocompact_hook(
             except Exception:
                 pass  # Config read is best-effort; use defaults if it fails
 
-            if checkpoint_turn is None:
+            m = get_default_model()
+            # A normal checkpoint turn uses prepare_messages' hard window
+            # limit. Route overflow directly through the chunked summarizer
+            # before that limit can discard early requirements. In-window
+            # checkpoints keep their normal tool-capable turn.
+            overflow = m is not None and len_tokens(checkpoint_source, m.model) > (
+                get_context_budget(m.context, model_id=m.full)
+            )
+            if checkpoint_turn is None and not overflow:
                 # Provider-native compaction before queuing the generic
                 # checkpoint turn: _resume_via_llm's native branch only runs
                 # when no checkpoint response is supplied, so queueing the

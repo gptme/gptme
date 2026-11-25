@@ -981,14 +981,21 @@ class Subagent:
         # copied from the parent; skip them so the count reflects only this
         # subagent's tool calls, not the parent's inherited history.
         own_msgs = log[self.fork_message_count :]
-        # The "tool" override parses markdown blocks *and* native calls, so a
-        # native-format child's calls are counted regardless of the parent's
-        # current tool format.
+        # Read the child's dialect, not the parent's current context. Native
+        # parsing includes markdown, but XML needs its own parser.
+        from ...config.chat import ChatConfig
+
+        child_format = ChatConfig.from_logdir(
+            self.logdir, create_workspace=False
+        ).tool_format
+        count_format: Literal["xml", "tool"] = (
+            "xml" if child_format == "xml" else "tool"
+        )
         n_tool_uses = sum(
             len(
                 list(
                     ToolUse.iter_from_content(
-                        message.content, tool_format_override="tool"
+                        message.content, tool_format_override=count_format
                     )
                 )
             )

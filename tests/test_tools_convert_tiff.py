@@ -204,10 +204,10 @@ def test_tiff_size_limit_inspection_failure(
 
 @pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
 @pytest.mark.parametrize("source_suffix", [".png", ".tiff", ".bin"])
-def test_non_tiff_size_limit_keeps_backend_choice(
+def test_non_tiff_unknown_frame_count_requires_preserving_backend(
     tmp_path: Path, backend: str, source_suffix: str
 ) -> None:
-    """Non-TIFF content needs no page inspection, even with a TIFF suffix."""
+    """An uninspectable non-TIFF must use a frame-preserving backend too."""
     if not shutil.which("convert") or not shutil.which("ffmpeg"):
         pytest.skip("real FFmpeg and ImageMagick required")
     source = tmp_path / f"size-limited{source_suffix}"
@@ -227,11 +227,14 @@ def test_non_tiff_size_limit_keeps_backend_choice(
                 else convert_file(source, destination)
             )
         assert Image.MAX_IMAGE_PIXELS == 100
-    assert result.success, result.error
-    assert result.converter_used == (
-        "imagemagick" if backend == "imagemagick" else "ffmpeg"
-    )
     assert source.read_bytes() == before
+    if backend == "ffmpeg":
+        assert not result.success
+        assert result.error and "ImageMagick" in result.error
+        assert not destination.exists()
+        return
+    assert result.success, result.error
+    assert result.converter_used == "imagemagick"
     with Image.open(destination) as image:
         assert len(list(ImageSequence.Iterator(image))) == 1
         assert image.size == (16, 16)
@@ -302,3 +305,32 @@ def test_animated_gif_to_tiff_keeps_frames(tmp_path: Path, backend: str) -> None
             frame.convert("RGB").getpixel((0, 0))
             for frame in ImageSequence.Iterator(image)
         ] == COLORS[:2]
+
+
+def test_delta_gif_to_tiff_composes_full_pages(tmp_path: Path) -> None:
+    if not shutil.which("convert"):
+        pytest.skip("ImageMagick not installed")
+    source = tmp_path / "delta.gif"
+    destination = tmp_path / "output.tiff"
+    first = Image.new("RGB", (16, 16), "red")
+    second = first.copy()
+    second.putpixel((8, 8), (0, 0, 255))
+    first.save(source, save_all=True, append_images=[second], optimize=True, disposal=1)
+    with Image.open(source) as image:
+        expected = [
+            frame.convert("RGB").tobytes() for frame in ImageSequence.Iterator(image)
+        ]
+    with patch(
+        "gptme.tools.convert.get_availability",
+        return_value=ToolAvailability(ffmpeg=True, imagemagick=True),
+    ):
+        result = convert_file(source, destination)
+    assert result.success, result.error
+    with Image.open(destination) as image:
+        assert [frame.size for frame in ImageSequence.Iterator(image)] == [
+            (16, 16),
+            (16, 16),
+        ]
+        assert [
+            frame.convert("RGB").tobytes() for frame in ImageSequence.Iterator(image)
+        ] == expected

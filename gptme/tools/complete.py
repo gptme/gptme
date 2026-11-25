@@ -62,21 +62,6 @@ _AUTO_REPLY_MARKER = "No tool call detected"
 # Marker text of the stuck-loop nudge; see ``stuck_detect_hook``.
 STUCK_MARKER = "appear stuck"
 
-# Exact prefixes of harness-injected user-role messages. Each harness message
-# (the auto-reply and budget-aware nudges, the stuck-loop nudge, and the
-# verification-failure message) is wrapped in the reserved ``<system>`` tag.
-# Matching these prefixes — rather than the bare ``<system>`` wrapper — keeps a
-# real user message that merely *starts with* the tag (e.g. pasted XML) from
-# being mistaken for harness output, which would suppress the episode reset and
-# carry the block budget across a genuine user turn. Wrapping the
-# verification-failure message too means a real user message that happens to
-# start with the literal marker phrase can never collide with the harness form.
-_HARNESS_USER_PREFIXES = (
-    f"<system>{_AUTO_REPLY_MARKER}",
-    f"<system>You {STUCK_MARKER}",
-    f"<system>{_VERIFY_FAILED_MARKER}",
-)
-
 
 # Trusted provenance for harness-generated auto-reply nudges. Content prefixes
 # can be reproduced by a real user; this metadata is written only by the hooks
@@ -95,15 +80,14 @@ def _is_harness_user_message(m: "Message") -> bool:
     Harness-injected user messages are the auto-reply/budget nudges, the
     stuck-loop nudge, the verification-failure message (each wrapped in the
     reserved ``<system>`` tag), and autocompaction checkpoint requests (tagged
-    by ``compaction_checkpoint_view`` metadata). Only those exact prefixes and
+    by ``compaction_checkpoint_view`` metadata). Only trusted provenance and
     the checkpoint metadata count: a real user message can *quote* the marker
     or even paste text that starts with ``<system>`` without being harness
     output, and either must still end the episode.
     """
     if "compaction_checkpoint_view" in (m.metadata or {}):
         return True
-    content = m.content or ""
-    return content.startswith(_HARNESS_USER_PREFIXES)
+    return (m.metadata or {}).get("harness_nudge") is True
 
 
 def _is_auto_reply_message(m: "Message") -> bool:
@@ -193,9 +177,8 @@ def _verification_failure_message(
     """Build a failed-verification result without granting output system authority."""
     return Message(
         "user",
-        # Wrapped in the reserved ``<system>`` tag so the harness-prefix check
-        # in _is_harness_user_message recognizes it while a real user message
-        # that starts with the bare marker phrase still ends the episode.
+        # Keep the harness wrapper for display; provenance below, not the
+        # content (which a user can paste), identifies this as a nudge.
         f"<system>{_VERIFY_FAILED_MARKER}: exit code {returncode}.\n"
         f"Command: `{xml_escape(verify_cmd)}`\n"
         f"{_VERIFIER_OUTPUT_PREAMBLE}\n"
@@ -204,6 +187,7 @@ def _verification_failure_message(
         "</verifier-output>\n\n"
         "Please fix the issue and call complete again.</system>",
         quiet=False,
+        metadata=_nudge_metadata(),
     )
 
 
@@ -1344,6 +1328,7 @@ def stuck_detect_hook(
             f"genuinely blocked.</system>"
         ),
         quiet=False,
+        metadata=_nudge_metadata(),
     )
 
 

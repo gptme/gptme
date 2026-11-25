@@ -1260,9 +1260,15 @@ def _interpreter_args(rest: str) -> list[str] | None:
         # drops whitespace, so `python3 123 > out` and `2>out` would otherwise
         # look alike; only the latter's digits are the redirect's fd.
         lexed: list[tuple[str, bool]] = []
+        start = 0
         for token in lexer:
             end = stream.tell()
-            lexed.append((token, line[end - 1 : end] in ("<", ">")))
+            before_redirect = line[end - 1 : end] in ("<", ">")
+            # A shell IO_NUMBER must be unquoted and unescaped. shlex strips
+            # both, so inspect the source spelling as well as adjacency.
+            raw = line[start : end - 1] if before_redirect else ""
+            lexed.append((token, before_redirect and raw.lstrip() == token))
+            start = end - 1 if before_redirect else end
     except ValueError:
         return None
     tokens = iter(lexed)

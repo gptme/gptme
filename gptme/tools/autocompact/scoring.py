@@ -214,9 +214,8 @@ _URL_PATTERN = re.compile(r'https?://[^\s<>"\')]+')
 # letter and be at least two characters ("1.2", "e.g" don't match) and the
 # extension must start with a letter ("v1.2", "python3.11" don't match).
 _BARE_FILENAME_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_./~\\-])(?=[A-Za-z0-9_-]{2})"
-    r"[A-Za-z0-9_-]*[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*"
-    r"\.[A-Za-z][A-Za-z0-9]{0,9}(?![A-Za-z0-9_/\\(-])"
+    r"(?<![A-Za-z0-9_./~\\-])[A-Za-z0-9_-][A-Za-z0-9_.-]{1,254}"
+    r"(?![A-Za-z0-9_./\\(-])"
 )
 _ERROR_INDICATOR_PATTERNS = [
     re.compile(r"\b(error|exception|traceback)\b", re.IGNORECASE),
@@ -484,10 +483,24 @@ def _extract_file_paths(content: str) -> set[str]:
     ``src/config.py`` and bare filenames such as ``data1.csv`` so a later
     mention of that file still counts as a reference.
     """
+    bare_paths = set()
+    for candidate in _BARE_FILENAME_PATTERN.findall(content):
+        candidate = candidate.rstrip(".")
+        stem, dot, extension = candidate.rpartition(".")
+        first_stem = stem.split(".", 1)[0]
+        if (
+            dot
+            and len(first_stem) >= 2
+            and any(char.isalpha() for char in first_stem)
+            and 1 <= len(extension) <= 10
+            and extension[0].isalpha()
+            and extension.isalnum()
+        ):
+            bare_paths.add(candidate)
     return (
         set(_FILE_PATH_PATTERN.findall(content))
         | set(_RELATIVE_FILE_PATH_PATTERN.findall(content))
-        | set(_BARE_FILENAME_PATTERN.findall(content))
+        | bare_paths
     )
 
 

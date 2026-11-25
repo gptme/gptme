@@ -1385,7 +1385,12 @@ def _resume_via_llm(
     # compaction capability, the old prefix is summarized server-side and the
     # signed block is replayed verbatim. Any failure here falls through to the
     # generic checkpoint below.
-    if checkpoint_response is None and m.full.startswith("anthropic/"):
+    if (
+        checkpoint_response is None
+        and m.full.startswith("anthropic/")
+        and len_tokens(prepared_msgs, m.model)
+        <= get_context_budget(m.context, model_id=m.full)
+    ):
         native_applied = yield from _apply_native_compaction(
             manager,
             # The provider sees the prefix in one request, so keep the
@@ -1404,8 +1409,8 @@ def _resume_via_llm(
     _chunks_used: list[bool] = [False]
 
     if checkpoint_response is None:
-        # Legacy/manual path: ask the model directly without tools. Automatic
-        # compaction supplies a checkpoint from the normal turn loop instead.
+        # Manual or overflow path: ask directly without tools. In-window
+        # automatic compaction supplies a normal-turn checkpoint instead.
         legacy_prompt = build_checkpoint_prompt(compact_instructions)
         if previous_checkpoint is not None:
             legacy_prompt += (
