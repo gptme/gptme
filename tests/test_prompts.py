@@ -1022,6 +1022,42 @@ def test_agent_file_owned_by_directory_owner_loads_when_running_as_root(
     assert planted not in found
 
 
+def test_nested_agent_file_in_shared_ancestor_cannot_vouch_for_itself(
+    tmp_path: Path, monkeypatch
+):
+    """Another user who creates ``.github/`` in a root-owned shared ancestor owns
+    both that directory and the file inside it; that must not count as the
+    directory owner vouching for the file. Only the walk's target directory
+    vouches for files owned by its owner."""
+    from gptme.prompts import workspace
+
+    if not hasattr(os, "getuid"):
+        pytest.skip("POSIX ownership only")
+    shared = tmp_path / "shared"
+    project = shared / "proj"
+    project.mkdir(parents=True)
+    planted_dir = shared / ".github"
+    planted_dir.mkdir()
+    planted = planted_dir / "copilot-instructions.md"
+    planted.write_text("planted by another user")
+    own = project / "AGENTS.md"
+    own.write_text("mine")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "elsewhere-home")
+
+    real_uid = os.getuid()
+    attacker = real_uid + 1
+
+    def owner(p: Path, *, follow_symlinks: bool = True) -> int:
+        if p.resolve() in (planted_dir.resolve(), planted.resolve()):
+            return attacker
+        return real_uid if p.resolve() in (project.resolve(), own.resolve()) else 0
+
+    monkeypatch.setattr(workspace, "_file_owner_uid", owner)
+    found = workspace.find_agent_files_in_tree(project)
+    assert planted not in found
+    assert own in found
+
+
 def test_agent_file_symlink_owned_by_another_user_is_not_loaded(
     tmp_path: Path, monkeypatch, requires_symlinks
 ):

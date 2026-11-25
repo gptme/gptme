@@ -291,7 +291,7 @@ def _file_owner_uid(path: Path, *, follow_symlinks: bool = True) -> int | None:
         return None
 
 
-def _is_loadable_agent_file(agent_file: Path) -> bool:
+def _is_loadable_agent_file(agent_file: Path, vouching_dir: Path | None = None) -> bool:
     """Whether a discovered agent file is safe to embed in the prompt.
 
     - A symlink is followed only to a regular file that looks like an
@@ -302,7 +302,8 @@ def _is_loadable_agent_file(agent_file: Path) -> bool:
     - Only regular files load, so a FIFO or device under an agent-file name
       cannot block startup on ``read_text()``.
     - On POSIX, files owned by another (non-root) user are skipped unless that
-      user also owns the containing directory. Outside home
+      user also owns ``vouching_dir`` (the directory gptme was pointed at, never
+      an ancestor the walk passes through). Outside home
       the walk reaches shared directories such as ``/tmp``, where any local
       user can plant an ``AGENTS.md``. Both the symlink itself and its target
       must be ours or root's: another user's link to one of our files is their
@@ -327,13 +328,18 @@ def _is_loadable_agent_file(agent_file: Path) -> bool:
         for follow in (False, True):
             entry = agent_file.resolve() if follow else agent_file
             owner = _file_owner_uid(entry, follow_symlinks=False)
-            # The containing directory's owner vouches for its entries: a
+            # The target directory's owner vouches for files under it: a
             # bind-mounted checkout owned by uid 1000 still loads when gptme
-            # runs as root, and so does a teammate's checkout. A file planted
-            # by another user in a root-owned shared directory such as /tmp
-            # does not match its directory's owner and stays rejected.
-            dir_owner = _file_owner_uid(entry.parent)
-            if owner is not None and owner not in (getuid(), 0, dir_owner):
+            # runs as root, and so does a teammate's checkout. Shared ancestors
+            # such as /tmp get no such exception, and neither does the file's
+            # immediate parent: another user can create /tmp/.github and own
+            # both it and the copilot-instructions.md inside.
+            trusted = {getuid(), 0}
+            if vouching_dir is not None:
+                vouch = _file_owner_uid(vouching_dir)
+                if vouch is not None:
+                    trusted.add(vouch)
+            if owner is not None and owner not in trusted:
                 logger.warning(
                     "Skipping agent file %s: owned by another user (uid %s)",
                     agent_file,
@@ -383,7 +389,9 @@ def find_agent_files_in_tree(
     for dir_path in dirs_to_check:
         for filename in AGENT_FILES:
             agent_file = dir_path / filename
-            if agent_file.exists() and _is_loadable_agent_file(agent_file):
+            if agent_file.exists() and _is_loadable_agent_file(
+                agent_file, vouching_dir=target if dir_path == target else None
+            ):
                 resolved = str(agent_file.resolve())
                 if resolved not in _exclude:
                     if filename in _cross_tool_files:
