@@ -393,6 +393,44 @@ def test_phase_strip_digest_does_not_rescan_new_fence() -> None:
     assert replay_responses_output(stripped, metadata["responses_output"]) is not None
 
 
+def test_phase_strip_digest_matches_autocompact_across_calls() -> None:
+    """The digest covers what strip_reasoning does to the whole message."""
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture, replay_responses_output
+
+    before = "Use ` here\n"
+    raw_call = '@shell(call_1): {"command":"pwd"}'
+    after = "\nSo <think>p ` q</think>After"
+    content = before + raw_call + after
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message(before, "commentary"))
+    capture.output_item(1, {"type": "function_call", "call_id": "call_1"})
+    capture.output_item(2, _message(after, "final_answer"))
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    stripped, _ = strip_reasoning(content)
+    assert "<think>" not in stripped
+    replay = replay_responses_output(stripped, metadata["responses_output"])
+    assert replay is not None
+    assert replay[2]["phase"] == "final_answer"
+
+
+def test_phase_strip_digest_never_covers_changed_arguments() -> None:
+    from gptme.context import strip_reasoning
+    from gptme.llm.responses_phase import ResponsesPhaseCapture
+
+    raw_call = '@shell(call_1): {"command":"echo <think>keep</think>"}'
+    content = "<think>private</think>Run\n" + raw_call
+    capture = ResponsesPhaseCapture()
+    capture.output_item(0, _message("<think>private</think>Run\n", "commentary"))
+    capture.output_item(1, {"type": "function_call", "call_id": "call_1"})
+    metadata = capture.metadata(None, content)
+    assert metadata is not None
+    output = metadata["responses_output"]
+    assert strip_reasoning(content)[0] != content
+    assert "reasoning_stripped_digest" not in output
+
+
 def test_adjacent_phased_messages_survive_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

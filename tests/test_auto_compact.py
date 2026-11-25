@@ -480,6 +480,56 @@ def test_literal_tag_span_ignores_closer_of_later_block(later: str) -> None:
         assert result.endswith(later)
 
 
+@pytest.mark.parametrize(
+    "later",
+    [
+        "```xml\n</think>\n```",
+        "```xml\n</think>\n```\nDone",
+        "~~~xml\n</think>\n~~~",
+        "Close it with `</think>`.",
+    ],
+)
+def test_literal_tag_span_ignores_closer_in_later_code(later: str) -> None:
+    """A closer quoted in a separate code example does not split a literal span."""
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"Use `the\n<think> tag` here.\nVisible.\n{later}"
+    assert remove_reasoning(content) == content
+    assert _prose(content) == content
+
+
+@pytest.mark.parametrize("opener", ["<think>", "<think>\n"])
+def test_stray_backtick_cannot_split_mid_line_block(opener: str) -> None:
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"Use ` carefully.{opener}plan ` x</think>Done"
+    assert remove_reasoning(content) == "Use ` carefully.Done"
+    assert _prose(content) == "Use ` carefully.Done"
+
+
+def test_stray_backtick_block_may_contain_fenced_code() -> None:
+    from gptme.context.compress import remove_reasoning
+
+    content = "Use ` here.<think>plan ` x\n```sh\nls\n```\n</think>Done"
+    assert remove_reasoning(content) == "Use ` here.Done"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "The `<think>` tag is closed by </think> in output.",
+        "Use `<think>` tags.<think>private</think>",
+    ],
+)
+def test_quoted_opener_is_a_literal_mention(content: str) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    expected = content.replace("<think>private</think>", "")
+    assert remove_reasoning(content) == expected
+
+
 def test_strip_reasoning_marker_shaped_text_is_literal():
     """Text that looks like an internal placeholder is never rewritten."""
     from gptme.context import strip_reasoning

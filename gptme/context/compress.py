@@ -244,7 +244,6 @@ _FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`+")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
-_LINE_START_OPEN_RE = re.compile(r"^[ \t]*<(think|thinking)>", re.MULTILINE)
 # A blank line, a fence opener, or a reasoning marker alone on its line (the
 # shape providers emit). A tag followed by other text may continue inline code.
 _INLINE_BOUNDARY_RE = re.compile(
@@ -254,19 +253,39 @@ _INLINE_BOUNDARY_RE = re.compile(
 )
 
 
-def _splits_reasoning(content: str, start: int, end: int) -> bool:
-    """Whether an inline span candidate would cut a reasoning block in two.
+def _quoted(content: str, tag: re.Match[str]) -> bool:
+    """Whether a tag is quoted on its own (`` `<think>` ``): a literal mention."""
+    return content[: tag.start()].endswith("`") and content[tag.end() :][:1] == "`"
 
-    True when ``content[start:end]`` holds a line-start opener whose closer
-    lies past ``end``, with no other line-start opener of that tag in between.
+
+def _next_tag(content: str, pos: int, name: str) -> re.Match[str] | None:
+    """Next unquoted ``name`` tag at or after ``pos``, skipping fenced blocks."""
+    marker = re.compile(rf"^{_FENCE_OPEN_RE.pattern}|</?{name}>", re.MULTILINE)
+    while found := marker.search(content, pos):
+        if found.group(1):
+            body = _line_end(content, found.start())
+            # An unclosed fence hides nothing: it may sit inside the block.
+            pos = _fence_end(content, body, found.group(1)) or body
+        elif _quoted(content, found):
+            pos = found.end()
+        else:
+            return found
+    return None
+
+
+def _splits_reasoning(content: str, start: int, end: int) -> bool:
+    """Whether the inline span body ``content[start:end]`` cuts a block in two.
+
+    True when it holds an opener without its closer, and the next tag of that
+    name past the span (outside later code examples) is a closer.
     """
-    for opener in _LINE_START_OPEN_RE.finditer(content, start, end):
-        tag = opener.group(1)
-        if content.find(f"</{tag}>", opener.end(), end) != -1:
+    for opener in _REASONING_OPEN_RE.finditer(content, start, end):
+        name = opener.group(1)
+        if _quoted(content, opener):
             continue
-        after = re.compile(rf"</{tag}>|^[ \t]*<{tag}>", re.MULTILINE).search(
-            content, end
-        )
+        if content.find(f"</{name}>", opener.end(), end) != -1:
+            continue
+        after = _next_tag(content, end, name)
         if after and after.group().startswith("</"):
             return True
     return False
@@ -277,12 +296,12 @@ def _line_end(content: str, pos: int) -> int:
     return len(content) if end == -1 else end + 1
 
 
-def _fence_end(content: str, pos: int, fence: str) -> int:
+def _fence_end(content: str, pos: int, fence: str) -> int | None:
     """Return the end of the fenced block whose body starts at ``pos``.
 
     A closer uses the opener's character, at least as many of them, and
-    nothing but whitespace (including a CRLF ending). An unclosed fence runs
-    to the end of the content.
+    nothing but whitespace (including a CRLF ending). Returns ``None`` for an
+    unclosed fence.
     """
     while pos < len(content):
         end = _line_end(content, pos)
@@ -290,7 +309,7 @@ def _fence_end(content: str, pos: int, fence: str) -> int:
         if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
             return end
         pos = end
-    return len(content)
+    return None
 
 
 def _reasoning_segments(
@@ -310,7 +329,9 @@ def _reasoning_segments(
         if line_start:
             fence = _FENCE_OPEN_RE.match(content, pos)
             if fence:
-                end = _fence_end(content, _line_end(content, pos), fence.group(1))
+                body = _line_end(content, pos)
+                # An unclosed fence runs to the end of the content.
+                end = _fence_end(content, body, fence.group(1)) or len(content)
                 segments.append(("code", content[pos:end]))
                 pos = end
                 continue

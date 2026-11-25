@@ -216,22 +216,14 @@ class ResponsesPhaseCapture:
         # Allow a prose-only reasoning-strip edit, never a transform of argument
         # strings. Every native span is copied byte-for-byte into this anchor.
         if any(re.search(r"<think(?:ing)?>", text) for text in prose):
-            from ..context.compress import (
-                _reasoning_segments,
-                _render_reasoning_segments,
-            )
+            from ..context.compress import remove_reasoning
 
-            # Scan original prose, not normalized text: removing a reasoning
-            # tag can expose a new fence that autocompact never saw. Native JSON
-            # is opaque code here and must never be scanned or normalized.
-            segments: list[tuple[str, str]] = []
-            for i, text in enumerate(prose):
-                segments.extend(_reasoning_segments(text))
-                if i < len(raw_calls):
-                    segments.append(("code", raw_calls[i]))
-            output["reasoning_stripped_digest"] = _digest(
-                _render_reasoning_segments(segments)
-            )
+            # Hash exactly what autocompact produces from the whole message,
+            # and only if every native span survives it byte-for-byte.
+            stripped = remove_reasoning(content)
+            stripped_parts = _native_parts(stripped)
+            if stripped_parts is not None and stripped_parts[2] == raw_calls:
+                output["reasoning_stripped_digest"] = _digest(stripped)
         if replay_responses_output(content, output) is None:
             return metadata
         return {**(metadata or {}), "responses_output": output}
