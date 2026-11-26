@@ -4540,22 +4540,6 @@ def _invalidate_conversations_cache() -> None:
         _conversations_cache_time = 0.0
 
 
-def _store_conversations_cache(
-    conversations: list[ConversationMeta], logs_dir: Path, scan_gen: int
-) -> None:
-    """Cache a full list scan unless an invalidation ran during the scan."""
-    global \
-        _conversations_cache, \
-        _conversations_cache_logs_dir, \
-        _conversations_cache_time
-    with _conversations_cache_lock:
-        if scan_gen != _conversations_cache_gen:
-            return
-        _conversations_cache = conversations
-        _conversations_cache_logs_dir = logs_dir
-        _conversations_cache_time = time.monotonic()
-
-
 def _update_conversation_in_cache(conv_id: str) -> None:
     """Refresh one conversation in the list cache without a full rescan.
 

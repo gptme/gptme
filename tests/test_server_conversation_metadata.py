@@ -111,7 +111,11 @@ class TestMetadata:
     def test_metadata_does_not_touch_chat_config(self, client: FlaskClient):
         cid = _create_conv(client)
         before = client.get(f"/api/v2/conversations/{cid}/config").get_json()
-        client.patch(f"/api/v2/conversations/{cid}/metadata", json={"starred": True})
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/metadata", json={"starred": True}
+        )
+        assert resp.status_code == 200, resp.get_json()
+        assert resp.get_json()["starred"] is True
         after = client.get(f"/api/v2/conversations/{cid}/config").get_json()
         assert before == after
 
