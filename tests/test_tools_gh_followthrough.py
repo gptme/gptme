@@ -323,6 +323,51 @@ def test_native_run_view_uses_session_checkout(
         assert (cmd[-2:] == ["--repo", "o/r"]) == bool(repo_flag)
 
 
+@pytest.mark.parametrize("repo", ["foreign/repo", ""], ids=["explicit", "implicit"])
+@pytest.mark.parametrize(
+    ("scenario", "marker"),
+    [
+        ("per-job", "chars omitted"),
+        ("fetch-failed", "Try shell:"),
+        ("aggregate", "run output truncated"),
+    ],
+    ids=["per-job", "fetch-failed", "aggregate"],
+)
+def test_native_run_view_recovery_hint(scenario: str, marker: str, repo: str) -> None:
+    jobs = [{"name": "test", "conclusion": "failure", "databaseId": 200}]
+    log = f"test\tpytest\tERROR: {'x' * 20_000} traceback end\n"
+    if scenario == "per-job":
+        # Only the first job exceeds its allocation, leaving room in the total budget.
+        jobs.append({"name": "lint", "conclusion": "failure", "databaseId": 201})
+        log += "lint\tcheck\tERROR: lint failed\n"
+    meta = {
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/session/repo/actions/runs/123",
+        "jobs": jobs,
+    }
+    responses = [SimpleNamespace(returncode=0, stdout=json.dumps(meta))]
+    if scenario == "fetch-failed":
+        responses.extend([SimpleNamespace(returncode=1, stdout="")] * 2)
+    else:
+        responses.append(SimpleNamespace(returncode=0, stdout=log))
+
+    repo_flag = f" --repo {repo}" if repo else ""
+    with (
+        patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh"),
+        patch("gptme.util.gh.subprocess.run", side_effect=responses),
+    ):
+        messages = invoke(f"run view 123{repo_flag}", "structured")
+
+    content = messages[0].content
+    if scenario == "per-job":
+        assert "run output truncated" not in content
+        assert "traceback end" in content
+        assert "lint failed" in content
+    hint = next(line for line in content.splitlines() if marker in line)
+    assert f"`gh run view 123{repo_flag} --log-failed`" in hint
+
+
 @pytest.mark.parametrize("output", ["", "invalid", "host/owner/repo"])
 def test_bare_merge_fails_closed_when_gh_repo_is_unknown(output) -> None:
     with (

@@ -1228,6 +1228,8 @@ def get_github_run_logs(
     if repo and cwd and not Path(cwd).is_dir():
         cwd = os.path.abspath(os.sep)
     repo_args = ["--repo", repo] if repo else []
+    repo_flag = f" --repo {repo}" if repo else ""
+    recovery_command = f"gh run view {run_id}{repo_flag} --log-failed"
 
     def bounded_output(output: str) -> str:
         # Per-job allocations are useful previews, not an aggregate bound:
@@ -1235,10 +1237,9 @@ def get_github_run_logs(
         max_chars = max(0, max_tokens * 4)
         if len(output) <= max_chars:
             return output
-        repo_flag = f" --repo {repo}" if repo else ""
         marker = (
             "\n[... run output truncated; use shell "
-            f"`gh run view {run_id}{repo_flag} --log-failed` for full logs ...]\n"
+            f"`{recovery_command}` for full logs ...]\n"
         )
         if max_chars <= len(marker):
             return marker[:max_chars]
@@ -1371,9 +1372,7 @@ def get_github_run_logs(
                 extracted = _truncate_log_tail(
                     extracted,
                     tokens_per_job * 4,
-                    hint=(
-                        f"use shell `gh run view {run_id} --log-failed` for full logs"
-                    ),
+                    hint=f"use shell `{recovery_command}` for full logs",
                 )
 
                 output += f"\n```\n{extracted}\n```\n"
@@ -1411,8 +1410,7 @@ def get_github_run_logs(
                     output += f"\n```\n{extracted}\n```\n"
                 else:
                     output += (
-                        f"\nCould not fetch logs. "
-                        f"Try shell: `gh run view {run_id} --log-failed`\n"
+                        f"\nCould not fetch logs. Try shell: `{recovery_command}`\n"
                     )
 
         return bounded_output(output)
