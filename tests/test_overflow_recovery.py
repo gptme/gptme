@@ -1,6 +1,9 @@
 """Overflow retries preserve views, whole turns, and the output boundary."""
 
 import importlib
+from contextvars import copy_context
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -250,6 +253,91 @@ def test_cli_drops_old_turns_when_trim_is_a_noop(tmp_path, monkeypatch):
     assert cli_reply(manager).content == "Recovered"
     assert len(calls) == 2
     assert len(calls[-1]) < len(calls[0])
+
+
+@pytest.mark.parametrize("anchored", [True, False], ids=["anchored", "unanchored"])
+def test_cli_overflow_drop_reaches_stored_text_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, anchored: bool
+) -> None:
+    from gptme.llm.models import ModelMeta, set_default_model
+    from gptme.message import len_tokens
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.util.context_measurement import (
+        anchor_context_usage,
+        measure_context_tokens,
+    )
+
+    chat = importlib.import_module("gptme.chat")
+    model = "openai/gpt-4"
+    original = [Message("system", "You are helpful.")]
+    for i in range(10):
+        original.extend(
+            [
+                Message("user", " ".join(f"q{i}_{j}" for j in range(300))),
+                Message("assistant", " ".join(f"a{i}_{j}" for j in range(300))),
+            ]
+        )
+    original.append(Message("user", "latest request"))
+    before = len_tokens(original, model)
+    if anchored:
+        prefix = original[:-2]
+        original[-2] = original[-2].replace(
+            metadata={"usage": {"input_tokens": len_tokens(prefix, model) + 12_000}}
+        )
+        anchor_context_usage(original[-2], len(prefix), input_log_digest(prefix), model)
+
+    manager = LogManager(original, logdir=tmp_path / "conversation")
+    manager.write()
+    manager = LogManager.load(manager.logdir, lock=False)
+    measured = measure_context_tokens(manager.log.messages, model)
+    assert measured == before + (12_000 if anchored else 0)
+    calls: list[list[Message]] = []
+
+    def generate(messages: list[Message], *args: Any, **kwargs: Any) -> Message:
+        calls.append(messages.copy())
+        if len(calls) == 1:
+            raise overflow()
+        return Message("assistant", "Recovered")
+
+    monkeypatch.setattr(chat, "reply", generate)
+    monkeypatch.setattr("gptme.tools.autocompact.recovery._get_keep_head", lambda: 1)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active: active.log.messages,
+    )
+
+    def reply_with_model() -> Message:
+        set_default_model(ModelMeta(provider="openai", model="gpt-4", context=100_000))
+        return cli_reply(manager)
+
+    assert copy_context().run(reply_with_model).content == "Recovered"
+    assert len(calls) == 2
+    retained = manager.log.messages
+    dropped = len(original) - len(retained)
+    after = len_tokens(retained, model)
+    assert after <= 0.7 * before, (
+        f"dropped {dropped} message(s): stored text {before} -> {after} tokens "
+        f"with initial context measurement {measured}"
+    )
+    assert len_tokens(original[dropped], model) + after > 0.7 * before
+    assert retained == [original[0], *original[dropped + 1 :]]
+    assert len_tokens(calls[-1], model) < len_tokens(calls[0], model)
+    event = read_compaction_events(manager.logdir)[-1]
+    assert event["tokens"] == {"before_estimated": before, "after_estimated": after}
+
+
+def test_drop_to_retry_target_exhausts_protected_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.tools.autocompact import recovery
+
+    messages = [
+        *history()[:2],
+        Message("assistant", "Pinned step", pinned=True),
+        Message("user", "Continue"),
+    ]
+    monkeypatch.setattr(recovery, "_get_keep_head", lambda: 2)
+    assert recovery._drop_to_retry_target(messages, "openai/gpt-4") is messages
 
 
 def test_exhausted_recovery_restores_existing_view(tmp_path, monkeypatch):
