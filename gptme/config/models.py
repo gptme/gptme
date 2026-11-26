@@ -37,6 +37,24 @@ def _pop_object_section(config_data: dict, key: str) -> dict:
     return value
 
 
+def _drop_malformed_env_entries(env: dict, source: str | Path) -> dict:
+    """Drop non-scalar ``[env]`` values from a config file before normalising.
+
+    A hand-edited config file is not a runtime default: a stray compound value
+    must not prevent startup, resuming a conversation, or listing conversations.
+    Runtime defaults stay strict (``_stringify_env`` raises on them).
+    """
+    for key, value in list(env.items()):
+        if isinstance(value, (dict, list)):
+            logger.warning(
+                "env.%s in %s must be a scalar value (skipped)",
+                key,
+                source,
+            )
+            del env[key]
+    return env
+
+
 def _stringify_env(env: dict) -> dict[str, str]:
     """Normalise ``[env]`` values to the strings a process env would hold.
 
@@ -577,7 +595,16 @@ class ProjectConfig:
                 "plugins.enabled", plugins_data.get("enabled", [])
             ),
         )
-        env = _stringify_env(_pop_object_section(config_data, "env"))
+        env_source = (
+            path_with_tilde(workspace / "gptme.toml")
+            if workspace is not None
+            else "project config"
+        )
+        env = _stringify_env(
+            _drop_malformed_env_entries(
+                _pop_object_section(config_data, "env"), env_source
+            )
+        )
         mcp: MCPConfig | None = None
         mcp_data = config_data.pop("mcp", None)
         if mcp_data is not None and not isinstance(mcp_data, dict):

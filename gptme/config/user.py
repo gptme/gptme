@@ -57,6 +57,7 @@ from .models import (
     UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
+    _drop_malformed_env_entries,
     _pop_object_section,
     _stringify_env,
 )
@@ -640,32 +641,23 @@ def _parse_providers(providers_config: Any, *, strict: bool) -> list[ProviderCon
     return providers
 
 
-def _drop_malformed_env_entries(config: dict, source: str | Path) -> None:
+def _drop_malformed_config_env(config: dict, source: str | Path) -> None:
     """Drop non-scalar ``[env]`` values from a user/local config before merging.
 
-    A stray compound value must not prevent every invocation from starting.
     Dropping it only after the merge would let it replace and then delete a valid
     lower-priority value such as ``TOOL_ALLOWLIST``, silently re-enabling default
     tools. Runtime defaults stay strict: ``_stringify_env`` raises on them.
     """
     env = config.get("env")
-    if not isinstance(env, dict):
-        return
-    for key, value in list(env.items()):
-        if isinstance(value, (dict, list)):
-            logger.warning(
-                "env.%s in %s must be a scalar value (skipped)",
-                key,
-                source,
-            )
-            del env[key]
+    if isinstance(env, dict):
+        _drop_malformed_env_entries(env, source)
 
 
 def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> UserConfig:
     config_file_path = path or config_path
     config_file, local_path = get_user_config_paths(config_file_path)
     main_config = _load_config_doc(path).unwrap()
-    _drop_malformed_env_entries(main_config, path_with_tilde(config_file))
+    _drop_malformed_config_env(main_config, path_with_tilde(config_file))
     # Validate operator-managed providers before merging: a user/local overlay
     # must not repair or hide an invalid runtime default.
     if runtime_doc is not None:
@@ -685,7 +677,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     has_local = local_path.exists()
     if has_local:
         local_config = _load_config_doc(str(local_path)).unwrap()
-        _drop_malformed_env_entries(local_config, path_with_tilde(local_path))
+        _drop_malformed_config_env(local_config, path_with_tilde(local_path))
         writable_keys.update(local_config)
         config = _merge_config_data(config, local_config)
 

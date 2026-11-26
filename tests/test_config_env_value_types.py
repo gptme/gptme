@@ -62,15 +62,50 @@ def test_chat_null_env_keeps_lower_layer_value():
 
 @pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
 @pytest.mark.parametrize("layer", ["chat", "project"])
-def test_env_rejects_compound_values(tmp_path, value, layer):
+def test_env_skips_compound_values_in_config_files(tmp_path, caplog, value, layer):
+    """A hand-edited config file must not brick loading (runtime stays strict)."""
     from gptme.config.chat import ChatConfig
     from gptme.config.models import ProjectConfig
 
-    with pytest.raises(ValueError, match="env.*EXAMPLE_KEY.*scalar"):
-        if layer == "chat":
-            ChatConfig.from_dict({"env": {"EXAMPLE_KEY": value}})
-        elif layer == "project":
-            ProjectConfig.from_dict({"env": {"EXAMPLE_KEY": value}}, tmp_path)
+    if layer == "chat":
+        chat = ChatConfig.from_dict({"env": {"EXAMPLE_KEY": value, "COSTS": False}})
+        assert "EXAMPLE_KEY" not in chat.env
+        assert chat.env["COSTS"] == "false"
+    elif layer == "project":
+        project = ProjectConfig.from_dict(
+            {"env": {"EXAMPLE_KEY": value, "COSTS": False}}, tmp_path
+        )
+        assert "EXAMPLE_KEY" not in project.env
+        assert project.env["COSTS"] == "false"
+    assert "env.EXAMPLE_KEY in " in caplog.text
+    assert "must be a scalar value (skipped)" in caplog.text
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+def test_chat_logdir_with_compound_env_still_resumes(tmp_path, caplog, value):
+    """A legacy/hand-edited compound [env] must not make a conversation unloadable."""
+    import tomlkit
+
+    from gptme.config.chat import ChatConfig
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    (logdir / "config.toml").write_text(
+        tomlkit.dumps(
+            {
+                "chat": {"model": "openai/gpt-4o", "tools": ["shell"]},
+                "env": {"EXAMPLE_KEY": value, "COSTS": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    chat = ChatConfig.from_logdir(logdir)
+    assert chat.model == "openai/gpt-4o"
+    assert chat.tools == ["shell"]
+    assert "EXAMPLE_KEY" not in chat.env
+    assert chat.env["COSTS"] == "false"
+    assert "config.toml must be a scalar value (skipped)" in caplog.text
 
 
 @pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
