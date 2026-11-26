@@ -101,6 +101,8 @@ describe('useConversationSettings submit', () => {
 
     act(() => {
       result.current.form.setValue('chat.name', 'renamed');
+      result.current.form.setValue('mcp.servers.0.command', '');
+      result.current.form.setValue('mcp.servers.0.url', 'https://mcp.example.com/events');
       result.current.form.setValue('mcp.servers.0.headers', { Authorization: 'test-token' });
     });
 
@@ -117,6 +119,11 @@ describe('useConversationSettings submit', () => {
     const submitted = updateChatConfig.mock.calls[0][1] as ChatConfig;
     expect(submitted.chat.name).toBe('renamed');
     expect(submitted.chat.tool_format).toBeNull();
+    expect(submitted.mcp.servers[0]).toMatchObject({
+      command: '',
+      url: 'https://mcp.example.com/events',
+      headers: { Authorization: 'test-token' },
+    });
     expect(submitted.mcp.servers[0].args).toEqual([
       'server.js',
       '--config={"a":1,"b":2}',

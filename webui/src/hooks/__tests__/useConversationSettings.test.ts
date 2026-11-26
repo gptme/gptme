@@ -66,16 +66,34 @@ describe('conversation settings round trip', () => {
     expect(config.mcp.servers).toEqual(original.mcp.servers);
   });
 
-  it.each(['', 'not-a-url', 'file:///tmp/server'])(
-    'still requires a command for a server without an HTTP URL (%s)',
-    (url) => {
-      const values = chatConfigToFormValues(makeConfig());
-      values.mcp.servers![0].command = '';
-      values.mcp.servers![0].url = url;
+  it('persists edited remote fields instead of their original snapshot', () => {
+    const original = makeRemoteConfig();
+    const values = chatConfigToFormValues(original);
+    values.mcp.servers![0].url = 'https://updated.example.com/mcp';
+    values.mcp.servers![0].headers = {};
 
-      expect(formSchema.safeParse(values).success).toBe(false);
-    }
-  );
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.mcp.servers[0]).toEqual({
+      ...original.mcp.servers[0],
+      url: 'https://updated.example.com/mcp',
+      headers: {},
+    });
+  });
+
+  it.each([
+    '',
+    'not-a-url',
+    'file:///tmp/server',
+    'HTTPS://mcp.example.com/events',
+    ' https://mcp.example.com/events',
+  ])('still requires a command for a server without an HTTP URL (%s)', (url) => {
+    const values = chatConfigToFormValues(makeConfig());
+    values.mcp.servers![0].command = '';
+    values.mcp.servers![0].url = url;
+
+    expect(formSchema.safeParse(values).success).toBe(false);
+  });
 
   it('keeps remote metadata with its row through rename, reorder, and removal', () => {
     const original = makeRemoteConfig();

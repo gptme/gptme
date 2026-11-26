@@ -90,6 +90,8 @@ export const formValuesToChatConfig = (
 
   const newMcpServers = values.mcp?.servers?.map((server) => ({
     ...server.originalServer,
+    ...(server.url !== undefined ? { url: server.url } : {}),
+    ...(server.headers !== undefined ? { headers: server.headers } : {}),
     name: server.name,
     enabled: server.enabled,
     command: server.command,
