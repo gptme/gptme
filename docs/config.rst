@@ -578,10 +578,11 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 
 ``watch_autowake`` (default on) controls whether a child-agent result or fired
 watch may resume an idle CLI, TUI, or server conversation without another
-prompt. Set it to ``false`` for notification-only delivery at idle. Progress
-updates never start generation. Non-interactive shutdown is governed by
-``[subagent] drain_timeout`` instead; if ``watch_autowake`` is ``false``, results
-arriving in that window are recorded without a continuation.
+prompt. It also controls whether a finished background shell job may resume
+its idle server conversation. Set it to ``false`` for notification-only delivery
+at idle. Progress updates never start generation. Non-interactive shutdown
+uses ``[subagent] drain_timeout``. With ``watch_autowake = false``, results arriving
+in that window are recorded without a continuation.
 
 The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
 

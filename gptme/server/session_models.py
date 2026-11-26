@@ -24,6 +24,7 @@ from .api_v2_common import EventType
 if TYPE_CHECKING:
     from ..config import ChatConfig
     from ..logmanager import LogManager
+    from ..tools.shell_background import BackgroundJob
     from .acp_session_runtime import AcpSessionRuntime
 
 logger = logging.getLogger(__name__)
@@ -512,12 +513,10 @@ class SessionManager:
     ) -> bool:
         """Dispatch a step already reserved by a wake path.
 
-        Shared by the watch and peer wakes so the dispatch block cannot
-        drift. Returns True whenever the message was persisted, even if the
-        dispatch failed: a False would let the caller drain-and-requeue the
-        same event and duplicate it. On dispatch failure the reservation is
-        released and clients receive an explicit error requiring a manual step;
-        persisted inputs are not automatically replayed by the queue poller.
+        Returns True once a wake has been admitted, even if dispatch fails.
+        Watch and peer inputs have already been persisted at that point, so
+        returning False would allow them to be requeued and duplicated. Shell
+        completions stay queued until STEP_PRE.
         A peer reservation pin bridges removal until the worker pins ownership.
         """
         from .session_step import _start_step_thread
@@ -536,7 +535,7 @@ class SessionManager:
             )
             if not started:
                 logger.warning(
-                    "%s wake persisted for %s but dispatch did not start",
+                    "%s wake for %s was reserved but dispatch did not start",
                     source,
                     conversation_id,
                 )
@@ -549,7 +548,7 @@ class SessionManager:
             return True
         except Exception:
             logger.warning(
-                "%s wake persisted for %s but dispatch failed",
+                "%s wake for %s was reserved but dispatch failed",
                 source,
                 conversation_id,
                 exc_info=True,
@@ -587,61 +586,77 @@ class SessionManager:
         branch: str = "main",
     ) -> bool:
         """Persist a watch message and reserve one idle server step."""
+        return cls._request_event_wake(conversation_id, message, branch=branch)
+
+    @classmethod
+    def request_shell_wake(cls, job: "BackgroundJob") -> bool:
+        """Reserve an idle step to deliver the queued shell job in STEP_PRE."""
+        if job.conversation_id is None or job.server_branch is None:
+            return False
+        return cls._request_event_wake(
+            job.conversation_id, job, branch=job.server_branch
+        )
+
+    @classmethod
+    def _request_event_wake(
+        cls,
+        conversation_id: str,
+        event: "Message | BackgroundJob",
+        *,
+        branch: str,
+    ) -> bool:
         from ..config import ChatConfig
         from ..dirs import get_logs_dir
 
+        shell_job = None if isinstance(event, Message) else event
         with cls.conversation_lock(conversation_id):
             sessions = cls.get_sessions_for_conversation(conversation_id)
             if not sessions:
                 return False
-            session = max(sessions, key=lambda item: item.last_activity)
+            session: ConversationSession | None
+            if shell_job is None:
+                session = max(sessions, key=lambda item: item.last_activity)
+            else:
+                session = next(
+                    (
+                        item
+                        for item in sessions
+                        if item.id == shell_job.server_session_id
+                    ),
+                    None,
+                )
+            if session is None:
+                return False
             with session.step_lock:
                 if cls._conversation_busy(conversation_id, sessions):
                     return False
-                # Same ACP ownership rule as peer wake: the wake dispatches an
-                # in-process step, which must not answer a conversation whose
-                # input cursor and runtime an ACP session owns. Ownership is
-                # per conversation, so a newer plain observer does not release
-                # it. Returning False leaves the event queued, not lost.
+                # ACP owns the conversation's input and runtime, even when
+                # there are also plain observer sessions.
                 if any(item.use_acp for item in sessions):
                     return False
-                config = ChatConfig.load_or_create(
-                    get_logs_dir() / conversation_id, ChatConfig()
-                )
+                # Shell completions wait for a later step after an explicit
+                # stop. Watch and subagent completions retain their policy.
+                if shell_job is not None and session.interrupted:
+                    return False
+                logdir = get_logs_dir() / conversation_id
+                config = ChatConfig.load_or_create(logdir, ChatConfig())
                 if config.watch_autowake is False:
                     return False
                 model = _resolve_watch_wake_model(config.model)
                 if model is None:
                     return False
-                progress_items: list[tuple[str, str]] = []
-                logdir = (get_logs_dir() / conversation_id).resolve()
-                try:
-                    from ..logmanager import LogManager
-                    from ..tools.subagent.hooks import (
-                        progress_message,
-                        take_queued_progress,
-                    )
-                    from ..tools.subagent.types import _progress_queue
+                if isinstance(event, Message):
+                    if not cls._persist_watch_event(
+                        conversation_id, logdir, branch, event
+                    ):
+                        return False
+                else:
+                    from ..tools.shell_background import shell_completion_pending
 
-                    manager = LogManager.load(
-                        conversation_id, branch=branch, lock=False
-                    )
-                    progress_items = take_queued_progress(logdir)
-                    for agent_id, progress in progress_items:
-                        manager.append(progress_message(agent_id, progress))
-                    manager.append(message)
-                    manager.write(sync=True)
-                except (OSError, ValueError):
-                    from ..tools.subagent.types import _progress_queue
-
-                    for agent_id, progress in progress_items:
-                        _progress_queue.put((logdir, agent_id, progress))
-                    logger.warning(
-                        "Could not persist watch event for conversation %s",
-                        conversation_id,
-                        exc_info=True,
-                    )
-                    return False
+                    # An already-running step might have drained the queue
+                    # while the reader was waiting to acquire admission.
+                    if not shell_completion_pending(event):
+                        return False
                 session.step_seq += 1
                 step_seq = session.step_seq
                 session.generating = True
@@ -654,8 +669,36 @@ class SessionManager:
             config,
             branch=branch,
             step_seq=step_seq,
-            source="Watch",
+            source="Shell" if shell_job is not None else "Watch",
         )
+
+    @staticmethod
+    def _persist_watch_event(
+        conversation_id: str, logdir: Path, branch: str, message: Message
+    ) -> bool:
+        from ..logmanager import LogManager
+        from ..tools.subagent.hooks import progress_message, take_queued_progress
+        from ..tools.subagent.types import _progress_queue
+
+        logdir = logdir.resolve()
+        progress_items: list[tuple[str, str]] = []
+        try:
+            manager = LogManager.load(conversation_id, branch=branch, lock=False)
+            progress_items = take_queued_progress(logdir)
+            for agent_id, progress in progress_items:
+                manager.append(progress_message(agent_id, progress))
+            manager.append(message)
+            manager.write(sync=True)
+        except (OSError, ValueError):
+            for agent_id, progress in progress_items:
+                _progress_queue.put((logdir, agent_id, progress))
+            logger.warning(
+                "Could not persist watch event for conversation %s",
+                conversation_id,
+                exc_info=True,
+            )
+            return False
+        return True
 
     @classmethod
     def retry_deferred_watch_wakes(cls, conversation_id: str) -> None:

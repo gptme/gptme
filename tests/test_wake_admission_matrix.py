@@ -13,12 +13,11 @@ Findings pinned here:
 * they diverge on user-interrupted conversations: peer wake leaves the
   conversation stopped, watch wake (and therefore subagent completion) restarts
   it and clears ``interrupted``;
-* shell-background job completion neither requests a wake nor signals
-  ``notification_ready``: an idle server conversation is not woken by it.
+* shell-background job completion wakes the originating idle server session
+  and leaves delivery to the originating branch's STEP_PRE when blocked.
 """
 
 import sys
-import time
 import unittest.mock
 from pathlib import Path
 
@@ -176,44 +175,157 @@ def test_interrupted_watch_wake_restarts_conversation_today(
         SessionManager.remove_session(session.id)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="uses printf")
-def test_shell_background_completion_has_no_idle_wake(
-    logs_dir, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.skipif(sys.platform == "win32", reason="requires bash")
+@pytest.mark.parametrize("state", ["idle", "busy", "interrupted", "disabled", "acp"])
+def test_shell_background_completion_wake(
+    state: str, logs_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Job exit enqueues for a later step but never rings either doorbell."""
-    from gptme.hooks import current_conversation_id
-    from gptme.tools import shell_background
-    from gptme.tools.shell_background import start_background_job
+    """Route a real shell completion to the branch that launched it."""
+    from gptme.hooks import (
+        HookType,
+        current_conversation_id,
+        current_session_id,
+        trigger_hook,
+    )
+    from gptme.tools import ToolUse, init_tools, shell_background
 
-    wake = unittest.mock.MagicMock(return_value=True)
-    monkeypatch.setattr(SessionManager, "request_watch_wake", wake)
-    signal = unittest.mock.MagicMock()
-    monkeypatch.setattr("gptme.util.notification_ready.signal", signal)
-
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    cid = f"matrix-shell-{state}"
+    session = SessionManager.create_session(cid)
+    observer = (
+        SessionManager.create_session(cid) if state in {"acp", "interrupted"} else None
+    )
+    session.generating = state == "busy"
+    session.interrupted = state == "interrupted"
+    session.use_acp = state == "acp"
+    started = unittest.mock.Mock(return_value=True)
+    monkeypatch.setattr(session_step, "_start_step_thread", started)
     job = None
-    token = current_conversation_id.set("matrix-shell-job")
     try:
-        job = start_background_job("printf done")
-        assert job._reader_thread is not None
-        job._reader_thread.join(timeout=10)
-        assert not job._reader_thread.is_alive()
+        with LogManager.preserve_current():
+            main = LogManager.load(cid, create=True, lock=False)
+            main.append(Message("user", "Run the shell job"))
+            main.branch("feature-x")
+            main.write()
+            ChatConfig(
+                _logdir=logs_dir / cid,
+                model="local/test",
+                workspace=logs_dir,
+                watch_autowake=state != "disabled",
+            ).save()
+            origin = LogManager.load(cid, branch="feature-x", lock=False)
+            init_tools(["shell"], include_mcp=False)
+            conversation_token = current_conversation_id.set(cid)
+            session_token = current_session_id.set(session.id)
+            try:
+                (tool_use,) = ToolUse.iter_from_content(
+                    '@shell(call-1): {"command": "printf shell-%s result", "background": true}',
+                    "tool",
+                )
+                replies = list(tool_use.execute(log=origin.log, workspace=logs_dir))
+                assert any(
+                    "Started background shell job" in msg.content for msg in replies
+                )
+                (job,) = shell_background.list_background_jobs()
+            finally:
+                current_session_id.reset(session_token)
+                current_conversation_id.reset(conversation_token)
 
-        deadline = time.monotonic() + 5
-        while not job._completion_notified and time.monotonic() < deadline:
-            time.sleep(0.01)
-        # The completion is queued for a step that has not been started...
-        assert job._completion_notified is True
-        assert any(q is job for q in shell_background._completion_queue.queue)
-        # ...and nothing asked the server to start one.
-        wake.assert_not_called()
-        signal.assert_not_called()
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=10)
+            assert not job._reader_thread.is_alive()
+            assert job._completion_notified is True
+
+            if state == "idle":
+                assert started.call_count == 1, (
+                    "idle shell completion must reserve a step"
+                )
+                assert session.generating is True
+            else:
+                started.assert_not_called()
+            assert session.interrupted is (state == "interrupted")
+
+            shell_background._notify_completion(job)
+            assert started.call_count == (1 if state == "idle" else 0)
+            assert not list(
+                trigger_hook(
+                    HookType.STEP_PRE, manager=LogManager.load(cid, lock=False)
+                )
+            )
+            (completion,) = trigger_hook(HookType.STEP_PRE, manager=origin)
+            assert "finished (exit code 0)" in completion.content
+            assert "shell-result" in completion.content
+            assert not list(trigger_hook(HookType.STEP_PRE, manager=origin))
+
+            session.generating = False
+            shell_background._notify_completion(job)
+            assert not list(trigger_hook(HookType.STEP_PRE, manager=origin))
+            assert started.call_count == (1 if state == "idle" else 0)
+            if state == "idle":
+                assert started.call_args.args[:3] == (cid, session, "local/test")
+                assert started.call_args.kwargs["branch"] == "feature-x"
+                assert started.call_args.kwargs["reserved"] is True
+                assert started.call_args.kwargs["step_seq"] == session.step_seq == 1
     finally:
-        current_conversation_id.reset(token)
-        shell_background.reset_background_jobs(
-            "matrix-shell-job", all_conversations=False
-        )
+        SessionManager.remove_session(session.id)
+        if observer:
+            SessionManager.remove_session(observer.id)
+        shell_background.reset_background_jobs(cid, all_conversations=False)
         if job is not None:
-            # Join even a completed job's reader before closing its pipes.
+            job.kill()
+            for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
+                if pipe is not None:
+                    pipe.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="requires bash")
+def test_shell_background_completion_without_server_branch_delivers_on_current_branch(
+    logs_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A legacy/CLI job (no server session) delivers on whatever branch runs."""
+    from gptme.hooks import HookType, current_conversation_id, trigger_hook
+    from gptme.tools import ToolUse, init_tools, shell_background
+
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
+    cid = "matrix-shell-legacy-branch"
+    job = None
+    try:
+        with LogManager.preserve_current():
+            main = LogManager.load(cid, create=True, lock=False)
+            main.append(Message("user", "Run the shell job"))
+            main.branch("feature-x")
+            main.write()
+            origin = LogManager.load(cid, branch="feature-x", lock=False)
+            init_tools(["shell"], include_mcp=False)
+            conversation_token = current_conversation_id.set(cid)
+            try:
+                (tool_use,) = ToolUse.iter_from_content(
+                    '@shell(call-1): {"command": "printf shell-%s result", "background": true}',
+                    "tool",
+                )
+                replies = list(tool_use.execute(log=origin.log, workspace=logs_dir))
+                assert any(
+                    "Started background shell job" in msg.content for msg in replies
+                )
+                (job,) = shell_background.list_background_jobs()
+            finally:
+                current_conversation_id.reset(conversation_token)
+
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=10)
+            assert not job._reader_thread.is_alive()
+            assert job._completion_notified is True
+            # Started outside a server session: unconstrained by branch.
+            assert job.server_session_id is None
+            assert job.server_branch is None
+
+            (completion,) = trigger_hook(HookType.STEP_PRE, manager=origin)
+            assert "finished (exit code 0)" in completion.content
+            assert "shell-result" in completion.content
+            assert not list(trigger_hook(HookType.STEP_PRE, manager=origin))
+    finally:
+        shell_background.reset_background_jobs(cid, all_conversations=False)
+        if job is not None:
             job.kill()
             for pipe in (job.process.stdin, job.process.stdout, job.process.stderr):
                 if pipe is not None:
