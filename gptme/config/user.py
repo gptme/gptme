@@ -412,6 +412,16 @@ def _get_nested_config_value(doc: TOMLDocument, *keys: str) -> Any | None:
     return current
 
 
+def _is_effective_env_value(value: Any | None) -> bool:
+    """Whether a raw ``[env]`` value can be the source of a resolved setting.
+
+    Compound values are dropped before the merge (``_drop_malformed_config_env``),
+    so they never shadow a lower-priority layer and must not be reported as the
+    source. Empty strings do shadow (the merge keeps them), so they still count.
+    """
+    return value is not None and not isinstance(value, (dict, list))
+
+
 def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     """Return where an env-backed user setting currently comes from.
 
@@ -429,17 +439,16 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
         local_doc = _load_config_doc(str(local_path))
-        if _get_nested_config_value(local_doc, "env", bare) is not None:
+        if _is_effective_env_value(_get_nested_config_value(local_doc, "env", bare)):
             return USER_CONFIG_SOURCE_LOCAL
 
     main_doc = _load_config_doc(str(config_file))
-    if _get_nested_config_value(main_doc, "env", bare) is not None:
+    if _is_effective_env_value(_get_nested_config_value(main_doc, "env", bare)):
         return USER_CONFIG_SOURCE_MAIN
 
     runtime_doc = _load_runtime_config_doc(path)
-    if (
-        runtime_doc is not None
-        and _get_nested_config_value(runtime_doc, "env", bare) is not None
+    if runtime_doc is not None and _is_effective_env_value(
+        _get_nested_config_value(runtime_doc, "env", bare)
     ):
         return USER_CONFIG_SOURCE_RUNTIME
 

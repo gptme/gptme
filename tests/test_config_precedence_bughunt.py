@@ -152,3 +152,20 @@ def test_malformed_user_env_entry_keeps_runtime_default(isolated: Path):
     config = load_user_config(str(isolated))
 
     assert config.env["TOOL_ALLOWLIST"] == "read,save"
+
+
+# --- AI review P2 (round cap, 2026-11-26) -------------------------------
+def test_env_source_skips_dropped_compound_values(isolated: Path):
+    """A compound [env] value in config.local.toml is dropped before the merge,
+    so it never shadows config.toml: the source report must name config.toml,
+    the file the value actually comes from."""
+    from gptme.config.core import Config
+    from gptme.config.user import get_user_config_env_source, load_user_config
+
+    isolated.write_text('[env]\nTEST_SETTING = "from-main"\n')
+    (isolated.parent / "config.local.toml").write_text('[env]\nTEST_SETTING = ["x"]\n')
+
+    assert Config(user=load_user_config(str(isolated))).get_env("TEST_SETTING") == (
+        "from-main"
+    )
+    assert get_user_config_env_source("TEST_SETTING", str(isolated)) == "config.toml"
