@@ -1,3 +1,6 @@
+import subprocess
+import sys
+import textwrap
 from dataclasses import replace as dc_replace
 from pathlib import Path
 
@@ -117,6 +120,50 @@ def test_chat_config_load_or_create(tmp_path: Path):
         config.stream is False
     )  # existing value preserved (not overridden by default)
     assert config.interactive is False  # existing value preserved
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="cannot remove an active cwd")
+def test_chat_config_load_or_create_with_removed_cwd(tmp_path: Path) -> None:
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        from pathlib import Path
+
+        from gptme.config import ChatConfig
+
+        root = Path(sys.argv[1]).resolve()
+        logdir = root / "conversation"
+        saved_workspace = logdir / "workspace"
+        workspace = root / "explicit-workspace"
+        workspace.mkdir()
+        ChatConfig(_logdir=logdir, workspace=saved_workspace, stream=False).save()
+
+        os.chdir(workspace)
+        config = ChatConfig.load_or_create(logdir, ChatConfig())
+        assert config.workspace == saved_workspace
+        assert not config.stream
+
+        cwd = root / "gone"
+        cwd.mkdir()
+        os.chdir(cwd)
+        cwd.rmdir()
+
+        request = ChatConfig(workspace=workspace)
+        assert ChatConfig.load_or_create(root / "new", request).workspace == workspace
+        resumed = ChatConfig.load_or_create(logdir, request)
+        assert resumed.workspace == workspace
+        assert not resumed.stream
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_chat_config_save_preserves_formatting(tmp_path: Path):

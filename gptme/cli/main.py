@@ -1120,6 +1120,14 @@ def main(
     if "PYTEST_CURRENT_TEST" in os.environ:
         interactive = False
 
+    try:
+        Path.cwd()
+    except FileNotFoundError as e:
+        raise click.UsageError(
+            "Current working directory no longer exists. "
+            "Change to an existing directory and retry."
+        ) from e
+
     # Everything below is an actual chat session: import the heavy parts of
     # gptme now, after the cheap early-exit paths (--help/--version/dispatch).
     from ..chat import chat

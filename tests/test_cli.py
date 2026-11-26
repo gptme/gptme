@@ -4,7 +4,10 @@ import os
 import random
 import re
 import signal
+import subprocess
+import sys
 import tempfile
+import textwrap
 import threading
 import time
 from pathlib import Path
@@ -195,6 +198,41 @@ def test_version_verbose(runner: CliRunner):
     # --version --verbose shows the full human-readable info block
     assert "gptme" in result.output
     assert __version__ in result.output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="cannot remove an active cwd")
+def test_cli_reports_removed_cwd_with_explicit_workspace(tmp_path: Path) -> None:
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        from pathlib import Path
+
+        from gptme.cli.main import main
+
+        root = Path(sys.argv[1]).resolve()
+        cwd = root / "gone"
+        cwd.mkdir()
+        os.chdir(cwd)
+        cwd.rmdir()
+        main([
+            "-n", "-m", "mock/echo", "-w", str(root), "--name", "removed-cwd",
+            "--tools", "complete", "hi",
+        ])
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        env={**os.environ, "HOME": str(tmp_path)},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "Current working directory no longer exists" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner):
