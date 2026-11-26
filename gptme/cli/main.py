@@ -1138,7 +1138,11 @@ def main(
     from ..telemetry import init_telemetry, shutdown_telemetry
     from ..tools import init_tools
     from ..util.context import md_codeblock
-    from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
+    from ..util.interrupt import (
+        CliTermination,
+        handle_keyboard_interrupt,
+        set_interruptible,
+    )
     from ..util.tokens import len_tokens
 
     # init logging
@@ -1578,7 +1582,7 @@ def main(
     # Default SIGTERM skips Python cleanup, leaving detached shell jobs alive.
     # Scope graceful termination to CLI chat; library/server hosts own signals.
     def handle_sigterm(signum: int, frame: FrameType | None) -> None:
-        raise SystemExit(128 + signum)
+        raise CliTermination(128 + signum)
 
     previous_sigterm = signal.getsignal(signal.SIGTERM)
     if previous_sigterm == signal.SIG_DFL:

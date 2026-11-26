@@ -52,6 +52,7 @@ from ..hooks import (
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.interrupt import (
+    CliTermination,
     clear_pending,
     interruptible_sleep,
     kill_processes,
@@ -1210,6 +1211,7 @@ def execute_python(
     # Server conversations pin the process cwd for this cell only (see
     # _inprocess_session_cwd); CLI keeps the process cwd.
     timeout = _get_timeout()
+    result: ExecutionResult | None = None
     with _inprocess_session_cwd():
         cwd = Path.cwd()
         pre_images = _snapshot_images(cwd)
@@ -1219,14 +1221,18 @@ def execute_python(
             capture_and_display() as (stdout_capture, stderr_capture),
         ):
             # Execute the code (output will be displayed in real-time)
-            result: ExecutionResult = _ipython.run_cell(
-                code, silent=False, store_history=False
-            )
+            result = _ipython.run_cell(code, silent=False, store_history=False)
         timed_out_fired = timed_out()
         captured_stdout = stdout_capture.get_captured()
         captured_stderr = stderr_capture.get_captured()
         post_images = pre_images if timed_out_fired else _snapshot_images(cwd)
 
+    # IPython catches SystemExit (including the CLI's SIGTERM) as a cell
+    # error. Re-raise only external termination, not a user's own sys.exit().
+    if result is not None:
+        for error in (result.error_before_exec, result.error_in_exec):
+            if isinstance(error, CliTermination):
+                raise error
     if timed_out_fired:
         yield Message(
             "system",
@@ -1237,6 +1243,7 @@ def execute_python(
         )
         return
 
+    assert result is not None  # A completed cell always returns ExecutionResult.
     output = ""
     terminal_output = ""
     # TODO: should we include captured stdout with messages like these?
