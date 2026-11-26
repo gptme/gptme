@@ -188,6 +188,33 @@ def execute_morph(
     )
 
 
+def _normalize_response(response: str, source: str) -> str:
+    """Normalize provider line endings and retain trailing CRs on unchanged lines.
+
+    When the source contains a trailing content CR, treat the response as
+    CRLF-encoded only if every terminated line ends in CRLF. Align the lines
+    ignoring trailing CRs to recover unchanged lines verbatim from the source.
+    """
+    if "\r\n" not in source:
+        return response.replace("\r\n", "\n")
+
+    source_lines = source.split("\n")[:-1]
+    *lines, tail = response.split("\n")
+    if all(line.endswith("\r") for line in lines):
+        lines = [line[:-1] for line in lines]
+    matcher = difflib.SequenceMatcher(
+        None,
+        [line.rstrip("\r") for line in source_lines],
+        [line.rstrip("\r") for line in lines],
+        autojunk=False,
+    )
+    for source_start, response_start, size in matcher.get_matching_blocks():
+        lines[response_start : response_start + size] = source_lines[
+            source_start : source_start + size
+        ]
+    return "\n".join([*lines, tail])
+
+
 def execute_morph_impl(
     content: str,
     path: Path | None,
@@ -216,8 +243,8 @@ def execute_morph_impl(
             )
             return
 
-        # Check if content actually changed
-        if content == current_content:
+        text = _normalize_response(content, current_content)
+        if text == current_content:
             yield Message(
                 "system", f"Warning: Morph edit resulted in no changes to `{path}`"
             )
@@ -227,7 +254,7 @@ def execute_morph_impl(
         diff_lines = list(
             difflib.unified_diff(
                 current_content.splitlines(),
-                content.splitlines(),
+                text.splitlines(),
                 fromfile=str(path),
                 tofile=str(path),
                 lineterm="",
@@ -236,12 +263,6 @@ def execute_morph_impl(
 
         # Write the edited content back to file, keeping its line endings
         newline = file_newline(path)
-        # Normalize \r\n → \n unconditionally: files are read in universal-newline
-        # mode so the content model is always LF-only. Python's newline= then
-        # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
-        # for LF). Skipping this on LF files would let model-emitted \r\n create
-        # mixed line endings.
-        text = content.replace("\r\n", "\n")
         # Validate UTF-8 before touching the file, then replace it atomically so an
         # encode error or a full disk cannot leave the target truncated.
         text.encode("utf-8")

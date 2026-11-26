@@ -1371,3 +1371,21 @@ def test_atomic_keeps_lone_carriage_return(tmp_path):
 
     assert "atomically" in messages[0].content.lower()
     assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'
+
+
+def test_execute_patch_many_preserves_trailing_content_cr(tmp_path: Path) -> None:
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"first\r\r\nold\r\nlast\r\n")
+    kwargs = {
+        "patches": json.dumps(
+            [
+                {"path": str(target), "patch": _patch_text("old", "new\r\ninserted")},
+                {"path": str(target), "patch": _patch_text("last", "LAST")},
+            ]
+        )
+    }
+
+    messages = list(execute_patch_many(None, None, kwargs))
+
+    assert "Applied 2 hunk(s) atomically" in messages[0].content
+    assert target.read_bytes() == b"first\r\r\nnew\r\ninserted\r\nLAST\r\n"

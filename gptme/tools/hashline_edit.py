@@ -691,7 +691,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             parts.append(line + (ending or "\n"))
     # Adjacent CR and LF from distinct logical lines become one CRLF break.
     # Reject rather than rewrite an untouched separator or lose a blank line
-    # when the writer normalizes CRLF. Existing CRLF within a part is valid.
+    # in the LF representation of the edited file.
     if any(
         left.endswith("\r") and right.startswith("\n")
         for left, right in zip(parts, parts[1:])
@@ -1105,7 +1105,10 @@ def execute_hashline_edit(
         confirm_result.action == ConfirmAction.EDIT
         and confirm_result.edited_content is not None
     ):
-        updated = confirm_result.edited_content
+        edited = confirm_result.edited_content
+        # A preview without trailing content CRs lets us identify CRLF as
+        # coming from the editor. Otherwise the edited text is ambiguous.
+        updated = edited if "\r\n" in updated else edited.replace("\r\n", "\n")
 
     # Re-read before every write: ordinary and merge-recovered targets can both
     # change while confirmation is open, including when the user edits the preview.
@@ -1125,12 +1128,10 @@ def execute_hashline_edit(
     # Write via the shared atomic writer (stage beside the target, then
     # os.replace), keeping the file's line endings. Like patch/save, it refuses
     # hard-linked targets instead of silently splitting them from their aliases.
-    # The content is LF-only here (see read_text_lf); newline= restores CRLF.
+    # Expand LF to the target ending without stripping content CRs.
     try:
         newline = file_newline(resolved)
-        write_text_preserving_original(
-            resolved, updated.replace("\r\n", "\n"), newline=newline
-        )
+        write_text_preserving_original(resolved, updated, newline=newline)
     except (UnicodeEncodeError, ValueError, OSError) as e:
         yield Message("system", f"hashline_edit: write failed: {e}")
         return

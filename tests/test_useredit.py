@@ -110,3 +110,10 @@ def test_initial_write_failure_cleans_up(
         edit_text_with_editor("conversation content")
     assert temporary.closed
     assert list(tmp_path.iterdir()) == []
+
+
+def test_editor_preserves_trailing_content_cr(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EDITOR", shlex.quote(sys.executable))
+    initial_text = "# Still a comment\r\n# another line\n"
+
+    assert edit_text_with_editor(initial_text) == initial_text

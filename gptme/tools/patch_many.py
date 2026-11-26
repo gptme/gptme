@@ -467,12 +467,9 @@ def execute_patch_many_impl(
             )
             return
 
-    # Content was read in universal-newline mode; preserve each file's style.
+    # Expand LF to each target's line ending without stripping content CRs.
     contents = {
-        path: current[path]
-        .replace("\r\n", "\n")
-        .replace("\n", newlines[path])
-        .encode("utf-8")
+        path: current[path].replace("\n", newlines[path]).encode("utf-8")
         for path in order
     }
     cleanup_errors: list[str] = []
