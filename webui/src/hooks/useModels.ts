@@ -63,7 +63,8 @@ export function useModels() {
       return response.json();
     },
     retry: false,
-    staleTime: Infinity,
+    // Re-activating a cached server must refresh externally changed preferences.
+    staleTime: 0,
   });
 
   // Persist the favorites list. Optimistically updates shared state and reverts on failure.
@@ -72,7 +73,17 @@ export function useModels() {
     // replacement lists or roll back a newer successful save.
     scope: { id: JSON.stringify(queryKey) },
     mutationFn: async (change: { next: string[] } | { modelId: string }): Promise<boolean> => {
-      await queryClient.cancelQueries({ queryKey, exact: true });
+      // Join any activation/Settings refresh before deriving a replacement list.
+      // Cancelling it would discard newer favorites and default-model settings.
+      try {
+        await queryClient.fetchQuery<ModelsResponse>({
+          queryKey,
+          staleTime: queryClient.getQueryState(queryKey)?.fetchStatus === 'fetching' ? 0 : Infinity,
+        });
+      } catch (err) {
+        console.error('Failed to refresh models before saving favorites:', err);
+        return false;
+      }
       const prev = queryClient.getQueryData<ModelsResponse>(queryKey)?.favorites || [];
       const next =
         'next' in change
@@ -119,6 +130,9 @@ export function useModels() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const saved = (await response.json()) as { restart_required?: boolean };
+      // A refresh can start while the POST is pending. Abort it before publishing
+      // the confirmed default so its older response cannot overwrite the save.
+      await queryClient.cancelQueries({ queryKey, exact: true });
       queryClient.setQueryData<ModelsResponse>(queryKey, (current) =>
         current ? { ...current, default: modelId } : current
       );

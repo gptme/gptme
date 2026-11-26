@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ApiProvider, useApi } from '@/contexts/ApiContext';
 import { ApiClient } from '@/utils/api';
 import { serverRegistry$, setActiveServer, updateServer } from '@/stores/servers';
@@ -132,9 +132,11 @@ it.each(['server', 'account', 'disconnect'])(
     });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { unmount } = render(
-      <ApiProvider queryClient={queryClient}>
-        <Harness />
-      </ApiProvider>
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider queryClient={queryClient}>
+          <Harness />
+        </ApiProvider>
+      </QueryClientProvider>
     );
     await waitFor(() => expect(screen.getByText('provider-A')).toBeInTheDocument());
     // The picker value is populated by an effect after the provider label renders.
