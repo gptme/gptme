@@ -3143,23 +3143,19 @@ def test_v2_conversation_post_nonexistent_branch_returns_404(
     assert "no-such-branch" in data["error"]
 
 
-@pytest.mark.parametrize("cmd", ["exit", "restart", "edit", "delete"])
+@pytest.mark.parametrize("cmd", ["exit", "restart", "edit", "delete", "export"])
 def test_v2_conversation_post_blocks_unsafe_commands(
     v2_conv, client: FlaskClient, cmd: str
-):
-    """Commands that would crash or block the server are rejected with a clean 400.
-
-    /exit and /restart terminate/restart the server process; /edit launches an
-    interactive $EDITOR subprocess on the server host; /delete without --force
-    calls input() waiting for stdin that never arrives in server mode.
-    None should be dispatched to handle_cmd in server mode.
-    """
+) -> None:
+    """CLI-only commands must be rejected before the server dispatches them."""
     conversation_id = v2_conv["conversation_id"]
 
-    response = client.post(
-        f"/api/v2/conversations/{conversation_id}",
-        json={"role": "user", "content": f"/{cmd}"},
-    )
+    with unittest.mock.patch("gptme.server.api_v2.handle_cmd") as dispatch:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": f"/{cmd}"},
+        )
+        dispatch.assert_not_called()
 
     assert response.status_code == 400
     data = response.get_json()
