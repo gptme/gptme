@@ -226,11 +226,16 @@ _PATTERNS = (
         (?P<quote>["'`])
         (?:(?:\\.|(?!(?P=quote))[^\\\n])*? (?:/|\\{1,2}))?
         (?:
-            \.(?:ssh|gnupg)
-            | \.env(?:\.(?!(?:example|sample|template|dist|default))[\w.-]+)?
-            | credentials(?:\.(?:json|ya?ml|txt|ini))?
+            (?: \.(?:ssh|gnupg)
+              | (?:\.git-|application_default_)?credentials
+                (?:\.(?:json|ya?ml|txt|ini|db))?
+            )
+            (?=[/\\]|(?P=quote))
+            # The dotenv name may end at an interpolation: f"{x}", `${x}`, "%s".
+            | \.env(?:rc)?
+              (?:[._-](?!(?:example|sample|template|dist|default))[\w.-]*)?
+            (?=[/\\{%]|\$\{|(?P=quote))
         )
-        (?=[/\\]|(?P=quote))
         """,
         "credential-harvest",
         "reads SSH or credential files",
