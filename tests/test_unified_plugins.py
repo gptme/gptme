@@ -560,6 +560,28 @@ class TestUnifiedRegistry:
         """Registry starts empty."""
         assert get_all_plugins() == []
 
+    @pytest.mark.parametrize("alias", ["fixture", "gptme-fixture"])
+    def test_allowlist_keeps_entry_point_alias(self, alias: str) -> None:
+        """Selecting an entry point by either alias keeps its manifest in the registry."""
+        init = MagicMock()
+        plugin = GptmePlugin(name="fixture-manifest", init=init)
+        selected = _entry_point(
+            "fixture", "gptme_fixture.plugin", MagicMock(return_value=plugin)
+        )
+        unselected = _entry_point("other", "gptme_other.plugin", MagicMock())
+
+        with patch(
+            "gptme.plugins.entrypoints.entry_points",
+            return_value=[selected, unselected],
+        ):
+            result = discover_all_plugins(enabled_plugins=[alias])
+
+        selected.load.assert_called_once_with()
+        unselected.load.assert_not_called()
+        assert [p.name for p in result] == ["fixture-manifest"]
+        assert get_all_plugins() == [plugin]
+        init.assert_called_once()
+
     def test_discover_merges_sources(self):
         """discover_all_plugins merges folder and entry-point plugins."""
         ep_plugin = GptmePlugin(name="ep_plugin")
@@ -641,27 +663,42 @@ class TestUnifiedRegistry:
         assert len(result) == 1
         assert result[0] is unified
 
-    def test_allowlist_filters(self):
-        """enabled_plugins allowlist filters discovered plugins."""
-        p1 = GptmePlugin(name="allowed")
-        p2 = GptmePlugin(name="not_allowed")
+    @pytest.mark.parametrize("enable_folder", [True, False])
+    def test_allowlist_filters(self, enable_folder: bool) -> None:
+        """Only enabled folder plugins can shadow an enabled entry point."""
+        from gptme.plugins import Plugin
+
+        allowed = GptmePlugin(name="allowed")
+        enabled = ["allowed-entry", "legacy_allowed"]
+        if enable_folder:
+            enabled.append("allowed")
+        folder = Plugin(name="allowed", path=Path("/fake"))
+        selected = _entry_point(
+            "allowed-entry", "allowed_pkg.plugin", MagicMock(return_value=allowed)
+        )
+        unselected = _entry_point("not_allowed", "other_pkg.plugin", MagicMock())
 
         with (
+            patch("gptme.plugins.discover_plugins", return_value=[folder]),
             patch(
-                "gptme.plugins.registry.discover_entrypoint_plugins",
-                return_value=(p1, p2),
+                "gptme.plugins.entrypoints.entry_points",
+                return_value=[selected, unselected],
             ),
             patch(
                 "gptme.plugins.registry._discover_legacy_provider_plugins",
-                return_value=[],
+                return_value=[
+                    GptmePlugin(name="legacy_allowed"),
+                    GptmePlugin(name="legacy_not_allowed"),
+                ],
             ),
-            patch("gptme.config.get_config") as mock_config,
         ):
-            mock_config.return_value = MagicMock()
-            result = discover_all_plugins(enabled_plugins=["allowed"])
+            result = discover_all_plugins(
+                folder_paths=[folder.path], enabled_plugins=enabled
+            )
 
-        assert len(result) == 1
-        assert result[0].name == "allowed"
+        assert [p.name for p in result] == ["allowed", "legacy_allowed"]
+        assert (result[0] is allowed) is not enable_folder
+        unselected.load.assert_not_called()
 
     def test_plugin_init_called(self):
         """Plugin-level init() is called with config during discovery."""

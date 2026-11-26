@@ -8,6 +8,8 @@ JSON/text/HTML output.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -17,6 +19,9 @@ from gptme.util.capabilities_export import (
     redact_secret_like,
     render,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _fixture_snapshot(**overrides: object) -> dict:
@@ -282,6 +287,30 @@ def test_html_escapes_untrusted_snapshot_scalars():
     assert "<svg/onload=alert(1)>" not in html
     assert "&lt;script&gt;" in html
     assert "&lt;b&gt;xss&lt;/b&gt;" in html
+
+
+def test_collect_live_shows_plugin_enabled_by_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.plugins.plugin import GptmePlugin
+    from gptme.plugins.registry import clear_registry
+
+    (tmp_path / "gptme.toml").write_text('[plugins]\nenabled = ["gptme-fixture"]\n')
+    plugin = GptmePlugin(name="fixture-manifest")
+    entry_point = SimpleNamespace(
+        name="fixture", module="gptme_fixture.plugin", load=lambda: plugin
+    )
+    monkeypatch.setattr(
+        "gptme.plugins.entrypoints.entry_points", lambda *, group: [entry_point]
+    )
+    try:
+        snapshot = collect_live(tmp_path)
+    finally:
+        clear_registry()
+
+    assert {p["name"]: p["enabled"] for p in snapshot["plugins"]} == {
+        "fixture-manifest": True
+    }
 
 
 def test_collect_live_default_does_not_connect_mcp(tmp_path, monkeypatch):

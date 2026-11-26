@@ -42,7 +42,8 @@ def discover_all_plugins(
 
     Args:
         folder_paths: Paths to search for folder-based plugins.
-        enabled_plugins: Optional allowlist of plugin names (None = all).
+        enabled_plugins: Optional allowlist (None = all). Entry-point plugins
+            match by entry-point or package name; other plugins match by name.
         errors: Optional sink for per-plugin failures that discovery normally
             tolerates (and only logs): entry points that fail to load or
             coerce, and plugin-level ``init()`` exceptions. Tolerant runtime
@@ -55,13 +56,16 @@ def discover_all_plugins(
     """
     global _initialized
     plugins: list[GptmePlugin] = []
+    enabled_set = frozenset(enabled_plugins) if enabled_plugins is not None else None
 
     # 1. Folder plugins
     if folder_paths:
         from . import discover_plugins
 
         plugins.extend(
-            _folder_plugin_to_gptme_plugin(fp) for fp in discover_plugins(folder_paths)
+            _folder_plugin_to_gptme_plugin(fp)
+            for fp in discover_plugins(folder_paths)
+            if enabled_set is None or fp.name in enabled_set
         )
 
     # 2. Entry-point plugins (new gptme.plugins group)
@@ -71,7 +75,6 @@ def discover_all_plugins(
     # Dedup against folder plugins — an editable-install (pip install -e .) will
     # register the same plugin both as a folder plugin and an entry-point plugin.
     folder_names = {p.name for p in plugins}
-    enabled_set = frozenset(enabled_plugins) if enabled_plugins is not None else None
     for ep_plugin in discover_entrypoint_plugins(enabled_set, errors=errors):
         if ep_plugin.name in folder_names:
             # Warn if the entry-point version has capabilities the folder adapter doesn't carry
@@ -89,12 +92,10 @@ def discover_all_plugins(
     # Only include if not already registered via gptme.plugins
     known_names = {p.name for p in plugins}
     plugins.extend(
-        p for p in _discover_legacy_provider_plugins() if p.name not in known_names
+        p
+        for p in _discover_legacy_provider_plugins()
+        if p.name not in known_names and (enabled_set is None or p.name in enabled_set)
     )
-
-    # Apply allowlist
-    if enabled_plugins is not None:
-        plugins = [p for p in plugins if p.name in enabled_plugins]
 
     # Call plugin-level init (deferred to avoid circular import)
     from ..config import get_config

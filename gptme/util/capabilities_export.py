@@ -340,7 +340,7 @@ def _collect_live_impl(
                 "tool_names": [t.name for t in plugin.tools],
                 "has_hooks": plugin.register_hooks is not None,
                 "has_commands": plugin.register_commands is not None,
-                "enabled": enabled_plugins is None or plugin.name in enabled_plugins,
+                "enabled": True,  # Registry discovery already applied the allowlist.
             }
         )
 

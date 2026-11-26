@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.377" timestamp="2026-11-26T17:35:30.019877+00:00" hostname="runnervm0hi8g"><testcase classname="tests.test_unified_plugins.TestUnifiedRegistry" name="test_allowlist_keeps_entry_point_alias[fixture]" time="0.947"><failure message="AssertionError: assert [] == ['fixture-manifest']&#10;  &#10;  Right contains one more item: 'fixture-manifest'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  + []&#10;  - [&#10;  -     'fixture-manifest',&#10;  - ]">self = &lt;test_unified_plugins.TestUnifiedRegistry object at 0x71a34693e5d0&gt;
+alias = 'fixture'
+
+    @pytest.mark.parametrize("alias", ["fixture", "gptme-fixture"])
+    def test_allowlist_keeps_entry_point_alias(self, alias: str) -&gt; None:
+        """Selecting an entry point by either alias keeps its manifest in the registry."""
+        init = MagicMock()
+        plugin = GptmePlugin(name="fixture-manifest", init=init)
+        selected = _entry_point(
+            "fixture", "gptme_fixture.plugin", MagicMock(return_value=plugin)
+        )
+        unselected = _entry_point("other", "gptme_other.plugin", MagicMock())
+    
+        with patch(
+            "gptme.plugins.entrypoints.entry_points",
+            return_value=[selected, unselected],
+        ):
+            result = discover_all_plugins(enabled_plugins=[alias])
+    
+        selected.load.assert_called_once_with()
+        unselected.load.assert_not_called()
+&gt;       assert [p.name for p in result] == ["fixture-manifest"]
+E       AssertionError: assert [] == ['fixture-manifest']
+E         
+E         Right contains one more item: 'fixture-manifest'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E         + []
+E         - [
+E         -     'fixture-manifest',
+E         - ]
+
+tests/test_unified_plugins.py:581: AssertionError</failure></testcase><testcase classname="tests.test_unified_plugins.TestUnifiedRegistry" name="test_allowlist_keeps_entry_point_alias[gptme-fixture]" time="0.024"><failure message="AssertionError: assert [] == ['fixture-manifest']&#10;  &#10;  Right contains one more item: 'fixture-manifest'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  + []&#10;  - [&#10;  -     'fixture-manifest',&#10;  - ]">self = &lt;test_unified_plugins.TestUnifiedRegistry object at 0x71a3468efbb0&gt;
+alias = 'gptme-fixture'
+
+    @pytest.mark.parametrize("alias", ["fixture", "gptme-fixture"])
+    def test_allowlist_keeps_entry_point_alias(self, alias: str) -&gt; None:
+        """Selecting an entry point by either alias keeps its manifest in the registry."""
+        init = MagicMock()
+        plugin = GptmePlugin(name="fixture-manifest", init=init)
+        selected = _entry_point(
+            "fixture", "gptme_fixture.plugin", MagicMock(return_value=plugin)
+        )
+        unselected = _entry_point("other", "gptme_other.plugin", MagicMock())
+    
+        with patch(
+            "gptme.plugins.entrypoints.entry_points",
+            return_value=[selected, unselected],
+        ):
+            result = discover_all_plugins(enabled_plugins=[alias])
+    
+        selected.load.assert_called_once_with()
+        unselected.load.assert_not_called()
+&gt;       assert [p.name for p in result] == ["fixture-manifest"]
+E       AssertionError: assert [] == ['fixture-manifest']
+E         
+E         Right contains one more item: 'fixture-manifest'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E         + []
+E         - [
+E         -     'fixture-manifest',
+E         - ]
+
+tests/test_unified_plugins.py:581: AssertionError</failure></testcase></testsuite></testsuites>
