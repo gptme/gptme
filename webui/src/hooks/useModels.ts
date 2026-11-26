@@ -158,7 +158,6 @@ export function useModels() {
   const saveDefaultModel = async (
     modelId: string
   ): Promise<{ ok: boolean; restartRequired: boolean }> => {
-    const initialCatalog = queryClient.getQueryData<ModelsResponse>(queryKey);
     try {
       const response = await fetch(`${baseUrl}/api/v2/user/default-model`, {
         method: 'POST',
@@ -175,17 +174,25 @@ export function useModels() {
         // The preference POST succeeded even if the independent catalog failed.
         console.error('Failed to refresh models after saving default:', err);
       }
-      queryClient.setQueryData<ModelsResponse>(queryKey, (current) => {
-        // Settings or another consumer may have confirmed a newer default while
-        // this response was delayed. Do not replace that authoritative value.
-        if (initialCatalog && current && current.default !== initialCatalog.default) return current;
-        return {
-          models: EMPTY_MODELS,
-          recommended: EMPTY_IDS,
-          ...current,
-          default: modelId,
-        };
-      });
+      let confirmedDefault: string | null = modelId;
+      // A changed cached value might come from a read older than this save, or
+      // from a newer Settings save. Read after the POST to distinguish them.
+      // When restart is required the running server still reports the old model.
+      if (!saved.restart_required) {
+        try {
+          const latest = await fetch(`${baseUrl}/api/v2/models`, { headers: authedHeaders() });
+          if (!latest.ok) throw await buildModelsFetchError(latest);
+          confirmedDefault = ((await latest.json()) as ModelsResponse).default;
+        } catch (err) {
+          console.error('Failed to confirm default model after saving:', err);
+        }
+      }
+      queryClient.setQueryData<ModelsResponse>(queryKey, (current) => ({
+        models: EMPTY_MODELS,
+        recommended: EMPTY_IDS,
+        ...current,
+        default: confirmedDefault,
+      }));
       return { ok: true, restartRequired: !!saved.restart_required };
     } catch (err) {
       console.error('Failed to save default model:', err);

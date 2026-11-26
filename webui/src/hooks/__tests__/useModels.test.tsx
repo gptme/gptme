@@ -27,13 +27,19 @@ beforeEach(() => {
   mockApi.authHeader = 'Bearer test';
   mockConnected$.set(true);
   mockFetch.mockReset();
-  mockFetch.mockImplementation(async (_url: string, init?: RequestInit) => ({
-    ok: true,
-    json: async () =>
-      init?.method === 'POST'
-        ? JSON.parse(init.body as string)
-        : { models: [], default: 'initial/model', favorites: [], recommended: [] },
-  }));
+  let serverDefault = 'initial/model';
+  mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/default-model') && init?.method === 'POST') {
+      serverDefault = JSON.parse(init.body as string).model;
+    }
+    return {
+      ok: true,
+      json: async () =>
+        init?.method === 'POST'
+          ? JSON.parse(init.body as string)
+          : { models: [], default: serverDefault, favorites: [], recommended: [] },
+    };
+  });
   global.fetch = mockFetch;
 });
 
@@ -202,6 +208,10 @@ it('does not let a catalog fetch started during a default save restore the old d
   await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
   const signal = mockFetch.mock.calls[2][1].signal as AbortSignal;
   await act(async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ default: 'new/model' }),
+    });
     finishSave({ ok: true, json: async () => ({ restart_required: false }) });
     finishRead({
       ok: true,
@@ -431,6 +441,27 @@ it('reports a confirmed default save even if the initial catalog read fails', as
   consoleError.mockRestore();
 });
 
+it('keeps a confirmed default save when its post-save confirmation fails', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ restart_required: false }) });
+  mockFetch.mockRejectedValueOnce(new Error('confirmation unavailable'));
+  await act(async () => {
+    expect(await composer.result.current.saveDefaultModel('new/model')).toEqual({
+      ok: true,
+      restartRequired: false,
+    });
+  });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('new/model'));
+  expect(consoleError).toHaveBeenCalledWith(
+    'Failed to confirm default model after saving:',
+    expect.any(Error)
+  );
+  consoleError.mockRestore();
+});
+
 it('keeps queued favorite toggles bound to the account that requested them', async () => {
   const { wrapper } = setup();
   const composer = renderHook(() => useModels(), { wrapper });
@@ -469,6 +500,43 @@ it('keeps queued favorite toggles bound to the account that requested them', asy
     })
   );
   expect(composer.result.current.favorites).toEqual([]);
+});
+
+it('publishes a successful default save after an older changed catalog arrives', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  let finishRead!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishRead = resolve;
+    })
+  );
+  let read!: ReturnType<typeof composer.result.current.refetch>;
+  act(() => {
+    read = composer.result.current.refetch();
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  let save!: ReturnType<typeof composer.result.current.saveDefaultModel>;
+  act(() => {
+    save = composer.result.current.saveDefaultModel('new/model');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+  await act(async () => {
+    finishRead({
+      ok: true,
+      json: async () => ({
+        models: [],
+        default: 'external/model',
+        favorites: ['model/A'],
+        recommended: [],
+      }),
+    });
+    await read;
+    expect(await save).toEqual({ ok: true, restartRequired: false });
+  });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('new/model'));
+  expect(composer.result.current.favorites).toEqual(['model/A']);
 });
 
 it('does not overwrite a newer Settings default with a delayed save response', async () => {
