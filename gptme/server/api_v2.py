@@ -152,9 +152,9 @@ _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 # Commands that must not run in server mode:
 # - exit/restart: terminate or restart the server process
 # - edit: launches an interactive $EDITOR subprocess, blocking the worker thread
-# - delete (without --force): calls input() waiting for stdin that never arrives
+# - delete/rm (without --force): calls input() waiting for stdin that never arrives
 # - export: writes a local HTML file as a CLI operation, not a server download
-_SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete", "export"}
+_SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete", "rm", "export"}
 
 
 def _parse_conversation_cursor(raw: str) -> tuple[float, str | None]:

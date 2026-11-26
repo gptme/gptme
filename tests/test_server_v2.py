@@ -3143,7 +3143,9 @@ def test_v2_conversation_post_nonexistent_branch_returns_404(
     assert "no-such-branch" in data["error"]
 
 
-@pytest.mark.parametrize("cmd", ["exit", "restart", "edit", "delete", "export"])
+@pytest.mark.parametrize(
+    "cmd", ["exit", "restart", "edit", "delete", "rm", "rm abc123", "export"]
+)
 def test_v2_conversation_post_blocks_unsafe_commands(
     v2_conv, client: FlaskClient, cmd: str
 ) -> None:

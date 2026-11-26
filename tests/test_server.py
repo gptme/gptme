@@ -1324,7 +1324,7 @@ def test_api_v2_commands(client: FlaskClient) -> None:
     assert isinstance(commands, list)
     assert "/help" in commands
     assert "/model" in commands
-    assert not {"/exit", "/restart", "/edit", "/delete", "/export"}.intersection(
+    assert not {"/exit", "/restart", "/edit", "/delete", "/rm", "/export"}.intersection(
         commands
     )
 
