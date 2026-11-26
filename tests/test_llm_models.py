@@ -306,6 +306,7 @@ def test_gpt_6_2_sol_registered(provider):
     assert meta.model == "gpt-6.2-sol"
     assert meta.context == 1_050_000
     assert (meta.price_input, meta.price_output) == (2, 10)
+    assert meta.price_cache_read == 0.10
 
 
 @pytest.mark.parametrize("provider", sorted(RECOMMENDED_MODELS))
