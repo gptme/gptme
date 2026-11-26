@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from gptme.credentials import _get_credentials_path, set_stored_api_key
+from gptme.credentials import (
+    _get_credentials_path,
+    get_credentials_dir,
+    set_stored_api_key,
+)
 
 
 @pytest.mark.parametrize("xdg", ["", "   ", "relative/cfg", "~/cfg"])
@@ -18,9 +22,14 @@ def test_credentials_path_not_relative_to_cwd(monkeypatch, tmp_path: Path, xdg):
     monkeypatch.setenv("XDG_CONFIG_HOME", xdg)
     monkeypatch.chdir(cwd)
 
+    config_dir = get_credentials_dir()
+    assert config_dir.is_absolute()
+    assert not config_dir.exists(), "directory lookup must not create the store"
+
     path = set_stored_api_key("anthropic", "sk-ant-secret-1234")
 
     assert path.is_absolute(), f"credentials path is relative: {path!r}"
     leaked = list(cwd.rglob("credentials.toml"))
     assert not leaked, f"API key written inside the working directory: {leaked}"
     assert path == _get_credentials_path()
+    assert path.parent == config_dir
