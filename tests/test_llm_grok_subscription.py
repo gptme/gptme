@@ -14,10 +14,12 @@ from gptme.llm.llm_grok_subscription import (
     OAUTH_ISSUER,
     SubscriptionAuth,
     _load_grok_cli_tokens,
+    _load_grok_cli_tokens_with_key,
     _load_stored_tokens,
     _parse_expires_at,
     _refresh_access_token,
     _save_tokens,
+    _update_grok_cli_tokens,
     get_auth,
     init,
 )
@@ -134,6 +136,203 @@ def test_load_grok_cli_tokens_fallback_rejects_different_client(tmp_path):
     ):
         auth = _load_grok_cli_tokens()
     assert auth is None
+
+
+def test_update_grok_cli_tokens_writes_back_variant_key(tmp_path):
+    """Write-back uses the same key the loader accepted, not only GROK_AUTH_KEY.
+
+    Otherwise a refresh spends the refresh token stored under a variant key and
+    auth.json keeps the spent one (gptme/gptme#5218 item 9).
+    """
+    variant_key = f"https://auth2.x.ai::{OAUTH_CLIENT_ID}"
+    other_key = "https://auth.x.ai::different-client-id"
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps(
+            {
+                variant_key: {
+                    "key": "old-token",
+                    "refresh_token": "spent-refresh",
+                    "expires_at": "2000-01-01T00:00:00.000000000Z",
+                },
+                other_key: {"key": "other", "refresh_token": "other-refresh"},
+            }
+        )
+    )
+    refreshed = SubscriptionAuth(
+        access_token="new-token",
+        refresh_token="new-refresh",
+        expires_at=time.time() + 3600,
+    )
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        _update_grok_cli_tokens(refreshed)
+        reloaded = _load_grok_cli_tokens()
+
+    data = json.loads(auth_file.read_text())
+    assert data[variant_key]["key"] == "new-token"
+    assert data[variant_key]["refresh_token"] == "new-refresh"
+    assert GROK_AUTH_KEY not in data
+    assert data[other_key] == {"key": "other", "refresh_token": "other-refresh"}
+    assert reloaded is not None
+    assert reloaded.refresh_token == "new-refresh"
+
+
+def test_update_grok_cli_tokens_ignores_other_clients(tmp_path):
+    """Write-back never touches an entry belonging to a different OAuth client."""
+    other_key = "https://auth.x.ai::different-client-id"
+    original = {other_key: {"key": "other", "refresh_token": "other-refresh"}}
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(json.dumps(original))
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        _update_grok_cli_tokens(_make_auth())
+    assert json.loads(auth_file.read_text()) == original
+
+
+def test_update_grok_cli_tokens_writes_only_the_loaded_key(tmp_path):
+    """A new login under another key is never overwritten by our refresh.
+
+    ``GROK_AUTH_KEY`` is present so a write-back that ignored ``source_key``
+    would pick it via the fallback lookup and fail the assertions below.
+    """
+    loaded_key = f"https://auth2.x.ai::{OAUTH_CLIENT_ID}"
+    new_login_key = f"https://auth3.x.ai::{OAUTH_CLIENT_ID}"
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps(
+            {
+                GROK_AUTH_KEY: {
+                    "key": "exact-key-token",
+                    "refresh_token": "exact-key-refresh",
+                },
+                loaded_key: {
+                    "key": "old-token",
+                    "refresh_token": "spent-refresh",
+                    "expires_at": "2000-01-01T00:00:00.000000000Z",
+                },
+                new_login_key: {
+                    "key": "new-login",
+                    "refresh_token": "new-login-refresh",
+                },
+            }
+        )
+    )
+    refreshed = SubscriptionAuth(
+        access_token="new-token",
+        refresh_token="new-refresh",
+        expires_at=time.time() + 3600,
+    )
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        _update_grok_cli_tokens(
+            refreshed,
+            source_key=loaded_key,
+            expected_refresh_token="spent-refresh",
+        )
+
+    data = json.loads(auth_file.read_text())
+    assert data[loaded_key]["refresh_token"] == "new-refresh"
+    assert data[new_login_key] == {
+        "key": "new-login",
+        "refresh_token": "new-login-refresh",
+    }
+    assert data[GROK_AUTH_KEY] == {
+        "key": "exact-key-token",
+        "refresh_token": "exact-key-refresh",
+    }
+
+
+def test_update_grok_cli_tokens_skips_when_entry_changed(tmp_path):
+    """If the same key was re-logged-in, do not clobber the fresher session."""
+    key = f"https://auth2.x.ai::{OAUTH_CLIENT_ID}"
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps({key: {"key": "relogin", "refresh_token": "relogin-refresh"}})
+    )
+    refreshed = SubscriptionAuth(
+        access_token="new-token",
+        refresh_token="new-refresh",
+        expires_at=time.time() + 3600,
+    )
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        _update_grok_cli_tokens(
+            refreshed,
+            source_key=key,
+            expected_refresh_token="spent-refresh",
+        )
+
+    data = json.loads(auth_file.read_text())
+    assert data[key] == {"key": "relogin", "refresh_token": "relogin-refresh"}
+
+
+def test_load_grok_cli_tokens_null_exact_key_falls_back(tmp_path):
+    """A null ``GROK_AUTH_KEY`` must not shadow a usable variant entry."""
+    variant_key = f"https://auth2.x.ai::{OAUTH_CLIENT_ID}"
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps(
+            {
+                GROK_AUTH_KEY: None,
+                variant_key: {
+                    "key": "tok",
+                    "refresh_token": "ref",
+                    "expires_at": "2000-01-01T00:00:00.000000000Z",
+                },
+            }
+        )
+    )
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        loaded = _load_grok_cli_tokens_with_key()
+        assert loaded is not None
+        assert loaded[0] == variant_key
+
+        _update_grok_cli_tokens(
+            SubscriptionAuth(
+                access_token="new-token",
+                refresh_token="new-refresh",
+                expires_at=time.time() + 3600,
+            ),
+            source_key=variant_key,
+            expected_refresh_token="ref",
+        )
+
+    data = json.loads(auth_file.read_text())
+    assert data[variant_key]["refresh_token"] == "new-refresh"
+    assert data[GROK_AUTH_KEY] is None
+
+
+def test_load_grok_cli_tokens_with_key_returns_loaded_key(tmp_path):
+    """The loader exposes the key so the write-back can target it."""
+    variant_key = f"https://auth2.x.ai::{OAUTH_CLIENT_ID}"
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        json.dumps(
+            {variant_key: {"key": "tok", "refresh_token": "ref", "expires_at": ""}}
+        )
+    )
+    with patch(
+        "gptme.llm.llm_grok_subscription._get_grok_cli_auth_path",
+        return_value=auth_file,
+    ):
+        loaded = _load_grok_cli_tokens_with_key()
+
+    assert loaded is not None
+    key, auth = loaded
+    assert key == variant_key
+    assert auth.access_token == "tok"
 
 
 # ── _save_tokens / _load_stored_tokens ──────────────────────────────────────
