@@ -37,50 +37,17 @@ Startup time
    :cwd: ..
 
 
-Lines of code
--------------
+Code size
+---------
 
-LoC Core
-********
+.. include:: _build/arewetiny.inc
+   :parser: myst_parser.parsers.docutils_
 
-.. command-output:: make cloc-core
-   :cwd: ..
-
-LoC LLM
-*******
-
-.. command-output:: make cloc-llm
-   :cwd: ..
-
-LoC Tools
-*********
-
-.. command-output:: make cloc-tools
-   :cwd: ..
-
-LoC Server
-***********
-
-.. command-output:: make cloc-server
-   :cwd: ..
-
-LoC Tests
-**********
-
-.. command-output:: make cloc-tests
-   :cwd: ..
-
-LoC Eval
-********
-
-.. command-output:: make cloc-eval
-   :cwd: ..
-
-LoC Total
-*********
-
-.. command-output:: make cloc-total
-   :cwd: ..
+The report counts physical lines in tracked code files. It uses the same
+`code-size tool <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-dashboard#codesize--where-code-is-hard-to-review>`_
+as the `gptme-contrib dashboard <https://gptme.github.io/gptme-contrib/#codesize>`_.
+Follow the `shared report tracking issue <https://github.com/gptme/gptme/issues/5291>`_
+for changes to these measures.
 
 Code Metrics
 ------------
