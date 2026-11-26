@@ -529,6 +529,11 @@ class MCPClient:
         """
         return self._elicitation_callback is not None
 
+    def copy_session_settings_from(self, previous: "MCPClient") -> None:
+        """Carry over roots and elicitation before connecting a replacement."""
+        self.set_roots(previous.get_roots().copy())
+        self.set_elicitation_callback(previous._elicitation_callback)
+
     async def _setup_stdio_connection(
         self, server_params
     ) -> tuple[types.ListToolsResult, ClientSession]:
