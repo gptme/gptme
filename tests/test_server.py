@@ -4,6 +4,7 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -123,6 +124,52 @@ def test_api_conversation_list_with_limit(client: FlaskClient):
     assert len(data) <= 5
 
 
+def test_legacy_conversation_cache_hit_survives_invalidation(
+    client: FlaskClient, monkeypatch, tmp_path
+):
+    """Invalidation during the TTL check must not turn a cache hit into a 500."""
+    from types import SimpleNamespace
+
+    import gptme.server.api_v2 as api_v2_module
+
+    monkeypatch.setattr(
+        api_v2_module.conversations_module, "get_logs_dir", lambda: tmp_path
+    )
+    api_v2_module._invalidate_conversations_cache()
+    monkeypatch.setattr(
+        api_v2_module, "get_user_conversations", lambda detail=False: iter(())
+    )
+    assert client.get("/api/v2/conversations").status_code == 200
+    assert api_v2_module._conversations_cache == []
+    monotonic = time.monotonic
+
+    class InvalidateOnSubtract(float):
+        def __sub__(self, other):
+            elapsed = super().__sub__(other)
+            api_v2_module._invalidate_conversations_cache()
+            return elapsed
+
+    def invalidate_during_ttl_check():
+        return InvalidateOnSubtract(monotonic())
+
+    try:
+        with (
+            client.application.test_request_context("/api/v2/conversations"),
+            patch.object(
+                api_v2_module,
+                "time",
+                SimpleNamespace(monotonic=invalidate_during_ttl_check),
+            ),
+        ):
+            response = api_v2_module.api_conversations()
+        assert response.status_code == 200
+        assert response.get_json() == []
+        assert response.get_etag()[0] is not None
+        assert api_v2_module._conversations_cache is None
+    finally:
+        api_v2_module._invalidate_conversations_cache()
+
+
 def test_api_conversation_list_paginated_cursor_preserves_equal_timestamps(
     client: FlaskClient, monkeypatch
 ):
@@ -179,6 +226,223 @@ def test_api_conversation_list_paginated_cursor_preserves_equal_timestamps(
     page2_data = page2.get_json()
     assert [item["id"] for item in page2_data["conversations"]] == ["a", "d"]
     assert page2_data["next_cursor"] is None
+
+
+def test_api_conversation_list_paginated_ignores_truncated_legacy_cache(
+    client: FlaskClient, monkeypatch
+):
+    """A bare list call caches at most 1000 conversations; pagination must not treat that as the full list."""
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    api_v2_module._invalidate_conversations_cache()
+
+    base = ConversationMeta(
+        id="seed",
+        name="seed",
+        path="/tmp/seed/conversation.jsonl",
+        created=0.0,
+        modified=0.0,
+        messages=1,
+        branches=1,
+        workspace="",
+        agent_name=None,
+        agent_path=None,
+        agent_avatar=None,
+        agent_urls=None,
+        model=None,
+        total_cost=0.0,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_cache_read_tokens=0,
+        last_message_role="user",
+        last_message_preview="preview",
+    )
+    conversations = [
+        replace(base, id=f"c{i:04d}", name=f"c{i}", modified=float(2000 - i))
+        for i in range(1001)
+    ]
+    scans: list[bool] = []
+
+    def fake_get_user_conversations(detail=False):
+        scans.append(detail)
+        return iter(conversations)
+
+    monkeypatch.setattr(
+        api_v2_module, "get_user_conversations", fake_get_user_conversations
+    )
+
+    # Warm the cache through the legacy bare-list path (capped at 1000).
+    assert client.get("/api/v2/conversations").status_code == 200
+
+    page1 = client.get("/api/v2/conversations?paginated=1&limit=1000").get_json()
+    assert len(page1["conversations"]) == 1000
+    assert page1["next_cursor"] is not None
+    scans_after_page1 = len(scans)
+
+    page2 = client.get(
+        f"/api/v2/conversations?paginated=1&limit=10&cursor={page1['next_cursor']}"
+    ).get_json()
+    assert [item["id"] for item in page2["conversations"]] == ["c1000"]
+    assert page2["next_cursor"] is None
+    # Page two is served from the full list page one cached: no rescan.
+    assert len(scans) == scans_after_page1
+
+
+@pytest.mark.parametrize("query", ["", "?paginated=1&limit=10"])
+def test_conversation_list_fill_does_not_publish_scan_older_than_a_save(
+    client: FlaskClient, monkeypatch, query: str
+):
+    """A list scan that began before a message was saved must not become the cache."""
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    api_v2_module._invalidate_conversations_cache()
+    stale = ConversationMeta(
+        id="a",
+        name="a",
+        path="/tmp/a/conversation.jsonl",
+        created=0.0,
+        modified=0.0,
+        messages=1,
+        branches=1,
+        workspace="",
+        agent_name=None,
+        agent_path=None,
+        agent_avatar=None,
+        agent_urls=None,
+        model=None,
+        total_cost=0.0,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_cache_read_tokens=0,
+        last_message_role="user",
+        last_message_preview="old",
+    )
+
+    def scan_while_a_message_is_saved(detail=False):
+        yield stale  # read before the save
+        api_v2_module._update_conversation_in_cache("a")
+
+    monkeypatch.setattr(
+        api_v2_module, "get_user_conversations", scan_while_a_message_is_saved
+    )
+    assert client.get(f"/api/v2/conversations{query}").status_code == 200
+    assert api_v2_module._conversations_cache is None
+
+
+def test_update_conversation_in_cache_does_not_overwrite_newer_fill(tmp_path):
+    """An in-place update computed from an old list must not replace a newer fill."""
+    import time
+
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    def meta(conv_id: str) -> ConversationMeta:
+        return ConversationMeta(
+            id=conv_id,
+            name=conv_id,
+            path=str(tmp_path / conv_id / "conversation.jsonl"),
+            created=0.0,
+            modified=0.0,
+            messages=1,
+            branches=1,
+            workspace="",
+            agent_name=None,
+            agent_path=None,
+            agent_avatar=None,
+            agent_urls=None,
+            model=None,
+            total_cost=0.0,
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cache_read_tokens=0,
+            last_message_role="user",
+            last_message_preview="old",
+        )
+
+    capped = [meta("a")]
+    newer = [meta("a"), meta("b")]
+    api_v2_module._conversations_cache = capped
+    api_v2_module._conversations_cache_logs_dir = tmp_path
+    api_v2_module._conversations_cache_time = time.monotonic()
+    api_v2_module._conversations_cache_complete = False
+
+    def read_meta_while_a_full_fill_lands(conv_id, detail=False, logs_dir=None):
+        # A paginated fill completes while the update is reading from disk.
+        api_v2_module._conversations_cache = newer
+        api_v2_module._conversations_cache_complete = True
+        return replace(meta(conv_id), last_message_preview="new")
+
+    try:
+        with patch.object(
+            api_v2_module,
+            "get_conversation_meta_direct",
+            read_meta_while_a_full_fill_lands,
+        ):
+            api_v2_module._update_conversation_in_cache("a")
+        assert api_v2_module._conversations_cache is newer
+        assert api_v2_module._conversations_cache_complete is True
+    finally:
+        api_v2_module._invalidate_conversations_cache()
+
+
+def test_concurrent_updates_of_different_conversations_both_apply(tmp_path):
+    """Two in-place updates that snapshot the same list must not drop each other."""
+    import time
+
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    def meta(conv_id: str, preview: str) -> ConversationMeta:
+        return ConversationMeta(
+            id=conv_id,
+            name=conv_id,
+            path=str(tmp_path / conv_id / "conversation.jsonl"),
+            created=0.0,
+            modified=0.0,
+            messages=1,
+            branches=1,
+            workspace="",
+            agent_name=None,
+            agent_path=None,
+            agent_avatar=None,
+            agent_urls=None,
+            model=None,
+            total_cost=0.0,
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_cache_read_tokens=0,
+            last_message_role="user",
+            last_message_preview=preview,
+        )
+
+    api_v2_module._conversations_cache = [meta("a", "old"), meta("b", "old")]
+    api_v2_module._conversations_cache_logs_dir = tmp_path
+    api_v2_module._conversations_cache_time = time.monotonic()
+    api_v2_module._conversations_cache_complete = True
+
+    def read_meta(conv_id, detail=False, logs_dir=None):
+        if conv_id == "b":
+            # "a" is saved (under its own conversation lock) and finishes its
+            # cache update while "b" is reading from disk, after both
+            # snapshotted the same list.
+            api_v2_module._update_conversation_in_cache("a")
+        return replace(meta(conv_id, "new"), messages=2)
+
+    try:
+        with patch.object(api_v2_module, "get_conversation_meta_direct", read_meta):
+            api_v2_module._update_conversation_in_cache("b")
+        cache = api_v2_module._conversations_cache
+        assert cache is not None
+        assert {c.id: c.last_message_preview for c in cache} == {
+            "a": "new",
+            "b": "new",
+        }
+        assert all(c.messages == 2 for c in cache)
+        assert api_v2_module._conversations_cache_complete is True
+    finally:
+        api_v2_module._invalidate_conversations_cache()
 
 
 def test_api_conversation_search(client: FlaskClient, tmp_path, monkeypatch):

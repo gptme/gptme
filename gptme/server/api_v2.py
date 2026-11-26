@@ -1455,7 +1455,9 @@ def api_conversations():
     global \
         _conversations_cache, \
         _conversations_cache_logs_dir, \
-        _conversations_cache_time
+        _conversations_cache_time, \
+        _conversations_cache_complete
+    fill_generation = 0
     logs_dir = conversations_module.get_logs_dir()
 
     # Cursor pagination path — returns {conversations: [...], next_cursor: string|null}
@@ -1463,20 +1465,31 @@ def api_conversations():
         # Load full list (use cache when possible for the common non-search, non-detail case)
         full_list: list[ConversationMeta]
         if not search and not detail:
-            _cached = _conversations_cache
+            # Snapshot list and flag together: a concurrent capped legacy fill
+            # must never pair its list with an earlier fill's complete flag.
+            with _conversations_cache_lock:
+                _cached = _conversations_cache
+                _cached_complete = _conversations_cache_complete
+                _cached_logs_dir = _conversations_cache_logs_dir
+                _cached_time = _conversations_cache_time
             if (
                 _cached is not None
-                and _conversations_cache_logs_dir == logs_dir
-                and (time.monotonic() - _conversations_cache_time)
-                < _CONVERSATIONS_CACHE_TTL
+                and _cached_complete
+                and _cached_logs_dir == logs_dir
+                and (time.monotonic() - _cached_time) < _CONVERSATIONS_CACHE_TTL
             ):
                 full_list = _cached
                 record_cache_result(hit=True)
             else:
+                with _conversations_cache_lock:
+                    fill_generation = _conversations_cache_generation
                 full_list = list(get_user_conversations(detail=False))
-                _conversations_cache = full_list
-                _conversations_cache_logs_dir = logs_dir
-                _conversations_cache_time = time.monotonic()
+                with _conversations_cache_lock:
+                    if _conversations_cache_generation == fill_generation:
+                        _conversations_cache = full_list
+                        _conversations_cache_logs_dir = logs_dir
+                        _conversations_cache_time = time.monotonic()
+                        _conversations_cache_complete = True
                 record_cache_result(hit=False)
                 n_msgs = sum(c.messages for c in full_list)
                 update_conversation_metrics(len(full_list), n_msgs)
@@ -1533,15 +1546,13 @@ def api_conversations():
     # Use cached list for the common case (no search, no detail).
     # Cache is invalidated on conversation create/update/delete and scoped to
     # the current logs dir so test/workspace swaps do not reuse stale results.
-    if (
-        not search
-        and not detail
-        and _conversations_cache is not None
-        and _conversations_cache_logs_dir == logs_dir
-    ):
-        elapsed = time.monotonic() - _conversations_cache_time
+    with _conversations_cache_lock:
+        cached = _conversations_cache
+        cached_logs_dir = _conversations_cache_logs_dir
+        cached_time = _conversations_cache_time
+    if not search and not detail and cached is not None and cached_logs_dir == logs_dir:
+        elapsed = time.monotonic() - cached_time
         if elapsed < _CONVERSATIONS_CACHE_TTL:
-            cached = _conversations_cache
             record_cache_result(hit=True)
             etag = _etag_conversations(cached[:limit])
             if request.if_none_match.contains_weak(etag):
@@ -1575,6 +1586,8 @@ def api_conversations():
     else:
         # The API limit is capped at 1000, so a cold-cache fill does not need
         # to scan beyond that bound.
+        with _conversations_cache_lock:
+            fill_generation = _conversations_cache_generation
         all_conversations = list(islice(get_user_conversations(detail=detail), 1000))
         conversations = all_conversations[:limit]
     response_items = []
@@ -1589,9 +1602,13 @@ def api_conversations():
         response_items.append(item)
 
     if not search and not detail:
-        _conversations_cache = all_conversations
-        _conversations_cache_logs_dir = logs_dir
-        _conversations_cache_time = time.monotonic()
+        with _conversations_cache_lock:
+            # A save or invalidation after the scan began makes it stale.
+            if _conversations_cache_generation == fill_generation:
+                _conversations_cache = all_conversations
+                _conversations_cache_logs_dir = logs_dir
+                _conversations_cache_time = time.monotonic()
+                _conversations_cache_complete = len(all_conversations) < 1000
         record_cache_result(hit=False)
         n_msgs = sum(c.messages for c in all_conversations)
         update_conversation_metrics(len(all_conversations), n_msgs)
@@ -4321,6 +4338,15 @@ _CONVERSATIONS_CACHE_TTL = (
 _conversations_cache: list[ConversationMeta] | None = None
 _conversations_cache_logs_dir: Path | None = None
 _conversations_cache_time: float = 0.0
+# False when the cached list was capped (legacy bare-list fill stops at 1000),
+# so cursor pagination must not treat it as the full list.
+_conversations_cache_complete: bool = False
+# Guards the cache fields above so readers never see a torn (list, flag) pair
+# and in-place updates never write back over a newer fill.
+_conversations_cache_lock = threading.Lock()
+# Bumped by every invalidation and in-place update. A fill stores its scan only
+# if no save happened since the scan began, so it cannot publish stale entries.
+_conversations_cache_generation: int = 0
 
 
 def _invalidate_conversations_cache() -> None:
@@ -4328,10 +4354,15 @@ def _invalidate_conversations_cache() -> None:
     global \
         _conversations_cache, \
         _conversations_cache_logs_dir, \
-        _conversations_cache_time
-    _conversations_cache = None
-    _conversations_cache_logs_dir = None
-    _conversations_cache_time = 0.0
+        _conversations_cache_time, \
+        _conversations_cache_complete, \
+        _conversations_cache_generation
+    with _conversations_cache_lock:
+        _conversations_cache_generation += 1
+        _conversations_cache = None
+        _conversations_cache_complete = False
+        _conversations_cache_logs_dir = None
+        _conversations_cache_time = 0.0
 
 
 def _update_conversation_in_cache(conv_id: str) -> None:
@@ -4346,7 +4377,10 @@ def _update_conversation_in_cache(conv_id: str) -> None:
     - The cache is already stale (TTL expired) — next GET will rebuild anyway.
     - The conversation no longer exists on disk (e.g., concurrent deletion).
     """
-    global _conversations_cache
+    global _conversations_cache, _conversations_cache_generation
+    # A fill that scanned before this save must not publish its list.
+    with _conversations_cache_lock:
+        _conversations_cache_generation += 1
     # Snapshot once to avoid TOCTOU: a concurrent _invalidate_conversations_cache()
     # can set the global to None between our is-None guard and the any()/comprehension
     # reads, which would raise TypeError on iteration.
@@ -4362,9 +4396,19 @@ def _update_conversation_in_cache(conv_id: str) -> None:
         # stale entry is removed on the next list request.
         _invalidate_conversations_cache()
         return
-    if not any(c.id == conv_id for c in cache):
+    stale_entry = next((c for c in cache if c.id == conv_id), None)
+    if stale_entry is None:
         # Entry not in cached list (e.g., concurrent external filesystem write).
         # Fall back to full invalidation so the list gets rebuilt correctly.
         _invalidate_conversations_cache()
         return
-    _conversations_cache = [updated if c.id == conv_id else c for c in cache]
+    with _conversations_cache_lock:
+        # Apply the update only where the entry it replaces is still cached.
+        # Another conversation's in-place update may have swapped the list but
+        # keeps this entry by identity, so the refresh still lands there. A
+        # fill that landed meanwhile holds fresh entries: it began its scan
+        # after the generation bump above, so it already has this save and
+        # its complete flag wins. An invalidation leaves no list to update.
+        current = _conversations_cache
+        if current is not None and any(c is stale_entry for c in current):
+            _conversations_cache = [updated if c is stale_entry else c for c in current]
