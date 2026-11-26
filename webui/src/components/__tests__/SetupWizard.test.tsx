@@ -402,6 +402,39 @@ describe('SetupWizard', () => {
     expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
   });
 
+  it.each(['dismiss', 'connect'])(
+    'does not reveal welcome after %s on a switched same-origin token prompt',
+    async (action) => {
+      sameOriginServer$.set('http://myhost:5700');
+      const ui = (
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+      const { rerender } = render(ui);
+      expect(screen.getByText('Welcome to gptme')).toBeInTheDocument();
+      mockConnectionBaseUrl = 'http://myhost:5700';
+      lastConnectionResult$.set({ ok: false, status: 401, url: 'http://myhost:5700/api/v2' });
+      rerender(
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+      expect(screen.getByLabelText('Server token')).toBeInTheDocument();
+      if (action === 'dismiss') {
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      } else {
+        mockConnect.mockImplementationOnce(async () => {
+          isConnected$.set(true);
+        });
+        fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'token' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+      }
+      await waitFor(() => expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument());
+      expect(screen.queryByText('Welcome to gptme')).not.toBeInTheDocument();
+    }
+  );
+
   it('does not offer the same-origin token prompt for an explicitly selected different server', () => {
     sameOriginServer$.set('http://myhost:5700');
     lastConnectionResult$.set({ ok: false, status: 401, url: 'http://127.0.0.1:5700/api/v2' });

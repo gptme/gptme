@@ -170,6 +170,11 @@ export function SetupWizard() {
   const [isOpen, setIsOpen] = useState(
     !demoMode && !settings.hasCompletedSetup && !isHostedPageOrigin() && !isSameOriginServer
   );
+  useEffect(() => {
+    // Switching to the serving API supersedes an already-open welcome flow.
+    // Otherwise dismissing or completing its token form reveals that old flow.
+    if (isSameOriginServer) setIsOpen(false);
+  }, [isSameOriginServer]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);

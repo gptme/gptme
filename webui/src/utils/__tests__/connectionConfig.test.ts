@@ -21,6 +21,7 @@ jest.mock('@/stores/servers', () => ({
   setActiveServer: mockSetActiveServer,
   updateServer: mockUpdateServer,
   sameOriginServer$: mockSameOriginServer$,
+  getBundledLoopbackOrigin: jest.fn(() => null),
 }));
 
 import {

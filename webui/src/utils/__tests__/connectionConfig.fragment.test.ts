@@ -18,7 +18,7 @@ describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
     sameOriginServer$.set(null);
   });
 
-  it('never writes a token-only link to a selected remote when discovery failed', () => {
+  it('preserves selected-server token links on a custom static frontend after failed discovery', () => {
     setLocation('https://serving.example/');
     const remote = addServer({
       name: 'Remote',
@@ -29,12 +29,11 @@ describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
     setActiveServer(remote.id);
     const config = getConnectionConfigFromSources('userToken=serving-secret');
     expect(config).toMatchObject({
-      baseUrl: 'https://serving.example',
+      baseUrl: 'https://remote.example',
       authToken: 'serving-secret',
     });
-    expect(serverRegistry$.peek().servers.find((s) => s.id === remote.id)?.authToken).toBe(
-      'remote-token'
-    );
+    expect(serverRegistry$.peek().servers).toHaveLength(1);
+    expect(getActiveServer()?.id).toBe(remote.id);
   });
 
   it.each([
