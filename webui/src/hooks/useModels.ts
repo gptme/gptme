@@ -105,7 +105,19 @@ export function useModels() {
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const saved = (await response.json()) as { favorites?: string[] };
-        if (saved.favorites) applyFavorites(saved.favorites);
+        // A read started during the POST can still contain the old favorites.
+        // Let it finish (preserving other refreshed settings), then publish the
+        // confirmed write. A failed refresh must not undo a successful POST.
+        try {
+          await queryClient.fetchQuery<ModelsResponse>({
+            queryKey,
+            staleTime:
+              queryClient.getQueryState(queryKey)?.fetchStatus === 'fetching' ? 0 : Infinity,
+          });
+        } catch (err) {
+          console.error('Failed to refresh models after saving favorites:', err);
+        }
+        applyFavorites(saved.favorites ?? next);
         return true;
       } catch (err) {
         console.error('Failed to save favorites:', err);

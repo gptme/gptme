@@ -251,3 +251,49 @@ it('waits for a Settings refresh before replacing favorites', async () => {
     expect.objectContaining({ body: JSON.stringify({ favorites: ['model/A', 'model/B'] }) })
   );
 });
+
+it('preserves a saved favorite when an older catalog read completes after the POST', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  let finishSave!: (value: unknown) => void;
+  let finishRead!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishSave = resolve;
+    })
+  );
+  let save!: Promise<boolean>;
+  act(() => {
+    save = composer.result.current.toggleFavorite('model/A');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishRead = resolve;
+    })
+  );
+  let read!: ReturnType<typeof composer.result.current.refetch>;
+  act(() => {
+    read = composer.result.current.refetch();
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+  await act(async () => {
+    finishSave({ ok: true, json: async () => ({ favorites: ['model/A'] }) });
+    // Let the POST response publish before the older catalog read arrives.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    finishRead({
+      ok: true,
+      json: async () => ({ models: [], default: 'initial/model', favorites: [], recommended: [] }),
+    });
+    await Promise.all([save, read]);
+  });
+  await waitFor(() => expect(composer.result.current.favorites).toEqual(['model/A']));
+  await act(async () => {
+    await composer.result.current.toggleFavorite('model/B');
+  });
+  expect(mockFetch).toHaveBeenLastCalledWith(
+    'http://models.test/api/v2/user/favorites',
+    expect.objectContaining({ body: JSON.stringify({ favorites: ['model/A', 'model/B'] }) })
+  );
+});
