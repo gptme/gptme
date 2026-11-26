@@ -60,19 +60,31 @@ def test_force_preserves_junction_to_unwritten_directory(tmp_path):
         link.rmdir()
 
 
-def test_force_rejects_mount_point_reparse_tag(tmp_path, monkeypatch):
+@pytest.mark.parametrize("linked_parent", [False, True])
+def test_force_rejects_mount_point_reparse_tag(tmp_path, monkeypatch, linked_parent):
     """Exercise the Windows lstat junction tag even on non-Windows CI."""
     from types import SimpleNamespace
+
+    if linked_parent:
+        real_parent = tmp_path / "real"
+        real_parent.mkdir()
+        alias = tmp_path / "alias"
+        try:
+            alias.symlink_to(real_parent, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"Directory symlinks unavailable: {exc}")
+        tmp_path = alias
 
     target = tmp_path / "proj"
     tasks = target / "tasks"
     tasks.mkdir(parents=True)
     (tasks / "README.md").write_text("preserve me\n")
     original_lstat = Path.lstat
+    resolved_tasks = tasks.resolve()
 
     def junction_lstat(path, *args, **kwargs):
         result = original_lstat(path, *args, **kwargs)
-        if path == tasks:
+        if path == resolved_tasks:
             return SimpleNamespace(st_mode=result.st_mode, st_reparse_tag=0xA0000003)
         return result
 
