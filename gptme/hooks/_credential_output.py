@@ -138,19 +138,8 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
     if name == "set" and not args:
         return _REASON
     if name in {"export", "declare", "typeset"}:
-        # An end-of-options marker names nothing: `export --` dumps like
-        # `export`. Zsh also accepts a lone `-` or `+` as that marker, so
-        # `zsh -c 'typeset +'` prints every parameter like a bare `typeset`.
-        terminators = {"-", "--"} | ({"+"} if shell == "zsh" else set())
-        if all(arg in terminators for arg in args) or any(
-            arg.startswith("-") and "p" in arg[1:] for arg in args
-        ):
+        if any(arg.startswith("-") and "p" in arg[1:] for arg in args):
             return _REASON
-        # `declare -x` / `typeset -x` with no names list every exported
-        # variable with its value, like `export -p`. In bash `-F` lists
-        # function names only, so `declare -Fx` prints no values. In zsh and
-        # ksh `-F` selects floating-point variables and still prints values.
-        # Invoke bash explicitly for that exception: sh may be another shell.
         if shell == "zsh" and name != "export":
             # Zsh prints existing named parameters without -p, and -m lists
             # pattern matches. Assignments do not print the previous value;
@@ -168,7 +157,7 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
                     # inside a function, like pattern mode with `-m`. The
                     # operands are patterns, so a secret name may be hidden
                     # behind a wildcard; mark pattern printing for the check
-                    # below. With no operands `-m`/`+m` print nothing.
+                    # below.
                     flags += "m"
                 elif "p" in arg[1:]:
                     # Zsh's +p prints values too, including after -x.
@@ -180,11 +169,17 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
                 for arg in args
             ):
                 return _REASON
-        if name != "export" and all(arg.startswith(("-", "+")) for arg in args):
-            flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
-            if ("x" in flags and "F" not in flags) or (
-                shell != "bash" and ("x" in flags or "F" in flags)
-            ):
+        # With no name operand these print variables, whatever the options:
+        # `export -n`, `declare -g` and `declare +x` dump like `export -p`.
+        # Only function listings are exempt. `-F` is one in bash alone; zsh
+        # and ksh use it for floating-point variables, and `sh` may be either.
+        # A lone `+` ends options in zsh; elsewhere it is an (invalid) name.
+        if all(
+            arg.startswith(("-", "+")) and (arg != "+" or shell == "zsh")
+            for arg in args
+        ):
+            listing = {"f", "F"} if shell == "bash" else {"f"}
+            if not any(arg.startswith("-") and listing & set(arg) for arg in args):
                 return _REASON
     if name == "shopt":
         # `shopt -o -s xtrace` / `shopt -os xtrace` is `set -x`.
