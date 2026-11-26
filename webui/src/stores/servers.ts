@@ -114,10 +114,29 @@ export async function probeSameOriginServer(
 
 /** Replace the stock preset, preserving explicit selections and origin-bound auth. */
 export function adoptSameOriginServer(registry: ServerRegistry, origin: string): void {
-  const preset = registry.servers.find((s) => s.isPreset);
+  const preset = registry.servers.find((s) => {
+    if (!s.isPreset) return false;
+    try {
+      return (
+        ['localhost', '127.0.0.1', '[::1]'].includes(new URL(s.baseUrl).hostname) ||
+        normalizeUrl(s.baseUrl) === normalizeUrl(origin)
+      );
+    } catch {
+      return false;
+    }
+  });
   const existing = registry.servers.find((s) => normalizeUrl(s.baseUrl) === normalizeUrl(origin));
-  const target = existing ?? preset;
-  if (!target) return;
+  const target = existing ??
+    preset ?? {
+      id: generateServerId(),
+      name: new URL(origin).host,
+      baseUrl: origin,
+      authToken: null,
+      useAuthToken: false,
+      createdAt: Date.now(),
+      lastUsedAt: Date.now(),
+    };
+  if (!existing && !preset) registry.servers.push(target);
   const wasDefault = registry.activeServerId === preset?.id;
   if (normalizeUrl(target.baseUrl) !== normalizeUrl(origin)) {
     target.authToken = null;

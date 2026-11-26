@@ -114,6 +114,20 @@ describe('same-origin discovery', () => {
     expect(registry.servers[0].name).toBe('myhost:5700');
   });
 
+  it('preserves a legacy remote URL marked as a preset', () => {
+    const registry = makeRegistry();
+    registry.servers[0].baseUrl = 'https://legacy.example.com';
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    expect(registry.servers[0]).toMatchObject({
+      baseUrl: 'https://legacy.example.com',
+      authToken: 'loopback-secret',
+    });
+    expect(registry.activeServerId).toBe('local');
+    expect(registry.servers).toContainEqual(
+      expect.objectContaining({ baseUrl: 'http://myhost:5700', authToken: null })
+    );
+  });
+
   it('does not override an explicitly selected remote server', () => {
     const registry = makeRegistry();
     registry.servers.push({

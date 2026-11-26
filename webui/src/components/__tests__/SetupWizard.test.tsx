@@ -49,6 +49,7 @@ const mockUseTauriServerStatus = jest.fn((): MockUseTauriServerStatusResult => (
 
 let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
 let mockIsExchangingAuthCode = false;
+let mockAuthToken: string | null = null;
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -64,8 +65,8 @@ jest.mock('@/contexts/ApiContext', () => ({
       get baseUrl() {
         return mockConnectionBaseUrl;
       },
-      authToken: null,
-      useAuthToken: false,
+      authToken: mockAuthToken,
+      useAuthToken: Boolean(mockAuthToken),
     },
   }),
 }));
@@ -203,6 +204,7 @@ describe('SetupWizard', () => {
     setupWizard$.providerStatusVersion.set(0);
     mockConnectionBaseUrl = 'http://127.0.0.1:5700';
     mockIsExchangingAuthCode = false;
+    mockAuthToken = null;
     mockConnect.mockReset();
     mockOpen.mockReset();
     mockFetch.mockReset();
@@ -320,7 +322,15 @@ describe('SetupWizard', () => {
       reason: 'http_error',
       url: `${window.location.origin}/api/v2/conversations?limit=1`,
     });
-    mockConnect.mockRejectedValueOnce(new Error('Invalid token'));
+    mockConnect.mockImplementationOnce(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        status: 503,
+        reason: 'http_error',
+        url: `${window.location.origin}/api/v2`,
+      });
+      throw new Error('Temporarily unavailable');
+    });
     render(
       <SettingsProvider>
         <SetupWizard />
@@ -330,7 +340,7 @@ describe('SetupWizard', () => {
     expect(screen.getByText('gptme-server token')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'test-token' } });
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-    await screen.findByText('Invalid token');
+    await screen.findByText('Temporarily unavailable');
     expect(mockConnect).toHaveBeenCalledWith(
       { baseUrl: 'http://myhost:5700', authToken: 'test-token', useAuthToken: true },
       undefined,
@@ -341,6 +351,26 @@ describe('SetupWizard', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     await waitFor(() => expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument());
+  });
+
+  it('never prefills another server token after switching to the same-origin server', () => {
+    sameOriginServer$.set('http://myhost:5700');
+    mockAuthToken = 'other-server-secret';
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    mockConnectionBaseUrl = 'http://myhost:5700';
+    mockAuthToken = null;
+    lastConnectionResult$.set({ ok: false, status: 401, url: 'http://myhost:5700/api/v2' });
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(screen.getByLabelText('Server token')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
   });
 
   it('does not offer the same-origin token prompt for an explicitly selected different server', () => {

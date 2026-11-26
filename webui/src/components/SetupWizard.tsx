@@ -133,13 +133,21 @@ export function SetupWizard() {
   const isSameOriginServer = sameOrigin !== null && connectionConfig.baseUrl === sameOrigin;
   const connectionResult = use$(api.lastConnectionResult$);
   const [tokenPromptDismissed, setTokenPromptDismissed] = useState(false);
+  const [tokenPromptStarted, setTokenPromptStarted] = useState(false);
+  // This field belongs only to the discovered origin. Never prefill it from
+  // the active server: the user may switch here from a different server.
+  const [sameOriginToken, setSameOriginToken] = useState('');
+  useEffect(() => {
+    if (isSameOriginServer && connectionResult?.ok === false && connectionResult.status === 401) {
+      setTokenPromptStarted(true);
+    }
+  }, [isSameOriginServer, connectionResult]);
   const demoMode = isDemoMode();
   const needsServerToken =
     !demoMode &&
     isSameOriginServer &&
     !isConnected &&
-    connectionResult?.ok === false &&
-    connectionResult.status === 401 &&
+    (tokenPromptStarted || (connectionResult?.ok === false && connectionResult.status === 401)) &&
     !tokenPromptDismissed;
   // Native auth callbacks reload the webview, losing the in-memory Cloud step.
   // ApiProvider detects the callback before rendering us; resume that step and
@@ -824,7 +832,7 @@ export function SetupWizard() {
   };
 
   const handleSameOriginToken = async () => {
-    const token = remoteAuthToken.trim();
+    const token = sameOriginToken.trim();
     if (!token || isConnecting) return;
     setIsConnecting(true);
     setConnectError(null);
@@ -832,7 +840,7 @@ export function SetupWizard() {
       await connect({ baseUrl: sameOrigin!, authToken: token, useAuthToken: true }, undefined, {
         suppressErrorToast: true,
       });
-      setRemoteAuthToken('');
+      setSameOriginToken('');
       setTokenPromptDismissed(true);
     } catch (error) {
       setConnectError(formatUnknownError(error, 'Could not connect to this server.'));
@@ -882,8 +890,8 @@ export function SetupWizard() {
                   type="password"
                   autoComplete="off"
                   autoFocus
-                  value={remoteAuthToken}
-                  onChange={(event) => setRemoteAuthToken(event.target.value)}
+                  value={sameOriginToken}
+                  onChange={(event) => setSameOriginToken(event.target.value)}
                 />
               </div>
               {connectError && (
@@ -892,7 +900,7 @@ export function SetupWizard() {
                 </p>
               )}
               <DialogFooter>
-                <Button type="submit" disabled={isConnecting || !remoteAuthToken.trim()}>
+                <Button type="submit" disabled={isConnecting || !sameOriginToken.trim()}>
                   {isConnecting ? 'Connecting...' : 'Connect'}
                 </Button>
               </DialogFooter>
