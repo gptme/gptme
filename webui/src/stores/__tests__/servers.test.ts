@@ -94,6 +94,7 @@ describe('same-origin discovery', () => {
     registry.servers.push({
       ...registry.servers[0],
       id: 'lan',
+      name: 'Production',
       isPreset: false,
       baseUrl: 'http://myhost:5700',
       authToken: 'lan-token',
@@ -102,6 +103,7 @@ describe('same-origin discovery', () => {
     expect(registry.servers).toHaveLength(1);
     expect(registry.servers[0]).toMatchObject({
       id: 'lan',
+      name: 'Production',
       authToken: 'lan-token',
       isPreset: false,
     });

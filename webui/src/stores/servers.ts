@@ -144,7 +144,7 @@ export function adoptSameOriginServer(registry: ServerRegistry, origin: string):
     target.sseToken = null;
   }
   target.baseUrl = origin;
-  target.name = new URL(origin).host;
+  if (!existing || target.isPreset) target.name = new URL(origin).host;
   if (!existing) target.isPreset = true;
   if (preset && preset.id !== target.id) {
     registry.servers = registry.servers.filter((s) => s.id !== preset.id);

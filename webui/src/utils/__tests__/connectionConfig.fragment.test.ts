@@ -1,11 +1,38 @@
 import { beforeEach, describe, expect, it } from '@jest/globals';
-import { addServer, getActiveServer, serverRegistry$ } from '@/stores/servers';
+import {
+  addServer,
+  getActiveServer,
+  serverRegistry$,
+  sameOriginServer$,
+  setActiveServer,
+} from '@/stores/servers';
+import { setLocation } from '@/test-utils/location';
 import { getConnectionConfigFromSources } from '../connectionConfig';
 
 // Uses the real server registry: the bug lives in how the two modules interact.
 describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
   beforeEach(() => {
     serverRegistry$.set({ servers: [], activeServerId: '', connectedServerIds: [] });
+    sameOriginServer$.set(null);
+  });
+
+  it('never writes a token-only link to a selected remote when discovery failed', () => {
+    setLocation('https://serving.example/');
+    const remote = addServer({
+      name: 'Remote',
+      baseUrl: 'https://remote.example',
+      authToken: 'remote-token',
+      useAuthToken: true,
+    });
+    setActiveServer(remote.id);
+    const config = getConnectionConfigFromSources('userToken=serving-secret');
+    expect(config).toMatchObject({
+      baseUrl: 'https://serving.example',
+      authToken: 'serving-secret',
+    });
+    expect(serverRegistry$.peek().servers.find((s) => s.id === remote.id)?.authToken).toBe(
+      'remote-token'
+    );
   });
 
   it('keeps the stored token of a known server when the link has no userToken', () => {

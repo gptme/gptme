@@ -252,10 +252,15 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
 
   // Get values from fragment (legacy direct token flow)
   const fragmentUserToken = params.get('userToken');
-  // The serving server advertises token-only links. Bind that token to the
-  // discovered origin even when the user previously selected another server.
+  // Token-only browser links belong to the page origin, even if API discovery
+  // timed out or failed. Never let an unavailable server redirect its token to
+  // a previously selected remote. Non-HTTP native webviews keep the legacy flow.
+  const pageOrigin =
+    typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)
+      ? window.location.origin
+      : null;
   const fragmentBaseUrl =
-    params.get('baseUrl') || (fragmentUserToken ? sameOriginServer$.peek() : null);
+    params.get('baseUrl') || (fragmentUserToken ? (sameOriginServer$.peek() ?? pageOrigin) : null);
 
   // Register fragment values as a server in the registry
   if (fragmentBaseUrl) {
