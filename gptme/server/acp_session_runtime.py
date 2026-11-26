@@ -64,6 +64,14 @@ def _run_until_complete_bounded(
             what,
         )
         task.cancel()
+    elif not task.cancelled() and task.exception() is not None:
+        # asyncio.wait never raises, so report the failure the caller would
+        # otherwise never see.
+        logger.warning(
+            "ACP runtime loop shutdown failed while waiting for %s",
+            what,
+            exc_info=task.exception(),
+        )
 
 
 class _LoopCalls:
@@ -308,6 +316,13 @@ class AcpSessionRuntime:
             and thread.is_alive()
         ):
             thread.join(timeout=join_timeout)
+        if (thread is None or not thread.is_alive()) and not loop.is_closed():
+            # The thread that owned the loop is gone (or never ran), so nobody
+            # else will close it; reclaim its selector and callbacks.
+            try:
+                loop.close()
+            except RuntimeError:  # pragma: no cover - loop still running
+                logger.debug("ACP runtime loop could not be closed", exc_info=True)
 
     async def _run_on_loop(
         self,
@@ -544,11 +559,12 @@ class AcpSessionRuntime:
         if self._client is not None:
             try:
                 await self._run_on_loop(self._close_impl)
-            except ConnectionError:
-                # The loop that owned the transport is gone; signal the
-                # subprocess synchronously instead of failing the close.
+            except Exception:
+                # The transport could not be closed cleanly (its loop is gone,
+                # or __aexit__ raised). Signal the subprocess synchronously so
+                # the close never leaves an orphan behind.
                 logger.debug(
-                    "ACP runtime loop was gone at close; terminating subprocess",
+                    "Graceful ACP close failed; terminating subprocess",
                     exc_info=True,
                 )
                 self.terminate_subprocess_sync()
