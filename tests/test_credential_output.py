@@ -110,6 +110,11 @@ from gptme.tools.base import ToolUse
         "zsh -c 'typeset --'",
         "zsh -c 'typeset -'",
         "zsh -c 'export -'",
+        # Zsh accepts a lone `+` as that marker too.
+        "zsh -c 'typeset +'",
+        "zsh -c 'export +'",
+        "zsh -c 'declare +'",
+        "zsh <<'EOF'\ntypeset +\nEOF",
         # `builtin NAME` runs the builtin with identical output.
         "builtin declare -x",
         "builtin typeset -x",
@@ -187,6 +192,10 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "zsh <<'EOF'\ntypeset -x OPENAI_API_KEY\nEOF",
         "zsh -c 'typeset SESSION_LABEL'",
         "bash -c 'typeset OPENAI_API_KEY'",
+        # Bash rejects a lone `+` as an identifier instead of dumping.
+        "bash -c 'typeset +'",
+        "bash -c 'export +'",
+        "bash -c 'declare +'",
         "shopt -s nullglob",
         "shopt -ou xtrace",
         "set -e",

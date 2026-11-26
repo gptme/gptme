@@ -139,8 +139,10 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
         return _REASON
     if name in {"export", "declare", "typeset"}:
         # An end-of-options marker names nothing: `export --` dumps like
-        # `export`. Zsh also accepts a lone `-` as that marker.
-        if all(arg in {"-", "--"} for arg in args) or any(
+        # `export`. Zsh also accepts a lone `-` or `+` as that marker, so
+        # `zsh -c 'typeset +'` prints every parameter like a bare `typeset`.
+        terminators = {"-", "--"} | ({"+"} if shell == "zsh" else set())
+        if all(arg in terminators for arg in args) or any(
             arg.startswith("-") and "p" in arg[1:] for arg in args
         ):
             return _REASON
