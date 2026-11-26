@@ -2640,6 +2640,38 @@ class TestPromptCancel:
         assert "provider unavailable" in str(agent._conn.session_update.call_args_list)
         assert hidden.content not in str(agent._conn.session_update.call_args_list)
 
+    def test_worker_finishing_at_cancel_timeout_keeps_full_result(self, monkeypatch):
+        """A successful worker racing the grace timeout is not a failed worker."""
+        from gptme.message import Message
+
+        agent, log = _make_prompt_agent()
+        partial = Message("assistant", "completed step")
+        cap = Message("system", "Stopped: reached max steps limit (1)")
+
+        async def scenario():
+            loop = asyncio.get_running_loop()
+            turn = _AcpTurn(agent, "s1", loop, cancel_waiter=loop.create_future())
+            turn.completed = [partial]
+            turn.cancel()
+            worker = loop.create_future()
+
+            async def timeout_as_worker_finishes(awaitable, timeout):
+                # Model the worker completing after wait_for times out but
+                # before _await_turn checks worker.done(). Its returned list
+                # can contain a cap message absent from the published snapshot.
+                worker.set_result(([partial, cap], "max_turn_requests"))
+                await asyncio.sleep(0)
+                raise TimeoutError
+
+            monkeypatch.setattr(asyncio, "wait_for", timeout_as_worker_finishes)
+            return await agent._await_turn(turn, worker, log)
+
+        messages, stop_reason = _run(scenario())
+        assert messages == [partial, cap]
+        assert stop_reason == "cancelled"
+        assert not agent._session_is_finishing("s1")
+        log.append.assert_not_called()  # prompt() owns these returned messages
+
     def test_cancel_during_turn_pre_hook_sends_no_scout_request(self, monkeypatch):
         """TURN_PRE (context scout) must not start a paid request after Stop."""
         if not _import_acp():

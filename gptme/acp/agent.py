@@ -2077,6 +2077,11 @@ class GptmeAgent:
             # is cancelled either way. Answer with the steps completed so far.
             completed = list(turn.completed)
         if worker.done():
+            if not worker.cancelled() and worker.exception() is None:
+                # Completion can race the grace timeout. Prefer the full
+                # result (including terminal messages) over an older snapshot.
+                response_msgs, _ = worker.result()
+                return response_msgs, "cancelled"
             # The worker failed: nothing beyond the snapshot will arrive.
             logger.info("ACP worker failed after cancel: session=%s", turn.session_id)
             return completed, "cancelled"
