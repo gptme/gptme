@@ -3524,7 +3524,7 @@ def test_joined_fence_after_ambiguous_bare_fence_prefers_literal_content(
 
 
 @pytest.mark.parametrize("outer_length", [3, 4, 5])
-@pytest.mark.parametrize("trailing_length", [3, 4, 5, 6])
+@pytest.mark.parametrize("trailing_length", [3, 4, 5, 6, 7])
 @pytest.mark.parametrize("content", ["hello", "<think>\nliteral\n</think>\nhello"])
 def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
     outer_length: int, trailing_length: int, content: str
@@ -3549,6 +3549,41 @@ def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
     ]
 
 
+@pytest.mark.parametrize("width", [3, 4, 5, 7])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_exec_block_closes_with_same_or_wider_fence(
+    width: int, streaming: bool
+) -> None:
+    markdown = f"```shell\nls -la\n{'`' * width}\n\nNext:\n```shell\npwd\n```\n"
+
+    assert Codeblock.iter_from_markdown(markdown, streaming=streaming) == [
+        Codeblock("shell", "ls -la"),
+        Codeblock("shell", "pwd"),
+    ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_wider_closer_before_thinking_preserves_tool_boundaries(
+    streaming: bool,
+) -> None:
+    from gptme.tools import init_tools
+    from gptme.tools.base import ToolUse
+
+    init_tools(["shell"])
+    first = "````shell\nls -la\n`````\n"
+    thinking = "<think>\n```shell\necho draft\n```\n"
+    final = "```shell\npwd\n```\n"
+
+    assert Codeblock.iter_from_markdown(first + thinking, streaming=streaming) == []
+
+    content = first + thinking + "</think>\n" + final
+    tool_uses = ToolUse.iter_from_content(content, "markdown", streaming=streaming)
+    assert [(call.tool, call.content) for call in tool_uses] == [
+        ("shell", "ls -la"),
+        ("shell", "pwd"),
+    ]
+
+
 def test_py_block_does_not_swallow_following_prose_and_output_block():
     """`py` runs on the python tool like `ipython`, so it gets exec-lang fences.
 
@@ -3569,15 +3604,15 @@ def test_exec_langs_cover_python_and_shell_tool_block_types():
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-def test_py_block_triple_quoted_fence_is_literal(streaming: bool):
+@pytest.mark.parametrize("fence", ["```", "```````"])
+def test_py_block_triple_quoted_fence_is_literal(streaming: bool, fence: str) -> None:
     """`py` needs the same triple-quote tracking as `ipython`.
 
     A bare fence inside a triple-quoted Python string is literal source, not a
     markdown delimiter. Without the tracking, the `py` block is cut at the first
     fence.
     """
-    md = '```py\ntext = """\n```\nexample\n```\n"""\nprint(text)\n```\n'
+    content = f'text = """\n{fence}\nexample\n{fence}\n"""\nprint(text)'
+    md = f"```py\n{content}\n```\n"
     blocks = Codeblock.iter_from_markdown(md, streaming=streaming)
-    assert [(b.lang, b.content) for b in blocks] == [
-        ("py", 'text = """\n```\nexample\n```\n"""\nprint(text)')
-    ]
+    assert blocks == [Codeblock("py", content)]

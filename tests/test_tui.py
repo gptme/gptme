@@ -1930,6 +1930,19 @@ def test_split_markdown_tool_calls_adjacent_fences():
     assert any("echo world" in seg for seg in tool_segs)
 
 
+def test_split_markdown_tool_calls_wider_closer() -> None:
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    content = "```shell\nls -la\n```````\n\nNext:\n```shell\npwd\n```"
+
+    assert _split_markdown_tool_calls(content) == [
+        (True, "```shell\nls -la\n```"),
+        (False, "Next:"),
+        (True, "```shell\npwd\n```"),
+    ]
+
+
 def test_markdown_tool_renderable_extracts_name_and_code():
     """_markdown_tool_renderable returns a collapsible-ready (title, code, lang) tuple."""
     from gptme.tools import init_tools
