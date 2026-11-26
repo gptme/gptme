@@ -11,13 +11,14 @@ export interface ModelInfo {
   provider: string;
   model: string;
   context: number;
-  max_output?: number;
+  max_output?: number | null;
+  deprecated?: boolean;
   supports_streaming: boolean;
   supports_vision: boolean;
   supports_reasoning: boolean;
   reasoning_effort_levels?: string[];
-  price_input: number;
-  price_output: number;
+  price_input?: number | null;
+  price_output?: number | null;
 }
 
 export interface ModelsResponse {
