@@ -53,6 +53,10 @@ def _stop_acp_runtime_loops(monkeypatch):
         try:
             rt.terminate_subprocess_sync(timeout=1.0)
         except Exception:
+            pass
+        finally:
+            # terminate_subprocess_sync returns early when there is no client,
+            # so always stop the loop explicitly.
             rt._stop_loop()
 
 
@@ -1780,10 +1784,37 @@ def test_failed_close_keeps_client_handle_for_sync_terminate(monkeypatch, tmp_pa
     runtime = mod.AcpSessionRuntime(workspace=tmp_path)
     _run(runtime.start())
 
-    with pytest.raises(ConnectionError):
-        _run(runtime.close())
-    assert runtime._client is not None
-
-    runtime.terminate_subprocess_sync(timeout=1.0)
+    # close() keeps the handle while __aexit__ runs, so a failing close still
+    # reaches the subprocess through the synchronous fallback.
+    _run(runtime.close())
     assert fallback == [_FailingExitClient._process]
+    assert runtime._client is None
+
+
+@pytest.mark.timeout(15)
+def test_runtime_refuses_to_reuse_a_transport_on_a_stopped_loop(monkeypatch, tmp_path):
+    """A runtime whose loop was stopped externally must not run the old client."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _StaticClient(_DummyClient):
+        _process = object()
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _StaticClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    runtime._stop_loop()
+
+    with pytest.raises(ConnectionError, match="stopped loop"):
+        _run(runtime.prompt("after stop"))
+
+    # close() still terminates the orphaned subprocess instead of raising.
+    _run(runtime.close())
+    assert fallback == [_StaticClient._process]
     assert runtime._client is None

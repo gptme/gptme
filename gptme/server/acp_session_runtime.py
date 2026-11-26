@@ -219,6 +219,14 @@ class AcpSessionRuntime:
             ):
                 return loop, calls
 
+            if self._client is not None:
+                # A live client is bound to the loop that just stopped; running
+                # it from a fresh loop is exactly the cross-loop failure this
+                # runtime exists to prevent.
+                raise ConnectionError(
+                    "ACP runtime transport is bound to a stopped loop; "
+                    "the runtime must be recreated"
+                )
             loop = asyncio.new_event_loop()
             calls = _LoopCalls()
             running = threading.Event()
@@ -536,6 +544,14 @@ class AcpSessionRuntime:
         if self._client is not None:
             try:
                 await self._run_on_loop(self._close_impl)
+            except ConnectionError:
+                # The loop that owned the transport is gone; signal the
+                # subprocess synchronously instead of failing the close.
+                logger.debug(
+                    "ACP runtime loop was gone at close; terminating subprocess",
+                    exc_info=True,
+                )
+                self.terminate_subprocess_sync()
             finally:
                 self._stop_loop()
         else:
