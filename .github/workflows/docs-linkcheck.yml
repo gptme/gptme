@@ -28,7 +28,7 @@ concurrency:
 jobs:
   linkcheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -52,11 +52,23 @@ jobs:
           OPENAI_API_KEY: sk-dummy-key
         # Fail (rather than get cancelled at the job timeout) if a host keeps
         # the run throttled: Sphinx honours a server's Retry-After uncapped.
+        #
+        # One delayed second pass absorbs transient upstream blips. Sphinx's
+        # linkcheck_retries only re-tries "broken" results, back to back, and
+        # never re-tries a timeout, so a single slow response or 502 from a host
+        # failed the run on links the PR never touched (a learn.microsoft.com
+        # and an img.shields.io read timeout, a github.com 502). A genuinely
+        # dead link fails both passes.
         run: |
-          timeout 10m make docs-linkcheck || {
-            rc=$?
-            if [ "$rc" -eq 124 ]; then
-              echo "::error::linkcheck did not finish within 10 minutes (rate-limited?)"
-            fi
-            exit "$rc"
-          }
+          rc=0
+          timeout 10m make docs-linkcheck || rc=$?
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+            echo "::warning::linkcheck failed (exit $rc); re-checking once in 60s to rule out a transient upstream error"
+            sleep 60
+            rc=0
+            timeout 5m make docs-linkcheck || rc=$?
+          fi
+          if [ "$rc" -eq 124 ]; then
+            echo "::error::linkcheck did not finish in time (rate-limited?)"
+          fi
+          exit "$rc"
