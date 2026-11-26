@@ -42,7 +42,7 @@ def get_pt_history_file() -> Path:
 
 def get_data_dir() -> Path:
     # used in testing, so must take precedence
-    # Relative values are invalid per the XDG spec (platformdirs ignores them).
+    # Relative values are invalid per the XDG spec.
     if (xdg := _get_env_path("XDG_DATA_HOME")) and Path(xdg).is_absolute():
         return Path(xdg) / "gptme"
 
@@ -51,7 +51,9 @@ def get_data_dir() -> Path:
     if old.exists():
         return old
 
-    return Path(user_data_dir("gptme"))
+    path = Path(user_data_dir("gptme"))
+    # Older supported platformdirs versions accept relative XDG overrides.
+    return path if path.is_absolute() else old
 
 
 def get_state_dir() -> Path:
@@ -60,10 +62,12 @@ def get_state_dir() -> Path:
     Used for recovery artifacts and other state that should persist between
     invocations but is not important enough to back up — checkpoints, etc.
     """
-    # Relative values are invalid per the XDG spec (platformdirs ignores them).
+    # Relative values are invalid per the XDG spec.
     if (xdg := _get_env_path("XDG_STATE_HOME")) and Path(xdg).is_absolute():
         return Path(xdg) / "gptme"
-    return Path(user_state_dir("gptme"))
+    path = Path(user_state_dir("gptme"))
+    # Older supported platformdirs versions accept relative XDG overrides.
+    return path if path.is_absolute() else Path("~/.local/state/gptme").expanduser()
 
 
 def get_logs_dir(*, create: bool = True) -> Path:

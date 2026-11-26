@@ -34,16 +34,22 @@ def test_project_env_toml_bool_does_not_crash_get_env_bool(tmp_path):
     assert cfg.get_env_bool("PRUNE_TOOL_OUTPUT") is True
 
 
-def test_chat_config_env_non_string_rejected_or_stringified(tmp_path):
+@pytest.mark.parametrize("workspace", [None, r"C:\Users\runner\AppData\Local\Temp"])
+def test_chat_config_env_non_string_rejected_or_stringified(tmp_path, workspace):
+    import tomlkit
+
     from gptme.config.chat import ChatConfig
 
     logdir = tmp_path / "log"
     logdir.mkdir()
     (logdir / "config.toml").write_text(
-        f'[chat]\nworkspace = "{tmp_path}"\n\n[env]\nCOSTS = true\n'
+        tomlkit.dumps(
+            {"chat": {"workspace": str(workspace or tmp_path)}, "env": {"COSTS": True}}
+        ),
+        encoding="utf-8",
     )
     chat = ChatConfig.from_logdir(logdir)
-    assert all(isinstance(v, str) for v in chat.env.values()), chat.env
+    assert chat.env == {"COSTS": "true"}
 
 
 def test_chat_null_env_keeps_lower_layer_value():
