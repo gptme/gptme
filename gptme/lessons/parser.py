@@ -302,6 +302,24 @@ def _fix_unquoted_globs(frontmatter_str: str) -> str:
     return "\n".join(fixed_lines)
 
 
+def _outside_code_fences(content: str) -> str:
+    """Keep only lines outside Markdown backtick/tilde code examples."""
+    lines = []
+    fence = ""
+    for line in content.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if marker:
+            mark, info = marker.groups()
+            if not fence:
+                fence = mark
+            elif mark[0] == fence[0] and len(mark) >= len(fence) and not info.strip():
+                fence = ""
+            continue
+        if not fence:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def parse_lesson(path: Path) -> Lesson:
     """Parse lesson or skill file with optional YAML frontmatter.
 
@@ -363,7 +381,66 @@ def parse_lesson(path: Path) -> Lesson:
 
         # Fences must be whole lines: a "---" inside a YAML value is not a fence.
         fence = _FRONTMATTER_RE.match(content)
-        ambiguous_frontmatter = fence is None and has_frontmatter_fence(content)
+        # A blank line followed by a Markdown heading suggests a thematic break,
+        # unless the block declares lesson/skill/Cursor metadata. Generic YAML
+        # such as "key: value" can still be ordinary Markdown body content.
+        thematic_break = (
+            fence is not None
+            and "#" not in content.splitlines()[0]
+            and re.match(r"\A[ \t]*\r?\n\s*#{1,6}[ \t]+", fence.group(1)) is not None
+            and re.search(
+                r"^(?:name|description|id|match|status|depends|globs|priority|"
+                r"triggers|alwaysApply|version)[ \t]*:",
+                _outside_code_fences(fence.group(1)),
+                re.MULTILINE,
+            )
+            is None
+        )
+        if thematic_break and fence is not None:
+            # Empty/comment-only headers, explicit nulls and block scalars
+            # remain YAML. Quoted prose after a heading can still be a motto.
+            try:
+                node = yaml.compose(
+                    _fix_unquoted_globs(fence.group(1)), Loader=_YamlSafeLoader
+                )
+            except yaml.YAMLError:
+                pass  # Markdown code examples and prose need not be valid YAML.
+            else:
+                declared_mapping = isinstance(node, yaml.MappingNode) and any(
+                    isinstance(key, yaml.ScalarNode)
+                    and key.value
+                    in {
+                        "name",
+                        "description",
+                        "id",
+                        "match",
+                        "status",
+                        "depends",
+                        "globs",
+                        "priority",
+                        "triggers",
+                        "alwaysApply",
+                        "version",
+                    }
+                    for key, _ in node.value
+                )
+                if (
+                    node is None
+                    or declared_mapping
+                    or (
+                        isinstance(node, yaml.ScalarNode)
+                        and (
+                            node.style in {"|", ">"}
+                            or node.tag == "tag:yaml.org,2002:null"
+                        )
+                    )
+                ):
+                    thematic_break = False
+        if thematic_break:
+            fence = None
+        ambiguous_frontmatter = (
+            fence is None and not thematic_break and has_frontmatter_fence(content)
+        )
         malformed_frontmatter = ambiguous_frontmatter
         if fence:
             frontmatter_str = fence.group(1)
@@ -382,7 +459,12 @@ def parse_lesson(path: Path) -> Lesson:
                     )
                 else:
                     malformed_frontmatter = not isinstance(frontmatter, dict)
-                    ambiguous_frontmatter = isinstance(frontmatter, str)
+                    if isinstance(frontmatter, str):
+                        node = yaml.compose(frontmatter_str, Loader=_YamlSafeLoader)
+                        ambiguous_frontmatter = node is not None and node.style in {
+                            None,
+                            "",
+                        }
                 if frontmatter and isinstance(frontmatter, dict):
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter

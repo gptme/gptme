@@ -1140,3 +1140,59 @@ def test_bom_skill_starting_with_markdown_divider_is_indexed(tmp_path: Path):
     index = LessonIndex([skills])
 
     assert [lesson.title for lesson in index.lessons] == ["Divider Skill"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- item",
+        "key: value",
+        '"Measure twice, cut once."',
+        "'Measure twice.'",
+        "```yaml\nstatus: active\n```",
+        "~~~yaml\nmatch:\n  keywords: [deploy]\n~~~",
+    ],
+)
+def test_thematic_break_body_reserves_first_root_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str
+):
+    monkeypatch.setenv("GPTME_LESSON_CACHE", "0")
+    clear_cache()
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "lesson.md").write_text(f"---\n\n# First Title\n{text}\n\n---\nBody\n")
+    (second / "lesson.md").write_text("---\nstatus: deprecated\n---\n# Later\n")
+    index = LessonIndex([first, second])
+    assert [lesson.title for lesson in index.lessons] == ["First Title"]
+
+
+def test_commented_inactive_metadata_still_suppresses_later_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("GPTME_LESSON_CACHE", "0")
+    clear_cache()
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "lesson.md").write_text(
+        "---\n\n# Settings\nstatus: deprecated\nmatch:\n  keywords: [deploy]\n"
+        "---\n# Actual Lesson\n"
+    )
+    (second / "lesson.md").write_text(
+        "---\nmatch:\n  keywords: [deploy]\n---\n# Later\n"
+    )
+    assert LessonIndex([first, second]).lessons == []
+
+
+def test_explicit_block_scalar_keeps_malformed_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    monkeypatch.setenv("GPTME_LESSON_CACHE", "0")
+    clear_cache()
+    (tmp_path / "lesson.md").write_text(
+        "---\n|\n  explicit scalar\n---\n# Title\nBody\n"
+    )
+    index = LessonIndex([tmp_path])
+    assert len(index.lessons) == 1
+    assert "Malformed lesson frontmatter" in caplog.text
