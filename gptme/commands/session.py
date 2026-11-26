@@ -229,7 +229,14 @@ def cmd_delete(ctx: CommandContext) -> None:
         rf"(?:\s(?:{flag}\s+)*{flag}\s*)?",
         ctx.full_args,
     )
-    if not (force and typed_exactly):
+    # A flag token the trailing loop consumed can also be part of the id itself
+    # (a chat named ``old --force``). When the untrimmed input wins the
+    # candidate match, the flag the parser saw is embedded in the id, so it
+    # must not also grant force: the confirmation prompt is the only
+    # unambiguous path. ``body != raw`` means the loop stripped a trailing
+    # flag token from ``raw``.
+    force_in_id = conv_id == raw and body != raw
+    if not (force and typed_exactly and not force_in_id):
         # repr() makes a stray or non-breaking space in the id visible
         response = input(
             f"Delete conversation {conv_id!r}? This cannot be undone. [y/N] "

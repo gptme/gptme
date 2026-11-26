@@ -2092,6 +2092,67 @@ def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
     assert not (logs / "draft --force notes").exists()
 
 
+def test_delete_asks_when_the_flag_token_is_part_of_the_id(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A trailing flag token that is part of the id must not grant force.
+
+    Regression: the trailing-flag loop set ``force`` from a token embedded in
+    the id, so a chat literally named ``old --force`` was ``rmtree``d without
+    confirmation on ``/delete old --force`` — the ``typed_exactly`` fullmatch
+    matched because ``re.escape(conv_id)`` already contained the flag.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("old", "old --force", "draft -f"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    prompts: list[str] = []
+    answers = iter(["n", "y", "n", "y"])
+
+    def answer(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", answer)
+
+    # ``old --force`` exists, so the untrimmed input wins and the flag the
+    # user typed is embedded in it: ask, and "n" keeps both chats.
+    cmd = Message("user", "/delete old --force", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert prompts[-1].startswith("Delete conversation 'old --force'?")
+    assert (logs / "old --force").exists()
+    assert (logs / "old").exists()
+
+    # Confirming deletes the id the prompt named, not the trimmed guess.
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert not (logs / "old --force").exists()
+    assert (logs / "old").exists()
+
+    # Same collision for the short flag.
+    cmd = Message("user", "/delete draft -f", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert prompts[-1].startswith("Delete conversation 'draft -f'?")
+    assert (logs / "draft -f").exists()
+
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert not (logs / "draft -f").exists()
+    assert (logs / "old").exists()
+
+
 def test_tool_payload_keeps_trailing_whitespace(tmp_path: Path, monkeypatch, capsys):
     """A command's full_args reaches the handler verbatim, tail included.
 
