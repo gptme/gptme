@@ -215,6 +215,19 @@ def _merge_stream_usage(
 _TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "model_context_window_exceeded"})
 
 
+def _is_complete_tool_json(streamed: str) -> bool:
+    """Whether the streamed argument fragments form a complete JSON object.
+
+    Anthropic stops a tool_use block even when the token cap cut it off
+    mid-arguments, so only the fragments themselves show whether the call can
+    run. An empty fragment string is the no-argument call, which is complete.
+    """
+    try:
+        return isinstance(json.loads(streamed or "{}"), dict)
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
 def _record_usage(
     usage: _UsageMetrics, model: str, success: bool = True
 ) -> MessageMetadata | None:
@@ -1252,6 +1265,10 @@ def _stream_with_client(
     # Whether the current tool_use block streamed any argument JSON; a
     # no-argument call (e.g. ``complete``) may stream none at all.
     tool_json_emitted = False
+    # Argument JSON streamed so far for the current tool_use block. A block
+    # also stops when the token cap cut it off mid-arguments, so this is what
+    # tells a finished call from a truncated one.
+    tool_json_parts: list[str] = []
     # (index into native_pending, tool name) of a tool_use block that no later
     # block has followed, so a truncated reply may have cut it off.
     last_tool_call: tuple[int, str] | None = None
@@ -1289,6 +1306,7 @@ def _stream_with_client(
                         if native_pending is None:
                             native_pending = []
                         tool_json_emitted = False
+                        tool_json_parts = []
                         tool_name = canonical_tool_name(tool_use.name)
                         last_tool_call = (len(native_pending), tool_name)
                         yield from _emit(f"\n@{tool_name}({tool_use.id}): ")
@@ -1315,6 +1333,7 @@ def _stream_with_client(
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
                         if delta.partial_json:
                             tool_json_emitted = True
+                            tool_json_parts.append(delta.partial_json)
                             yield from _emit(delta.partial_json)
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # Capture signature for embedding in the closing </think> tag.
@@ -1341,6 +1360,14 @@ def _stream_with_client(
                             # json.dumps(block.input).
                             yield from _emit(json.dumps(stop_block.input or {}))
                             tool_json_emitted = True
+                        # A block stops even when the token cap cut it off
+                        # mid-arguments, so the stop alone does not prove the
+                        # call finished. Only a parseable argument object does;
+                        # otherwise keep it marked as the possibly-cut call.
+                        if last_tool_call is not None and _is_complete_tool_json(
+                            "".join(tool_json_parts)
+                        ):
+                            last_tool_call = None
                     elif isinstance(stop_block, anthropic.types.ThinkingBlock):
                         # Embed the signature so it's preserved in message history
                         # and can be passed back to the API on subsequent turns.

@@ -318,9 +318,21 @@ def _stream_truncated(monkeypatch, blocks, stop_reason):
 
 
 @pytest.mark.parametrize("stop_reason", ["max_tokens", "model_context_window_exceeded"])
-@pytest.mark.parametrize("cut_json", ["", "{}", '{"path": "big.txt", "content": "ab'])
-def test_truncated_reply_keeps_finished_tool_calls(monkeypatch, stop_reason, cut_json):
-    """Only the call being written at the cut is withheld; nothing is retried."""
+@pytest.mark.parametrize(
+    ("cut_json", "second_call_ran"),
+    [
+        # The block stops even at the cut, so completeness comes from the
+        # arguments: a no-argument call and a closed object are complete, a
+        # fragment mid-string is not.
+        ("", True),
+        ("{}", True),
+        ('{"path": "big.txt", "content": "ab', False),
+    ],
+)
+def test_truncated_reply_keeps_finished_tool_calls(
+    monkeypatch, stop_reason, cut_json, second_call_ran
+):
+    """A complete call runs even at the cut; only the cut-off one is withheld."""
     text, requests, successes = _stream_truncated(
         monkeypatch,
         [
@@ -331,11 +343,16 @@ def test_truncated_reply_keeps_finished_tool_calls(monkeypatch, stop_reason, cut
     )
 
     calls = list(ToolUse.iter_from_content(text, "tool"))
-    assert [(c.tool, c.call_id, c.kwargs) for c in calls] == [
-        ("shell", "toolu_01", {"command": "ls"})
-    ], repr(text)
-    assert "toolu_02" not in text
-    assert f"`save` tool call in this reply was cut off ({stop_reason})" in text
+    expected = [("shell", "toolu_01", {"command": "ls"})]
+    if second_call_ran:
+        expected.append(("save", "toolu_02", {}))
+    assert [(c.tool, c.call_id, c.kwargs) for c in calls] == expected, repr(text)
+    if second_call_ran:
+        assert "toolu_02" in text
+        assert "cut off" not in text
+    else:
+        assert "toolu_02" not in text
+        assert f"`save` tool call in this reply was cut off ({stop_reason})" in text
     assert len(requests) == 1
     assert successes == [True]
 
