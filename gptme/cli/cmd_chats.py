@@ -11,6 +11,7 @@ import click
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
 from ..logmanager.conversations import ConversationMeta
+from ..logmanager.locking import ConversationLockError
 from ..prompt_queue import queue_prompt
 from ..tools import get_tools, init_tools
 from ..tools.chats import (
@@ -409,7 +410,7 @@ def chats_export(
     safety_check: bool,
     safety_json: bool,
     judge: bool,
-):
+) -> None:
     """Export a conversation to HTML or markdown.
 
     Exports the conversation with the given ID to a file.
@@ -445,7 +446,10 @@ def chats_export(
         click.echo(f"Chat '{id}' not found")
         raise SystemExit(1)
 
-    log = LogManager.load(logdir)
+    try:
+        log = LogManager.load(logdir)
+    except ConversationLockError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     if safety_check or safety_json or judge:
         import json as _json  # fmt: skip

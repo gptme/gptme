@@ -1,9 +1,14 @@
 """Tests for chats export functionality."""
 
 import json
+import os
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+
+import pytest
 
 from gptme.logmanager import Log
 from gptme.message import Message
@@ -138,6 +143,70 @@ class TestExportCLI:
         result = runner.invoke(main, ["chats", "export", "nonexistent"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    def test_export_active_chat_reports_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        from gptme.cli.util import main
+
+        logdir = tmp_path / "active"
+        logdir.mkdir()
+        _create_test_log(logdir, [_make_msg("user", "Live conversation")])
+        transcript = logdir / "conversation.jsonl"
+        before = transcript.read_bytes()
+        output = tmp_path / "export.md"
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path)
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_tools", lambda: ["fake"])
+
+        # LogManager bypasses locking under pytest. Enable it in both processes.
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        holder_code = """
+import sys
+from pathlib import Path
+from gptme.logmanager import LogManager
+
+with LogManager.load(Path(sys.argv[1]), lock=True):
+    print("locked", flush=True)
+    sys.stdin.readline()
+"""
+        with subprocess.Popen(
+            [sys.executable, "-c", holder_code, str(logdir)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            env=os.environ.copy(),
+        ) as holder:
+            try:
+                assert holder.stdout is not None
+                assert holder.stdout.readline().strip() == "locked"
+                lockfile = logdir / ".lock"
+                lock_inode = lockfile.stat().st_ino
+
+                result = CliRunner().invoke(
+                    main,
+                    ["chats", "export", "active", "-f", "markdown", "-o", str(output)],
+                )
+
+                assert holder.poll() is None
+                assert lockfile.stat().st_ino == lock_inode
+                assert transcript.read_bytes() == before
+                assert not output.exists()
+                assert result.exit_code == 1
+                # Windows may prevent reading the PID from the locked file.
+                assert result.output in {
+                    f"Error: Another gptme instance (PID {holder.pid}) is using {logdir}\n",
+                    f"Error: Another gptme instance is using {logdir}\n",
+                }, repr(result.exception)
+            finally:
+                try:
+                    holder.communicate("\n", timeout=10)
+                except subprocess.TimeoutExpired:
+                    holder.kill()
+                    holder.communicate()
+                    raise
+            assert holder.returncode == 0
 
     def test_export_markdown_cli(self, tmp_path: Path, monkeypatch):
         """Test markdown export via CLI."""

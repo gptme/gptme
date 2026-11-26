@@ -55,6 +55,7 @@ from ..util.reduce import (
 from ..util.uri import URI
 from . import eventlog
 from .durability import existing_parent, sync_directories, sync_directory
+from .locking import ConversationLockError
 
 PathLike: TypeAlias = str | Path
 
@@ -491,7 +492,7 @@ class LogManager:
                     # Process is alive - can't acquire lock
                     self._lock_fd.close()
                     self._lock_fd = None
-                    raise RuntimeError(
+                    raise ConversationLockError(
                         f"Another gptme instance (PID {lock_pid}) is using "
                         f"{self.logdir}"
                     )
@@ -513,7 +514,7 @@ class LogManager:
             # Could not read PID - fail with generic message
             self._lock_fd.close()
             self._lock_fd = None
-            raise RuntimeError(
+            raise ConversationLockError(
                 f"Another gptme instance is using {self.logdir}"
             ) from None
 

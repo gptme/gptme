@@ -12,6 +12,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+class ConversationLockError(RuntimeError):
+    """Another process holds the conversation's lifetime lock."""
+
+
 @contextmanager
 def conversation_lifecycle_lock(
     logdir: Path, *, blocking: bool = True
