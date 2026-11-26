@@ -138,10 +138,17 @@ export function SetupWizard() {
   // the active server: the user may switch here from a different server.
   const [sameOriginToken, setSameOriginToken] = useState('');
   useEffect(() => {
-    if (isSameOriginServer && connectionResult?.ok === false && connectionResult.status === 401) {
+    if (isConnected) {
+      setTokenPromptStarted(false);
+      setTokenPromptDismissed(false);
+    } else if (
+      isSameOriginServer &&
+      connectionResult?.ok === false &&
+      connectionResult.status === 401
+    ) {
       setTokenPromptStarted(true);
     }
-  }, [isSameOriginServer, connectionResult]);
+  }, [isConnected, isSameOriginServer, connectionResult]);
   const demoMode = isDemoMode();
   const needsServerToken =
     !demoMode &&
@@ -841,7 +848,6 @@ export function SetupWizard() {
         suppressErrorToast: true,
       });
       setSameOriginToken('');
-      setTokenPromptDismissed(true);
     } catch (error) {
       setConnectError(formatUnknownError(error, 'Could not connect to this server.'));
     } finally {

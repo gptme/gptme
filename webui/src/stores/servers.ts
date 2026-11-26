@@ -151,7 +151,12 @@ export function adoptSameOriginServer(registry: ServerRegistry, origin: string):
     registry.connectedServerIds = registry.connectedServerIds.filter((id) => id !== preset.id);
   }
   if (wasDefault) registry.activeServerId = target.id;
-  if (!registry.connectedServerIds.includes(target.id)) registry.connectedServerIds.push(target.id);
+  if (
+    (!existing || registry.activeServerId === target.id) &&
+    !registry.connectedServerIds.includes(target.id)
+  ) {
+    registry.connectedServerIds.push(target.id);
+  }
 }
 
 export const sameOriginServer$ = observable<string | null>(null);

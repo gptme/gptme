@@ -112,3 +112,70 @@ for (const fragment of [
       ]);
   });
 }
+
+for (const tokenLink of [true, false]) {
+  test(`saved remote selection ${tokenLink ? 'cannot receive a serving token-only link' : 'is preserved on an ordinary reload'}`, async ({
+    page,
+    baseURL,
+  }) => {
+    await serveSameOrigin(page, baseURL!);
+    const remote = 'https://saved-remote.gptme.test';
+    const remoteTokens: (string | undefined)[] = [];
+    await page.route(`${remote}/**`, async (route) => {
+      remoteTokens.push(route.request().headers()['authorization']);
+      await route.fulfill({ json: { conversations: [], total: 0 } });
+    });
+    await page.addInitScript(
+      ({ origin, remote }) => {
+        localStorage.setItem('gptme-settings', JSON.stringify({ hasCompletedSetup: true }));
+        localStorage.setItem(
+          'gptme_servers',
+          JSON.stringify({
+            activeServerId: 'remote',
+            connectedServerIds: ['remote'],
+            servers: [
+              {
+                id: 'serving',
+                name: 'Serving',
+                baseUrl: origin,
+                authToken: null,
+                useAuthToken: false,
+                isPreset: true,
+                createdAt: 1,
+                lastUsedAt: 1,
+              },
+              {
+                id: 'remote',
+                name: 'Remote',
+                baseUrl: remote,
+                authToken: 'remote-token',
+                useAuthToken: true,
+                createdAt: 1,
+                lastUsedAt: 1,
+              },
+            ],
+          })
+        );
+      },
+      { origin, remote }
+    );
+    const connected = page.waitForResponse(
+      (response) =>
+        response.url().startsWith(`${tokenLink ? origin : remote}/api/v2/conversations`) &&
+        response.status() === 200
+    );
+    await page.goto(`${origin}/${tokenLink ? `#userToken=${token}` : ''}`);
+    await connected;
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    const registry = await page.evaluate(() => JSON.parse(localStorage.getItem('gptme_servers')!));
+    expect(registry.activeServerId).toBe(tokenLink ? 'serving' : 'remote');
+    expect(
+      registry.servers.find((server: { id: string }) => server.id === 'remote').authToken
+    ).toBe('remote-token');
+    expect(
+      registry.servers.find((server: { id: string }) => server.id === 'serving').authToken
+    ).toBe(tokenLink ? token : null);
+    if (!tokenLink) expect(registry.connectedServerIds).toEqual(['remote']);
+    expect(remoteTokens).not.toContain(`Bearer ${token}`);
+  });
+}

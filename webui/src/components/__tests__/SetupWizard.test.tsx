@@ -353,6 +353,35 @@ describe('SetupWizard', () => {
     await waitFor(() => expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument());
   });
 
+  it('reopens the token prompt after a successful submission and a later 401', async () => {
+    mockConnectionBaseUrl = 'http://myhost:5700';
+    sameOriginServer$.set(mockConnectionBaseUrl);
+    lastConnectionResult$.set({ ok: false, status: 401, url: `${mockConnectionBaseUrl}/api/v2` });
+    mockConnect.mockImplementationOnce(async () => {
+      lastConnectionResult$.set({ ok: true, status: 200, url: `${mockConnectionBaseUrl}/api/v2` });
+      isConnected$.set(true);
+    });
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'old-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(screen.queryByLabelText('Server token')).not.toBeInTheDocument());
+    act(() => {
+      isConnected$.set(false);
+      lastConnectionResult$.set({ ok: false, status: 401, url: `${mockConnectionBaseUrl}/api/v2` });
+    });
+    // use$ is a snapshot-only mock in this suite; drive the observable render.
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(await screen.findByLabelText('Server token')).toHaveValue('');
+  });
+
   it('never prefills another server token after switching to the same-origin server', () => {
     sameOriginServer$.set('http://myhost:5700');
     mockAuthToken = 'other-server-secret';

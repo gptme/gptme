@@ -4,6 +4,7 @@ import {
   getActiveServer,
   setActiveServer,
   updateServer,
+  sameOriginServer$,
 } from '@/stores/servers';
 import { isViteDev } from '@/utils/viteEnv';
 
@@ -250,8 +251,11 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
   const params = new URLSearchParams(hash || '');
 
   // Get values from fragment (legacy direct token flow)
-  const fragmentBaseUrl = params.get('baseUrl');
   const fragmentUserToken = params.get('userToken');
+  // The serving server advertises token-only links. Bind that token to the
+  // discovered origin even when the user previously selected another server.
+  const fragmentBaseUrl =
+    params.get('baseUrl') || (fragmentUserToken ? sameOriginServer$.peek() : null);
 
   // Register fragment values as a server in the registry
   if (fragmentBaseUrl) {

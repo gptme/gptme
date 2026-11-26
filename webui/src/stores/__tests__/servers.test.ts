@@ -128,6 +128,22 @@ describe('same-origin discovery', () => {
     );
   });
 
+  it('keeps an existing serving server disconnected when another server is selected', () => {
+    const registry = makeRegistry();
+    registry.servers[0].baseUrl = 'http://myhost:5700';
+    registry.servers.push({
+      ...registry.servers[0],
+      id: 'custom',
+      isPreset: false,
+      baseUrl: 'https://other.example.com',
+    });
+    registry.activeServerId = 'custom';
+    registry.connectedServerIds = ['custom'];
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    expect(registry.activeServerId).toBe('custom');
+    expect(registry.connectedServerIds).toEqual(['custom']);
+  });
+
   it('does not override an explicitly selected remote server', () => {
     const registry = makeRegistry();
     registry.servers.push({
