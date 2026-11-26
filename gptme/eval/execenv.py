@@ -11,6 +11,7 @@ import time
 from abc import abstractmethod
 from pathlib import Path
 
+from .claude_code_cli import claude_code_tool_args
 from .filestore import Files, FileStore
 
 logger = logging.getLogger(__name__)
@@ -963,6 +964,7 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         model: str,
         max_turns: int = 30,
         tools: list[str] | None = None,
+        include_user_context: bool = True,
     ) -> tuple[str, str, int]:
         """
         Run Claude Code CLI inside the Docker container.
@@ -971,7 +973,8 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             prompt: The user prompt to process
             model: Model identifier (e.g., "claude-sonnet-4-6")
             max_turns: Maximum number of conversation turns (default: 30)
-            tools: List of allowed tools (default: all)
+            tools: Tool names to allow (None: unrestricted, []: no tools)
+            include_user_context: Load Claude Code settings in the container
 
         Returns:
             Tuple of (stdout, stderr, exit_code)
@@ -984,19 +987,17 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         cmd_parts = [
             "claude",
             "-p",
-            shlex.quote(prompt),
+            prompt,
             "--output-format",
             "json",
             "--model",
-            shlex.quote(model),
+            model,
             "--max-turns",
             str(max_turns),
+            *claude_code_tool_args(tools, include_user_context),
         ]
 
-        if tools:
-            cmd_parts.extend(["--allowedTools", shlex.quote(",".join(tools))])
-
-        command = " ".join(cmd_parts)
+        command = shlex.join(cmd_parts)
 
         start = time.time()
         print("\n--- Start of Claude Code execution (Docker) ---")
