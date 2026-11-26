@@ -2470,6 +2470,53 @@ class TestPromptCancel:
         assert result.stop_reason == "cancelled"
         assert generations == []
 
+    def test_cancel_during_turn_pre_hook_sends_no_scout_request(self, monkeypatch):
+        """TURN_PRE (context scout) must not start a paid request after Stop."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.hooks import HookType
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        agent, _ = _make_prompt_agent()
+        generations: list[str] = []
+        provider = MagicMock()
+        monkeypatch.setattr("gptme.llm._reply_after_hooks", provider)
+
+        def trigger_hook(hook_type, **kwargs):
+            if hook_type == HookType.TURN_PRE:
+                turn = agent._active_turns["s1"]
+                asyncio.run_coroutine_threadsafe(
+                    agent.cancel(session_id="s1"), turn.loop
+                ).result(timeout=2.0)
+                reply([Message("user", "scout")], "openai/gpt-4o-mini")
+            return iter([])
+
+        def fake_step(log, **kwargs):
+            generations.append("started")
+            return iter([])
+
+        monkeypatch.setattr(
+            importlib.import_module("gptme.hooks.registry"),
+            "trigger_hook",
+            trigger_hook,
+        )
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", fake_step)
+
+        async def scenario():
+            return await asyncio.wait_for(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1"),
+                timeout=3.0,
+            )
+
+        result = _run(scenario())
+
+        assert result.stop_reason == "cancelled"
+        assert generations == []
+        provider.assert_not_called()
+
     @pytest.mark.parametrize("stops_propagation", [False, True])
     def test_cancel_during_generation_pre_hook_sends_no_request(
         self, monkeypatch, stops_propagation

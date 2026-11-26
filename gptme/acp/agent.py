@@ -1725,18 +1725,6 @@ class GptmeAgent:
                 _acp_turn.set(turn)
                 response_msgs: list[Message] = []
                 step_log = list(log.log)
-                # Same boundary as the CLI chat loop: TURN_PRE after the user
-                # prompt is in the log, before the first generation step.
-                if turn_msgs := list(trigger_hook(HookType.TURN_PRE, manager=log)):
-                    for msg in turn_msgs:
-                        step_log.append(msg)
-                        if getattr(msg, "hide", False):
-                            # Persist hidden context for the model; do not
-                            # forward it as visible ACP agent text.
-                            log.append(msg)
-                        else:
-                            response_msgs.append(msg)
-                turn.completed = list(response_msgs)
                 max_steps: int | None = None
                 max_steps_str = os.environ.get("GPTME_MAX_STEPS")
                 if max_steps_str:
@@ -1749,7 +1737,28 @@ class GptmeAgent:
                         )
 
                 try:
-                    return _run_steps(response_msgs, step_log, max_steps)
+                    # Bind Stop around the whole worker, including TURN_PRE
+                    # (context scout). Scout's reply() checks the gate after
+                    # GENERATION_PRE and before the paid request.
+                    with generation_gate(turn.raise_if_cancelled):
+                        if turn.cancelled.is_set():
+                            raise _TurnCancelled
+                        # Same boundary as the CLI chat loop: TURN_PRE after
+                        # the user prompt is in the log, before the first
+                        # generation step.
+                        if turn_msgs := list(
+                            trigger_hook(HookType.TURN_PRE, manager=log)
+                        ):
+                            for msg in turn_msgs:
+                                step_log.append(msg)
+                                if getattr(msg, "hide", False):
+                                    # Persist hidden context for the model; do
+                                    # not forward it as visible ACP agent text.
+                                    log.append(msg)
+                                else:
+                                    response_msgs.append(msg)
+                        turn.completed = list(response_msgs)
+                        return _run_steps(response_msgs, step_log, max_steps)
                 except _TurnCancelled:
                     # Keep every yielded message, including results of tools
                     # that completed before a later tool boundary cancelled.
