@@ -415,18 +415,24 @@ def test_load_override_switches_saved_transport() -> None:
         ) as stdio,
     ):
         (message,) = execute_mcp(override, None, None)
-        assert f"Successfully loaded server '{name}'" in message.content
-        http.assert_awaited_once_with(
-            "https://new.example.net/mcp", {}, use_sse=False, auth=None
-        )
-        stdio.assert_not_awaited()
-        assert config.user.mcp is not None
-        [saved] = config.user.mcp.servers
-        assert saved.url == "https://new.example.net/mcp"
-        assert saved.transport == "streamable-http"
-        unload_mcp_server(name)
+        try:
+            assert f"Successfully loaded server '{name}'" in message.content
+            http.assert_awaited_once_with(
+                "https://new.example.net/mcp", {}, use_sse=False, auth=None
+            )
+            stdio.assert_not_awaited()
+            assert config.user.mcp is not None
+            [saved] = config.user.mcp.servers
+            assert saved.url == "https://new.example.net/mcp"
+            assert saved.transport == "streamable-http"
+        finally:
+            unload_mcp_server(name)
 
-    # A failed connection restores the saved transport too.
+    # A failed connection restores the saved transport too. The load above
+    # persisted the override and unload only disables the entry, so reset
+    # the saved entry to its pre-override values first.
+    saved.url = "https://old.example.net/sse"
+    saved.transport = "sse"
     with (
         patch("gptme.tools.mcp_adapter.get_config", return_value=config),
         patch("gptme.tools.mcp.confirm", return_value=True),
