@@ -166,3 +166,108 @@ def test_health_endpoint_unauthenticated(auth_token):
         # Sanity: a non-health API endpoint still requires auth.
         protected = client.get("/api/v2/conversations")
         assert protected.status_code == 401
+
+
+@pytest.mark.parametrize("source", ["bearer", "query", "cookie"])
+def test_non_ascii_token_is_rejected_with_401(auth_token: str, source: str) -> None:
+    from gptme.server.app import create_app
+    from gptme.server.auth import AUTH_COOKIE_NAME
+
+    app = create_app()
+    with app.test_client() as client:
+        headers = {"Authorization": "Bearer é"} if source == "bearer" else {}
+        query = {"token": "é"} if source == "query" else {}
+        if source == "cookie":
+            client.set_cookie(AUTH_COOKIE_NAME, "é", path="/api/")
+
+        response = client.get(
+            "/api/v2/conversations", headers=headers, query_string=query
+        )
+        assert response.status_code == 401
+        assert response.json is not None
+        assert response.json["error"] == "Invalid or expired token"
+
+
+def _configure_server_token(monkeypatch: pytest.MonkeyPatch, token: str) -> None:
+    from gptme.server import auth
+
+    monkeypatch.delenv("GPTME_DISABLE_AUTH", raising=False)
+    monkeypatch.setenv("GPTME_SERVER_TOKEN", token)
+    monkeypatch.setattr(auth, "_server_token", None)
+    monkeypatch.setattr(auth, "_auth_enabled", auth._auth_enabled)
+
+
+@pytest.mark.parametrize(
+    ("token", "encoding"),
+    [
+        pytest.param("tökén-é", "utf-8", id="utf8-wire-latin1-token"),
+        pytest.param("tökén-é", "latin-1", id="latin1-wire"),
+        pytest.param("tok€n", "utf-8", id="utf8-wire-above-latin1"),
+        pytest.param("tok€n", None, id="direct-unicode"),
+    ],
+)
+def test_non_ascii_server_token_accepts_matching_bearer_header(
+    monkeypatch: pytest.MonkeyPatch, token: str, encoding: str | None
+) -> None:
+    from gptme.server.app import create_app
+
+    _configure_server_token(monkeypatch, token)
+    app = create_app()
+    with app.test_client() as client:
+        for candidate, status in [(token, 200), (token + "x", 401)]:
+            value = f"Bearer {candidate}"
+            if encoding is not None:
+                # WSGI exposes wire header bytes as Latin-1 text. The test
+                # client passes strings directly to the WSGI environ.
+                value = value.encode(encoding).decode("latin-1")
+            response = client.get(
+                "/api/v2/conversations", headers={"Authorization": value}
+            )
+            assert response.status_code == status
+
+
+def test_non_ascii_server_token_accepts_query_and_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.server.app import create_app
+
+    token = "tökén-é"
+    _configure_server_token(monkeypatch, token)
+    app = create_app()
+    with app.test_client() as client:
+        wrong_token = {"token": "tökén-x"}
+        assert (
+            client.get("/api/v2/conversations", query_string=wrong_token).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                "/api/v2/conversations", query_string={"token": token}
+            ).status_code
+            == 200
+        )
+        response = client.post(
+            "/api/v2/auth/cookie", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 200
+        assert (
+            client.get("/api/v2/conversations", query_string=wrong_token).status_code
+            == 200
+        )
+
+
+def test_empty_bearer_does_not_fall_back(auth_token: str) -> None:
+    from gptme.server.app import create_app
+    from gptme.server.auth import AUTH_COOKIE_NAME
+
+    app = create_app()
+    with app.test_client() as client:
+        client.set_cookie(AUTH_COOKIE_NAME, auth_token, path="/api/")
+        response = client.get(
+            "/api/v2/conversations",
+            headers={"Authorization": "Bearer "},
+            query_string={"token": auth_token},
+        )
+        assert response.status_code == 401
+        assert response.json is not None
+        assert response.json["error"] == "Missing bearer credentials"

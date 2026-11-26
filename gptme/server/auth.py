@@ -415,7 +415,23 @@ def require_auth(f):
             logger.warning("Missing authentication credentials")
             return jsonify({"error": "Missing authentication credentials"}), 401
 
-        if not secrets.compare_digest(token, server_token):
+        # WSGI exposes raw Authorization header bytes as Latin-1 text. Query
+        # parameters and cookies have already been decoded by Werkzeug.
+        token_bytes = token.encode("utf-8")
+        expected = [server_token.encode("utf-8")]
+        if auth_header:
+            try:
+                token_bytes = token.encode("latin-1")
+            except UnicodeEncodeError:
+                pass  # In-process clients can supply Unicode header values.
+            # Some clients send Latin-1 header bytes, others send UTF-8.
+            try:
+                expected.append(server_token.encode("latin-1"))
+            except UnicodeEncodeError:
+                pass  # Tokens outside Latin-1 require UTF-8.
+
+        # compare_digest only accepts ASCII when comparing strings.
+        if not any(secrets.compare_digest(token_bytes, value) for value in expected):
             logger.warning("Invalid or expired token")
             return jsonify({"error": "Invalid or expired token"}), 401
 
