@@ -659,6 +659,29 @@ describe('ApiProvider mobile auto-connect', () => {
     expect(mockCheckConnection).toHaveBeenCalledTimes(1);
   });
 
+  it('CORS stop toast names the tried URL and the browser origin', async () => {
+    setActiveServerBaseUrl('https://bob.example.com');
+
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        url: 'https://bob.example.com/api/v2/conversations?limit=1',
+        reason: 'cors',
+        message: 'CORS/PNA error',
+      });
+      return false;
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledTimes(1);
+    });
+    const toastText = String(mockToastError.mock.calls[0][0]);
+    expect(toastText).toContain('https://bob.example.com/api/v2/conversations?limit=1');
+    expect(toastText).toContain(window.location.origin);
+  });
+
   it('keeps retrying on transient network failures', async () => {
     setActiveServerBaseUrl('https://bob.example.com');
 

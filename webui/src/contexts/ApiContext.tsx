@@ -515,8 +515,16 @@ export function ApiProvider({
       if (lastResult && !lastResult.ok && lastResult.reason === 'cors') {
         console.log('[ApiContext] CORS/PNA failure — stopping auto-connect (use manual reconnect)');
         stopAutoConnect();
-        if (!isInitialAttempt && !probe.isManualRetry) {
-          toast.error('Server blocked the connection (CORS) — check server config');
+        // A CORS failure ends the retries on every path, including the first
+        // probe after page load or a server restart — silence here would leave
+        // the UI dead with no explanation. Transient failures keep the
+        // no-flash behaviour from #4028; this branch never runs for them.
+        if (!probe.isManualRetry) {
+          // This toast must carry the two facts the user needs: which URL was
+          // refused and which origin the server has to allow.
+          toast.error(
+            `Server blocked the connection (CORS) — check server config. Tried ${lastResult.url}. Allow requests from ${window.location.origin}.`
+          );
         }
         return;
       }
