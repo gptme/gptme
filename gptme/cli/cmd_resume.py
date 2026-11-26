@@ -34,8 +34,8 @@ def _get_logs_dir() -> Path:
         raise click.UsageError("Could not locate gptme logs directory") from exc
 
 
-def _list_sessions(logs_dir: Path, n: int = 20) -> list[Path]:
-    """Return up to *n* session dirs, most-recently-modified first."""
+def _list_sessions(logs_dir: Path, n: int | None = 20) -> list[Path]:
+    """Return session dirs newest first, limited to *n* unless it is None."""
     dirs = [
         d
         for d in logs_dir.iterdir()
@@ -291,7 +291,7 @@ def resume(
     if not logs_dir.exists():
         raise click.ClickException(f"gptme logs directory not found: {logs_dir}")
 
-    sessions = _list_sessions(logs_dir, n=20)
+    sessions = _list_sessions(logs_dir, n=20 if do_list else None)
 
     if do_list:
         if not sessions:
