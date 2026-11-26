@@ -987,7 +987,7 @@ policy (idle TTL) therefore must be user-visible, the same as kernel restart tod
 <tr class="row-odd"><td><p>Shell background job completion</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">shell_background._completion_queue</span></code> + condition</p></td>
 <td><p>no</p></td>
-<td><p><strong>no idle wake found</strong> (below)</p></td>
+<td><p>yes, via <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> (fixed after this audit, below); retried at step end</p></td>
 </tr>
 <tr class="row-even"><td><p>Progress</p></td>
 <td><p>in-process queue, drained into the next wake</p></td>
@@ -997,28 +997,33 @@ policy (idle TTL) therefore must be user-visible, the same as kernel restart tod
 </tbody>
 </table>
 </div>
-<p><strong>Audit finding — shell-background completion has no idle wake.</strong> <code class="docutils literal notranslate"><span class="pre">_notify_completion</span></code>
-(<code class="docutils literal notranslate"><span class="pre">tools/shell_background.py:1585</span></code>) enqueues to <code class="docutils literal notranslate"><span class="pre">_completion_queue</span></code> and notifies a
-condition; it neither calls <code class="docutils literal notranslate"><span class="pre">notification_ready.signal</span></code> nor <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">shell_background.py</span></code> references no <code class="docutils literal notranslate"><span class="pre">SessionManager</span></code>. <code class="docutils literal notranslate"><span class="pre">retry_deferred_watch_wakes</span></code>
-drains only watch events and subagent completions. So an idle server conversation is not
-woken by a finished <code class="docutils literal notranslate"><span class="pre">run_in_background</span></code> job; the result is picked up by the
-LOOP_CONTINUE hook only when some other event starts a step (and
-<code class="docutils literal notranslate"><span class="pre">background_job_wait_hook</span></code> subscribes to <code class="docutils literal notranslate"><span class="pre">notification_ready</span></code> for <em>child</em> wakeups, not
-for job exit). This is a parity gap versus subagent completion, independent of worker
-processes, and is the cheapest concrete consolidation: make job completion call the
-same <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> path (event-specific message, same busy/autowake policy).
-<strong>Verified</strong> (follow-up pass): <code class="docutils literal notranslate"><span class="pre">tests/test_wake_admission_matrix.py::test_shell_background_completion_has_no_idle_wake</span></code>
-starts a real <code class="docutils literal notranslate"><span class="pre">printf</span></code> job through <code class="docutils literal notranslate"><span class="pre">start_background_job</span></code>; on exit the job is queued
-(<code class="docutils literal notranslate"><span class="pre">_completion_notified</span></code>, present in <code class="docutils literal notranslate"><span class="pre">_completion_queue</span></code>) but <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> and
-<code class="docutils literal notranslate"><span class="pre">notification_ready.signal</span></code> are never called. This is a unit-level reproduction against
-the real module, not a live-server run.</p>
+<p><strong>Historical audit finding — shell-background completion had no idle wake.</strong> Before
+this fix, <code class="docutils literal notranslate"><span class="pre">_notify_completion</span></code> only queued the completion and notified a condition;
+<code class="docutils literal notranslate"><span class="pre">retry_deferred_watch_wakes</span></code> drained watch events and subagent completions, not shell
+jobs. An idle server conversation therefore waited for an unrelated step to receive
+a finished job’s result. The original characterization test reproduced that gap with
+a real <code class="docutils literal notranslate"><span class="pre">printf</span></code> job; it has been replaced by
+<code class="docutils literal notranslate"><span class="pre">tests/test_wake_admission_matrix.py::test_shell_background_completion_wakes_idle_conversation</span></code>,
+which verifies the corrected behaviour below.</p>
+<p><strong>Fixed</strong> (third pass): <code class="docutils literal notranslate"><span class="pre">_notify_completion</span></code> now rings the same doorbell as subagent
+completion. <code class="docutils literal notranslate"><span class="pre">wake_server_for_completed_jobs</span></code> claims the conversation’s queued
+completions, persists them through <code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> (so busy, ACP,
+<code class="docutils literal notranslate"><span class="pre">watch_autowake</span></code> and the interrupt rule of the next paragraph apply unchanged), and
+puts back whatever it could not deliver for STEP_PRE; <code class="docutils literal notranslate"><span class="pre">retry_deferred_watch_wakes</span></code>
+calls it at step end, so a job that finished while the conversation was busy still
+wakes it once idle. The job records the branch of the log that started it. It is a
+no-op outside a server process and for conversations without a server session (CLI,
+thread-mode subagents), which keep the condition/LOOP_CONTINUE path. The matrix test
+now pins idle wake (claimed once, not re-delivered by STEP_PRE), busy deferral plus
+step-end retry, and the no-session no-op. Known residual: like subagent completion,
+a step ending in the short window between a failed wake’s claim and its requeue can
+leave a completion queued until the next step or wake.</p>
 <p>Shared already: <code class="docutils literal notranslate"><span class="pre">_conversation_busy</span></code> and <code class="docutils literal notranslate"><span class="pre">_dispatch_reserved_step</span></code> (admission +
 dispatch) are used by both the watch and peer paths, and <code class="docutils literal notranslate"><span class="pre">use_acp</span></code> conversations
 explicitly defer both (so a wake never answers a conversation whose input cursor a
 different runtime owns). <code class="docutils literal notranslate"><span class="pre">session.interrupted</span></code> suppresses peer wakes (a user-stopped
 conversation is not restarted). <strong><code class="docutils literal notranslate"><span class="pre">request_watch_wake</span></code> does not check it and clears it</strong>
-(<code class="docutils literal notranslate"><span class="pre">session.interrupted</span> <span class="pre">=</span> <span class="pre">False</span></code> at reservation), so a subagent completion or watch event
+(<code class="docutils literal notranslate"><span class="pre">session.interrupted</span> <span class="pre">=</span> <span class="pre">False</span></code> at reservation), so a subagent completion, shell job completion or watch event
 restarts a conversation the user stopped. Pinned by
 <code class="docutils literal notranslate"><span class="pre">test_interrupted_watch_wake_restarts_conversation_today</span></code> next to
 <code class="docutils literal notranslate"><span class="pre">test_interrupted_peer_wake_leaves_conversation_stopped</span></code>. Whether that is intended (a
@@ -1061,8 +1066,8 @@ conversation-wide (§2), so two branches’ events are serialized, not run in pa
 </ol>
 <p>The existing code already does steps 1, 3 (partially) and 4 (persist-then-drain with a
 documented “True even if dispatch failed” rule to avoid duplicate replay). What is
-missing is the <code class="docutils literal notranslate"><span class="pre">event_id</span></code> ack/dedup, the unified <code class="docutils literal notranslate"><span class="pre">kind</span></code>, and job-completion
-participation.</p>
+missing is the <code class="docutils literal notranslate"><span class="pre">event_id</span></code> ack/dedup and the unified <code class="docutils literal notranslate"><span class="pre">kind</span></code>; job completion now
+participates in the in-process doorbell (§5).</p>
 </section>
 <section id="cross-harness-adapters-design-only-not-implemented-not-verified-live">
 <h3>5.2 Cross-harness adapters (design only; not implemented, not verified live)<a class="headerlink" href="#cross-harness-adapters-design-only-not-implemented-not-verified-live" title="Link to this heading">#</a></h3>
@@ -1122,8 +1127,8 @@ payoff; the in-tree deletion is modest.</p>
 <h2>7. Recommendation<a class="headerlink" href="#recommendation" title="Link to this heading">#</a></h2>
 <p><strong>Stage it:</strong></p>
 <ol class="arabic simple">
-<li><p><strong>Now:</strong> land #5059 (decoupling + hostile-host-cwd regression coverage). Fix the
-shell-background idle-wake gap (§5) independently; it needs no worker.</p></li>
+<li><p><strong>Now:</strong> land #5059 (decoupling + hostile-host-cwd regression coverage). The
+shell-background idle-wake gap (§5) is fixed independently; it needed no worker.</p></li>
 <li><p><strong>Prototype in-tree behind an opt-in flag</strong> (e.g. <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_WORKERS=1</span></code>): lazy
 <code class="docutils literal notranslate"><span class="pre">spawn</span></code> worker per conversation, JSON-lines contract of §4, <code class="docutils literal notranslate"><span class="pre">LogManager</span></code> lock as the
 lease, process-group supervision, host-side admission unchanged. Start with the
@@ -1144,8 +1149,8 @@ host today and would have to be re-homed or proxied — see gaps).</p>
 <li><p>Prototype exec’s code strings; it does <strong>not</strong> run real gptme tools, an LLM turn, or a
 third-party plugin end to end. The <code class="docutils literal notranslate"><span class="pre">open</span></code>/<code class="docutils literal notranslate"><span class="pre">Path.exists</span></code>/<code class="docutils literal notranslate"><span class="pre">subprocess</span></code>/native-<code class="docutils literal notranslate"><span class="pre">getcwd</span></code>
 isolation result is real, but “plugin unmodified” was demonstrated with a stand-in.</p></li>
-<li><p>Peer/watch wake during busy/idle/ACP/interrupted states and the shell-job no-wake gap
-are now demonstrated against the real admission code (§5,
+<li><p>Peer/watch wake during busy/idle/ACP/interrupted states and shell-job idle/busy
+delivery are now demonstrated against the real admission code (§5,
 <code class="docutils literal notranslate"><span class="pre">tests/test_wake_admission_matrix.py</span></code>), with the step dispatcher mocked. Still not
 demonstrated: those events crossing a <em>process</em> boundary into a worker, and a live
 server run. §5.1 remains a design.</p></li>
