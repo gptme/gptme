@@ -1547,7 +1547,7 @@ def test_acp_step_second_turn_reuses_live_runtime(
 
 
 def test_runtime_stop_loop_releases_inflight_prompt(monkeypatch, tmp_path):
-    """Stopping the runtime loop mid-prompt cancels the caller instead of hanging."""
+    """Stopping the runtime loop mid-prompt fails the call instead of hanging."""
     import gptme.server.acp_session_runtime as mod
 
     started = threading.Event()
@@ -1574,5 +1574,41 @@ def test_runtime_stop_loop_releases_inflight_prompt(monkeypatch, tmp_path):
     runtime._stop_loop()
     t.join(5)
     assert not t.is_alive()
+    assert len(result) == 1
+    # Not CancelledError: the caller's task was never cancelled, so a
+    # BaseException would escape every ``except Exception`` error path.
+    assert isinstance(result[0], ConnectionError)
+    assert "runtime loop stopped" in str(result[0])
+
+
+def test_prompt_cancellation_propagates_to_caller(monkeypatch, tmp_path):
+    """A caller cancelling its own task still sees CancelledError."""
+    import gptme.server.acp_session_runtime as mod
+
+    started = threading.Event()
+
+    class _HangingClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            started.set()
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _HangingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    result: list[BaseException] = []
+
+    async def _main() -> None:
+        task = asyncio.create_task(runtime.prompt("hang"))
+        await asyncio.get_running_loop().run_in_executor(None, started.wait, 5)
+        task.cancel()
+        try:
+            await task
+        except BaseException as e:
+            result.append(e)
+
+    try:
+        asyncio.run(_main())
+    finally:
+        runtime._stop_loop()
     assert len(result) == 1
     assert isinstance(result[0], asyncio.CancelledError)

@@ -289,7 +289,20 @@ class AcpSessionRuntime:
                 raise
             calls.futures.add(fut)
         fut.add_done_callback(calls.discard)
-        return await asyncio.wrap_future(fut)
+        try:
+            return await asyncio.wrap_future(fut)
+        except asyncio.CancelledError:
+            # A cancellation aimed at the caller's own task must propagate. A
+            # cancellation of the *submitted call* means the runtime loop shut
+            # down underneath it; surface that as an error instead, so callers
+            # report a failed step rather than dying with a BaseException that
+            # ``except Exception`` handlers never see.
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise
+            raise ConnectionError(
+                "ACP runtime loop stopped before the call completed"
+            ) from None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -462,7 +475,11 @@ class AcpSessionRuntime:
             fut = asyncio.run_coroutine_threadsafe(self._close_impl(), loop)
             fut.result(timeout=timeout)
             return True
-        except Exception:
+        except (Exception, asyncio.CancelledError):
+            # Name CancelledError explicitly: it is a BaseException where
+            # ``concurrent.futures.CancelledError`` aliases ``asyncio``'s. A
+            # concurrent _stop_loop cancels the scheduled close task, and the
+            # caller must still fall back to signalling the subprocess.
             logger.debug(
                 "Graceful ACP close on runtime loop failed; terminating subprocess",
                 exc_info=True,
