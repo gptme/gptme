@@ -103,7 +103,18 @@ let autoConnectGeneration = 0;
 // The auto-connect probe currently waiting on the server, if any. A manual retry
 // that arrives meanwhile joins it: a second probe would discard this one's
 // result and charge the attempt budget twice.
-let pendingAutoProbe: { settled: Promise<unknown>; isManualRetry: boolean } | null = null;
+//
+// The probe carries the generation of the loop iteration that owns it, and is
+// cleared synchronously on every exit path of that iteration (see
+// `clearPendingProbe` below). Those two facts are what make joining safe: a
+// manual retry can only ever see a probe that is still unresolved *and* still
+// belongs to the live loop, so `isManualRetry` is never written to an object a
+// superseded or already-classified iteration is reading.
+let pendingAutoProbe: {
+  settled: Promise<unknown>;
+  isManualRetry: boolean;
+  generation: number;
+} | null = null;
 const MAX_AUTO_CONNECT_ATTEMPTS = 10;
 const INITIAL_RETRY_DELAY = 1000;
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:5700';
@@ -150,6 +161,16 @@ const stopAutoConnect = () => {
   isAutoConnecting$.set(false);
   autoConnectAttempts = 0;
 };
+
+/**
+ * Reset the module-scoped auto-connect state (retry timer, attempt budget,
+ * in-flight probe). The loop is deliberately one-per-app, so a test that renders
+ * several providers would otherwise inherit the previous render's budget or an
+ * unsettled probe and become order-dependent. Not used by the app.
+ */
+export function resetAutoConnectStateForTests(): void {
+  stopAutoConnect();
+}
 
 /**
  * Update the active server's connection config.
@@ -420,7 +441,7 @@ export function ApiProvider({
       );
 
       const check = client.checkConnection();
-      const probe = { settled: check.catch(() => false), isManualRetry };
+      const probe = { settled: check.catch(() => false), isManualRetry, generation };
       pendingAutoProbe = probe;
       // Clear our entry on every exit path, but only while it is still ours: a
       // newer attempt installs its own probe after bumping the generation, and
@@ -537,10 +558,14 @@ export function ApiProvider({
   );
 
   const retryConnection = useCallback(async () => {
-    // A probe is already on its way: report its outcome to the user.
-    if (pendingAutoProbe) {
-      pendingAutoProbe.isManualRetry = true;
-      await pendingAutoProbe.settled;
+    // A probe from the live loop iteration is already on its way: join it and
+    // ask it to report its outcome to the user. A probe left over from a
+    // superseded iteration (generation mismatch) is never joined — awaiting it
+    // would return with no probe and no feedback.
+    const probe = pendingAutoProbe;
+    if (probe && probe.generation === autoConnectGeneration) {
+      probe.isManualRetry = true;
+      await probe.settled;
       return;
     }
     // Once the automatic budget is spent or the loop is idle, check the

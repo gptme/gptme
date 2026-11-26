@@ -2,7 +2,12 @@ import '@testing-library/jest-dom';
 import { act, render, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { QueryClient } from '@tanstack/react-query';
-import { ApiProvider, shouldSkipHostedLoopbackAutoConnect, useApi } from '../ApiContext';
+import {
+  ApiProvider,
+  resetAutoConnectStateForTests,
+  shouldSkipHostedLoopbackAutoConnect,
+  useApi,
+} from '../ApiContext';
 import type { ConnectionProbeResult } from '@/utils/api';
 
 const mockCheckConnection = jest.fn();
@@ -145,6 +150,10 @@ describe('ApiProvider mobile auto-connect', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/');
     jest.clearAllMocks();
+    // The auto-connect loop keeps its timer, budget and in-flight probe in module
+    // scope (one loop per app). Reset it so a test never inherits a previous
+    // render's attempt count or an unsettled probe.
+    resetAutoConnectStateForTests();
     isConnected$.set(false);
     lastConnectionResult$.set(null);
     setActiveServerBaseUrl('http://127.0.0.1:5700');
@@ -886,6 +895,65 @@ describe('ApiProvider mobile auto-connect', () => {
       expect(mockSetConnected).toHaveBeenCalledWith(true);
     }
   );
+
+  it('a manual retry joins the new probe, never a superseded one', async () => {
+    setActiveServerBaseUrl('https://old.example.com');
+    let resolveOldProbe!: (value: boolean) => void;
+    const holdOldProbe = () =>
+      new Promise<boolean>((resolve) => {
+        resolveOldProbe = resolve;
+      });
+    mockCheckConnection.mockImplementation(holdOldProbe);
+
+    let ctx!: ReturnType<typeof useApi>;
+    function RetryProbe() {
+      ctx = useApi();
+      return null;
+    }
+    const queryClient = new QueryClient();
+    const tree = () => (
+      <ApiProvider queryClient={queryClient}>
+        <RetryProbe />
+      </ApiProvider>
+    );
+    const view = render(tree());
+    await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(1));
+
+    // The target changes while the first probe is in flight: the old iteration is
+    // superseded and a new probe starts for the new client.
+    let resolveNewProbe!: (value: boolean) => void;
+    const holdNewProbe = () =>
+      new Promise<boolean>((resolve) => {
+        resolveNewProbe = resolve;
+      });
+    mockCheckConnection.mockImplementation(holdNewProbe);
+    act(() => setActiveServerBaseUrl('https://new.example.com'));
+    view.rerender(tree());
+    await waitFor(() => expect(mockCheckConnection).toHaveBeenCalledTimes(2));
+
+    // A retry now must wait on the new probe, not the superseded one.
+    let retried = false;
+    let retry!: Promise<void>;
+    await act(async () => {
+      retry = ctx.retryConnection().then(() => {
+        retried = true;
+      });
+    });
+
+    await act(async () => {
+      resolveOldProbe(true);
+    });
+    expect(retried).toBe(false);
+    expect(mockSetConnected).not.toHaveBeenCalledWith(true);
+
+    await act(async () => {
+      resolveNewProbe(true);
+      await retry;
+    });
+    expect(mockSetConnected).toHaveBeenCalledWith(true);
+    // The joined probe was a manual retry, so the user gets one success toast.
+    expect(mockToastSuccess).toHaveBeenCalledTimes(1);
+  });
 
   it('drops the old probe when switching to a server that skips auto-connect', async () => {
     setActiveServerBaseUrl('https://bob.example.com');
