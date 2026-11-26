@@ -74,6 +74,29 @@ def _job_if(workflow: str, job_id: str) -> str:
     return " ".join(part for part in collected if part)
 
 
+def _is_single_parenthesized(expr: str) -> bool:
+    """True if ``expr`` is one parenthesized group and nothing else.
+
+    ``&&`` binds tighter than ``||`` in GitHub expressions, so the draft guard
+    is only a leading conjunct when everything after it is a single group.
+    ``(guard) && push || code`` would parse as ``(guard && push) || code`` and
+    re-run the heavy job on every draft PR with a code change.
+    """
+    if not (expr.startswith("(") and expr.endswith(")")):
+        return False
+    depth = 0
+    for i, char in enumerate(expr):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and i != len(expr) - 1:
+                return False
+            if depth < 0:
+                return False
+    return depth == 0
+
+
 def _assert_leading_draft_guard(expr: str, job_id: str) -> None:
     """The skip must be the leading AND-ed conjunct, not a nested substring.
 
@@ -82,9 +105,11 @@ def _assert_leading_draft_guard(expr: str, job_id: str) -> None:
     which keeps the heavy jobs off every non-draft PR.
     """
     bare_guard = DRAFT_GUARD[1:-1]
-    assert expr == bare_guard or expr.startswith(DRAFT_GUARD + " &&"), (
-        f"{job_id} draft guard is not AND-ed as the leading conjunct: {expr}"
-    )
+    prefix = DRAFT_GUARD + " && "
+    rest = expr[len(prefix) :] if expr.startswith(prefix) else None
+    assert expr == bare_guard or (
+        rest is not None and _is_single_parenthesized(rest)
+    ), f"{job_id} draft guard is not AND-ed as the leading conjunct: {expr}"
 
 
 def test_test_yml_retriggers_when_draft_is_marked_ready() -> None:
@@ -124,6 +149,16 @@ def test_draft_guard_check_rejects_inverted_logic() -> None:
     )
     with pytest.raises(AssertionError):
         _assert_leading_draft_guard(inverted, "example")
+
+
+def test_draft_guard_check_rejects_unparenthesized_remainder() -> None:
+    """A dropped outer paren makes the guard a non-leading conjunct."""
+    dropped = (
+        DRAFT_GUARD
+        + " && github.event_name == 'push' || needs.changes.outputs.code == 'true'"
+    )
+    with pytest.raises(AssertionError):
+        _assert_leading_draft_guard(dropped, "example")
 
 
 def test_draft_skip_does_not_drop_merge_queue_or_master_push() -> None:
