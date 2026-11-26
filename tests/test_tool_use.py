@@ -379,3 +379,37 @@ def test_execute_msg_drains_structured_tooluses_after_interrupt(monkeypatch):
     assert "toolu_second456" in call_ids, (
         "subsequent tool_use must also be paired after interrupt"
     )
+
+
+@pytest.mark.parametrize(
+    ("command", "terminator"),
+    [
+        ("cat > README.md << 'EOF'", "EOF"),
+        ("cat <<eof", "eof"),
+        (r"cat <<\eof", "eof"),
+        ("cat <<-END_PY", "\tEND_PY"),
+        (r"cat \;# <<'EOF'", "EOF"),
+        ("cat <<2", "2"),
+        ("cat <<EO'F'", "EOF"),
+        ("cat <<-EOF", " EOF\nEOF \n\tEOF"),
+        ("cat <<'EOF' <<'END'", "EOF\nsecond body\n```\nEND"),
+        ("cat <<'```'", "```"),
+    ],
+)
+def test_streamed_shell_heredoc_waits_for_closing_fence(
+    command: str, terminator: str
+) -> None:
+    init_tools(allowlist=["shell"])
+    body = "```text\nbody" if terminator == "```" else "```\nbody\n```"
+    shell = f"{command}\n# Title\n{body}\n{terminator}"
+    lines = f"```shell\n{shell}\n```\n".splitlines(keepends=True)
+    for end in range(1, len(lines) + 1):
+        prefix = "".join(lines[:end])
+        calls = [
+            call
+            for call in ToolUse.iter_from_content(prefix, "markdown", streaming=True)
+            if call.is_runnable
+        ]
+        assert [call.content for call in calls] == (
+            [shell] if end == len(lines) else []
+        ), repr(prefix)

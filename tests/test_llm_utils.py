@@ -508,6 +508,33 @@ def test_reply_stream_ipython_terminal_projection(
     assert "\x1b[" in captured.getvalue()
 
 
+def test_reply_stream_stops_after_complete_shell_heredoc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections.abc import Generator
+
+    from gptme.llm import _reply_stream, _StreamWithMetadata
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.base import set_tool_format
+
+    init_tools(["shell"], include_mcp=False)
+    set_tool_format("markdown")
+    first = "```shell\ncat > README.md <<'EOF'\n# Title\n```\n"
+    rest = "example\n```\nEOF\n```\n"
+
+    def chunks() -> Generator[str, None, None]:
+        yield first
+        yield rest + "After the call\n"
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _StreamWithMetadata(chunks(), "mock/echo"),
+    )
+    result = _reply_stream([Message("user", "hi")], "mock/echo", None)
+    assert result.content == first + rest
+
+
 def test_reply_stream_tool_display_projects_shell_and_streams_prose(monkeypatch):
     """Prose streams immediately; complete native shell calls are projected."""
     import io

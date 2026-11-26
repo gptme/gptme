@@ -719,16 +719,9 @@ prose after
 
 
 def test_extract_codeblocks_shift_operand_alone_is_not_a_heredoc():
-    """A shift operand that later appears alone on a line must not mint a
-    phantom heredoc terminator and swallow the closing fence.
-
-    Regression for gptme/gptme#3703: ``x << 2`` used to return ``"2"`` as a
-    candidate heredoc terminator; when a standalone ``2`` appeared within the
-    200-line confirmation window, heredoc state stayed open past the real
-    closing fence and the following block was absorbed into the shell command.
-    """
+    """A standalone shift operand in later prose must not swallow the fence."""
     markdown = """```shell
-x << 2
+((x << 2))
 echo "result"
 ```
 prose after
@@ -740,7 +733,7 @@ output here
 """
     blocks = Codeblock.iter_from_markdown(markdown)
     assert blocks == [
-        Codeblock("shell", 'x << 2\necho "result"'),
+        Codeblock("shell", '((x << 2))\necho "result"'),
         Codeblock("", "output here"),
     ]
 
@@ -3581,3 +3574,51 @@ def test_py_block_triple_quoted_fence_is_literal(streaming: bool):
     assert [(b.lang, b.content) for b in blocks] == [
         ("py", 'text = """\n```\nexample\n```\n"""\nprint(text)')
     ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_long_shell_heredoc_preserves_fences_and_thinking_text(streaming: bool) -> None:
+    content = (
+        "cat <<EOF > a.md\n```\n<thinking>\nliteral\n"
+        + "body\n" * 205
+        + "``````shell\necho literal\nEOF\necho done"
+    )
+    first = f"```shell\n{content}\n```\n"
+    markdown = first + "\n```shell\necho next\n```\n"
+    assert Codeblock.iter_from_markdown(markdown, streaming=streaming) == [
+        Codeblock("shell", content),
+        Codeblock("shell", "echo next"),
+    ]
+    if streaming:
+        prefix = ""
+        for line in first.splitlines(keepends=True):
+            prefix += line
+            expected = [Codeblock("shell", content)] if prefix == first else []
+            assert Codeblock.iter_from_markdown(prefix, streaming=True) == expected
+
+
+@pytest.mark.parametrize(
+    ("command", "standalone"),
+    [
+        ("let mask=1<<shift", "shift"),
+        ("(( m = 1 << shift ))", "shift"),
+        ("((\nmask = 1 << SHIFT\n))", "SHIFT"),
+        ("mask=$((\n1 << SHIFT\n))", "SHIFT"),
+        ("echo hi;# << EOF", "EOF"),
+    ],
+)
+def test_shell_shift_and_comment_do_not_open_heredoc(
+    command: str, standalone: str
+) -> None:
+    lines = f"```shell\n{command}\n```\n{standalone}\n".splitlines(keepends=True)
+    first_closer = len(lines) - 1
+    lines.extend(["```shell\n", "echo next\n", "```\n"])
+    for end in range(1, len(lines) + 1):
+        expected = [Codeblock("shell", command)] if end >= first_closer else []
+        if end == len(lines):
+            expected.append(Codeblock("shell", "echo next"))
+        prefix = "".join(lines[:end])
+        assert Codeblock.iter_from_markdown(prefix, streaming=True) == expected, repr(
+            prefix
+        )
+    assert Codeblock.iter_from_markdown("".join(lines)) == expected
