@@ -8,6 +8,7 @@ import {
 } from '@/stores/servers';
 import { setLocation } from '@/test-utils/location';
 import * as tauri from '@/utils/tauri';
+import * as viteEnv from '@/utils/viteEnv';
 import { getConnectionConfigFromSources } from '../connectionConfig';
 
 // Uses the real server registry: the bug lives in how the two modules interact.
@@ -34,6 +35,49 @@ describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
     expect(serverRegistry$.peek().servers.find((s) => s.id === remote.id)?.authToken).toBe(
       'remote-token'
     );
+  });
+
+  it.each([
+    'https://chat.gptme.org/',
+    'http://localhost:5173/',
+    'http://127.0.0.1:4173/',
+    'http://localhost:5701/',
+  ])('keeps token-only links on the selected API server for static frontend %s', (origin) => {
+    setLocation(origin);
+    const server = addServer({
+      name: 'Selected API',
+      baseUrl: 'https://api.example',
+      authToken: null,
+      useAuthToken: false,
+    });
+    setActiveServer(server.id);
+
+    expect(getConnectionConfigFromSources('userToken=api-token')).toMatchObject({
+      baseUrl: 'https://api.example',
+      authToken: 'api-token',
+    });
+    expect(serverRegistry$.peek().servers).toHaveLength(1);
+    expect(getActiveServer()?.id).toBe(server.id);
+  });
+
+  it('keeps a non-loopback Vite dev client on its selected API server', () => {
+    setLocation('http://dev.example:5173/');
+    const dev = jest.replaceProperty(viteEnv, 'isViteDev', true);
+    try {
+      const server = addServer({
+        name: 'Selected API',
+        baseUrl: 'https://api.example',
+        authToken: null,
+        useAuthToken: false,
+      });
+      setActiveServer(server.id);
+      expect(getConnectionConfigFromSources('userToken=dev-token')).toMatchObject({
+        baseUrl: 'https://api.example',
+        authToken: 'dev-token',
+      });
+    } finally {
+      dev.restore();
+    }
   });
 
   it('keeps native token-only links on the API server, not the HTTP Tauri asset origin', () => {

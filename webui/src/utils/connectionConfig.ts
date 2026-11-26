@@ -253,12 +253,18 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
 
   // Get values from fragment (legacy direct token flow)
   const fragmentUserToken = params.get('userToken');
-  // Token-only browser links belong to the page origin, even if API discovery
-  // timed out or failed. Never let an unavailable server redirect its token to
-  // a previously selected remote. Non-HTTP native webviews keep the legacy flow.
+  // Bundled browser token links belong to the page origin even after a failed
+  // probe, rather than to an unrelated saved remote. Hosted chat, Vite dev and
+  // native webviews are separate clients and retain their selected API server.
   const pageOrigin =
     typeof window !== 'undefined' &&
     !isTauriEnvironment() &&
+    !isDevServer() &&
+    window.location.hostname !== 'chat.gptme.org' &&
+    !(
+      ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname) &&
+      ['5173', '4173', '5701'].includes(window.location.port)
+    ) &&
     /^https?:$/.test(window.location.protocol)
       ? window.location.origin
       : null;
