@@ -1,9 +1,14 @@
 """Tests for chats export functionality."""
 
 import json
+import os
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+
+import pytest
 
 from gptme.logmanager import Log
 from gptme.message import Message
@@ -126,18 +131,136 @@ def _create_test_log(logdir: Path, msgs: list[Message]) -> None:
 class TestExportCLI:
     """Test the CLI command for chats export."""
 
-    def test_export_not_found(self, tmp_path: Path, monkeypatch):
-        """Test export of non-existent conversation."""
+    @pytest.mark.timeout(30)
+    def test_export_active_conversation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        from gptme.cli.util import main
+        from gptme.logmanager import LogManager
+
+        logdir = tmp_path / "logs" / "active"
+        logdir.mkdir(parents=True)
+        _create_test_log(logdir, [Message("user", "Initial message", timestamp=_TS)])
+        original = (logdir / "conversation.jsonl").read_bytes()
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logdir.parent)
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_tools", lambda: ["fake"])
+        # Both processes must exercise production locking, not pytest's bypass.
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        owner = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                """
+import sys
+from contextlib import redirect_stdout
+from pathlib import Path
+from gptme.logmanager import LogManager
+from gptme.message import Message
+
+with LogManager.load(Path(sys.argv[1])) as manager:
+    print("READY", flush=True)
+    sys.stdin.readline()
+    with redirect_stdout(sys.stderr):
+        manager.append(Message("assistant", "Writer continued"))
+    print("APPENDED", flush=True)
+    sys.stdin.readline()
+""",
+                str(logdir),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ.copy(),
+        )
+        try:
+            assert owner.stdin is not None and owner.stdout is not None
+            assert owner.stdout.readline().strip() == "READY"
+            output = tmp_path / "export.md"
+            result = CliRunner().invoke(
+                main, ["chats", "export", "active", "-o", str(output)]
+            )
+            assert result.exit_code == 0, (result.output, result.exception)
+            assert "Initial message" in output.read_text()
+            assert (logdir / "conversation.jsonl").read_bytes() == original
+            assert (logdir / ".lock").read_text() == str(owner.pid)
+            with pytest.raises(RuntimeError, match="Another gptme instance"):
+                LogManager.load(logdir)
+
+            owner.stdin.write("append\n")
+            owner.stdin.flush()
+            assert owner.stdout.readline().strip() == "APPENDED"
+            assert "Writer continued" in (logdir / "conversation.jsonl").read_text()
+            assert "Writer continued" not in output.read_text()
+        finally:
+            try:
+                _, stderr = owner.communicate("\n\n", timeout=10)
+            except subprocess.TimeoutExpired:
+                owner.kill()
+                owner.communicate()
+                raise
+        assert owner.returncode == 0, stderr
+
+    @pytest.mark.parametrize("directory_exists", [False, True])
+    def test_export_not_found(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        directory_exists: bool,
+    ) -> None:
+        """Missing logs fail cleanly without creating a conversation or export."""
         from click.testing import CliRunner
 
         from gptme.cli.util import main
 
         monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path)
+        monkeypatch.setattr("gptme.cli.cmd_chats._ensure_tools", lambda: None)
+        logdir = tmp_path / "nonexistent"
+        if directory_exists:
+            logdir.mkdir()
+        output = tmp_path / "export.md"
 
         runner = CliRunner()
-        result = runner.invoke(main, ["chats", "export", "nonexistent"])
+        result = runner.invoke(
+            main, ["chats", "export", "nonexistent", "-o", str(output)]
+        )
         assert result.exit_code != 0
+        assert isinstance(result.exception, SystemExit)
         assert "not found" in result.output
+        assert logdir.exists() is directory_exists
+        assert not (logdir / "conversation.jsonl").exists()
+        assert not output.exists()
+
+    def test_export_unreadable_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from click.testing import CliRunner
+
+        from gptme.cli.util import main
+
+        logdir = tmp_path / "unreadable"
+        logdir.mkdir()
+        _create_test_log(logdir, [Message("user", "Test", timestamp=_TS)])
+        logfile = logdir / "conversation.jsonl"
+        output = tmp_path / "export.md"
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path)
+        monkeypatch.setattr("gptme.cli.cmd_chats._ensure_tools", lambda: None)
+        logfile.chmod(0)
+        try:
+            if os.access(logfile, os.R_OK):
+                pytest.skip("filesystem/user does not enforce read permissions")
+            result = CliRunner().invoke(
+                main, ["chats", "export", "unreadable", "-o", str(output)]
+            )
+        finally:
+            logfile.chmod(0o600)
+        assert result.exit_code != 0
+        assert isinstance(result.exception, SystemExit)
+        assert "Cannot read chat 'unreadable'" in result.output
+        assert "Permission denied" in result.output
+        assert not output.exists()
 
     def test_export_markdown_cli(self, tmp_path: Path, monkeypatch):
         """Test markdown export via CLI."""

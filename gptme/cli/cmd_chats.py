@@ -416,6 +416,8 @@ def chats_export(
     Use --format to choose between HTML and markdown. HTML includes conversation
     text and display assets for offline viewing; attachments are not embedded
     and are shown as omitted rather than linked to the original server.
+    Active conversations are exported from the persisted messages loaded for
+    this invocation, without taking ownership from the running writer.
 
     Use --safety-check to run a local heuristic analysis of assistant messages
     for hedging/uncertainty signals and jailbreak bypass indicators before exporting.
@@ -445,7 +447,12 @@ def chats_export(
         click.echo(f"Chat '{id}' not found")
         raise SystemExit(1)
 
-    log = LogManager.load(logdir)
+    try:
+        log = LogManager.load(logdir, lock=False)
+    except FileNotFoundError as exc:
+        raise click.ClickException(f"Chat '{id}' not found") from exc
+    except OSError as exc:
+        raise click.ClickException(f"Cannot read chat '{id}': {exc}") from exc
 
     if safety_check or safety_json or judge:
         import json as _json  # fmt: skip
