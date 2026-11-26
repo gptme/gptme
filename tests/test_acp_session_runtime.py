@@ -1792,6 +1792,49 @@ def test_failed_close_keeps_client_handle_for_sync_terminate(monkeypatch, tmp_pa
 
 
 @pytest.mark.timeout(15)
+def test_failed_close_signals_process_even_if_a_second_exit_would_succeed(
+    monkeypatch, tmp_path
+):
+    """A finished context manager "exits" cleanly on retry without cleaning up."""
+    from contextlib import asynccontextmanager
+
+    import gptme.server.acp_session_runtime as mod
+
+    class _ExhaustedExitClient(_DummyClient):
+        _process = object()
+
+        async def __aenter__(self):
+            @asynccontextmanager
+            async def _transport():
+                yield
+                raise OSError("shutdown failed before the process was stopped")
+
+            self._ctx = _transport()
+            await self._ctx.__aenter__()
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            # First call raises; the second finds the generator exhausted and
+            # returns normally.
+            await self._ctx.__aexit__(exc_type, exc, tb)
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _ExhaustedExitClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    _run(runtime.close())
+
+    assert fallback == [_ExhaustedExitClient._process]
+    assert runtime._client is None
+
+
+@pytest.mark.timeout(15)
 def test_runtime_refuses_to_reuse_a_transport_on_a_stopped_loop(monkeypatch, tmp_path):
     """A runtime whose loop was stopped externally must not run the old client."""
     import gptme.server.acp_session_runtime as mod

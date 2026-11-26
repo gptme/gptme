@@ -479,7 +479,9 @@ class AcpSessionRuntime:
         returncode = getattr(proc, "returncode", None)
         return returncode is None
 
-    def terminate_subprocess_sync(self, timeout: float = 3.0) -> None:
+    def terminate_subprocess_sync(
+        self, timeout: float = 3.0, *, graceful: bool = True
+    ) -> None:
         """Terminate the ACP subprocess synchronously.
 
         Safer than ``close()`` in atexit handlers where the caller's asyncio
@@ -487,12 +489,16 @@ class AcpSessionRuntime:
         still alive, the client is first closed gracefully on that loop; on
         failure (or timeout) the subprocess is signalled directly, falling back
         to SIGKILL if SIGTERM does not succeed within *timeout* seconds.
+
+        Pass ``graceful=False`` after a client exit has already failed: a
+        context manager cannot be exited twice, and the second attempt can
+        return normally without having cleaned anything up.
         """
         try:
             if self._client is None:
                 return
             proc = getattr(self._client, "_process", None)
-            if self._close_on_loop_sync(timeout):
+            if graceful and self._close_on_loop_sync(timeout):
                 return
             # The graceful close did not finish: retire the loop before reaping
             # by pid, so its child watcher cannot race the synchronous waitpid
@@ -567,7 +573,7 @@ class AcpSessionRuntime:
                     "Graceful ACP close failed; terminating subprocess",
                     exc_info=True,
                 )
-                self.terminate_subprocess_sync()
+                self.terminate_subprocess_sync(graceful=False)
             finally:
                 self._stop_loop()
         else:
