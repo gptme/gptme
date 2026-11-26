@@ -341,6 +341,32 @@ def test_generation_gate_blocks_retry_after_stop(monkeypatch):
     assert len(calls) == 1
 
 
+def test_generation_gate_aborted_keeps_keyboard_interrupt():
+    """Ctrl+C inside the gate must reach the CLI, not read as an ACP Stop.
+
+    The abort predicate is polled from the retry wait; folding
+    ``KeyboardInterrupt`` into "aborted" would re-raise the provider error
+    instead and leave the queued prompt uncleared.
+    """
+
+    def gate() -> None:
+        raise KeyboardInterrupt
+
+    with recovery.generation_gate(gate), pytest.raises(KeyboardInterrupt):
+        recovery.generation_gate_aborted()
+
+
+def test_generation_gate_aborted_reports_base_exception_stop():
+    class _Stopped(BaseException):
+        pass
+
+    def gate() -> None:
+        raise _Stopped
+
+    with recovery.generation_gate(gate):
+        assert recovery.generation_gate_aborted() is True
+
+
 def test_reset_callback_consumes_deadline(monkeypatch):
     now = [100.0]
     monkeypatch.setattr(recovery.time, "monotonic", lambda: now[0])

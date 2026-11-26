@@ -120,9 +120,16 @@ def generation_gate_aborted() -> bool:
     sleeping out the full delay. The gate's only contract is "raises to abort",
     so any exception it raises means aborted; ``check_generation_gate`` raises
     the same signal again for the caller.
+
+    ``KeyboardInterrupt``/``SystemExit`` are re-raised instead of being folded
+    into "aborted": a Ctrl+C during the wait is the CLI's own signal, not a
+    Stop, and swallowing it would surface the provider error instead and leave
+    queued prompts hanging.
     """
     try:
         check_generation_gate()
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:
         return True
     return False
