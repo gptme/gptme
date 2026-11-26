@@ -411,6 +411,18 @@ export interface ElicitPendingEvent {
   description?: string;
 }
 
+function toPendingElicitation(event: ElicitPendingEvent): PendingElicitation {
+  return {
+    id: event.elicit_id,
+    type: event.elicit_type,
+    prompt: event.prompt,
+    options: event.options,
+    fields: event.fields,
+    default: event.default,
+    description: event.description,
+  };
+}
+
 export interface ElicitationResponse {
   action: 'accept' | 'decline' | 'cancel';
   /** Text/choice/secret/confirmation ("yes"/"no") value, or JSON for forms. */
@@ -1122,6 +1134,8 @@ export class ApiClient {
           tooluse: ToolUse;
           auto_confirm: boolean;
         }>;
+        /** Unanswered ``elicit_pending`` requests, oldest first (undefined on older servers). */
+        pendingElicitations?: PendingElicitation[];
       }) => void;
       onStepComplete?: () => void;
       onConversationEdited?: (data: {
@@ -1382,16 +1396,7 @@ export class ApiClient {
           }
 
           case 'elicit_pending': {
-            const elicitEvent = data as ElicitPendingEvent;
-            callbacks.onElicitPending?.({
-              id: elicitEvent.elicit_id,
-              type: elicitEvent.elicit_type,
-              prompt: elicitEvent.prompt,
-              options: elicitEvent.options,
-              fields: elicitEvent.fields,
-              default: elicitEvent.default,
-              description: elicitEvent.description,
-            });
+            callbacks.onElicitPending?.(toPendingElicitation(data as ElicitPendingEvent));
             break;
           }
 
@@ -1431,6 +1436,10 @@ export class ApiClient {
                 generating: data.generating ?? false,
                 latestUserTimestamp: data.latest_user_timestamp ?? undefined,
                 pendingTools: data.pending_tools ?? [],
+                // Absent on servers that predate the replay: leave state alone.
+                pendingElicitations: Array.isArray(data.pending_elicitations)
+                  ? (data.pending_elicitations as ElicitPendingEvent[]).map(toPendingElicitation)
+                  : undefined,
               });
             }
             callbacks.onConnected?.();

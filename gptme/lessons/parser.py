@@ -80,6 +80,11 @@ class Lesson:
     category: str
     body: str
     is_stub: bool = False
+    # A frontmatter block is unclosed or is not a mapping (e.g. a YAML list):
+    # the body is kept, but the metadata is defaults, not what the file meant.
+    malformed_frontmatter: bool = False
+    # An unclosed fence or string-valued block is ambiguous with Markdown prose.
+    ambiguous_frontmatter: bool = False
 
 
 def _extract_title(content: str) -> str:
@@ -252,6 +257,22 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
     )
 
 
+# Frontmatter: an opening "---" line, then everything up to the first line that
+# is exactly "---" (trailing whitespace or a YAML "# comment" allowed). Group 1
+# is the YAML, group 2 the body. Line-anchored so "---" inside a YAML value does
+# not end the block, and "----" (a Markdown divider) is not a fence.
+_FENCE = r"---(?:[ \t]+#[^\r\n]*)?[ \t]*"
+_FRONTMATTER_RE = re.compile(
+    rf"\A{_FENCE}\r?\n(.*?)^{_FENCE}(?:\r?\n|\Z)(.*)", re.DOTALL | re.MULTILINE
+)
+_OPENING_FENCE_RE = re.compile(rf"\A{_FENCE}(?:\r?\n|\Z)")
+
+
+def has_frontmatter_fence(content: str) -> bool:
+    """Whether ``content`` opens with a frontmatter fence line (BOM ignored)."""
+    return _OPENING_FENCE_RE.match(content.removeprefix("\ufeff")) is not None
+
+
 def _fix_unquoted_globs(frontmatter_str: str) -> str:
     """Fix unquoted glob patterns that would be interpreted as YAML aliases.
 
@@ -323,12 +344,15 @@ def parse_lesson(path: Path) -> Lesson:
     if not path.exists():
         raise FileNotFoundError(f"Lesson file not found: {path}")
 
-    content = path.read_text(encoding="utf-8")
+    # Drop a UTF-8 BOM: it would otherwise hide the opening fence.
+    content = path.read_text(encoding="utf-8").removeprefix("\ufeff")
     is_mdc = path.suffix == ".mdc"
 
     # Parse frontmatter if present
     metadata = LessonMetadata()
     body = content
+    malformed_frontmatter = False
+    ambiguous_frontmatter = False
 
     if content.startswith("---"):
         if not HAS_YAML:
@@ -337,17 +361,29 @@ def parse_lesson(path: Path) -> Lesson:
                 "Install with: pip install pyyaml"
             )
 
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            frontmatter_str = parts[1]
-            body = parts[2].strip()
+        # Fences must be whole lines: a "---" inside a YAML value is not a fence.
+        fence = _FRONTMATTER_RE.match(content)
+        ambiguous_frontmatter = fence is None and has_frontmatter_fence(content)
+        malformed_frontmatter = ambiguous_frontmatter
+        if fence:
+            frontmatter_str = fence.group(1)
+            body = fence.group(2).strip()
 
             try:
                 # Pre-process frontmatter to handle unquoted glob patterns
                 # that look like YAML aliases (e.g., "globs: *,**/*")
                 frontmatter_str = _fix_unquoted_globs(frontmatter_str)
                 frontmatter = yaml.load(frontmatter_str, Loader=_YamlSafeLoader)
-                if frontmatter:
+                if frontmatter is None:
+                    # An empty document has no YAML node; an explicit null does.
+                    malformed_frontmatter = (
+                        yaml.compose(frontmatter_str, Loader=_YamlSafeLoader)
+                        is not None
+                    )
+                else:
+                    malformed_frontmatter = not isinstance(frontmatter, dict)
+                    ambiguous_frontmatter = isinstance(frontmatter, str)
+                if frontmatter and isinstance(frontmatter, dict):
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter
 
@@ -362,13 +398,18 @@ def parse_lesson(path: Path) -> Lesson:
                         lesson_id = frontmatter.get("id")
 
                         # Extract lesson format fields
-                        match_data = frontmatter.get("match", {})
+                        # YAML null (``match:`` with no value) or a scalar → no match block
+                        match_data = frontmatter.get("match") or {}
+                        if not isinstance(match_data, dict):
+                            match_data = {}
                         status = frontmatter.get("status", "active")
 
                         # Validate and filter patterns (must be non-empty strings)
                         raw_patterns = match_data.get("patterns", [])
                         if isinstance(raw_patterns, str):
                             raw_patterns = [raw_patterns]
+                        elif not isinstance(raw_patterns, list):
+                            raw_patterns = []
                         patterns = [
                             p for p in raw_patterns if isinstance(p, str) and p.strip()
                         ]
@@ -377,6 +418,8 @@ def parse_lesson(path: Path) -> Lesson:
                         raw_keywords = match_data.get("keywords", [])
                         if isinstance(raw_keywords, str):
                             raw_keywords = [raw_keywords]
+                        elif not isinstance(raw_keywords, list):
+                            raw_keywords = []
                         keywords = [
                             k for k in raw_keywords if isinstance(k, str) and k.strip()
                         ]
@@ -415,9 +458,17 @@ def parse_lesson(path: Path) -> Lesson:
             except yaml.YAMLError as e:
                 raise ValueError(f"Invalid YAML frontmatter in {path}: {e}") from e
 
+    metadata_body = body
+    if malformed_frontmatter:
+        # Keep all content, including prose between Markdown thematic breaks.
+        # Definite structured YAML headers must not supply the lesson's title.
+        body = content
+        if ambiguous_frontmatter:
+            metadata_body = content
+
     # Infer metadata from content and path
-    title = _extract_title(body)
-    description = _extract_description(body)
+    title = _extract_title(metadata_body)
+    description = _extract_description(metadata_body)
     category = path.parent.name  # e.g., "tools", "patterns"
 
     return Lesson(
@@ -427,4 +478,6 @@ def parse_lesson(path: Path) -> Lesson:
         description=description,
         category=category,
         body=body,
+        malformed_frontmatter=malformed_frontmatter,
+        ambiguous_frontmatter=ambiguous_frontmatter,
     )

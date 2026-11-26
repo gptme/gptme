@@ -2,6 +2,7 @@
 Core command registry, decorator, and base types.
 """
 
+import functools
 import io
 import logging
 import re
@@ -70,6 +71,8 @@ def command(
     """
 
     def decorator(func: OriginalCommandHandler) -> OriginalCommandHandler:
+        # wraps() keeps the docstring reachable for /help and command listings.
+        @functools.wraps(func)
         def wrapper(ctx: CommandContext) -> Generator:
             # Auto-undo the command message so it doesn't appear in the conversation
             if auto_undo:
@@ -277,7 +280,9 @@ def handle_cmd(
     # name so it lands in the unknown-command path below instead of crashing
     # on empty-list unpacking.
     name, *args = [s for s in re.split(r"[\n\s]", cmd) if s] or [""]
-    full_args = cmd.split(" ", 1)[1] if " " in cmd else ""
+    # Split args off at the same whitespace that ended the name (incl. newline).
+    name_and_args = re.split(r"\s", cmd.lstrip(), maxsplit=1)
+    full_args = name_and_args[1] if len(name_and_args) > 1 else ""
 
     # Check if command is registered
     if name in _command_registry:
@@ -332,10 +337,12 @@ def get_commands_with_descriptions() -> list[tuple[str, str]]:
     commands: list[tuple[str, str]] = []
     seen_handlers: set[int] = set()  # Track handler object IDs to skip aliases
 
-    for name in _command_registry:
+    # Iterate a snapshot: another thread (e.g. a server conversation loading a
+    # tool) may register commands concurrently, and mutating a dict while
+    # looping over it raises RuntimeError.
+    for name, handler in list(_command_registry.items()):
         if not _command_enabled_in_session(name):
             continue
-        handler = _command_registry[name]
         handler_id = id(handler)
         if handler_id in seen_handlers:
             continue
@@ -362,4 +369,6 @@ def get_user_commands() -> list[str]:
     Includes built-ins and tool-registered commands whose owning tool is
     loaded. Process-global registrations of disabled tools are omitted.
     """
-    return [f"/{cmd}" for cmd in _command_registry if _command_enabled_in_session(cmd)]
+    return [
+        f"/{cmd}" for cmd in list(_command_registry) if _command_enabled_in_session(cmd)
+    ]

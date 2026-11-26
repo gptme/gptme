@@ -6,8 +6,10 @@ import logging
 import math
 import os
 import re
+import time
 from collections.abc import Generator, Iterable, Iterator, Mapping
 from functools import lru_cache, wraps
+from threading import Lock
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import requests
@@ -58,7 +60,12 @@ from .openai_responses import (
     served_model_from,
 )
 from .provider_plugins import is_plugin_provider
-from .request_limits import bounded_attempts, bounded_client, reserve_request
+from .request_limits import (
+    bounded_attempts,
+    bounded_client,
+    reserve_request,
+    strict_request_bounds_active,
+)
 from .responses_phase import ResponsesPhaseCapture, replay_responses_output
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
@@ -129,6 +136,9 @@ def _lazy_client_factory(cls_name: str):
 
     return factory
 
+
+# Explicit endpoint for openai/ so the SDK never falls back to OPENAI_BASE_URL.
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, OpenAI] = {}
@@ -642,8 +652,15 @@ def init(provider: Provider, config: Config):
 
     if provider == "openai":
         api_key = proxy_key or _get_provider_api_key(config, provider, "OPENAI_API_KEY")
+        # Pass the base URL explicitly: with base_url=None the OpenAI SDK reads
+        # OPENAI_BASE_URL from the process env, which would send the OpenAI key
+        # to the local/ server that variable names (#5179). LLM_PROXY_URL is
+        # the supported way to reroute openai/ traffic.
         _init_openai_client(
-            provider, api_key=api_key, base_url=proxy_url or None, timeout=timeout
+            provider,
+            api_key=api_key,
+            base_url=proxy_url or OPENAI_DEFAULT_BASE_URL,
+            timeout=timeout,
         )
     elif provider == "azure":
         api_key = config.get_env_required("AZURE_OPENAI_API_KEY")
@@ -1394,12 +1411,24 @@ def chat(
                 **optional_kwargs,
             )
 
+    # Strict request bounds reject relaxed routing, so the memo must not apply
+    # to them: a bounded selector call may still succeed strict even when a
+    # larger tool call recently needed relaxed routing.
+    _start_relaxed = (
+        _uses_openrouter_backend(provider, model_meta)
+        and not strict_request_bounds_active()
+        and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
+    )
+    _used_relaxed_fallback = False
     try:
-        raw_response = _chat_create()
+        raw_response = _chat_create(relaxed_privacy=_start_relaxed)
     except Exception as _e:
-        if _uses_openrouter_backend(
-            provider, model_meta
-        ) and _is_openrouter_no_endpoints_error(_e):
+        if (
+            not _start_relaxed
+            and not strict_request_bounds_active()
+            and _uses_openrouter_backend(provider, model_meta)
+            and _is_openrouter_no_endpoints_error(_e)
+        ):
             _dc_configured = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
             logger.warning(
                 "OpenRouter: no endpoints matched the strict constraints "
@@ -1411,9 +1440,12 @@ def chat(
                 model_meta.model,
             )
             raw_response = _chat_create(relaxed_privacy=True)
+            _used_relaxed_fallback = True
         else:
             raise
     response = raw_response.parse()
+    if _used_relaxed_fallback:
+        _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
     _or_provider = (
         raw_response.headers.get("x-openrouter-provider")
         or _openrouter_provider_from(response)
@@ -1603,6 +1635,45 @@ def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str 
             f"Invalid {label} reasoning effort: {effort!r}. Must be one of: {valid}."
         )
     return effort
+
+
+# How long a model stays on relaxed OpenRouter routing after strict routing
+# found no endpoint. Bounded so a transient routing outage does not drop the
+# require_parameters guard for the rest of a long-lived process.
+_OPENROUTER_RELAXED_TTL_S = 600.0
+_openrouter_relaxed_until: dict[str, float] = {}
+_openrouter_relaxed_lock = Lock()
+
+
+def _openrouter_relaxed_remembered(key: str) -> bool:
+    """Return True if strict routing recently found no endpoint for ``key``.
+
+    ``key`` is ``"{provider}:{model}"``: a proxy's allowlist (e.g. gptme.ai)
+    must not relax routing for the same model on direct OpenRouter.
+
+    Without this, every request to such a model pays one failed strict
+    attempt before the relaxed retry succeeds (~3 s per turn observed on
+    gptme.ai for Sonnet 5.5 under its provider allowlist).
+    """
+    with _openrouter_relaxed_lock:
+        until = _openrouter_relaxed_until.get(key)
+        if until is None:
+            return False
+        if time.monotonic() >= until:
+            _openrouter_relaxed_until.pop(key, None)
+            return False
+        return True
+
+
+def _remember_openrouter_relaxed(key: str) -> None:
+    with _openrouter_relaxed_lock:
+        now = time.monotonic()
+        # Drop expired entries so one-off model ids cannot accumulate forever.
+        for stale in [
+            k for k, until in _openrouter_relaxed_until.items() if now >= until
+        ]:
+            del _openrouter_relaxed_until[stale]
+        _openrouter_relaxed_until[key] = now + _OPENROUTER_RELAXED_TTL_S
 
 
 def _is_openrouter_no_endpoints_error(e: Exception) -> bool:
@@ -2099,12 +2170,23 @@ def _stream_with_client(
         native_finish: str | None = None
         attempt_output: list[bool] = []
 
+        _start_relaxed = (
+            _uses_openrouter_backend(provider, model_meta)
+            and not strict_request_bounds_active()
+            and _openrouter_relaxed_remembered(f"{provider}:{model_meta.model}")
+        )
+        _used_relaxed_fallback = False
         try:
-            _stream_obj = _stream_create(provider_ignore=_ignored_providers)
+            _stream_obj = _stream_create(
+                relaxed_privacy=_start_relaxed, provider_ignore=_ignored_providers
+            )
         except Exception as _e:
-            if _uses_openrouter_backend(
-                provider, model_meta
-            ) and _is_openrouter_no_endpoints_error(_e):
+            if (
+                not _start_relaxed
+                and not strict_request_bounds_active()
+                and _uses_openrouter_backend(provider, model_meta)
+                and _is_openrouter_no_endpoints_error(_e)
+            ):
                 _dc_configured = get_config().get_env(
                     "OPENROUTER_DATA_COLLECTION", "deny"
                 )
@@ -2120,6 +2202,7 @@ def _stream_with_client(
                 _stream_obj = _stream_create(
                     relaxed_privacy=True, provider_ignore=_ignored_providers
                 )
+                _used_relaxed_fallback = True
             else:
                 raise
 
@@ -2383,6 +2466,8 @@ def _stream_with_client(
                 if captured_metadata is None:
                     captured_metadata = {"model": model}
                 captured_metadata["native_finish_reason"] = native_finish
+            if _used_relaxed_fallback:
+                _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             break  # Normal completion — no retry needed.
 
         # Degeneration detected.  Close the abandoned stream before deciding

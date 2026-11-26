@@ -37,6 +37,35 @@ from gptme.tools.browser import (
     tool,
 )
 
+
+def test_search_falls_back_when_perplexity_raises(monkeypatch):
+    """A Perplexity client exception is an engine failure, so search() falls back."""
+    import sys
+    import types
+
+    from gptme.tools._browser_perplexity import search_perplexity
+
+    class _RaisingOpenAI:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("rate limited")
+
+    monkeypatch.setitem(
+        sys.modules, "openai", types.SimpleNamespace(OpenAI=_RaisingOpenAI)
+    )
+    monkeypatch.setenv("PERPLEXITY_API_KEY", "test-key")
+    result = search_perplexity("x")
+    assert result.startswith("Error:"), result
+    assert "rate limited" in result
+
+    monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
+    monkeypatch.setattr("gptme.tools.browser.search_perplexity", search_perplexity)
+    lynx_search = MagicMock(return_value="google ok")
+    monkeypatch.setattr("gptme.tools.browser.search_lynx", lynx_search, raising=False)
+
+    assert search("x") == "google ok"
+
+
 # ── URL type detection ────────────────────────────────────────────────
 
 
@@ -1309,6 +1338,51 @@ class TestPlaywrightMarkdownResponse:
             assert bp.read_url("https://example.com") == "before  after"
 
 
+# ── _load_page network-idle wait (gptme/gptme#5126) ───────────────────
+
+
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
+class TestLoadPageNetworkIdle:
+    """The network-idle wait after goto() is best effort: a timeout is
+    ignored, other failures are logged, and the page is read either way."""
+
+    def _load(self, wait_error: Exception):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.goto.return_value.headers = {"content-type": "text/markdown"}
+        page.text_content.return_value = "# loaded"
+        page.wait_for_load_state.side_effect = wait_error
+        managed = MagicMock(page=page)
+
+        with (
+            patch.object(bp, "_create_page", return_value=managed),
+            patch.object(bp, "get_context_options", return_value={}),
+        ):
+            result = bp._load_page(MagicMock(), "https://example.com")
+
+        page.wait_for_load_state.assert_called_once_with(
+            "networkidle", timeout=bp.NETWORK_IDLE_TIMEOUT_MS
+        )
+        managed.close.assert_called_once_with()
+        return result, bp._last_logs["errors"]
+
+    def test_network_idle_timeout_is_ignored(self):
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        result, errors = self._load(PlaywrightTimeoutError("never idle"))
+
+        assert result == ("# loaded", True)
+        assert errors == []
+
+    def test_other_network_idle_failure_is_logged(self):
+        result, errors = self._load(RuntimeError("target closed"))
+
+        assert result == ("# loaded", True)
+        assert errors == ["Navigation error: target closed"]
+
+
 # ── _create_page (CDP tab reuse vs launched contexts) ─────────────────
 
 
@@ -1412,7 +1486,11 @@ class TestOpenPageSessionReuse:
             result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
         create_page.assert_not_called()
         ctx.close.assert_not_called()
         ctx.new_page.assert_not_called()
@@ -1439,7 +1517,11 @@ class TestOpenPageSessionReuse:
 
         assert result == "snapshot"
         create_page.assert_called_once()
-        page.goto.assert_called_once_with("https://example.com")
+        page.goto.assert_called_once_with(
+            "https://example.com",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
         assert bp._current_page is page
         assert bp._current_context is ctx
 
@@ -1470,7 +1552,11 @@ class TestOpenPageSessionReuse:
         ctx.close.assert_not_called()
         ctx.new_page.assert_called_once_with()
         new_page.set_extra_http_headers.assert_called_once_with(bp._OPEN_PAGE_HEADERS)
-        new_page.goto.assert_called_once_with("https://example.com/account")
+        new_page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
         dead_page.close.assert_called()
         assert bp._current_page is new_page
         assert bp._current_context is ctx
@@ -1497,7 +1583,11 @@ class TestOpenPageSessionReuse:
             result = bp._open_page(MagicMock(), "https://example.com/account")
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
         create_page.assert_not_called()
         close.assert_not_called()
         session_ctx.close.assert_not_called()
@@ -1526,6 +1616,300 @@ class TestOpenPageSessionReuse:
             bp._open_page(MagicMock(), "https://evil.example")
 
         create_page.assert_not_called()
+        close.assert_called_once_with()
+
+    def test_load_timeout_after_commit_keeps_session_and_reads_page(self):
+        """A load event held past the budget must not log the user out."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        # goto's commit wait succeeds even for a reload of the same URL;
+        # only the subsequent load wait times out.
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", return_value="snapshot") as snapshot,
+            patch.object(bp, "_close_current_page") as close,
+        ):
+            result = bp._open_page(MagicMock(), "https://example.com/account")
+
+        assert result == "snapshot"
+        snapshot.assert_called_once_with(timeout_ms=bp.TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
+        page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
+        page.wait_for_load_state.assert_called_once()
+        assert page.wait_for_load_state.call_args.args == ("load",)
+        assert 0 < page.wait_for_load_state.call_args.kwargs["timeout"] <= 16_000
+        close.assert_not_called()
+        ctx.close.assert_not_called()
+        assert bp._current_page is page
+        assert bp._current_context is ctx
+
+    @pytest.mark.parametrize(
+        ("commit_finished", "remaining_ms"), [(110.0, 6000.0), (116.5, 1.0)]
+    )
+    def test_commit_and_load_share_navigation_budget(
+        self, commit_finished, remaining_ms
+    ):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.url = "https://example.com/account"
+        bp._current_page = page
+        with (
+            # Patch the module's local alias, not the stdlib module: replacing
+            # time.monotonic globally would affect every thread in the process.
+            patch.object(bp, "_monotonic", side_effect=[100.0, commit_finished]),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+        ):
+            assert bp._goto_and_snapshot(page.url) == "snapshot"
+
+        page.goto.assert_called_once_with(
+            page.url, wait_until="commit", timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS
+        )
+        page.wait_for_load_state.assert_called_once_with("load", timeout=remaining_ms)
+
+    def test_load_timeout_before_commit_drops_tab_and_keeps_session(self):
+        """A stalled commit must not leave an ambiguous tab live for later actions.
+
+        Playwright stops waiting, but the browser may still commit the
+        navigation later. The tab is closed so a following click/fill cannot hit
+        a half-navigated page, while the context (and its login) survives.
+        """
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+
+        def stalled_commit(*args, **kwargs):
+            # A same-document URL update in the old page must not count either.
+            page.url = "https://example.com/account#updated"
+            # Playwright emits framenavigated even for replaceState/hash changes.
+            # Deliver it if the implementation ever listens for that event, so a
+            # regression that treats it as a commit fails this test.
+            for call in page.on.call_args_list:
+                if call.args[0] == "framenavigated":
+                    call.args[1](page.main_frame)
+            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+
+        page.goto.side_effect = stalled_commit
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot") as snapshot,
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="Timed out navigating"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/unreachable")
+
+        snapshot.assert_not_called()
+        page.wait_for_load_state.assert_not_called()
+        page.close.assert_called_once_with()
+        assert bp._current_page is None
+        # The session context is kept, so the login survives.
+        close.assert_not_called()
+        assert bp._current_context is ctx
+        ctx.close.assert_not_called()
+
+    def test_open_page_after_pre_commit_timeout_reuses_session_context(self):
+        """The dropped tab's context is reused, so cookies/localStorage survive."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.goto.side_effect = bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+        ctx = MagicMock()
+        new_page = MagicMock()
+        new_page.is_closed.return_value = False
+        new_page.url = "https://example.com/login"
+        ctx.new_page.return_value = new_page
+        bp._current_page = page
+        bp._current_context = ctx
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="Timed out navigating"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/unreachable")
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            patch.object(bp, "_close_current_page") as close,
+        ):
+            assert bp._open_page(MagicMock(), "https://example.com/login") == "snapshot"
+
+        ctx.new_page.assert_called_once_with()
+        new_page.goto.assert_called_once_with(
+            "https://example.com/login",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
+        close.assert_not_called()
+        ctx.close.assert_not_called()
+        assert bp._current_page is new_page
+        assert bp._current_context is ctx
+
+    def test_close_page_resets_owned_context_when_no_tab_remains(self):
+        """close_page() must still reset the session after a dropped tab."""
+        from gptme.tools import _browser_playwright as bp
+
+        ctx = MagicMock()
+        bp._current_page = None
+        bp._current_context = ctx
+        bp._session_owner = bp._conversation_key()
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(
+                bp,
+                "_execute_with_retry",
+                side_effect=lambda func, *args, **kwargs: func(
+                    MagicMock(), *args, **kwargs
+                ),
+            ),
+        ):
+            assert bp.close_page() == "Page closed."
+
+        ctx.close.assert_called_once_with()
+        assert bp._current_context is None
+
+    def test_close_page_keeps_friendly_message_for_another_owner(self):
+        """A dropped tab must not turn close_page() into an ownership error."""
+        from gptme.tools import _browser_playwright as bp
+
+        ctx = MagicMock()
+        bp._current_page = None
+        bp._current_context = ctx
+        bp._session_owner = "conv-a"
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_conversation_key", return_value="conv-b"),
+        ):
+            assert bp.close_page() == "No page is currently open."
+
+        ctx.close.assert_not_called()
+        assert bp._current_context is ctx
+
+    def test_snapshot_failure_after_commit_timeout_names_the_committed_url(self):
+        """A snapshot failure must not read like a failed navigation."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(
+                bp,
+                "_page_snapshot",
+                side_effect=bp.PlaywrightTimeoutError("aria_snapshot timeout"),
+            ),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="snapshot failed"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/account")
+
+        close.assert_not_called()
+        assert bp._current_context is ctx
+
+    def test_allowlist_failure_in_timeout_snapshot_still_propagates(self):
+        """Allowlist enforcement keeps raising ValueError through the fallback."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
+        bp._current_page = page
+        bp._current_context = MagicMock()
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", side_effect=ValueError("blocked host")),
+            pytest.raises(ValueError, match="blocked host"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/account")
+
+    def test_load_timeout_on_blocked_host_closes_session_before_reading(self):
+        """The timeout fallback still enforces the allowlist on the live URL."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        bp._current_page = page
+        bp._current_context = MagicMock()
+
+        def redirect(url, **kwargs):
+            page.url = "https://evil.example/landing"
+
+        page.goto.side_effect = redirect
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
+
+        def block_evil(url):
+            if "evil.example" in url:
+                raise ValueError("blocked host")
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_validate_page_url", side_effect=block_evil),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(ValueError, match="blocked host"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/next")
+
+        close.assert_called_once_with()
+        page.locator.assert_not_called()
+
+    def test_non_timeout_navigation_error_still_closes_session(self):
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.goto.side_effect = Exception("net::ERR_NAME_NOT_RESOLVED")
+        bp._current_page = page
+        bp._current_context = MagicMock()
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="Failed to navigate"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/missing")
+
         close.assert_called_once_with()
 
     def test_close_current_page_closes_owned_context(self):
@@ -1569,7 +1953,11 @@ class TestOpenPageSessionReuse:
             current_conversation_id.reset(token)
 
         assert result == "snapshot"
-        page.goto.assert_called_once_with("https://example.com/account")
+        page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
         create_page.assert_not_called()
         close.assert_not_called()
         assert bp._session_owner == "conv-a"
@@ -1645,7 +2033,11 @@ class TestOpenPageSessionReuse:
         create_page.assert_called_once()
         old_page.close.assert_called()
         old_ctx.close.assert_called()
-        new_page.goto.assert_called_once_with("https://example.com/account")
+        new_page.goto.assert_called_once_with(
+            "https://example.com/account",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
         assert bp._current_page is new_page
         assert bp._current_context is new_ctx
         assert bp._session_owner == "conv-b"

@@ -277,12 +277,8 @@ release: version dist/CHANGELOG.md  ## Release new version (interactive)
 		read -p "Press enter to push and publish" && \
 		./scripts/publish_release.sh --notes-file dist/CHANGELOG.md
 
-install-completions: ## Install shell completions (Fish)
-	@echo "Installing shell completions..."
-	@mkdir -p ~/.config/fish/completions
-	@ln -sf $(PWD)/scripts/completions/gptme.fish ~/.config/fish/completions/gptme.fish
-	@echo "✅ Fish completions installed to ~/.config/fish/completions/"
-	@echo "Restart your shell or run 'exec fish' to enable completions"
+install-completions: ## Install shell completions (detected shell; COMPLETION_SHELL overrides)
+	uv run gptme-util completions $(if $(COMPLETION_SHELL),--shell $(COMPLETION_SHELL),)
 
 clean: clean-docs clean-site clean-test clean-build  ## Clean all build artifacts
 	@echo "Cleaned all build artifacts."

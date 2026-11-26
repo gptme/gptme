@@ -378,12 +378,24 @@ def _is_thinking_lang(lang: str) -> bool:
 # only produces false positives (swallowing prose + output blocks into
 # the command). See gptme/gptme#3697.
 _EXEC_LANGS = frozenset(
-    {"shell", "sh", "bash", "zsh", "fish", "ksh", "nu", "ps1", "powershell", "ipython"}
+    {
+        "shell",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "ksh",
+        "nu",
+        "ps1",
+        "powershell",
+        "ipython",
+        "py",  # python tool block type, executed like ipython
+    }
 )
 # Shell languages that support heredoc syntax (``<<``). IPython/Python's
 # ``<<`` is always the bitwise left-shift operator — there is no heredoc
 # syntax in Python — so ipython is excluded from heredoc state tracking.
-_SHELL_LANGS = _EXEC_LANGS - {"ipython"}
+_SHELL_LANGS = _EXEC_LANGS - {"ipython", "py"}
 
 
 def _line_fence_states(
@@ -492,7 +504,7 @@ def _line_fence_states(
             elif line.strip() == heredoc_terminator:
                 heredoc_terminator = None
                 qs_single = qs_double = qs_ansi = False
-        elif outer_lang == "ipython":
+        elif outer_lang in ("ipython", "py"):
             ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
                 line, ipy_td, ipy_ts, ipy_s, ipy_d
             )
@@ -1198,7 +1210,7 @@ def _extract_codeblocks(
                         _qs_in_single = False
                         _qs_in_double = False
                         _qs_in_ansi_c = False
-                elif lang == "ipython":
+                elif lang in ("ipython", "py"):
                     # Update triple-quoted-string state line-by-line so that
                     # bare fences inside ``"""..."""`` or ``'''...'''`` are
                     # treated as literal Python content rather than block closers.

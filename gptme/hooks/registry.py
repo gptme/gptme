@@ -146,15 +146,16 @@ class HookRegistry:
             )
 
             # Check if hook with same name already exists
-            existing = [h for h in self.hooks[hook_type] if h.name == name]
-            if existing:
+            current = self.hooks[hook_type]
+            others = [h for h in current if h.name != name]
+            if len(others) != len(current):
                 logger.debug(f"Replacing existing hook '{name}' for {hook_type}")
-                self.hooks[hook_type] = [
-                    h for h in self.hooks[hook_type] if h.name != name
-                ]
 
-            self.hooks[hook_type].append(hook)
-            self.hooks[hook_type].sort()  # Sort by priority
+            # Publish a new sorted list instead of mutating the shared one:
+            # readers in other threads (server, MCP server) iterate it without
+            # the lock, and a list reads as empty for the whole of an in-place
+            # sort, so get_confirmation() would briefly auto-confirm.
+            self.hooks[hook_type] = sorted([*others, hook])  # Sort by priority
 
             logger.debug(
                 f"Registered hook '{name}' for {hook_type} (priority={priority})"

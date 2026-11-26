@@ -329,6 +329,34 @@ Lesson, not a skill.
         assert "good" in index.lessons[0].path.as_posix()
         assert "Content for valid." in index.lessons[0].body
 
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "---\nname: [unclosed\n---\n# x\n",  # YAML error -> parse failure
+            "---\nname: [unclosed\n",  # no closing fence -> unparseable frontmatter
+        ],
+    )
+    def test_malformed_skill_same_relpath_does_not_block_valid_copy(
+        self, tmp_path: Path, bad: str
+    ):
+        """A malformed copy must not reserve the relative-path slot either.
+
+        Unlike the test above, both copies sit at the same relative path
+        (``deploy-helper/SKILL.md``), so path-slot dedup is what is exercised.
+        """
+        clear_cache()
+        bad_dir = tmp_path / "user" / "skills"
+        (bad_dir / "deploy-helper").mkdir(parents=True)
+        (bad_dir / "deploy-helper" / "SKILL.md").write_text(bad)
+
+        good_dir = tmp_path / "workspace" / "skills"
+        self._write_skill(good_dir, "", "deploy-helper", "valid")
+
+        index = LessonIndex([bad_dir, good_dir])
+
+        assert [lesson.metadata.name for lesson in index.lessons] == ["deploy-helper"]
+        assert "workspace" in index.lessons[0].path.as_posix()
+
     def test_unreadable_skill_file_does_not_abort_index(
         self, tmp_path: Path, monkeypatch
     ):
@@ -693,6 +721,164 @@ class TestLessonDeduplication:
             # The active copy from dir2 must NOT be loaded (dir1 wins)
             assert len(index.lessons) == 0
 
+    @pytest.mark.parametrize(
+        "bad_content",
+        [
+            "---\nmatch: {keywords: [shell\n---\n# Bad\n",
+            "---\nmatch:\n  keywords: [shell]\n# Bad\n",
+            "\ufeff--- # header\nmatch:\n  keywords: [shell]\n# Bad\n",
+            "---",
+        ],
+        ids=["invalid-yaml", "unclosed", "bom-comment-unclosed", "fence-only"],
+    )
+    def test_malformed_lesson_does_not_block_valid_copy(
+        self, tmp_path: Path, bad_content: str
+    ):
+        """A copy that fails to parse must not claim its relative-path slot."""
+        clear_cache()
+        dir1 = tmp_path / "a" / "lessons"
+        dir2 = tmp_path / "b" / "lessons"
+        (dir1 / "tools").mkdir(parents=True)
+        (dir2 / "tools").mkdir(parents=True)
+        (dir1 / "tools" / "shell.md").write_text(bad_content)
+        (dir2 / "tools" / "shell.md").write_text(
+            "---\nmatch:\n  keywords: [shell]\n---\n# Shell\n\nx\n"
+        )
+
+        index = LessonIndex([dir1, dir2])
+
+        assert [lesson.title for lesson in index.lessons] == ["Shell"]
+
+    @pytest.mark.parametrize(
+        "header",
+        ["- just\n- a list\n", "just a scalar\n", "null\n", "~\n"],
+        ids=["list", "scalar", "null", "tilde"],
+    )
+    def test_non_mapping_header_does_not_block_valid_copy(
+        self, tmp_path: Path, header: str
+    ):
+        """A header that parses but is not a mapping yields default metadata.
+
+        That copy must not reserve the path, or the later copy's keywords are lost.
+        """
+        clear_cache()
+        dir1 = tmp_path / "a" / "lessons"
+        dir2 = tmp_path / "b" / "lessons"
+        (dir1 / "tools").mkdir(parents=True)
+        (dir2 / "tools").mkdir(parents=True)
+        (dir1 / "tools" / "shell.md").write_text(f"---\n{header}---\n# Bad\n")
+        (dir2 / "tools" / "shell.md").write_text(
+            "---\nmatch:\n  keywords: [shell]\n---\n# Shell\n\nx\n"
+        )
+
+        index = LessonIndex([dir1, dir2])
+
+        assert [lesson.title for lesson in index.lessons] == ["Shell"]
+        assert index.lessons[0].metadata.keywords == ["shell"]
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "---\n\n# Test Lesson\n\nDescription.\n",
+            "---\nnull\n---\n# Test Lesson\n\nDescription.\n",
+            "---\n~\n---\n# Test Lesson\n\nDescription.\n",
+            "---\nmatch:\n  keywords: [shell]\n# Test Lesson\n\nDescription.\n",
+        ],
+        ids=["markdown-divider", "null", "tilde", "unclosed-yaml"],
+    )
+    def test_sole_default_metadata_lesson_remains_searchable(
+        self, tmp_path: Path, content: str
+    ):
+        """A parseable body remains available when there is no valid replacement."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        (lesson_dir / "tools").mkdir(parents=True)
+        lesson_file = lesson_dir / "tools" / "test.md"
+        lesson_file.write_text(content)
+
+        # Check both the cold parse and a subsequent cached index build.
+        for _ in range(2):
+            index = LessonIndex([lesson_dir])
+            assert [lesson.title for lesson in index.lessons] == ["Test Lesson"]
+            assert index.lessons[0].path == lesson_file
+            assert index.search("Test Lesson")
+            assert index.get_by_category("tools") == index.lessons
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "---\n\n# Divider Lesson\n\nBody.\n",
+            "---\n\n# Divider Lesson\n\nBody.\n\n---\n\nMore.\n",
+        ],
+        ids=["one-divider", "two-dividers"],
+    )
+    def test_markdown_divider_lesson_does_not_warn(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, content: str
+    ) -> None:
+        """A valid thematic break must not produce warnings on cold or cached scans."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        (lesson_dir / "divider.md").write_text(content)
+
+        for _ in range(2):
+            caplog.clear()
+            index = LessonIndex([lesson_dir])
+            assert [lesson.title for lesson in index.lessons] == ["Divider Lesson"]
+            assert not any(record.levelno >= 30 for record in caplog.records)
+
+    @pytest.mark.parametrize(
+        "header", ["- list\n", "true\n", "42\n", "null\n", "# Draft notes\nnull\n"]
+    )
+    def test_closed_malformed_header_warns(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, header: str
+    ) -> None:
+        """A definitely closed, non-mapping header remains diagnosable on cache hits."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        lesson_file = lesson_dir / "bad.md"
+        lesson_file.write_text(f"---\n{header}---\n# Bad\n\nBody.\n")
+
+        for _ in range(2):
+            caplog.clear()
+            index = LessonIndex([lesson_dir])
+            assert [lesson.title for lesson in index.lessons] == ["Bad"]
+            assert index.search("Bad") == index.lessons
+            assert any(
+                record.levelno >= 30
+                and "Malformed lesson frontmatter" in record.message
+                for record in caplog.records
+            )
+
+    def test_first_default_metadata_copy_is_fallback(self, tmp_path: Path):
+        """Fallbacks still deduplicate, and a valid inactive copy still suppresses them."""
+        clear_cache()
+        dirs = [tmp_path / name for name in ("first", "second", "inactive")]
+        for directory in dirs:
+            (directory / "tools").mkdir(parents=True)
+        (dirs[0] / "tools" / "test.md").write_text("---\n\n# First\n")
+        (dirs[1] / "tools" / "test.md").write_text("---\nnull\n---\n# Second\n")
+        (dirs[2] / "tools" / "test.md").write_text(
+            "---\nstatus: deprecated\n---\n# Inactive\n"
+        )
+
+        assert [lesson.title for lesson in LessonIndex(dirs[:2]).lessons] == ["First"]
+        assert LessonIndex(dirs).lessons == []
+
+    def test_lesson_with_null_match_field_still_indexed(self, tmp_path: Path):
+        """A null ``patterns:`` must not drop the lesson from the index."""
+        clear_cache()
+        lesson_dir = tmp_path / "lessons"
+        lesson_dir.mkdir()
+        (lesson_dir / "a.md").write_text(
+            "---\nmatch:\n  keywords: [patch]\n  patterns:\n---\n# Patch Lesson\n\nBody.\n"
+        )
+
+        index = LessonIndex(lesson_dirs=[lesson_dir])
+
+        assert [lesson.title for lesson in index.lessons] == ["Patch Lesson"]
+
 
 class TestLessonCache:
     """Tests for lesson caching functionality."""
@@ -922,3 +1108,35 @@ class TestWorktreeExclusion:
         assert "Normal Lesson" in lesson_names
         assert "Git Lesson" not in lesson_names
         assert len(index.lessons) == 1
+
+    @pytest.mark.parametrize("parent", ["gptme-worktree", "worktree", ".git"])
+    def test_scan_root_under_excluded_name_is_indexed(self, tmp_path, parent):
+        """Exclusions apply below the scan root, not to the root's own path."""
+        clear_cache()
+        lesson_dir = tmp_path / parent / "lessons"
+        lesson_dir.mkdir(parents=True)
+        (lesson_dir / "a.md").write_text(
+            "---\nmatch:\n  keywords: [patch]\n---\n# Patch Lesson\n\nBody.\n"
+        )
+        (lesson_dir / "worktree" / "copy").mkdir(parents=True)
+        (lesson_dir / "worktree" / "copy" / "b.md").write_text(
+            "---\nmatch:\n  keywords: [patch]\n---\n# Worktree Copy\n\nBody.\n"
+        )
+
+        index = LessonIndex(lesson_dirs=[lesson_dir])
+
+        assert [lesson.title for lesson in index.lessons] == ["Patch Lesson"]
+
+
+def test_bom_skill_starting_with_markdown_divider_is_indexed(tmp_path: Path):
+    """``----`` is a Markdown divider, not a frontmatter fence, even after a BOM."""
+    clear_cache()
+    skills = tmp_path / "skills"
+    (skills / "divider-skill").mkdir(parents=True)
+    (skills / "divider-skill" / "SKILL.md").write_bytes(
+        "\ufeff----\n# Divider Skill\n\nBody.\n".encode()
+    )
+
+    index = LessonIndex([skills])
+
+    assert [lesson.title for lesson in index.lessons] == ["Divider Skill"]

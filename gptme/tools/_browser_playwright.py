@@ -11,6 +11,7 @@ import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic as _monotonic
 from typing import TypeVar
 
 from playwright.sync_api import (
@@ -76,6 +77,19 @@ class _ManagedPage:
                 pass
 
 
+# Playwright's navigation/load-state default is 30s, longer than the browser
+# thread's whole-operation TIMEOUT (20s). Keep one navigation, plus the short
+# best-effort network-idle wait below, inside that budget (gptme/gptme#5126).
+NAVIGATION_TIMEOUT_MS = 12_000
+NETWORK_IDLE_TIMEOUT_MS = 3_000
+# Interactive navigation is followed only by the ARIA snapshot, so it may use
+# more of the budget. It is set at the shared goto() so replacement tabs get it.
+INTERACTIVE_NAVIGATION_TIMEOUT_MS = 16_000
+# A navigation that timed out has used most of the budget; bound the fallback
+# snapshot to what is left.
+TIMED_OUT_SNAPSHOT_TIMEOUT_MS = 3_000
+
+
 def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
     """Create a page, reusing the session context for CDP connections.
 
@@ -99,6 +113,7 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
             _browser._session_context = ctx
         _session_owner = _conversation_key()
         page = ctx.new_page()
+        page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
         headers = context_kwargs.get("extra_http_headers")
         if headers:
             page.set_extra_http_headers(headers)
@@ -106,6 +121,7 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
 
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
+    page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
     return _ManagedPage(page=page, _owned_context=context)
 
 
@@ -212,11 +228,18 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
     nav_response = None
     try:
         nav_response = page.goto(url)
-        # Wait for page to be fully loaded (includes network idle)
-        page.wait_for_load_state("networkidle")
     except Exception as e:
         page_errors.append(f"Navigation error: {e}")
         # Don't re-raise, just capture the error
+    else:
+        # Best effort: pages that keep polling or streaming never reach network
+        # idle, and the loaded document is still worth reading.
+        try:
+            page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            pass
+        except Exception as e:
+            page_errors.append(f"Navigation error: {e}")
 
     content_type = nav_response.headers.get("content-type", "") if nav_response else ""
     is_markdown = content_type.partition(";")[0].strip().lower() == "text/markdown"
@@ -680,12 +703,47 @@ def _drop_current_page_handle() -> None:
 
 def _goto_and_snapshot(url: str) -> str:
     """Navigate the current interactive page and return its ARIA snapshot."""
-    if _current_page is None:
+    page = _current_page
+    if page is None:
         raise RuntimeError("No page is currently open")
+    committed = False
+    deadline = _monotonic() + INTERACTIVE_NAVIGATION_TIMEOUT_MS / 1000
     try:
-        _current_page.goto(url)
+        # Unlike framenavigated, goto's commit wait cannot be satisfied by a
+        # same-document URL update in the old page while the request is pending.
+        page.goto(url, wait_until="commit", timeout=INTERACTIVE_NAVIGATION_TIMEOUT_MS)
+        committed = True
+        # Share one budget between the commit and load waits. A zero timeout
+        # disables Playwright's deadline, so keep the remaining wait positive.
+        remaining_ms = max(1, (deadline - _monotonic()) * 1000)
+        page.wait_for_load_state("load", timeout=remaining_ms)
         # A redirect may land outside the allowlist; reject the final URL.
-        _validate_page_url(_current_page.url)
+        _validate_page_url(page.url)
+    except PlaywrightTimeoutError as e:
+        # A slow resource can hold the load event past the budget after the
+        # document has committed. Closing the session here would log the user
+        # out, so keep it: read the committed page (_page_snapshot enforces the
+        # allowlist on the live URL), or report the timeout if nothing loaded.
+        if not committed:
+            # Playwright stopped waiting, but the browser may still commit this
+            # navigation later. Leaving that tab live would let the next
+            # click_element()/fill_element() act on an ambiguous page, so drop
+            # the tab while keeping the session context (and its login).
+            _drop_current_page_handle()
+            raise RuntimeError(f"Timed out navigating to {url}: {e}") from e
+        logger.info(f"Load event for '{url}' timed out; reading committed page")
+        try:
+            return _page_snapshot(timeout_ms=TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
+        except ValueError:
+            # Allowlist enforcement already closed the page; keep its signal.
+            raise
+        except Exception as snapshot_error:
+            # Say the navigation committed and the session survived, so the
+            # agent calls snapshot_page() instead of retrying the navigation.
+            raise RuntimeError(
+                f"Navigated to {url} but the load event timed out and the "
+                f"snapshot failed: {snapshot_error}"
+            ) from snapshot_error
     except Exception as e:
         _close_current_page()
         if isinstance(e, ValueError):
@@ -694,13 +752,18 @@ def _goto_and_snapshot(url: str) -> str:
     return _page_snapshot()
 
 
-def _page_snapshot() -> str:
+def _page_snapshot(timeout_ms: float | None = None) -> str:
     """Get ARIA snapshot of the current persistent page."""
     if _current_page is None:
         raise RuntimeError("No page is currently open")
     # Never surface content from a page that has left the allowlist.
     _enforce_current_page_allowlist()
-    snapshot = _current_page.locator("body").aria_snapshot()
+    body = _current_page.locator("body")
+    snapshot = (
+        body.aria_snapshot()
+        if timeout_ms is None
+        else body.aria_snapshot(timeout=timeout_ms)
+    )
     if not snapshot:
         raise RuntimeError("Could not get accessibility snapshot.")
     return _format_snapshot(snapshot, _current_page.url, _current_page.title())
@@ -799,10 +862,19 @@ def _enforce_current_page_allowlist() -> None:
 
 def close_page() -> str:
     """Close the current interactive browsing page."""
-    if _current_page is None and not (
-        _is_cdp_connection()
-        and _browser is not None
-        and _browser._session_context is not None
+    # A timed-out navigation drops the tab but keeps the session context, so
+    # the context (not only the page) decides whether there is anything to close.
+    # Only its owner may treat it as open; another conversation keeps getting the
+    # friendly message instead of an ownership error from _do_close_page().
+    owned_context = _current_context if _session_belongs_to_caller() else None
+    if (
+        _current_page is None
+        and owned_context is None
+        and not (
+            _is_cdp_connection()
+            and _browser is not None
+            and _browser._session_context is not None
+        )
     ):
         return "No page is currently open."
     return _execute_with_retry(_do_close_page)

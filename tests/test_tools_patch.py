@@ -1,5 +1,4 @@
 import os
-import sys
 
 import pytest
 
@@ -19,14 +18,8 @@ def test_execute_patch(tmp_path):
     target.write_text("original lines")
     result = next(execute_patch(example_patch, [str(target)], None)).content
 
-    if sys.platform in ("win32", "darwin"):
-        reason = "Windows security descriptor" if os.name == "nt" else "macOS ACL"
-        assert reason in result
-        assert "successfully" not in result
-        assert target.read_text() == "original lines"
-    else:
-        assert "successfully" in result
-        assert target.read_text() == "modified lines"
+    assert "successfully" in result
+    assert target.read_text() == "modified lines"
 
 
 def test_apply_simple():
@@ -299,6 +292,50 @@ def test_apply_with_differing_whitespace_reverse():
     assert result2 == content_without_spaces.replace("world", "world3")
 
 
+def test_relaxed_match_edits_the_matched_lines_not_an_earlier_substring():
+    """The relaxed match must be applied where it matched.
+
+    ``    return 1\\n\\n`` only matches g() under relaxed whitespace (its blank
+    line holds spaces). The same text also occurs earlier as the tail of f()'s
+    more-indented line, which a plain ``str.replace`` would hit instead.
+    """
+    content = (
+        "def f():\n"
+        "    if c:\n"
+        "        return 1\n"
+        "    \n"
+        "def g():\n"
+        "    return 1\n"
+        "    \n"
+        "h()\n"
+    )
+    result = Patch("    return 1\n\n", "    return 2\n\n").apply(content)
+    assert result == (
+        "def f():\n    if c:\n        return 1\n    \ndef g():\n    return 2\n\nh()\n"
+    )
+
+
+def test_relaxed_ambiguous_match_does_not_rescan_character_offsets(monkeypatch):
+    """Count offset work rather than relying on a machine-dependent time limit."""
+    import gptme.tools.patch as patch_module
+
+    measured_characters = 0
+
+    def counted_len(value):
+        nonlocal measured_characters
+        if isinstance(value, str):
+            measured_characters += len(value)
+        return len(value)
+
+    monkeypatch.setattr(patch_module, "len", counted_len, raising=False)
+    content = "    \n" * 1000
+    with pytest.raises(ValueError, match="999 matches with relaxed whitespace"):
+        Patch("\n\n", "replacement\n").apply(content)
+
+    # Computing offsets at most once is linear; per-match prefix sums are not.
+    assert measured_characters <= len(content)
+
+
 def test_patch_path_traversal_relative(tmp_path):
     """Test that path traversal via relative paths is blocked for patch."""
     import os
@@ -483,14 +520,8 @@ short
     target.write_text(long_original)
     result = next(execute_patch(patch, [str(target)], None)).content
 
-    if sys.platform in ("win32", "darwin"):
-        reason = "Windows security descriptor" if os.name == "nt" else "macOS ACL"
-        assert reason in result
-        assert "Note: The patch was big" not in result
-        assert target.read_text() == long_original
-    else:
-        assert "Note: The patch was big" in result
-        assert target.read_text() == "short"
+    assert "Note: The patch was big" in result
+    assert target.read_text() == "short"
 
 
 def test_execute_patch_non_utf8_file_mentions_encoding(tmp_path):
@@ -577,3 +608,15 @@ def test_patch_refuse_fifo(tmp_path):
     messages = list(execute_patch(example_patch, [str(fifo)], None))
     assert any("non-regular file" in m.content for m in messages)
     assert all("successfully" not in m.content for m in messages)
+
+
+def test_execute_patch_keeps_lone_carriage_return(tmp_path):
+    """Patching one line must not turn a lone CR elsewhere into a newline."""
+    f = tmp_path / "progress.py"
+    f.write_bytes(b'one\nbar = "a\rb"\ntwo\n')
+    patch = "<<<<<<< ORIGINAL\ntwo\n=======\nTWO\n>>>>>>> UPDATED\n"
+
+    result = next(execute_patch(patch, [str(f)], None)).content
+
+    assert "successfully" in result
+    assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'

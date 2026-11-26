@@ -40,6 +40,7 @@ from collections.abc import Generator
 from ..message import Message
 from ..util.gh import (
     DEFAULT_LOG_MAX_TOKENS,
+    _get_commit_check_runs,
     _truncate_log_tail,
     get_github_issue_content,
     get_github_pr_content,
@@ -47,6 +48,7 @@ from ..util.gh import (
     merge_github_pr,
     parse_github_ref,
     parse_github_url,
+    redact_gh_output,
 )
 from ..util.workspace import get_workspace_cwd
 from . import Parameter, ToolSpec, ToolUse
@@ -56,51 +58,6 @@ logger = logging.getLogger(__name__)
 
 def has_gh_tool() -> bool:
     return shutil.which("gh") is not None
-
-
-def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
-    """Collect a complete, consistent check-run listing or raise on partial data."""
-    runs: list[dict] = []
-    seen: set[int] = set()
-    total: int | None = None
-    page = 1
-    while True:
-        result = subprocess.run(
-            [
-                "gh",
-                "api",
-                f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-        data = json.loads(result.stdout)
-        if not isinstance(data, dict):
-            raise ValueError("Invalid check-run response")
-        count = data.get("total_count")
-        batch = data.get("check_runs")
-        if type(count) is not int or count < 0 or not isinstance(batch, list):
-            raise ValueError("Missing or invalid check-run count/list")
-        if total is None:
-            total = count
-        if count != total:
-            raise ValueError("Check-run total changed during pagination; retry")
-        for run in batch:
-            if not isinstance(run, dict) or type(run.get("id")) is not int:
-                raise ValueError("Invalid check-run entry")
-            if run["id"] in seen:
-                raise ValueError("Repeated check run during pagination; retry")
-            seen.add(run["id"])
-            runs.append(run)
-        if len(runs) > total:
-            raise ValueError("Check-run listing exceeds reported total")
-        if len(runs) == total:
-            return runs
-        if not batch:
-            raise ValueError("Incomplete check-run listing: empty page before total")
-        page += 1
 
 
 def _get_pr_check_runs(
@@ -485,6 +442,39 @@ def _resolve_ref(
     if not ref:
         return None, Message("system", f"Error: No {entity_name} provided")
 
+    ref = ref.strip()
+    # Match gh's repository selection, including GH_REPO and the default set
+    # by `gh repo set-default` in fork checkouts. Never guess origin for a
+    # mutation when gh cannot determine the intended repository.
+    if re.fullmatch(r"#?\d+", ref):
+        try:
+            result = subprocess.run(
+                [
+                    "gh",
+                    "repo",
+                    "view",
+                    "--json",
+                    "url",
+                    "--jq",
+                    ".url",
+                ],
+                cwd=get_workspace_cwd(),
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+            repo_url = result.stdout.strip().rstrip("/")
+            if not re.fullmatch(
+                r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_url
+            ):
+                raise ValueError("Unsupported repository returned by gh")
+            ref = f"{repo_url}/{default_type}/{ref.lstrip('#')}"
+        except (subprocess.SubprocessError, OSError, ValueError):
+            return None, Message(
+                "system",
+                "Error: Could not determine GitHub repository. Use owner/repo#N or --repo owner/repo.",
+            )
     github_info = parse_github_ref(ref, default_type=default_type)
     if not github_info:
         return None, Message(
@@ -620,21 +610,12 @@ def _handle_pr_merge(
 
 
 def _redact_passthrough_output(text: str) -> str:
-    """Apply the shell's credential-redaction policy to gh pass-through output.
+    """Apply the shell's credential-redaction policy to gh tool output.
 
-    ``gh auth token`` and similar commands print credentials on stdout. Shell,
-    tmux and python output already passes this policy before it is shown inline
-    or written to ``tool-outputs/``; the gh pass-through did neither, so a
-    retained ``tool-outputs/gh/`` file could hold what the rest of the pipeline
-    redacts. Same switch (``GPTME_SHELL_REDACT_SECRETS``) and same heuristic --
-    this is not a general secret scanner.
+    A retained ``tool-outputs/gh/`` file must not hold what the rest of the
+    pipeline redacts; see ``redact_gh_output`` for the policy.
     """
-    from ..config import get_config
-    from ..util.redact import redact_secret_values_from_output
-
-    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
-        return text
-    return redact_secret_values_from_output(text)[0]
+    return redact_gh_output(text)
 
 
 def _save_oversized_output(text: str, command_info: str):
@@ -921,6 +902,8 @@ def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
     repo, err = _parse_run_repo(repo_flags)
     if err:
         return args, err
+    if positional:
+        positional[0] = positional[0].strip()
     if repo and positional and re.fullmatch(r"#?\d+", positional[0]):
         positional[0] = f"{repo}#{positional[0].lstrip('#')}"
     return [*args[:2], *positional], None
@@ -943,6 +926,16 @@ def execute_gh(
     if not args and kwargs and kwargs.get("command"):
         try:
             args = shlex.split(kwargs["command"])
+        except ValueError as e:
+            yield Message("system", f"Error parsing command: {e}")
+            return
+    # A markdown block may carry the command in its body instead of on the
+    # fence line. Recover args from it too, so native handlers and their
+    # argument guards (e.g. merge's unsupported-flag refusal) apply to every
+    # invocation form instead of the body falling through to the raw CLI.
+    if not args and code and code.strip():
+        try:
+            args = shlex.split(code.strip().removeprefix("gh "))
         except ValueError as e:
             yield Message("system", f"Error parsing command: {e}")
             return
@@ -1041,7 +1034,7 @@ def execute_gh(
             )
 
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
-        info, err = _resolve_ref(args, kwargs, "issue", "issue reference")
+        info, err = _resolve_ref(args, kwargs, "issues", "issue reference")
         if err:
             yield err
             return
@@ -1089,7 +1082,9 @@ def execute_gh(
             else get_github_run_logs(run_id)
         )
         if content:
-            yield Message("system", content)
+            # Same credential-redaction policy as the pass-through path: a
+            # failed job log can echo tokens (e.g. GITHUB_TOKEN=ghp_...).
+            yield Message("system", _redact_passthrough_output(content))
         else:
             yield Message(
                 "system",

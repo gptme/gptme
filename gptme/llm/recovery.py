@@ -28,6 +28,8 @@ from .retry_policy import _retry_after_seconds, get_max_retries, retry_delay_for
 logger = logging.getLogger(__name__)
 DEFAULT_RECOVERY_SECONDS = 600.0
 T = TypeVar("T")
+# Anthropic error types for HTTP 429/500/529, delivered as SSE error events.
+_ANTHROPIC_SSE_TRANSIENT_TYPES = {"rate_limit_error", "api_error", "overloaded_error"}
 _TRANSIENT_STREAM_CODES = {
     "server_error",
     "internal_error",
@@ -281,6 +283,13 @@ def is_transient_provider_error(error: BaseException) -> bool:
     status = getattr(error, "status_code", None)
     if status is None:
         status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 200 and "anthropic" in modules:
+        # The Anthropic SDK raises a mid-stream SSE ``error`` event as an
+        # APIStatusError carrying the HTTP 200 of the stream; classify its type.
+        body = getattr(error, "body", None)
+        inner = body.get("error") if isinstance(body, dict) else None
+        kind = inner.get("type") if isinstance(inner, dict) else None
+        return isinstance(kind, str) and kind.lower() in _ANTHROPIC_SSE_TRANSIENT_TYPES
     if status is not None:
         return isinstance(status, int) and (status in (408, 429) or 500 <= status < 600)
     if "openai" in modules:

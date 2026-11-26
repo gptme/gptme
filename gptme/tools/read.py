@@ -166,9 +166,10 @@ def _read_text_bounded(path: Path) -> str | None:
         data = f.read(_MAX_READ_BYTES + 1)
     if len(data) > _MAX_READ_BYTES:
         return None
-    # Match Path.read_text()'s universal-newline behavior so snapshots remain
-    # byte-for-byte comparable with hashline_edit's later text-mode read.
-    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    # Match base.read_text_lf() so snapshots remain byte-for-byte comparable
+    # with hashline_edit's later read. A lone "\r" is kept: it is still a line
+    # boundary for numbering (str.splitlines), but must survive an edit.
+    return data.decode("utf-8").replace("\r\n", "\n")
 
 
 def _read_line_range(
@@ -305,9 +306,10 @@ def _read_one(
             path = (read_root / expanded_path).resolve()
         else:
             path = resolve_in_workspace(expanded_path)
-    except (RuntimeError, OSError) as exc:
-        # e.g. a symlink loop: report it for this path only, so later paths in
-        # a batch are still read.
+    except (RuntimeError, OSError, ValueError) as exc:
+        # e.g. a symlink loop, or a NUL byte in the path (ValueError: embedded
+        # null byte): report it for this path only, so later paths in a batch
+        # are still read.
         yield Message("system", f"Cannot resolve path {path_display}: {exc}")
         return
     containment_root = read_root or (

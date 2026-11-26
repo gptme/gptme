@@ -565,3 +565,52 @@ class TestToolSpec:
     def test_tool_has_description(self):
         assert tool.desc is not None
         assert "Morph" in tool.desc
+
+
+def test_morph_encode_error_leaves_file_intact(tmp_path: Path):
+    """An unencodable result must not truncate the target (gptme#5126)."""
+    f = tmp_path / "target.py"
+    original = "def foo():\n    pass\n"
+    f.write_text(original)
+
+    with pytest.raises(ValueError, match="encode"):
+        list(execute_morph_impl("def foo():\n    return '\ud800'\n", f, original))
+
+    assert f.read_text() == original
+
+
+def test_morph_keeps_lone_carriage_return(tmp_path: Path):
+    """A lone CR inside a line is content, not a line break."""
+    f = tmp_path / "target.py"
+    f.write_bytes(b'bar = "a\rb"\ntwo\n')
+    original = 'bar = "a\rb"\ntwo\n'
+
+    list(execute_morph_impl('bar = "a\rb"\nTWO\n', f, original))
+
+    assert f.read_bytes() == b'bar = "a\rb"\nTWO\n'
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_morph_writes_existing_file_on_acl_platforms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+):
+    """On macOS/Windows morph rewrites the existing file in place.
+
+    The shared writer keeps ACLs and the Windows security descriptor by updating
+    the inode instead of replacing it, so an edit succeeds rather than refusing
+    (#5208).
+    """
+    f = tmp_path / "target.py"
+    original = "def foo():\n    pass\n"
+    f.write_text(original)
+    monkeypatch.setattr(sys, "platform", platform)
+    # Pin both platform signals so each case exercises the intended check: on a
+    # Windows runner the darwin case would otherwise hit the `os.name == "nt"`
+    # branch first and pass for the wrong reason.
+    monkeypatch.setattr(os, "name", "nt" if platform == "win32" else "posix")
+
+    list(execute_morph_impl("def foo():\n    return 1\n", f, original))
+
+    assert f.read_text() == "def foo():\n    return 1\n"
+    # Nothing is staged beside the target on the in-place path.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.py"]

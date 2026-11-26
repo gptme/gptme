@@ -1,0 +1,522 @@
+"""Exercise cancellation through a real uv parent, not the direct-kernel path."""
+
+import os
+import queue
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+from unittest.mock import Mock
+
+import pytest
+
+pytest.importorskip("jupyter_client")
+pytest.importorskip("ipykernel")
+
+from gptme.tools.python_kernel import KernelBackend
+
+# (pid, ppid, pgid): uv, its kernel child, and one cell worker.
+_UV_GROUP = [(100, 1, 100), (101, 100, 100), (102, 101, 100)]
+
+
+@pytest.fixture
+def uv_backend(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    if os.name != "posix" or not shutil.which("uv"):
+        pytest.skip("requires POSIX and uv")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_is_uv_project", staticmethod(lambda: True))
+    # Keep the real uv parent/child topology without resolving packages or
+    # depending on an existing uv cache. ipykernel is in the test interpreter.
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setattr(
+        KernelBackend,
+        "_build_uv_kernel_cmd",
+        staticmethod(
+            lambda: [
+                shutil.which("uv"),
+                "run",
+                "--no-project",
+                "--no-sync",
+                sys.executable,
+                "-m",
+                "ipykernel_launcher",
+                "-f",
+                "{connection_file}",
+            ]
+        ),
+    )
+    backend = KernelBackend()
+    try:
+        assert backend.execute("42").result_text == "42"
+        assert backend._km.kernel_spec.argv[0] == shutil.which("uv")
+        yield backend
+    finally:
+        # Include any workers left by a failed assertion in test cleanup.
+        from gptme.tools.shell_memory import kill_group
+
+        if backend._km and backend._km.provisioner:
+            kill_group(backend._km.provisioner.pgid)
+        backend.shutdown()
+
+
+@pytest.mark.parametrize("worker", ["popen", "system"])
+def test_uv_cancellation_interrupts_workers(uv_backend: KernelBackend, worker: str):
+    setup = uv_backend.execute(
+        "import os, subprocess\nworker = subprocess.Popen(['sleep', '60'])\nworker.pid"
+    )
+    assert setup.error is None
+    assert setup.result_text is not None
+    pid = int(setup.result_text)
+    try:
+        code = "worker.wait()" if worker == "popen" else "os.system('sleep 60')"
+        result = uv_backend.execute(code, timeout=1)
+        assert result.error and result.error["ename"] == "ExecutionTimeout"
+        followup = uv_backend.execute("worker.wait(timeout=5), 6 * 7", timeout=7)
+        assert followup.error is None, followup.error
+        expected = {f"({-signal.SIGINT}, 42)"}
+        if worker == "popen":
+            # The kernel interrupt can land after the cell's waitpid() reaped
+            # the worker but before CPython stored the status; the next wait()
+            # then reports 0. A surviving worker would time out above instead.
+            expected.add("(0, 42)")
+        assert followup.result_text in expected
+    finally:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def test_uv_timeout_does_not_interrupt_next_cell(uv_backend: KernelBackend):
+    for _ in range(3):
+        result = uv_backend.execute("import time; time.sleep(60)", timeout=0.3)
+        assert result.error and result.error["ename"] == "ExecutionTimeout"
+        result = uv_backend.execute("import time; time.sleep(0.2); 42", timeout=3)
+        assert result.error is None, result.error
+        assert result.result_text == "42"
+
+
+def test_drain_retries_empty_polls(monkeypatch: pytest.MonkeyPatch):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._active_execute_msg_id = "current"
+    backend._kc.get_iopub_msg.side_effect = [
+        {
+            "msg_type": "status",
+            "parent_header": {"msg_id": "previous"},
+            "content": {"execution_state": "idle"},
+        },
+        queue.Empty,
+        {
+            "msg_type": "status",
+            "parent_header": {"msg_id": "current"},
+            "content": {"execution_state": "idle"},
+        },
+    ]
+    try:
+        backend._drain_until_idle(grace=1)
+        assert backend._kc.get_iopub_msg.call_count == 3
+        assert backend._active_execute_msg_id is None
+    finally:
+        backend._kc = None
+        backend.shutdown()
+
+
+def test_drain_never_polls_past_the_deadline(monkeypatch: pytest.MonkeyPatch):
+    """pyzmq treats a negative timeout as "block forever"."""
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._active_execute_msg_id = "current"
+    backend._kc.get_iopub_msg.side_effect = queue.Empty
+    # The deadline (1.0) passes between two consecutive clock reads.
+    clock = iter([0.0, 0.999, 1.001, 1.002])
+    monkeypatch.setattr("gptme.tools.python_kernel._monotonic", lambda: next(clock))
+    try:
+        backend._drain_until_idle(grace=1.0)
+        polls = backend._kc.get_iopub_msg.call_args_list
+        assert polls
+        assert all(poll.kwargs["timeout"] > 0 for poll in polls)
+    finally:
+        backend._kc = None
+        backend.shutdown()
+
+
+def test_drain_without_active_request_does_not_poll():
+    backend = KernelBackend()
+    backend._kc = Mock()
+    try:
+        backend._drain_until_idle()
+        backend._kc.get_iopub_msg.assert_not_called()
+    finally:
+        backend._kc = None
+        backend.shutdown()
+
+
+def test_setup_interrupt_drains_the_setup_request():
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._kc.execute.return_value = "setup"
+    backend._kc.get_shell_msg.side_effect = KeyboardInterrupt
+    backend._kc.get_iopub_msg.return_value = {
+        "msg_type": "status",
+        "parent_header": {"msg_id": "setup"},
+        "content": {"execution_state": "idle"},
+    }
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            backend._exec_silent("pass")
+        assert backend._active_execute_msg_id == "setup"
+        backend._drain_until_idle()
+        assert backend._active_execute_msg_id is None
+        assert backend._kc.get_iopub_msg.call_count == 1
+    finally:
+        backend._kc = None
+        backend.shutdown()
+
+
+def test_interrupt_without_kernel_spec():
+    backend = KernelBackend()
+    backend._km = Mock(kernel_spec=None)
+    try:
+        backend.interrupt()
+        backend._km.interrupt_kernel.assert_called_once()
+    finally:
+        backend.shutdown()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
+def test_uv_workers_use_live_group_when_provisioner_has_no_pgid(monkeypatch):
+    from types import SimpleNamespace
+
+    backend = KernelBackend()
+    backend._km = SimpleNamespace(provisioner=SimpleNamespace(pid=100, pgid=None))
+    monkeypatch.setattr(os, "getpgid", lambda pid: 100)
+    monkeypatch.setattr(
+        KernelBackend, "_list_processes", staticmethod(lambda: _UV_GROUP)
+    )
+    kill = Mock()
+    monkeypatch.setattr(os, "kill", kill)
+    try:
+        backend._interrupt_uv_workers()
+        kill.assert_called_once_with(102, signal.SIGINT)
+    finally:
+        backend._km = None
+        backend.shutdown()
+
+
+@pytest.mark.parametrize("reply_status", ["ok", "error", "missing"])
+def test_interrupt_waits_for_its_control_reply(reply_status, monkeypatch):
+    """Old execute-idle cannot acknowledge a delayed control interrupt."""
+    backend = KernelBackend()
+    backend._km = Mock()
+    backend._km.kernel_spec.interrupt_mode = "message"
+    backend._kc = Mock()
+    backend._kc.session.msg.return_value = {"header": {"msg_id": "interrupt"}}
+    backend._active_execute_msg_id = "old-cell"
+    monkeypatch.setattr(backend, "_interrupt_uv_workers", Mock())
+    shutdown = Mock()
+    monkeypatch.setattr(backend, "shutdown", shutdown)
+    backend._kc.get_control_msg.side_effect = (
+        [
+            queue.Empty,
+            {
+                "msg_type": "interrupt_reply",
+                "parent_header": {"msg_id": "older"},
+                "content": {"status": "ok"},
+            },
+            {
+                "msg_type": "interrupt_reply",
+                "parent_header": {"msg_id": "interrupt"},
+                "content": {"status": reply_status},
+            },
+        ]
+        if reply_status != "missing"
+        else RuntimeError("control channel closed")
+    )
+    try:
+        backend.interrupt()
+        backend._kc.control_channel.send.assert_called_once_with(
+            {"header": {"msg_id": "interrupt"}}
+        )
+        backend._km.interrupt_kernel.assert_not_called()
+        if reply_status == "ok":
+            assert backend._kc.get_control_msg.call_count == 3
+            shutdown.assert_not_called()
+        else:
+            shutdown.assert_called_once()
+    finally:
+        backend._kc = None
+        backend._km = None
+        backend._bridge.stop()
+
+
+def test_silent_setup_timeout_drains_before_reuse(monkeypatch):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._kc.execute.return_value = "setup"
+    backend._kc.get_iopub_msg.return_value = {
+        "msg_type": "status",
+        "parent_header": {"msg_id": "setup"},
+        "content": {"execution_state": "idle"},
+    }
+    interrupt = Mock()
+    monkeypatch.setattr(backend, "interrupt", interrupt)
+    try:
+        with pytest.raises(RuntimeError, match="setup timed out"):
+            backend._exec_silent("pass", timeout=0)
+        interrupt.assert_called_once()
+        backend._kc.get_iopub_msg.assert_called_once()
+        assert backend._active_execute_msg_id is None
+    finally:
+        backend._kc = None
+        backend.shutdown()
+
+
+def test_uv_worker_idle_before_control_interrupt(uv_backend, monkeypatch):
+    """Force worker cancellation to finish the cell before sending control."""
+    assert (
+        uv_backend.execute(
+            "import subprocess; worker = subprocess.Popen(['sleep', '60'])"
+        ).error
+        is None
+    )
+    client = uv_backend._kc
+    manager = uv_backend._km
+    send = client.control_channel.send
+    receive = client.get_control_msg
+    requests: list[dict[str, Any]] = []
+    saw_idle = []
+    monkeypatch.setattr(client.control_channel, "send", requests.append)
+
+    def delayed_reply(timeout):
+        if requests:
+            # _interrupt_uv_workers has stopped worker.wait(), but the actual
+            # control interrupt is still unsent. Observe that old execute-idle
+            # really can arrive first, then release the delayed request.
+            while True:
+                msg = client.get_iopub_msg(timeout=5)
+                if (
+                    msg.get("msg_type") == "status"
+                    and msg.get("parent_header", {}).get("msg_id")
+                    == uv_backend._active_execute_msg_id
+                    and msg.get("content", {}).get("execution_state") == "idle"
+                ):
+                    saw_idle.append(msg)
+                    break
+            send(requests.pop())
+        return receive(timeout=timeout)
+
+    monkeypatch.setattr(client, "get_control_msg", delayed_reply)
+    result = uv_backend.execute("worker.wait()", timeout=0.3)
+    assert result.error and result.error["ename"] == "ExecutionTimeout"
+    assert len(saw_idle) == 1
+    assert uv_backend._km is manager  # acknowledgment preserves kernel state
+    followup = uv_backend.execute("worker.returncode, 6 * 7", timeout=3)
+    assert followup.error is None, followup.error
+    assert followup.result_text == f"({-signal.SIGINT}, 42)"
+
+
+def test_control_interrupt_deadline_replaces_kernel(monkeypatch: pytest.MonkeyPatch):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    shutdown = Mock()
+    monkeypatch.setattr(backend, "shutdown", shutdown)
+    clock = iter([0.0, 0.0, 6.0])
+    monkeypatch.setattr("gptme.tools.python_kernel._monotonic", lambda: next(clock))
+    backend._kc.get_control_msg.side_effect = queue.Empty
+    try:
+        backend._interrupt_via_control()
+        shutdown.assert_called_once()
+        assert backend._kc.get_control_msg.call_count == 1
+    finally:
+        backend._kc = None
+        backend._bridge.stop()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
+@pytest.mark.parametrize(
+    "case", ["no_pid", "gone", "own_group", "unlistable", "denied"]
+)
+def test_uv_worker_enumeration_failures_are_safe(
+    monkeypatch: pytest.MonkeyPatch, case: str
+):
+    from types import SimpleNamespace
+
+    backend = KernelBackend()
+    backend._km = SimpleNamespace(
+        provisioner=SimpleNamespace(pid=None if case == "no_pid" else 100, pgid=None)
+    )
+    getpgid = Mock(return_value=os.getpgrp() if case == "own_group" else 100)
+    if case == "gone":
+        getpgid.side_effect = ProcessLookupError
+    monkeypatch.setattr(os, "getpgid", getpgid)
+    listing = Mock(
+        return_value=_UV_GROUP,
+        side_effect=OSError if case == "unlistable" else None,
+    )
+    monkeypatch.setattr(KernelBackend, "_list_processes", listing)
+    kill = Mock(side_effect=PermissionError)
+    monkeypatch.setattr(os, "kill", kill)
+    try:
+        backend._interrupt_uv_workers()
+        if case == "denied":
+            kill.assert_called_once_with(102, signal.SIGINT)
+        else:
+            kill.assert_not_called()
+    finally:
+        backend._km = None
+        backend.shutdown()
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, RuntimeError])
+def test_failed_control_wait_reports_state_loss(monkeypatch, failure):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._kc.get_control_msg.side_effect = failure
+    shutdown = Mock()
+    monkeypatch.setattr(backend, "shutdown", shutdown)
+    try:
+        if failure is KeyboardInterrupt:
+            with pytest.raises(KeyboardInterrupt):
+                backend._interrupt_via_control()
+        else:
+            backend._interrupt_via_control()
+        shutdown.assert_called_once()
+        notice = backend._take_memory_notice()
+        assert notice and "interrupt" in notice and "lost" in notice
+    finally:
+        backend._kc = None
+        backend._bridge.stop()
+
+
+@pytest.mark.parametrize("stage", ["channels", "kernel"])
+def test_restart_retries_interrupted_cleanup_before_replacing_manager(
+    monkeypatch, stage
+):
+    backend = KernelBackend()
+    manager, client = Mock(), Mock()
+    backend._km, backend._kc = manager, client
+    backend._started = True
+    client.get_control_msg.side_effect = RuntimeError("closed")
+    failing_cleanup = (
+        client.stop_channels if stage == "channels" else manager.shutdown_kernel
+    )
+    failing_cleanup.side_effect = KeyboardInterrupt
+    factory = Mock(side_effect=AssertionError("replacement started before cleanup"))
+    monkeypatch.setattr("jupyter_client.KernelManager", factory)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            backend._interrupt_via_control()
+        assert not backend._started
+        assert backend._km is manager
+        with pytest.raises(KeyboardInterrupt):
+            backend._ensure_started()
+        factory.assert_not_called()
+        assert backend._km is manager
+        failing_cleanup.side_effect = None
+
+        def replacement():
+            manager.shutdown_kernel.assert_called_with(now=True)
+            assert backend._km is None and backend._kc is None
+            raise RuntimeError("old kernel cleaned; ready for replacement")
+
+        factory.side_effect = replacement
+        with pytest.raises(RuntimeError, match="old kernel cleaned"):
+            backend._ensure_started()
+    finally:
+        failing_cleanup.side_effect = None
+        backend.shutdown()
+
+
+def test_reset_preserves_pending_memory_notice(monkeypatch):
+    backend = KernelBackend()
+    backend._kc = Mock()
+    backend._kc.get_control_msg.side_effect = RuntimeError("closed")
+    backend._memory_notice = "Existing memory warning"
+    monkeypatch.setattr(backend, "shutdown", Mock())
+    try:
+        backend._interrupt_via_control()
+        notice = backend._take_memory_notice()
+        assert notice and notice.startswith("Existing memory warning\n")
+        assert "lost" in notice
+        assert backend._take_memory_notice() is None
+    finally:
+        backend._kc = None
+        backend._bridge.stop()
+
+
+def _running_members(pgid: int) -> list[str]:
+    """Group members still running; unreaped zombies are not workers."""
+    listing = subprocess.run(
+        ["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, check=True
+    ).stdout
+    return [
+        state
+        for group, state in (line.split(maxsplit=1) for line in listing.splitlines())
+        if int(group) == pgid and not state.startswith("Z")
+    ]
+
+
+@pytest.mark.parametrize("failure", [OSError, ValueError])
+def test_uv_enumeration_failure_retires_group(uv_backend, monkeypatch, failure):
+    """Without worker enumeration, fail closed rather than reuse a busy kernel."""
+    manager = uv_backend._km
+    pgid = manager.provisioner.pgid
+    monkeypatch.setattr(
+        KernelBackend, "_list_processes", Mock(side_effect=failure("cannot list"))
+    )
+    result = uv_backend.execute("import os; os.system('sleep 60')", timeout=0.3)
+    assert result.error and result.error["ename"] == "ExecutionTimeout"
+    assert "lost" in result.stderr
+    # The former launch group must contain no live workers, not just a dead uv.
+    deadline = time.monotonic() + 5
+    while _running_members(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _running_members(pgid)
+    followup = uv_backend.execute("6 * 7", timeout=3)
+    assert followup.error is None, followup.error
+    assert followup.result_text == "42"
+    assert uv_backend._km is not manager
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="procfs")
+def test_uv_interrupt_keeps_state_without_ps(uv_backend, monkeypatch):
+    """Slim container images ship without procps."""
+    manager = uv_backend._km
+    run = subprocess.run
+
+    def no_ps(args, *a, **kw):
+        if args[0] == "ps":
+            raise FileNotFoundError("ps")
+        return run(args, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", no_ps)
+    assert uv_backend.execute("kept = 42").error is None
+    result = uv_backend.execute("import os; os.system('sleep 60')", timeout=0.3)
+    assert result.error and result.error["ename"] == "ExecutionTimeout"
+    assert "lost" not in result.stderr
+    followup = uv_backend.execute("kept", timeout=3)
+    assert followup.error is None, followup.error
+    assert followup.result_text == "42"
+    assert uv_backend._km is manager
+
+
+def test_list_processes_includes_this_process():
+    if os.name != "posix":
+        pytest.skip("requires POSIX process groups")
+    me = (os.getpid(), os.getppid(), os.getpgrp())
+    assert me in KernelBackend._list_processes()
+
+
+def test_list_processes_parses_ps_without_procfs(monkeypatch: pytest.MonkeyPatch):
+    run = Mock(return_value=Mock(stdout="  100     1   100\n  101   100   100\n"))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(subprocess, "run", run)
+    assert KernelBackend._list_processes() == [(100, 1, 100), (101, 100, 100)]

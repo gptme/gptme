@@ -551,3 +551,56 @@ def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
         f"Heavy deps eagerly imported from gptme.lessons.hybrid_matcher: "
         f"stdout={result.stdout!r} stderr={result.stderr!r}"
     )
+
+
+def _skill_lesson(name: str) -> Lesson:
+    return Lesson(
+        path=Path(f"/tmp/skills/{name}/SKILL.md"),
+        metadata=LessonMetadata(name=name, description="wrap up the session"),
+        title=name,
+        description="wrap up the session",
+        category="skills",
+        body="",
+    )
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+@pytest.mark.parametrize(
+    ("names", "message"),
+    [
+        (["end", "python-repl"], "please send the backend logs and fix appending"),
+        (["python-repl"], "the cpython-repl-tool crashed"),
+    ],
+)
+def test_hybrid_skill_name_uses_word_boundaries(tmp_path, names, message):
+    """BM25 path matches skill names like LessonMatcher: never as a substring.
+
+    Regression for gptme/gptme#4869 in the hybrid matcher ("end" fired on "send").
+    """
+    lessons = [_skill_lesson(name) for name in names]
+    assert LessonMatcher().match(lessons, MatchContext(message=message)) == []
+
+    matcher = HybridLessonMatcher(
+        HybridConfig(
+            enable_semantic=False,
+            effectiveness_state_file=str(tmp_path / "none.json"),
+        )
+    )
+    results = matcher.match(lessons, MatchContext(message=message))
+    skill_tags = [t for r in results for t in r.matched_by if t.startswith("skill:")]
+    assert skill_tags == []
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_hybrid_skill_name_still_matches_whole_word(tmp_path):
+    lessons = [_skill_lesson("python-repl")]
+    matcher = HybridLessonMatcher(
+        HybridConfig(
+            enable_semantic=False,
+            effectiveness_state_file=str(tmp_path / "none.json"),
+        )
+    )
+    results = matcher.match(lessons, MatchContext(message="open a python repl"))
+    assert [t for r in results for t in r.matched_by if t.startswith("skill:")] == [
+        "skill:python-repl"
+    ]

@@ -1,6 +1,7 @@
 """Tests for server_elicit hook."""
 
 import threading
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,12 +15,17 @@ from gptme.hooks.server_confirm import current_conversation_id, current_session_
 from gptme.hooks.server_elicit import (
     PendingElicitation,
     _pending_elicitations,
+    cancel_pending,
     get_pending,
+    list_pending_events,
     register_pending,
     remove_pending,
     resolve_pending,
     server_elicit_hook,
 )
+
+if TYPE_CHECKING:
+    from gptme.server.api_v2_common import ElicitPendingEvent
 
 
 @pytest.fixture(autouse=True)
@@ -275,3 +281,111 @@ class TestConcurrency:
 
         assert len(errors) == 0
         assert len(results) == 10
+
+
+class TestReconnectReplay:
+    """Unanswered requests are listed for the ``connected`` snapshot."""
+
+    def test_lists_only_unanswered_for_conversation(self):
+        def event(eid: str) -> "ElicitPendingEvent":
+            return {
+                "type": "elicit_pending",
+                "elicit_id": eid,
+                "elicit_type": "text",
+                "prompt": eid,
+            }
+
+        register_pending("a", _make_request(), "conv-1", event("a"))
+        register_pending("b", _make_request(), "conv-2", event("b"))
+        register_pending("c", _make_request(), "conv-1", event("c"))
+        register_pending("legacy", _make_request())  # no payload: not replayable
+
+        assert [e["elicit_id"] for e in list_pending_events("conv-1")] == ["a", "c"]
+
+        # Answered but not yet removed by the waiting hook: no longer pending.
+        resolve_pending("a", ElicitationResponse(value="x"))
+        assert [e["elicit_id"] for e in list_pending_events("conv-1")] == ["c"]
+        assert list_pending_events("conv-3") == []
+
+    def test_cancel_wakes_hook_and_preserves_answered_requests(self):
+        """Interrupt releases the blocked hook without replacing accepted answers."""
+        current_conversation_id.set("conv-1")
+        current_session_id.set("sess-1")
+        answered = register_pending("answered", _make_request(), "conv-1")
+        answer = ElicitationResponse(value="accepted")
+        resolve_pending("answered", answer)
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.add_event.side_effect = lambda conv_id, _event: cancel_pending(
+            conv_id
+        )
+        with patch.dict(
+            "sys.modules",
+            {
+                "gptme.server.api_v2_sessions": MagicMock(
+                    SessionManager=mock_session_mgr
+                ),
+            },
+        ):
+            result = server_elicit_hook(_make_request())
+        assert result is not None and result.cancelled
+        assert answered.result is answer
+        assert list_pending_events("conv-1") == []
+        assert not cancel_pending("conv-1")
+
+    def test_failed_emit_does_not_replay_abandoned_question(self):
+        """Publishing failure cancels the hook and removes its replay entry."""
+        current_conversation_id.set("conv-1")
+        current_session_id.set("sess-1")
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.add_event.side_effect = RuntimeError("event bus failed")
+        with patch.dict(
+            "sys.modules",
+            {
+                "gptme.server.api_v2_sessions": MagicMock(
+                    SessionManager=mock_session_mgr
+                ),
+            },
+        ):
+            result = server_elicit_hook(_make_request())
+        assert result is not None and result.cancelled
+        assert list_pending_events("conv-1") == []
+        assert not _pending_elicitations
+
+    def test_hook_registers_payload_before_emitting(self):
+        """A client connecting while the hook waits sees the emitted payload."""
+        current_conversation_id.set("conv-1")
+        current_session_id.set("sess-1")
+        snapshots: list[list] = []
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.add_event.side_effect = lambda conv_id, _event: (
+            snapshots.append(list_pending_events(conv_id))
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "gptme.server.api_v2_sessions": MagicMock(
+                    SessionManager=mock_session_mgr
+                ),
+            },
+        ):
+
+            def resolve():
+                import time
+
+                time.sleep(0.1)
+                for eid, _ in list(_pending_elicitations.items()):
+                    resolve_pending(eid, ElicitationResponse(value="b"))
+
+            t = threading.Thread(target=resolve)
+            t.start()
+            server_elicit_hook(
+                _make_request(type="choice", prompt="Pick:", options=["a", "b"])
+            )
+            t.join(timeout=5)
+
+        emitted = mock_session_mgr.add_event.call_args[0][1]
+        assert snapshots == [[emitted]]
+        assert emitted["options"] == ["a", "b"]
+        # Answered and cleaned up: nothing left to replay.
+        assert list_pending_events("conv-1") == []

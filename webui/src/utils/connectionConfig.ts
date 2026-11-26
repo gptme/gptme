@@ -255,9 +255,11 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
 
   // Register fragment values as a server in the registry
   if (fragmentBaseUrl) {
+    // A link without a userToken means "no change": passing null would clear the
+    // stored token of a server that is already registered (#5223).
     const server = findOrCreateServerByUrl(fragmentBaseUrl, {
-      authToken: fragmentUserToken || null,
-      useAuthToken: Boolean(fragmentUserToken),
+      authToken: fragmentUserToken || undefined,
+      useAuthToken: fragmentUserToken ? true : undefined,
     });
     connectServer(server.id);
     setActiveServer(server.id);

@@ -247,6 +247,12 @@ to that UI's origin and enable the Compose ``--cors-origin`` command.
    to hang until each full response is ready, instead of streaming token by
    token.
 
+   ``X-Forwarded-Proto`` matters too: the server uses it to mark the auth
+   cookie ``Secure`` and to recognize ``https://`` requests from the bundled UI
+   as same-origin. Keep ``Host`` set to the hostname (and port, if it is not
+   the default) that browsers use, or cookie-authenticated uploads from the UI
+   are rejected as cross-origin.
+
 **Local-only access.** If you only want the server reachable from the host
 itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
 keep the default loopback bind — open an SSH tunnel from your client with
@@ -310,8 +316,11 @@ regardless of bind address. Loopback is a transport boundary, not an identity
 boundary: another local process must not gain shell and config access merely by
 reaching ``127.0.0.1``. A small set of public routes remain unauthenticated: the
 API root (``/api/v2``), version info (``/api/v2/version``), config metadata
-(``/api/v2/config``), Prometheus metrics (``/api/v0/metrics``), and the API
-documentation at ``/api/docs/``. Set ``GPTME_SERVER_TOKEN`` to a fixed value;
+(``/api/v2/config``), Prometheus metrics (``/api/v0/metrics``), the liveness
+probe (``/api/v2/server/health``, which reports session counts, an overall
+health level, and each slot's short ID, whether it is generating, and its
+elapsed generation time when known), and the API documentation at
+``/api/docs/``. Set ``GPTME_SERVER_TOKEN`` to a fixed value;
 if unset the server generates one and prints it at startup.
 
 - ``GPTME_DISABLE_AUTH`` disables bearer checks entirely
@@ -347,11 +356,33 @@ server access:
 A malicious web page cannot send credentialed cross-origin JSON requests
 to the local server because the browser's CORS preflight blocks them: the
 server does not return ``Access-Control-Allow-Origin`` headers for arbitrary
-origins (only for the configured ``--cors-origin``). Plain forms can POST
-without CORS, but cannot set ``Content-Type: application/json``, so the
-server rejects them as malformed.
+origins (only for the configured ``--cors-origin``).
 
-**2. DNS Rebinding**
+Preflight alone is not enough. ``multipart/form-data`` and ``text/plain``
+requests need no preflight, and the ``SameSite=Lax`` auth cookie is still sent
+by *same-site* pages, which includes any other port on the same host (for
+example an agent-started dev server on ``http://127.0.0.1:8888``). So every
+state-changing request (``POST``/``PUT``/``PATCH``/``DELETE``) authenticated
+only by the cookie is checked if it includes an ``Origin`` or ``Referer``.
+The server checks ``Origin`` first and falls back to ``Referer`` if ``Origin``
+is absent. If the source does not match the server's own origin or a named
+``--cors-origin``, the server returns ``403``. Requests with neither source
+header are allowed for non-browser clients. Requests with an
+``Authorization`` header are also exempt from this check, since a forged
+browser request cannot set one; an empty or invalid bearer token is rejected
+rather than falling back to the cookie.
+
+**2. Clickjacking**
+
+The bundled UI is served with ``X-Frame-Options: SAMEORIGIN`` and
+``Content-Security-Policy: frame-ancestors 'self'`` (plus any named
+``--cors-origin``), so other origins cannot frame an authenticated UI.
+
+The public ``/api/docs/`` page loads Swagger UI from unpkg pinned with
+Subresource Integrity and a restrictive Content-Security-Policy, so a
+compromised CDN cannot run script on the origin that owns the auth cookie.
+
+**3. DNS Rebinding**
 
 A malicious site can re-resolve its hostname to ``127.0.0.1`` after the page
 loads and thereby bypass CORS. Bearer authentication still blocks access to

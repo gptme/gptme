@@ -11,6 +11,8 @@ from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
 from ...util.context_measurement import measure_context_tokens
+from ...util.reduce import message_contains_tool_use
+from .engine import _has_reasoning_block
 
 logger = logging.getLogger(__name__)
 
@@ -130,14 +132,15 @@ def estimate_compaction_savings(
 
         # Phase 3: Estimate assistant message compression savings
         # Only for older messages (distance >= threshold) with enough tokens.
-        # Think-bearing messages are skipped by the engine (rewriting them would
-        # destroy the provider signature), so they must not count here either.
+        # The engine skips tool-call and reasoning-bearing messages (rewriting
+        # them breaks tool-call pairs or provider signatures), so they must
+        # not count here either.
         if (
             would_remove_tool_results
             and distance_from_end >= assistant_compression_age_threshold
             and msg.role == "assistant"
-            and "<think>" not in msg.content
-            and "<thinking>" not in msg.content
+            and not message_contains_tool_use(msg)
+            and not _has_reasoning_block(msg.content)
             and msg_tokens > assistant_compression_min_tokens
         ):
             # Compression targets 70% of original, so saves ~30%

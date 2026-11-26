@@ -658,3 +658,52 @@ def test_limitations_is_list(sample_messages, compression_config):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_concurrent_first_lookup_finds_default_provider(cleanup_registry, monkeypatch):
+    """A lookup that starts while another thread is mid-initialization must wait
+    for the registry to be filled, not see it marked done but empty."""
+    import threading
+
+    from gptme.tools.autocompact import context_provider as ctx_module
+
+    ctx_module._provider_registry.clear()
+    ctx_module._registry_initialized = False
+
+    loading = threading.Event()
+    release = threading.Event()
+
+    def slow_loader() -> None:
+        loading.set()
+        assert release.wait(timeout=10), "test never released the loader"
+
+    monkeypatch.setattr(ctx_module, "_load_entry_point_providers", slow_loader)
+
+    results: dict[str, object] = {}
+
+    def lookup(key: str) -> None:
+        try:
+            results[key] = ctx_module.get_context_provider("default")
+        except BaseException as e:
+            results[key] = e
+
+    first = threading.Thread(target=lookup, args=("first",), daemon=True)
+    second = threading.Thread(target=lookup, args=("second",), daemon=True)
+    try:
+        first.start()
+        assert loading.wait(timeout=10), "first lookup never started loading providers"
+
+        # The first lookup is now paused inside initialization.
+        second.start()
+        second.join(timeout=0.2)
+        assert second.is_alive(), f"second lookup did not wait for init: {results}"
+    finally:
+        # Always unblock the loader and reap both threads, so a failed assertion
+        # can't leave a thread inside the registry while fixtures reset it.
+        release.set()
+        for t in (first, second):
+            if t.is_alive():
+                t.join(timeout=10)
+    assert not first.is_alive() and not second.is_alive(), "lookup deadlocked"
+    assert isinstance(results["first"], DefaultContextProvider), results
+    assert isinstance(results["second"], DefaultContextProvider), results

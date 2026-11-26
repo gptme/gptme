@@ -222,11 +222,16 @@ def test_unsupported_sdk_configuration_is_rejected(provider_client, unsafe):
 def test_openrouter_inline_fallback_cannot_weaken_parameter_enforcement(
     provider_client,
 ):
+    import json
+
+    from openai import NotFoundError
+
     _, model, sent, status = provider_client
     status["code"] = 404
-    with pytest.raises(ValueError, match="parameter support"):
+    with pytest.raises(NotFoundError, match="No endpoints found"):
         strict_reply(model, max_provider_requests=2)
     assert len(sent) == 1
+    assert json.loads(sent[0].content)["provider"]["require_parameters"] is True
 
 
 def test_two_request_allowance_bounds_retries(provider_client):

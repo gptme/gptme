@@ -267,7 +267,10 @@ select = [
     "PT003", "PT006", "PT011", "PT022",  # pytest style
     "DTZ",    # flake8-datetimez (require timezone-aware datetimes)
 ]
-ignore = ["E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop often intentional
+# E741 (ambiguous variable name) is style-only and pedantic: a single-letter `l`
+# next to `1` is a readability nit, not a defect, and it interrupts a commit for
+# a name the author already chose deliberately. Erik, 2026-11-25.
+ignore = ["E741", "E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop often intentional
 #fixable = ["ALL"]
 #unfixable = ["B"]
 

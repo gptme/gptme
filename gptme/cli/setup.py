@@ -1,7 +1,9 @@
 """Setup functionality for gptme configuration and completions."""
 
+import importlib.metadata
 import importlib.util
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -10,8 +12,6 @@ from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
-
-import gptme
 
 from ..config import config_path, get_config, save_provider_config, set_config_value
 from ..config.models import ProviderConfig
@@ -71,138 +71,12 @@ def _setup_completions():
         console.print()
         return
 
-    if shell == "fish":
-        fish_completions_dir = Path.home() / ".config" / "fish" / "completions"
-        fish_completions_file = fish_completions_dir / "gptme.fish"
-
-        # Find the gptme installation directory
-        try:
-            gptme_dir = Path(gptme.__file__).parent.parent
-            source_file = gptme_dir / "scripts" / "completions" / "gptme.fish"
-
-            if not source_file.exists():
-                console.print(
-                    f"[red]❌ Completions file not found at {source_file}[/red]"
-                )
-                console.print()
-                return
-
-            # Create completions directory if it doesn't exist
-            fish_completions_dir.mkdir(parents=True, exist_ok=True)
-
-            # Check if completions file exists and verify it's correct
-            if fish_completions_file.exists():
-                needed_update = _check_completions_file(
-                    fish_completions_file, source_file
-                )
-                if not needed_update:
-                    console.print(
-                        f"[green]✅ Fish completions correctly installed[/green] [dim]({path_with_tilde(fish_completions_file)})[/dim]"
-                    )
-                    return
-            else:
-                if Confirm.ask("Install fish completions?", default=True):
-                    _install_fish_completions(fish_completions_file, source_file)
-                else:
-                    console.print("   [dim]Skipping fish completions[/dim]")
-                return
-
-        except ImportError:
-            console.print("[red]❌ Could not find gptme installation directory[/red]")
-
-    elif shell == "bash":
-        _setup_bash_completions()
-
-    elif shell == "zsh":
-        _setup_zsh_completions()
+    _install_click_completions(shell)
 
     console.print()
 
 
-def _check_completions_file(completions_file: Path, source_file: Path) -> bool:
-    """Check if completions file is correct and up-to-date. Returns True if update was recommended."""
-    if completions_file.is_symlink():
-        # Check if symlink points to the current source file
-        current_target = completions_file.resolve()
-        if current_target == source_file.resolve():
-            return False
-        console.print(
-            "[yellow]⚠️  Fish completions symlink points to outdated location[/yellow]"
-        )
-        console.print(f"   Current: [dim]{current_target}[/dim]")
-        console.print(f"   Expected: [dim]{source_file}[/dim]")
-
-        if Confirm.ask(
-            "Update completions to point to current installation?", default=True
-        ):
-            try:
-                completions_file.unlink()
-                _install_fish_completions(completions_file, source_file)
-            except OSError as e:
-                console.print(f"[red]❌ Failed to update completions: {e}[/red]")
-        else:
-            console.print("[yellow]⚠️  Completions may be outdated[/yellow]")
-        return True
-    # Regular file - check if it's the same content or offer to replace with symlink
-    console.print(
-        f"[yellow]⚠️  Fish completions file exists but is not a symlink[/yellow] [dim]({path_with_tilde(completions_file)})[/dim]"
-    )
-
-    # Check if content matches
-    try:
-        if completions_file.read_text() == source_file.read_text():
-            console.print("   [green]Content matches current version[/green]")
-            if Confirm.ask(
-                "Replace with symlink to automatically stay updated?",
-                default=False,
-            ):
-                completions_file.unlink()
-                _install_fish_completions(completions_file, source_file)
-        else:
-            console.print("   [red]Content differs from current version[/red]")
-            if Confirm.ask("Replace with current version?", default=True):
-                completions_file.unlink()
-                _install_fish_completions(completions_file, source_file)
-            return True
-    except OSError:
-        console.print("   [red]Could not read completions file[/red]")
-        if Confirm.ask("Replace with current version?", default=True):
-            completions_file.unlink()
-            _install_fish_completions(completions_file, source_file)
-        return True
-
-    return False
-
-
-def _install_fish_completions(fish_completions_file: Path, source_file: Path):
-    console.print(
-        Panel.fit(
-            Text("🐚 Shell Completions", style="bold blue"),
-            style="blue",
-            padding=(0, 2),
-        )
-    )
-
-    try:
-        fish_completions_file.symlink_to(source_file)
-        console.print(
-            f"[green]✅ Fish completions installed[/green]\n"
-            f"   [dim]{fish_completions_file}[/dim]"
-        )
-    except OSError:
-        # Fallback to copy if symlink fails
-        shutil.copy2(source_file, fish_completions_file)
-        console.print(
-            f"[green]✅ Fish completions installed[/green]\n"
-            f"   [dim]{fish_completions_file}[/dim]"
-        )
-
-    console.print(
-        "   [yellow]💡 Restart your shell or run 'exec fish' to enable completions[/yellow]"
-    )
-
-
-def _generate_click_completion(shell: str) -> str | None:
+def _generate_click_completion(shell: str, prog_name: str = "gptme") -> str | None:
     """Generate Click shell completion script for the given shell.
 
     Uses Click's built-in shell completion templates (Click 8.0+).
@@ -217,115 +91,91 @@ def _generate_click_completion(shell: str) -> str | None:
     if cls is None:
         return None
 
-    complete_var = "_GPTME_COMPLETE"
-    func_name = "_gptme_completion"
+    identifier = prog_name.replace("-", "_").replace(".", "_")
+    complete_var = f"_{identifier.upper()}_COMPLETE"
+    func_name = f"_{identifier}_completion"
 
-    return cls.source_template % {
+    template = cls.source_template
+    if shell == "fish":
+        # Click's template splits every comma, truncating comma-separated values.
+        template = template.replace(
+            'string split "," $completion', 'string split -m 1 "," $completion'
+        )
+    return template % {
         "complete_func": func_name,
         "complete_var": complete_var,
-        "prog_name": "gptme",
+        "prog_name": prog_name,
     }
 
 
-def _setup_bash_completions():
-    """Setup bash shell completions using Click's built-in completion."""
-    console.print(
-        Panel.fit(
-            Text("🐚 Bash Completions", style="bold blue"),
-            style="blue",
-            padding=(0, 2),
+def _install_click_completions(shell: str) -> None:
+    """Install completions for the installed distribution, without importing CLIs.
+
+    Optional entry points may not have their extras installed. Generating source
+    only needs their names; importing them here would make setup require every
+    extra (or, for ACP, risk starting a stdio protocol transport).
+    """
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    directories = {
+        "fish": config_home / "fish/completions",
+        "bash": data_home / "bash-completion/completions",
+        "zsh": data_home / "zsh/completions",
+    }
+    directory = directories[shell]
+    # ACP is a stdio transport with no CLI options. The others use argparse,
+    # not Click. Do not install scripts that would run them during completion.
+    non_click = {"gptme-acp", "gptme-eval-trends", "gptme-convert", "gptme-wut"}
+    scripts = {
+        ep.name: _generate_click_completion(shell, ep.name)
+        for ep in importlib.metadata.distribution("gptme").entry_points
+        if ep.group == "console_scripts" and ep.name not in non_click
+    }
+    updates: dict[Path, str] = {}
+    for name, script in scripts.items():
+        if script is None:
+            console.print(f"[red]❌ Unsupported completion shell: {shell}[/red]")
+            return
+        filename = (
+            f"_{name}"
+            if shell == "zsh"
+            else name + (".fish" if shell == "fish" else "")
         )
-    )
-
-    # Standard user bash completion directory
-    completions_dir = (
-        Path.home() / ".local" / "share" / "bash-completion" / "completions"
-    )
-    completions_file = completions_dir / "gptme"
-
-    if completions_file.exists():
-        console.print(
-            f"[green]✅ Bash completions already installed[/green] [dim]({path_with_tilde(completions_file)})[/dim]"
-        )
-        return
-
-    script = _generate_click_completion("bash")
-    if not script:
-        console.print("[red]❌ Failed to generate bash completions[/red]")
-        console.print(
-            "   [dim]You can manually add to ~/.bashrc:[/dim]\n"
-            '   [dim]eval "$(_GPTME_COMPLETE=bash_source gptme)"[/dim]'
-        )
-        return
-
-    completions_dir.mkdir(parents=True, exist_ok=True)
-    completions_file.write_text(script)
-    console.print(
-        f"[green]✅ Bash completions installed[/green]\n"
-        f"   [dim]{path_with_tilde(completions_file)}[/dim]"
-    )
-    console.print(
-        "   [yellow]💡 Restart your shell or run 'source ~/.bashrc' to enable completions[/yellow]"
-    )
-
-
-def _setup_zsh_completions():
-    """Setup zsh shell completions using Click's built-in completion."""
-    console.print(
-        Panel.fit(
-            Text("🐚 Zsh Completions", style="bold blue"),
-            style="blue",
-            padding=(0, 2),
-        )
-    )
-
-    # Standard user zsh completions directory
-    completions_dir = Path.home() / ".local" / "share" / "zsh" / "completions"
-    completions_file = completions_dir / "_gptme"
-
-    if completions_file.exists():
-        console.print(
-            f"[green]✅ Zsh completions already installed[/green] [dim]({path_with_tilde(completions_file)})[/dim]"
-        )
-        return
-
-    script = _generate_click_completion("zsh")
-    if not script:
-        console.print("[red]❌ Failed to generate zsh completions[/red]")
-        console.print(
-            "   [dim]You can manually add to ~/.zshrc:[/dim]\n"
-            '   [dim]eval "$(_GPTME_COMPLETE=zsh_source gptme)"[/dim]'
-        )
-        return
-
-    completions_dir.mkdir(parents=True, exist_ok=True)
-    completions_file.write_text(script)
-    console.print(
-        f"[green]✅ Zsh completions installed[/green]\n"
-        f"   [dim]{path_with_tilde(completions_file)}[/dim]"
-    )
-
-    # Check if the completions dir is in fpath
-    zshrc = Path.home() / ".zshrc"
-    fpath_line = f"fpath=({path_with_tilde(completions_dir)} $fpath)"
-    needs_fpath = True
-    if zshrc.exists():
-        zshrc_content = zshrc.read_text()
-        if (
-            str(completions_dir) in zshrc_content
-            or str(path_with_tilde(completions_dir)) in zshrc_content
+        destination = directory / filename
+        if not destination.exists() or destination.read_text() != script:
+            updates[destination] = script
+    if updates:
+        if not Confirm.ask(
+            f"Install/update {shell} completions for all gptme CLIs?", default=True
         ):
-            needs_fpath = False
-
-    if needs_fpath:
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        for destination, script in updates.items():
+            # Old Fish installs symlink into a source checkout. Never write
+            # through that link and overwrite the source (or another install).
+            if destination.is_symlink():
+                destination.unlink()
+            destination.write_text(script)
+    console.print(
+        f"[green]✅ {shell.capitalize()} completions up to date[/green] [dim]({path_with_tilde(directory)})[/dim]"
+    )
+    if shell == "zsh":
         console.print(
-            f"   [yellow]💡 Add this to your ~/.zshrc (before compinit):[/yellow]\n"
-            f"   [dim]{fpath_line}[/dim]"
+            "   Add this to ~/.zshrc before compinit, if not already present:"
         )
-    else:
+        # Plain text: Rich would wrap a long path or strip [bracketed] parts
+        # as markup, and the pasted command would point fpath elsewhere.
         console.print(
-            "   [yellow]💡 Restart your shell or run 'exec zsh' to enable completions[/yellow]"
+            f"   fpath=({shlex.quote(str(directory))} $fpath)",
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
         )
+    elif shell == "bash":
+        console.print(
+            "   Bash requires bash-completion; alternatively source the generated files in ~/.bashrc."
+        )
+    console.print("   Restart your shell to enable updated completions.")
 
 
 def _show_user_config_status():

@@ -119,6 +119,13 @@ def _collect_tool_modules(
                 full_submodule_name,
             )
             continue
+        except Exception:
+            # A plugin built against another gptme version (ImportError on a
+            # renamed symbol) or a module that raises at import must not take
+            # down tool discovery and startup; other plugin failures are
+            # logged and tolerated the same way.
+            logger.exception("Failed to import tool module %s", full_submodule_name)
+            continue
         modules.extend(_collect_tool_modules(full_submodule_name, submodule))
 
     return modules
@@ -134,6 +141,9 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError:
             logger.warning("Module or package %s not found", module_name)
+            continue
+        except Exception:
+            logger.exception("Failed to import tool module %s", module_name)
             continue
 
         modules = _collect_tool_modules(module_name, module)

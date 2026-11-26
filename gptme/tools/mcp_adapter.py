@@ -676,6 +676,11 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         return f"Failed to load server '{name}': config override must be a JSON object, got {type(config_override).__name__}"
     if config_override:
         for _field, _etype, _tname in [
+            # A list command (``["uvx", "x"]``) would otherwise be assigned raw
+            # to an existing server, or str()-coerced to "['uvx', 'x']" (#5152).
+            ("command", str, "a string"),
+            ("url", str, "a string"),
+            ("transport", str, "a string"),
             ("args", list, "a list"),
             ("env", dict, "a dict"),
             ("headers", dict, "a dict"),

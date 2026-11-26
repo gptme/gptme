@@ -108,6 +108,11 @@ def request_budget_exhausted() -> bool:
     return limit is not None and limit.used >= limit.requests
 
 
+def strict_request_bounds_active() -> bool:
+    """Whether the current reply runs under strict request bounds."""
+    return _limits.get() is not None
+
+
 def _validate_client(client: Any, provider: str, limit: _RequestLimits) -> None:
     if (
         provider != limit.provider

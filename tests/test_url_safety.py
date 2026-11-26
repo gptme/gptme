@@ -85,6 +85,39 @@ def test_wildcard_subdomain_allowed():
     _validate_url_scheme("https://api.github.com/v3/repos")  # no raise
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        # urlparse keeps the backslash in the hostname, but requests/urllib3
+        # and Chromium treat it as "/" and connect to evil.com.
+        "http://evil.com\\.allowed.com/x.pdf",
+        "https://evil.com\\@api.allowed.com/",
+    ],
+)
+def test_backslash_in_authority_rejected(url):
+    set_session_allow_hosts(["*.allowed.com"])
+    with pytest.raises(ValueError, match="backslash|credentials"):
+        _validate_url_scheme(url)
+
+
+def test_backslash_in_authority_rejected_when_unrestricted():
+    set_session_allow_hosts(None)
+    with pytest.raises(ValueError, match="backslash"):
+        _validate_url_scheme("http://evil.com\\.allowed.com/")
+
+
+def test_backslash_in_path_still_allowed():
+    set_session_allow_hosts(["*.allowed.com"])
+    _validate_url_scheme("https://api.allowed.com/a\\b")  # no raise
+    _validate_page_url("https://api.allowed.com/a\\b")  # no raise
+
+
+def test_page_url_rejects_backslash_in_authority():
+    set_session_allow_hosts(["*.allowed.com"])
+    with pytest.raises(ValueError, match="backslash"):
+        _validate_page_url("http://evil.com\\.allowed.com/")
+
+
 def test_wildcard_does_not_cover_base_domain():
     set_session_allow_hosts(["*.github.com"])
     with pytest.raises(ValueError, match="not in the session's allowed-hosts"):

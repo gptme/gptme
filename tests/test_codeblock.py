@@ -3547,3 +3547,37 @@ def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
     assert list(_extract_codeblocks(markdown)) == [
         Codeblock("save a.md", expected, fence=fence)
     ]
+
+
+def test_py_block_does_not_swallow_following_prose_and_output_block():
+    """`py` runs on the python tool like `ipython`, so it gets exec-lang fences.
+
+    Without that, the nested-fence heuristic folded the prose and the following
+    untagged output block into the code that gets executed.
+    """
+    md = "```py\nx = 1\n```\nThat sets x. Output format:\n```\nx=1\n```\n"
+    assert [b.content for b in Codeblock.iter_from_markdown(md)] == ["x = 1", "x=1"]
+
+
+def test_exec_langs_cover_python_and_shell_tool_block_types():
+    from gptme.codeblock import _EXEC_LANGS
+    from gptme.tools.python import tool as python_tool
+    from gptme.tools.shell import tool as shell_tool
+
+    for block_type in [*python_tool.block_types, *shell_tool.block_types]:
+        assert block_type in _EXEC_LANGS
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_py_block_triple_quoted_fence_is_literal(streaming: bool):
+    """`py` needs the same triple-quote tracking as `ipython`.
+
+    A bare fence inside a triple-quoted Python string is literal source, not a
+    markdown delimiter. Without the tracking, the `py` block is cut at the first
+    fence.
+    """
+    md = '```py\ntext = """\n```\nexample\n```\n"""\nprint(text)\n```\n'
+    blocks = Codeblock.iter_from_markdown(md, streaming=streaming)
+    assert [(b.lang, b.content) for b in blocks] == [
+        ("py", 'text = """\n```\nexample\n```\n"""\nprint(text)')
+    ]

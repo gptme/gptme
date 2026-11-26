@@ -1,5 +1,6 @@
 """Guard checks query only an isolated tmux server and synthetic files."""
 
+import os
 import shutil
 import subprocess
 import time
@@ -52,7 +53,17 @@ def pane_tree(tmp_path, monkeypatch):
             time.sleep(0.01)
         yield process, pane
     finally:
-        isolated_run(["tmux", "kill-server"], capture_output=True)
+        # tmux 3.4 leaves the socket file behind on kill-server; unlink it so
+        # each run does not leak one into $TMUX_TMPDIR/tmux-$UID.
+        try:
+            socket_path = isolated_run(
+                ["tmux", "display-message", "-p", "#{socket_path}"],
+                capture_output=True,
+            ).stdout.removesuffix(b"\n")
+        finally:
+            isolated_run(["tmux", "kill-server"], capture_output=True)
+        if socket_path:
+            Path(os.fsdecode(socket_path)).unlink(missing_ok=True)
 
 
 def blocked(use):

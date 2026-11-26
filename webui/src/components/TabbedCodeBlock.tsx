@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { iconForLangtag } from '@/utils/codeBlockIcons';
 import * as smd from '@/utils/smd';
 import { customRenderer } from '@/utils/markdownRenderer';
+import { staticHtmlPreviewSrcDoc } from '@/utils/remoteImages';
 
 /**
  * Props for the TabbedCodeBlock component
@@ -20,12 +21,16 @@ interface TabbedCodeBlockProps {
  * code view and preview. Preview is only available for markdown and HTML content.
  *
  * For markdown content, it uses the streaming markdown parser to render the preview.
- * For HTML content, it uses a sandboxed iframe to prevent XSS attacks.
+ * For HTML content, it uses a sandboxed iframe to prevent XSS attacks. Scripts
+ * and remote content stay off until the user asks for them.
  */
 export const TabbedCodeBlock: React.FC<TabbedCodeBlockProps> = ({ language, codeText, code }) => {
   const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
   const previewRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
+  // The exact content the user chose to run: new content needs a new click.
+  const [allowedHtml, setAllowedHtml] = useState<string | null>(null);
+  const isInteractive = allowedHtml === codeText;
 
   const LangIcon = iconForLangtag(language || '');
 
@@ -100,13 +105,34 @@ export const TabbedCodeBlock: React.FC<TabbedCodeBlockProps> = ({ language, code
             activeTab === 'code' || language === 'html' || renderError ? '!hidden' : ''
           }`}
         ></div>
-        {language === 'html' && (
-          <iframe
-            sandbox="allow-scripts"
-            srcDoc={codeText}
-            className={`min-h-[450px] w-full border-0 ${activeTab === 'code' || renderError ? '!hidden' : ''}`}
-            title="HTML Preview"
-          ></iframe>
+        {/* Mount only on the Preview tab: a mounted iframe parses its srcDoc
+            even while CSS keeps it hidden. The HTML is model output, so the
+            default preview is static; running it can send data to any host
+            (gptme/gptme#5223). */}
+        {language === 'html' && activeTab === 'preview' && !renderError && (
+          <>
+            {!isInteractive && (
+              <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+                <span>Static preview: scripts and remote content are blocked.</span>
+                <button
+                  type="button"
+                  className="rounded border px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  title="The page will be able to send data to any website"
+                  onClick={() => setAllowedHtml(codeText)}
+                >
+                  Run scripts and load remote content
+                </button>
+              </div>
+            )}
+            {/* Keyed so the new sandbox applies: it is read at navigation. */}
+            <iframe
+              key={isInteractive ? 'interactive' : 'static'}
+              sandbox={isInteractive ? 'allow-scripts' : ''}
+              srcDoc={isInteractive ? codeText : staticHtmlPreviewSrcDoc(codeText)}
+              className="min-h-[450px] w-full border-0"
+              title="HTML Preview"
+            ></iframe>
+          </>
         )}
       </div>
     </div>

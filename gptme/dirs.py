@@ -64,13 +64,14 @@ def get_state_dir() -> Path:
     return Path(user_state_dir("gptme"))
 
 
-def get_logs_dir() -> Path:
-    """Get the path for **conversation logs** (not to be confused with the logger file)"""
+def get_logs_dir(*, create: bool = True) -> Path:
+    """Get the conversation logs path, optionally without creating it."""
     if logs_home := _get_env_path("GPTME_LOGS_HOME"):
         path = Path(logs_home)
     else:
         path = get_data_dir() / "logs"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -90,17 +91,20 @@ def get_project_gptme_dir() -> Path | None:
             break
         path = path.parent
 
-    # if no gptme.toml file was found, look for a git repo
-    return _get_project_git_dir_walk()
+    # Keep both searches anchored at the process cwd, including the Git fallback.
+    return _get_project_git_dir_walk(Path.cwd())
 
 
 def get_project_git_dir() -> Path | None:
-    return _get_project_git_dir_walk()
+    # Prompt/project lookups follow the conversation workspace when one is set.
+    from .util.workspace import current_workspace
+
+    return _get_project_git_dir_walk(current_workspace())
 
 
-def _get_project_git_dir_walk() -> Path | None:
-    # if no gptme.toml file was found, look for a git repo
-    path = Path.cwd()
+def _get_project_git_dir_walk(path: Path | None = None) -> Path | None:
+    # Callers supply an absolute start (current_workspace() or Path.cwd()).
+    path = path if path is not None else Path.cwd()
     while True:
         if (path / ".git").exists():
             return path

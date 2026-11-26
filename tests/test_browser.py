@@ -32,9 +32,9 @@ def test_read_url_with_links():
 
 
 @pytest.mark.slow
-def test_snapshot_url():
-    """Test ARIA accessibility snapshot of a webpage."""
-    snapshot = snapshot_url("https://example.com")
+def test_snapshot_url(local_text_page):
+    """Test ARIA accessibility snapshot without depending on an external site."""
+    snapshot = snapshot_url(local_text_page)
 
     # Should return non-empty string
     assert snapshot, "Snapshot should not be empty"
@@ -42,12 +42,11 @@ def test_snapshot_url():
 
     # Should contain page metadata header
     assert snapshot.startswith("Page: "), "Snapshot should start with page metadata"
-    assert "URL: " in snapshot, "Snapshot should include current URL"
+    assert f"URL: {local_text_page}" in snapshot, "Snapshot should include current URL"
 
-    # Should contain typical ARIA elements
-    # example.com has a heading and a link
+    # Should contain the local fixture's heading and its ARIA role
     assert "Example Domain" in snapshot, "Should contain the page title/heading"
-    assert "link" in snapshot.lower() or "heading" in snapshot.lower(), (
+    assert 'heading "Example Domain" [level=1]' in snapshot, (
         "Should contain ARIA role information"
     )
 
@@ -298,14 +297,14 @@ def test_pdf_vision_hint():
 
 
 @pytest.mark.slow
-def test_open_page():
-    """Test opening a page for interactive browsing."""
-    snapshot = open_page("https://example.com")
+def test_open_page(local_text_page):
+    """Test opening a local page for interactive browsing."""
+    snapshot = open_page(local_text_page)
 
     # Should return ARIA snapshot with metadata
     assert snapshot, "Snapshot should not be empty"
     assert snapshot.startswith("Page: "), "Should include page metadata header"
-    assert "URL: " in snapshot, "Should include current URL"
+    assert f"URL: {local_text_page}" in snapshot, "Should include current URL"
     assert "Example Domain" in snapshot, "Should contain the page title"
 
 

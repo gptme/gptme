@@ -581,6 +581,34 @@ def test_estimate_compaction_savings():
     assert reasoning_savings >= 0
 
 
+def test_estimate_compaction_savings_skips_tool_call_messages():
+    """Phase 3 never rewrites a tool-call message, so the estimate must not count it."""
+    from gptme.tools import init_tools
+    from gptme.tools.autocompact import estimate_compaction_savings
+    from gptme.util.reduce import message_contains_tool_use
+
+    init_tools(["save", "shell"], include_mcp=False)
+    body = "\n".join(
+        f"def func_{i}(x):\n    return x * {i} + {i * 7} - 'value_{i}'"
+        for i in range(600)
+    )
+    big = Message("assistant", f"Writing it.\n\n```save src/big.py\n{body}\n```")
+    assert message_contains_tool_use(big)
+    log = [
+        Message("user", "write a big module"),
+        big,
+        Message("system", "Saved to src/big.py"),
+        Message("user", "thanks"),
+        Message("assistant", "done"),
+        Message("user", "next"),
+    ]
+    total, _, _ = estimate_compaction_savings(log, limit=1_000_000)
+
+    _, savings, _ = estimate_compaction_savings(log, limit=total - 10)
+
+    assert savings == 0
+
+
 def test_estimate_compaction_savings_tool_results_only_when_over_limit():
     """Test that tool result savings are only counted when over/close to limit.
 
@@ -2285,6 +2313,58 @@ def test_manual_trim_writes_compaction_event(tmp_path, monkeypatch):
     assert events[0]["messages"] == {"before": 3, "after": 2}
 
 
+def test_manual_trim_keeps_master_log_and_recovery_refs(tmp_path, monkeypatch):
+    """Manual trim must not rewrite the master log its recovery refs point into."""
+    # The test relies on the default head retention; pin it against the host env.
+    monkeypatch.setenv("GPTME_AUTOCOMPACT_KEEP_HEAD", "2")
+    import json
+    import re
+    from contextvars import ContextVar
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from gptme.llm.models import set_default_model
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.handlers import _compact_trim
+
+    # Keep the real model lookup throughout compression without leaking its state.
+    monkeypatch.setattr(
+        "gptme.llm.models.resolution._default_model_var",
+        ContextVar("test_default_model", default=None),
+    )
+    set_default_model("openai/gpt-4")
+    original = " ".join(
+        f"Sentence number {i} explains detail alpha{i} beta{i} gamma{i}."
+        for i in range(400)
+    )
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "explain it"),
+            Message("assistant", original),
+            Message("user", "now run it"),
+            Message("assistant", "ok"),
+            Message("user", "thanks"),
+            Message("assistant", "the last answer"),
+        ],
+        logdir=tmp_path / "conv",
+    )
+    manager.write()
+    ctx = MagicMock()
+    ctx.manager = manager
+    ctx.args = ["trim"]
+
+    out = list(_compact_trim(ctx, manager.log.messages))
+    assert "Trim compaction completed" in out[-1].content
+
+    compacted = manager.log.messages[2].content
+    assert compacted != original
+    m = re.search(r"Master context: (\S+) \(bytes (\d+)-(\d+)\)", compacted)
+    assert m, compacted[-400:]
+    data = Path(m.group(1)).read_bytes()[int(m.group(2)) : int(m.group(3))]
+    assert json.dumps(original) in data.decode(errors="replace")
+
+
 def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     from unittest.mock import MagicMock
 
@@ -3845,6 +3925,223 @@ def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
     assert any("truncated to fit context budget" in c for c in contents), (
         "Truncation notice missing"
     )
+
+
+def test_resume_via_llm_small_budget_tail_targets_ratio(tmp_path, monkeypatch):
+    """Summarize must land the view at TRIM_TARGET_RATIO of the budget, not
+    just under it. Keeping the recent tail up to the budget itself left small
+    windows (GPTME_CONTEXT_BUDGET=6000, or a 16k-window local model) at
+    97-99% after every compaction, so the next turn re-summarized."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    filler = "lorem ipsum dolor sit amet " * 60
+    messages = [Message("system", "system prompt")]
+    for i in range(20):
+        messages.append(Message("user", f"turn {i} {filler}"))
+        messages.append(Message("assistant", f"answer {i} {filler}"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kwargs: Message("assistant", "## Objective\nkeep going"),
+    )
+    fake_model = SimpleNamespace(
+        model="gpt-4",
+        context=16_384,
+        max_output=8192,
+        full="openai/gpt-4",
+        context_budget=None,
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+    budget = 6000
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+    assert len_tokens(messages, model="gpt-4") > budget
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    new_msgs = manager.log.messages
+    total = len_tokens(new_msgs, model="gpt-4")
+    assert total <= TRIM_TARGET_RATIO * budget, (
+        f"Compacted view {total} exceeds target {TRIM_TARGET_RATIO * budget:.0f} "
+        f"of budget {budget}; the next turn would re-trigger compaction"
+    )
+    # Recent history is still kept verbatim, just bounded.
+    assert any(m.content.startswith("answer 19 ") for m in new_msgs)
+    # A following exchange of the same size fits under the trigger.
+    next_turn = messages[-2:]
+    assert total + len_tokens(next_turn, model="gpt-4") < budget
+
+
+def test_resume_via_llm_target_scales_with_provider_usage(tmp_path, monkeypatch):
+    """The trigger compares provider-reported usage (tool schemas, template
+    overhead, tokenizer drift), not the stored-log estimate. When the provider
+    reports more than the estimate, the summarized view must shrink by the same
+    factor, or that gap eats the hysteresis headroom and every turn recompacts."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.context_measurement import (
+        anchor_context_usage,
+        input_log_digest,
+        measure_context_tokens,
+    )
+    from gptme.util.tokens import len_tokens
+
+    filler = "lorem ipsum dolor sit amet " * 60
+    messages = [Message("system", "system prompt")]
+    for i in range(20):
+        messages.append(Message("user", f"turn {i} {filler}"))
+        messages.append(Message("assistant", f"answer {i} {filler}"))
+    # The last response carries provider usage 25% above the local estimate.
+    prefix = messages[:-1]
+    inflation = 1.25
+    messages[-1] = Message(
+        "assistant",
+        messages[-1].content,
+        metadata={
+            "usage": {
+                "input_tokens": int(len_tokens(prefix, model="gpt-4") * inflation)
+            }
+        },
+    )
+    anchor_context_usage(
+        messages[-1], len(prefix), input_log_digest(prefix), "openai/gpt-4"
+    )
+    estimated = len_tokens(messages, model="gpt-4")
+    measured = measure_context_tokens(messages, "openai/gpt-4")
+    assert measured > estimated
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda msgs, **kwargs: Message("assistant", "## Objective\nkeep going"),
+    )
+    fake_model = SimpleNamespace(
+        model="gpt-4",
+        context=16_384,
+        max_output=8192,
+        full="openai/gpt-4",
+        context_budget=None,
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+    budget = 6000
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    total = len_tokens(manager.log.messages, model="gpt-4")
+    assert total * measured / estimated <= TRIM_TARGET_RATIO * budget
+    assert any(m.content.startswith("answer 19 ") for m in manager.log.messages)
+
+
+def test_native_compaction_tail_targets_ratio(tmp_path, monkeypatch):
+    """Anthropic-native compaction must size the kept tail toward
+    TRIM_TARGET_RATIO of the budget too, not the full budget. Sizing to the
+    full budget keeps more whole steps verbatim, so the view lands just under
+    the trigger and the next turn compacts again."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager, prepare_messages
+    from gptme.tools.autocompact import TRIM_TARGET_RATIO
+    from gptme.tools.autocompact import native_anthropic as native
+    from gptme.tools.autocompact.resume import (
+        _apply_native_compaction,
+        _split_recent_tail,
+    )
+
+    filler = "lorem ipsum dolor sit amet " * 30
+    messages = [Message("system", "system prompt")]
+    for i in range(12):
+        messages.append(Message("user", f"turn {i} {filler}"))
+        messages.append(Message("assistant", f"answer {i} {filler}"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+
+    captured: list[Message] = []
+    monkeypatch.setattr(native, "anthropic_compaction_supported", lambda _: True)
+
+    def compact(prefix, *args, **kwargs):
+        captured.extend(prefix)
+        return Message(
+            "assistant",
+            "summary",
+            metadata={
+                "anthropic_compaction_block": {
+                    "type": "compaction",
+                    "content": "summary",
+                    "signature": "signed",
+                }
+            },
+        )
+
+    monkeypatch.setattr(native, "anthropic_native_compact", compact)
+    budget = 6000
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+    prepared = prepare_messages(messages)
+    head = prepared[:1]
+    body = prepared[1:]
+    head_tokens = len_tokens(head, model="gpt-4")
+
+    # What the pre-fix sizing (full budget) would have kept verbatim.
+    _, full_budget_tail = _split_recent_tail(
+        body, budget - head_tokens - native.COMPACT_MAX_TOKENS, model="gpt-4"
+    )
+    target_limit = int(budget * TRIM_TARGET_RATIO) - (
+        head_tokens + native.COMPACT_MAX_TOKENS
+    )
+    _, target_tail = _split_recent_tail(body, target_limit, model="gpt-4")
+    # Sanity: the fixture must discriminate the two sizings.
+    assert target_tail and len(target_tail) < len(full_budget_tail)
+
+    results = list(
+        _apply_native_compaction(
+            manager,
+            prepared,
+            use_view_branch=False,
+            compact_instructions=None,
+            keep_recent_tokens=100_000,
+            keep_head=0,
+            model_meta=SimpleNamespace(
+                model="gpt-4",
+                context=16_384,
+                max_output=8192,
+                full="openai/gpt-4",
+                context_budget=None,
+            ),
+            llm_unlocked=None,
+        )
+    )
+    assert any("Native compaction completed" in m.content for m in results)
+
+    new_msgs = manager.log.messages
+    kept = [m for m in new_msgs[1:] if not native.compaction_block_of(m)]
+    # Recent steps are still kept verbatim, bounded by the target.
+    assert kept and kept[-1].content.startswith("answer 11 ")
+    assert len_tokens(kept, model="gpt-4") <= target_limit
+    # A step the full-budget sizing would have kept is summarized instead.
+    newly_summarized = [m for m in full_budget_tail if m not in kept]
+    assert newly_summarized
+    assert all(m in captured for m in newly_summarized)
 
 
 def test_truncate_to_tokens_preserves_tail_sections():

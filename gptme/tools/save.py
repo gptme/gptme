@@ -474,7 +474,11 @@ def _validate_and_execute(
         try:
             baseline = _SaveBaseline.capture(path)
         except OSError as err:
-            yield Message("system", f"Cannot preview save to {path}: {err}")
+            yield Message(
+                "system",
+                f"Cannot preview save to {path}: {err}",
+                metadata={"tool_status": "failed"},
+            )
             return
 
         def save_confirmed(

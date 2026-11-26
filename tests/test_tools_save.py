@@ -626,3 +626,45 @@ def test_append_rechecks_target_after_create_confirmation(tmp_path: Path, monkey
     messages = list(execute_append_impl("hello\n", target))
     assert len(messages) == 1
     assert "not a regular file" in messages[0].content
+
+
+def test_failed_save_preview_is_marked_failed(tmp_path: Path) -> None:
+    """A save that cannot even be previewed carries tool_status=failed (#5152)."""
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    target = blocker / "x.txt"  # parent is a regular file
+
+    messages = list(execute_save("content\n", [str(target)], None))
+    assert messages[-1].content.startswith("Cannot preview save")
+    assert (messages[-1].metadata or {}).get("tool_status") == "failed"
+
+
+def test_execute_with_confirmation_marks_swallowed_error_failed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An exception caught by execute_with_confirmation carries tool_status=failed.
+
+    The error used to be a plain system message, so the server reported a
+    failed save as completed (#5152).
+    """
+    from gptme.util.ask_execute import execute_with_confirmation
+
+    # Production behavior: the helper only re-raises under pytest.
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    target = tmp_path / "x.txt"
+
+    def fail(content, path):
+        raise FileNotFoundError(2, "No such file or directory", str(path))
+
+    messages = list(
+        execute_with_confirmation(
+            "content\n",
+            [str(target)],
+            None,
+            execute_fn=fail,
+            get_path_fn=lambda code, args, kwargs: target,
+            allow_edit=False,
+        )
+    )
+    assert messages[-1].content.startswith("Error during execution:")
+    assert (messages[-1].metadata or {}).get("tool_status") == "failed"

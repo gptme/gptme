@@ -151,7 +151,6 @@ from .shell_memory import Target as MemoryTarget
 from .shell_memory import kill_group
 from .shell_memory import watch as watch_memory
 from .shell_validation import (
-    _find_first_unquoted_pipe,
     check_with_shellcheck,
     format_denial,
     format_denylist_denial,
@@ -178,42 +177,6 @@ def _parse_bash(source: bytes) -> "Node":
     from tree_sitter import Language, Parser
 
     return Parser(Language(tree_sitter_bash.language())).parse(source).root_node
-
-
-def _redirect_background_stdin(command: str) -> str:
-    """Redirect stdin before unquoted ``&`` operators in a shell command.
-
-    Appending ``< /dev/null`` to a command ending in ``&`` creates a separate
-    null command after the background operator. The background process keeps
-    the persistent shell's stdin and can consume subsequent tool commands. If
-    the asynchronous list has a trailing foreground command, redirect that
-    command as well.
-    """
-    source = command.encode("utf-8")
-    root = _parse_bash(source)
-    if root.has_error:
-        # Grammar gap: cannot reliably classify ``&`` operators without the
-        # AST, so leave the command unchanged.
-        return command
-
-    positions: list[int] = []
-    pending = [root]
-    while pending:
-        node = pending.pop()
-        if (
-            node.type == "&"
-            and not node.is_named
-            and node.parent is not None
-            and node.parent.type != "binary_expression"
-        ):
-            positions.append(node.start_byte)
-        pending.extend(node.children)
-
-    for position in sorted(positions, reverse=True):
-        source = source[:position].rstrip() + b" < /dev/null " + source[position:]
-    if positions and not source.rstrip().endswith(b"&"):
-        source += b" < /dev/null"
-    return source.decode("utf-8")
 
 
 def strip_ansi_codes(text: str) -> str:
@@ -1341,41 +1304,10 @@ class ShellSession:
             self._restart_after_death(self.process.returncode, "before this command")
             assert self.process.stdin
 
-        # Redirect stdin to /dev/null to prevent commands from inheriting bash's pipe stdin
-        # Use shlex to properly parse commands and respect quotes
-        # Only add for commands that don't already redirect stdin
-        try:
-            command_parts = list(
-                shlex.shlex(command, posix=True, punctuation_chars=True)
-            )
-
-            # Check if there's already stdin redirection
-            has_stdin_redirect = (
-                "<" in command_parts or "<<" in command_parts or "<<<" in command_parts
-            )
-
-            # For pipelines, redirect stdin for the first command only
-            if "|" in command_parts and not has_stdin_redirect:
-                # Find first unquoted pipe in original command
-                # We can't use shlex.join() because it quotes shell operators like 2>&1
-                try:
-                    pipe_pos = _find_first_unquoted_pipe(command)
-                    if pipe_pos is not None and pipe_pos > 0:
-                        first_cmd = command[:pipe_pos].rstrip()
-                        rest = command[pipe_pos + 1 :].lstrip()
-                        command = f"{first_cmd} < /dev/null | {rest}"
-                except Exception as e:
-                    # Fallback to raw command if parsing fails
-                    logger.warning(f"Failed to parse pipe in command '{command}': {e}")
-            elif not has_stdin_redirect and "|" not in command_parts:
-                # Redirect background commands before ``&`` so they cannot
-                # consume future input sent to the persistent shell.
-                redirected = _redirect_background_stdin(command)
-                command = (
-                    redirected if redirected != command else command + " < /dev/null"
-                )
-        except ValueError as e:
-            logger.warning(f"Failed shlex parsing command, using raw command: {e}")
+        # No per-command stdin rewrite: _encode_command_payload runs the whole
+        # block as `eval ... </dev/null`, so every command (background jobs
+        # included) already reads EOF. Rewriting `|` by string scan broke
+        # `case a|b)`, `[[ =~ (a|b) ]]` and `|&` pipelines.
 
         # Issue #408: Drain any leftover stderr from previous commands BEFORE sending new command
         # This ensures we don't mix stderr from previous commands with the current one

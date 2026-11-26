@@ -1013,29 +1013,30 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
                 fix_hint="Consider removing the path component; the Anthropic SDK appends its own paths",
             )
         )
-    else:
-        failure = _probe_proxy_connect(hostname, port, parsed.scheme)
-        details = f"Proxy: {parsed.scheme}://{display_host}" if verbose else None
-        if failure is None:
-            results.append(
-                CheckResult(
-                    name="Proxy: LLM_PROXY_URL",
-                    status=CheckStatus.OK,
-                    message=f"Configured and reachable ({display_host})",
-                    details=details,
-                )
+
+    # Probe even when the path warned: a dead proxy must not hide behind it.
+    failure = _probe_proxy_connect(hostname, port, parsed.scheme)
+    if failure is not None:
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.WARNING,
+                message=f"Direct connection to proxy failed ({display_host})",
+                details=failure if verbose else None,
+                # The SDK may reach the proxy through HTTPS_PROXY, so a failed
+                # direct connection does not by itself mean LLM calls fail.
+                fix_hint="Check the proxy host/port and direct network access",
             )
-        else:
-            results.append(
-                CheckResult(
-                    name="Proxy: LLM_PROXY_URL",
-                    status=CheckStatus.WARNING,
-                    message=f"Configured but unreachable ({display_host})",
-                    details=failure if verbose else None,
-                    fix_hint="Check the proxy host/port and network access; "
-                    "LLM calls fail while it is unreachable",
-                )
+        )
+    elif not (parsed.path and parsed.path != "/"):
+        results.append(
+            CheckResult(
+                name="Proxy: LLM_PROXY_URL",
+                status=CheckStatus.OK,
+                message=f"Configured and reachable ({display_host})",
+                details=f"Proxy: {parsed.scheme}://{display_host}" if verbose else None,
             )
+        )
 
     return results
 
@@ -2301,6 +2302,15 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
         gptme-doctor --json       # Machine-readable output
         gptme-doctor --fix        # Repair config corruption and provider setup
     """
+    sys.exit(doctor(verbose, output_json, fix))
+
+
+def doctor(verbose: bool = False, output_json: bool = False, fix: bool = False) -> int:
+    """Run diagnostics (and repair with ``fix``) and return the exit code.
+
+    Shared by the ``gptme-doctor`` CLI, which exits with the code, and the
+    ``/doctor`` chat command, which must not end the chat session.
+    """
     if fix and output_json:
         raise click.UsageError("--fix cannot be used with --json")
 
@@ -2312,7 +2322,7 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
         for line in repair_failures:
             click.echo(f"Error: {line}", err=True)
         if repair_failures:
-            sys.exit(2)
+            return 2
 
     results, summary = run_diagnostics(verbose)
     interactive_repair = fix and _is_interactive_terminal()
@@ -2337,14 +2347,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
             ],
         }
         click.echo(json.dumps(output, indent=2))
-        sys.exit(1 if summary["error"] > 0 else 0)
+        return 1 if summary["error"] > 0 else 0
     exit_code = print_results(results, summary, verbose)
     if not fix or not _provider_repair_needed(results):
-        sys.exit(exit_code)
+        return exit_code
 
     if not interactive_repair:
         click.echo("Interactive repair skipped: run gptme-doctor --fix in a terminal")
-        sys.exit(exit_code)
+        return exit_code
 
     blocking_source = _model_override_blocking_repair()
     if blocking_source:
@@ -2352,7 +2362,7 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
             f"Provider repair cannot replace the active {blocking_source} model "
             "override. Update or unset that override, then rerun gptme-doctor --fix."
         )
-        sys.exit(exit_code)
+        return exit_code
 
     subscription = _subscription_default_candidate(results)
     try:
@@ -2365,14 +2375,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
                 f"Use the detected {subscription} login as the default ({model})?",
                 default=True,
             ):
-                sys.exit(exit_code)
+                return exit_code
             set_config_value("models.default", model)
         else:
             if not click.confirm(
                 "No working provider is configured. Run provider setup now?",
                 default=True,
             ):
-                sys.exit(exit_code)
+                return exit_code
             from .setup import ask_for_api_key
 
             provider, _ = ask_for_api_key(require_default_model=True)
@@ -2385,14 +2395,14 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
             set_config_value("models.default", selected_model)
     except (KeyboardInterrupt, click.Abort):
         click.echo("\nProvider repair cancelled.")
-        sys.exit(exit_code)
+        return exit_code
     except Exception as exc:
         click.echo(f"Provider repair failed: {exc}", err=True)
-        sys.exit(1)
+        return 1
 
     repaired_results, repaired_summary = run_diagnostics(verbose)
     repaired_exit_code = print_results(repaired_results, repaired_summary, verbose)
-    sys.exit(repaired_exit_code)
+    return repaired_exit_code
 
 
 if __name__ == "__main__":

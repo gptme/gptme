@@ -1048,11 +1048,11 @@ export const ChatInput: FC<Props> = ({
   const autoFocus = use$(autoFocus$);
   const conversation = conversationId ? use$(conversations$.get(conversationId)) : undefined;
   const isGenerating = conversation?.isGenerating || !!conversation?.executingTool;
-  // "Busy" also covers a pending tool confirmation: generation is paused waiting
-  // for the user, but the step isn't done. Queueing/flushing must treat this as
-  // busy, otherwise a queued message flushes mid-step and the server rejects it
-  // with "Generation already in progress".
-  const isBusy = isGenerating || !!conversation?.pendingTool;
+  // "Busy" also covers a pending tool confirmation or elicitation: generation
+  // is paused waiting for the user, but the step isn't done. Queueing/flushing
+  // must treat this as busy, otherwise a queued message flushes mid-step and the
+  // server rejects it with "Generation already in progress".
+  const isBusy = isGenerating || !!conversation?.pendingTool || !!conversation?.pendingElicitation;
   const placeholder = isReadOnly
     ? 'This is a demo conversation (read-only)'
     : connectionStatus === 'connecting'

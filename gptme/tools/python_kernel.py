@@ -22,10 +22,13 @@ import io
 import logging
 import os
 import pickle
+import queue
 import secrets
+import signal
 import socket
 import struct
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
@@ -512,6 +515,7 @@ class KernelBackend:
         self._registered_stubs: list[str] = []
         # Track last synced working directory; None forces a sync on first execute.
         self._last_cwd: str | None = None
+        self._active_execute_msg_id: str | None = None
         # Explanation from the memory guard after it killed the kernel; reported
         # to the model once, with the next cell's output.
         self._memory_notice: str | None = None
@@ -650,6 +654,11 @@ class KernelBackend:
             else:
                 return
 
+        # An interrupt can abort shutdown after marking the kernel unusable.
+        # Keep its handles until cleanup succeeds, before assigning a replacement.
+        if self._km is not None or self._kc is not None:
+            self.shutdown()
+
         # Restart the bridge server if it was stopped (e.g. after shutdown()).
         if self._bridge._sock is None:
             self._bridge.start()
@@ -700,6 +709,13 @@ class KernelBackend:
                     "Project Python lacks ipykernel; using 'uv run --with ipykernel'"
                 )
                 self._set_kernel_cmd(uv_cmd)
+                # The kernel runs as a child of `uv`. A signal-mode interrupt
+                # is sent to the whole process group, so the kernel gets SIGINT
+                # once directly and again when uv forwards its own copy; the
+                # second lands in the next cell. Interrupt via the control
+                # channel instead: ipykernel then signals only itself.
+                assert self._km.kernel_spec is not None
+                self._km.kernel_spec.interrupt_mode = "message"
                 using_uv = True
             else:
                 if project_python:
@@ -879,6 +895,7 @@ class KernelBackend:
         self._kc = None
         self._km = None
         self._last_cwd = None
+        self._active_execute_msg_id = None
         # _registered_stubs intentionally kept so they are re-pushed on the next start.
 
     # ------------------------------------------------------------------
@@ -903,11 +920,13 @@ class KernelBackend:
         msg_id = self._kc.execute(
             code, silent=True, store_history=False, allow_stdin=False
         )
+        self._active_execute_msg_id = msg_id
         deadline = _monotonic() + timeout
         while True:
             remaining = deadline - _monotonic()
             if remaining <= 0:
                 self.interrupt()
+                self._drain_until_idle()
                 raise RuntimeError("Kernel setup timed out; cell was not executed")
             try:
                 msg = self._kc.get_shell_msg(timeout=min(remaining, 1.0))
@@ -922,6 +941,7 @@ class KernelBackend:
                         f"Kernel setup failed: {content.get('ename')}: "
                         f"{content.get('evalue')}"
                     )
+                self._active_execute_msg_id = None
                 return
 
     def execute(self, code: str, timeout: float | None = 120) -> KernelExecResult:
@@ -1000,6 +1020,7 @@ class KernelBackend:
             code, silent=False, store_history=True, allow_stdin=False
         )
         self._bridge.active_cell = msg_id
+        self._active_execute_msg_id = msg_id
         deadline = _monotonic() + timeout if timeout is not None else None
 
         timed_out = False
@@ -1172,6 +1193,7 @@ class KernelBackend:
             retained_bytes += len(image.data)
 
         self._bridge.active_cell = None
+        self._active_execute_msg_id = None
         return KernelExecResult(
             stdout=_with_marker(stdout_parts, stdout_bytes, stdout_total_bytes),
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
@@ -1183,24 +1205,152 @@ class KernelBackend:
 
     def _drain_until_idle(self, grace: float = 5.0) -> None:
         """Consume iopub messages until the kernel reports idle or grace elapses."""
+        if self._active_execute_msg_id is None:
+            return
         deadline = _monotonic() + grace
-        while _monotonic() < deadline:
+        # One clock read per poll: pyzmq blocks forever on a negative timeout.
+        while (remaining := deadline - _monotonic()) > 0:
             try:
-                msg = self._kc.get_iopub_msg(timeout=min(deadline - _monotonic(), 0.5))
+                msg = self._kc.get_iopub_msg(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue
             except Exception:
                 break
             if (
                 msg.get("msg_type") == "status"
+                and msg.get("parent_header", {}).get("msg_id")
+                == self._active_execute_msg_id
                 and msg.get("content", {}).get("execution_state") == "idle"
             ):
+                self._active_execute_msg_id = None
                 break
+
+    @staticmethod
+    def _list_processes() -> list[tuple[int, int, int]]:
+        """Return ``(pid, ppid, pgid)`` for every visible process.
+
+        Linux reads procfs directly: slim container images ship without ``ps``.
+        """
+        processes = []
+        if sys.platform == "linux":
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                try:
+                    stat = Path(f"/proc/{entry}/stat").read_bytes()
+                except OSError:  # exited since the listing, or hidden from us
+                    continue
+                # The parenthesised command name may contain spaces or ")".
+                fields = stat.rpartition(b")")[2].split()
+                processes.append((int(entry), int(fields[1]), int(fields[2])))
+            return processes
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid=,pgid="],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        for line in listing.stdout.splitlines():
+            pid, ppid, pgid = map(int, line.split())
+            processes.append((pid, ppid, pgid))
+        return processes
+
+    def _interrupt_uv_workers(self) -> bool:
+        """Signal cell workers without signalling uv or the kernel twice.
+
+        uv leads the launch group and forwards signals to its Python child.
+        Message-mode interruption reaches that child only, so separately signal
+        the other members of the same group, preserving signal-mode coverage.
+        """
+        if os.name != "posix":
+            return True
+        provisioner = getattr(self._km, "provisioner", None)
+        pid = getattr(provisioner, "pid", None)
+        pgid = getattr(provisioner, "pgid", None)
+        if not pid:
+            return False
+        if not pgid:
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                return False
+        if pgid == os.getpgrp():
+            return False
+        try:
+            members = self._list_processes()
+        except (OSError, subprocess.SubprocessError, ValueError):
+            logger.warning("Could not enumerate uv kernel workers", exc_info=True)
+            return False
+        # The direct child of uv is the kernel; its interrupt arrives on the
+        # control channel. Everything else in the launch group is a cell worker.
+        for child, parent, group in reversed(members):
+            if group == pgid and child != pid and parent != pid:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(child, signal.SIGINT)
+        return True
+
+    def _reset_after_interrupt(self, reason: str) -> None:
+        # Mark unusable before interruptible cleanup; _ensure_started retries
+        # pending cleanup before it can replace the manager/client handles.
+        self._started = False
+        notice = f"{reason} The kernel is reset; variables and imports from earlier cells are lost."
+        existing = self._memory_notice
+        self._memory_notice = notice if not existing else existing + "\n" + notice
+        self.shutdown()
 
     def interrupt(self) -> None:
         """Send SIGINT to the kernel, interrupting any blocking operation."""
         self._bridge.active_cell = None
         if self._km and self._km.is_alive():
             logger.info("Interrupting kernel")
-            self._km.interrupt_kernel()
+            if (
+                self._km.kernel_spec is not None
+                and self._km.kernel_spec.interrupt_mode == "message"
+            ):
+                if not self._interrupt_uv_workers():
+                    # Without worker enumeration, a control interrupt alone can
+                    # leave os.system() busy. Kill the launch group via shutdown
+                    # rather than queue more cells behind a surviving worker.
+                    self._reset_after_interrupt("Could not interrupt kernel workers.")
+                    return
+                self._interrupt_via_control()
+            else:
+                self._km.interrupt_kernel()
+
+    def _interrupt_via_control(self) -> None:
+        """Do not reuse a kernel with an unacknowledged interrupt queued.
+
+        Worker cancellation can make execute-idle arrive before the control
+        request is handled. Send through the client's control channel so we
+        know the request ID (KernelManager.interrupt_kernel does not return it).
+        """
+        deadline = _monotonic() + 5.0
+        acknowledged = False
+        try:
+            request = self._kc.session.msg("interrupt_request", content={})
+            self._kc.control_channel.send(request)
+            while (remaining := deadline - _monotonic()) > 0:
+                try:
+                    reply = self._kc.get_control_msg(timeout=min(remaining, 0.5))
+                except queue.Empty:
+                    continue
+                if (
+                    reply.get("msg_type") == "interrupt_reply"
+                    and reply.get("parent_header", {}).get("msg_id")
+                    == request["header"]["msg_id"]
+                ):
+                    if reply.get("content", {}).get("status") == "ok":
+                        acknowledged = True
+                        return
+                    break
+        except Exception:
+            logger.warning("Kernel interrupt control channel failed", exc_info=True)
+        finally:
+            if not acknowledged:
+                # This also runs on a second Ctrl-C.
+                logger.warning("Kernel did not acknowledge interrupt; shutting it down")
+                self._reset_after_interrupt("Kernel interrupt was not acknowledged.")
 
 
 def _cap_kernel_text(text: str) -> str:

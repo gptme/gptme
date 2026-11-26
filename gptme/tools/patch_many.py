@@ -414,11 +414,8 @@ def execute_patch_many_impl(
                     )
                     return
                 original_bytes = path.read_bytes()
-                original = (
-                    original_bytes.decode("utf-8")
-                    .replace("\r\n", "\n")
-                    .replace("\r", "\n")
-                )
+                # Only CRLF is normalized; a lone "\r" inside a line is content.
+                original = original_bytes.decode("utf-8").replace("\r\n", "\n")
                 modes[path] = stat.S_IMODE(info.st_mode)
                 crlf = original_bytes.count(b"\r\n")
                 newlines[path] = (

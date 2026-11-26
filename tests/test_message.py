@@ -1090,3 +1090,90 @@ def test_msgs_to_toml_roundtrip_preserves_ephemeral_ttl():
     restored = toml_to_msgs(toml_str)
 
     assert [m.ephemeral_ttl for m in restored] == [None, 2]
+
+
+def test_msgs_to_toml_keeps_literal_message_header_in_content():
+    """A message that mentions ``[message]`` must come back unchanged.
+
+    ``msgs_to_toml`` renames the per-message table header from ``[message]`` to
+    ``[[messages]]``.  Replacing every occurrence also rewrote the same text
+    inside the content, so a conversation about this format lost the thing it
+    was describing.
+    """
+    content = "The single form is [message] and the list form is [[messages]]."
+    msgs = [Message("user", content)]
+
+    toml_str = msgs_to_toml(msgs)
+
+    assert toml_str.startswith("[[messages]]")
+    assert toml_to_msgs(toml_str)[0].content == content
+
+
+@pytest.mark.parametrize("cost", [1.23456e-05, 3e-07, 0.1 + 0.2, 1e20])
+def test_toml_roundtrip_preserves_float_metadata_precision(cost: float) -> None:
+    """Metadata floats such as per-message cost survive a TOML round trip exactly.
+
+    Fixed-point formatting truncated cheap-model costs to 1.2e-05 or 0.0 on every
+    `/edit` save.
+    """
+    msg = Message("assistant", "x", metadata={"cost": cost})
+    restored = toml_to_msgs(msgs_to_toml([msg]))[0]
+    assert restored.metadata is not None
+    assert restored.metadata["cost"] == cost
+
+
+def test_toml_roundtrip_escapes_call_id_and_metadata_keys() -> None:
+    """call_id and inline-table keys are escaped like every other TOML string."""
+    msg = Message(
+        "assistant",
+        "x",
+        call_id='call"1\\x',
+        metadata={
+            "voice_call": {'he said "hi"': 1},
+            "thought_signatures": {"C:\\x": "s"},
+        },
+    )
+    restored = Message.from_toml(msg.to_toml())
+    assert restored.call_id == msg.call_id
+    assert restored.metadata == msg.metadata
+
+
+@pytest.mark.parametrize(
+    "langtag", ["save app/[id]/page.tsx", "txt [bold]", "python [/x]", "save C:\\x\\"]
+)
+def test_format_highlight_shows_codeblock_langtag_verbatim(langtag: str) -> None:
+    """A code block's info string is not interpreted as Rich markup."""
+    from gptme.message import format_msgs
+    from gptme.util.rich_text import rich_to_str
+
+    msg = Message("user", f"see:\n```{langtag}\nprint(1)\n```\n")
+    rendered = format_msgs([msg], highlight=True)[0]
+    # Match the whole label line: a trailing backslash must not be doubled.
+    assert f"```{langtag}\n" in rich_to_str(rendered, width=120)
+
+
+@pytest.mark.parametrize("prefix", ["\n", "\n\n", "\r\n", " \n\t\n", "  \r\n\n"])
+def test_format_max_length_skips_leading_blank_lines(monkeypatch, prefix: str) -> None:
+    """A message starting with blank lines still shows its first line of text."""
+    from os import terminal_size
+
+    monkeypatch.setattr(
+        "shutil.get_terminal_size", lambda *args, **kwargs: terminal_size((200, 24))
+    )
+    msg = Message("user", f"{prefix}Please fix the login bug in auth.py")
+    assert "Please fix the login bug" in msg.format(max_length=100)
+
+
+@pytest.mark.parametrize(
+    "content", ["\n", "\n\n", " \n\t\n", "\r\n", " \n  ", "\n\n ", "\r\n\t"]
+)
+def test_format_max_length_all_blank_keeps_sender(monkeypatch, content: str) -> None:
+    """An all-blank message still previews as its sender plus a placeholder."""
+    from os import terminal_size
+
+    monkeypatch.setattr(
+        "shutil.get_terminal_size", lambda *args, **kwargs: terminal_size((200, 24))
+    )
+    preview = Message("assistant", content).format(max_length=100)
+    assert preview.startswith("Assistant:")
+    assert preview.endswith("...")

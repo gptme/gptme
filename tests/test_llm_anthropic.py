@@ -985,7 +985,7 @@ def test_chat_serializes_optional_sdk_parameters(
         tools = [tool_save]
 
     payloads: list[dict[str, object]] = []
-    payload_parser = TypeAdapter(dict[str, object])
+    payload_parser: TypeAdapter[dict[str, object]] = TypeAdapter(dict[str, object])
 
     def serve(request: httpx2.Request) -> httpx2.Response:
         payloads.append(payload_parser.validate_json(request.content))
@@ -1343,7 +1343,7 @@ def test_chat_preserves_tool_input(
 ) -> None:
     """Native arguments survive the real SDK, persisted syntax, and API replay."""
     init_tools(["save"])
-    response_encoder = TypeAdapter(dict[str, object])
+    response_encoder: TypeAdapter[dict[str, object]] = TypeAdapter(dict[str, object])
 
     def serve(request: httpx2.Request) -> httpx2.Response:
         response_payload: dict[str, object] = {
@@ -1547,3 +1547,52 @@ def test_chat_subagent_deadline_cleared_between_calls():
     calls = mock_client.messages.create.call_args_list
     assert calls[0].kwargs["timeout"] == pytest.approx(30.0, abs=0.1)
     assert calls[1].kwargs["timeout"] == 600.0
+
+
+def test_unsupported_attachment_is_mentioned(tmp_path):
+    """A non-image binary attachment must not vanish from the payload.
+
+    process_image_file() skips it; the OpenAI provider then adds a warning
+    part, and Anthropic must do the same (gptme/gptme#5218 item 13).
+    """
+    from gptme.llm.llm_anthropic import _prepare_messages_for_api
+
+    pdf = tmp_path / "q3-report.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n\xff\xfe binary")
+    dicts, _, _ = _prepare_messages_for_api(
+        [
+            Message("system", "sys"),
+            Message("user", "Summarize the attached report.", files=[pdf]),
+        ],
+        None,
+    )
+    texts = [
+        part["text"]
+        for message in dicts
+        if isinstance(message["content"], list)
+        for part in message["content"]
+        if part.get("type") == "text"
+    ]
+    assert f"[WARNING: Model doesn't support viewing file: {pdf.name}]" in texts, dicts
+    assert all(str(tmp_path) not in text for text in texts), dicts
+
+
+@pytest.mark.parametrize("oversized", [True, False])
+def test_image_failure_keeps_specific_diagnostic(tmp_path, oversized):
+    """Image size/read failures must not get an unsupported-file warning too."""
+    from gptme.llm.llm_anthropic import _process_file
+
+    image = tmp_path / "image.png"
+    if oversized:
+        image.write_bytes(b"\x00" * (5 * 1024 * 1024 + 1))
+    result = _process_file(
+        {"role": "user", "content": "Inspect the image.", "files": [image]}
+    )
+    texts = [part["text"] for part in result["content"]]
+    expected = (
+        "Image size exceeds 5MB. Please upload a smaller image."
+        if oversized
+        else "Error reading file image.png. Please check the file path."
+    )
+    assert expected in texts
+    assert not any("doesn't support viewing file" in text for text in texts)

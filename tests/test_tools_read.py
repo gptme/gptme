@@ -82,9 +82,14 @@ def test_read_file_includes_hashline_tag_when_hashline_tool_active(tmp_path: Pat
 
 
 def test_read_file_hashline_snapshot_preserves_newline_normalization(tmp_path: Path):
-    """Bounded binary reads retain read_text()'s universal-newline contract."""
+    """Bounded reads normalize CRLF but keep a lone CR (gptme#5126).
+
+    The snapshot must equal hashline_edit's live read (``read_text_lf``), and a
+    lone CR is line content that an edit elsewhere must not turn into a newline.
+    """
     from gptme.tools import get_tools, set_tools
     from gptme.tools._hashline_snapshot import lookup_snapshot
+    from gptme.tools.base import read_text_lf
     from gptme.tools.hashline_edit import tool as hashline_tool
 
     path = tmp_path / "windows.txt"
@@ -101,7 +106,7 @@ def test_read_file_hashline_snapshot_preserves_newline_normalization(tmp_path: P
     tag = message.content.split(marker, 1)[1].split("]", 1)[0]
     matched, snapshot = lookup_snapshot(str(path.resolve()), tag)
     assert matched
-    assert snapshot == path.read_text(encoding="utf-8") == "first\nsecond\nthird\n"
+    assert snapshot == read_text_lf(path) == "first\nsecond\rthird\n"
 
 
 def test_read_file_line_range_kwargs(tmp_path: Path):
@@ -903,3 +908,15 @@ def test_read_large_file_stops_scanning_as_soon_as_output_is_full():
     assert not total_exact
     assert not invalid
     assert reader.tell() <= 12
+
+
+def test_read_nul_byte_path_reports_and_continues(tmp_path: Path):
+    """A NUL byte in one batch path must not fail the whole batch (#5152)."""
+    good = tmp_path / "ok.txt"
+    good.write_text("KNOWN_GOOD\n")
+    bad = f"{tmp_path}/bad\x00name.txt"
+
+    messages = list(execute_read(f"{bad}\n{good}\n", None, None))
+    assert len(messages) == 2
+    assert "Cannot resolve path" in messages[0].content
+    assert "KNOWN_GOOD" in messages[1].content

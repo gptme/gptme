@@ -6,7 +6,6 @@ from time import monotonic
 
 from ...config import get_project_config
 from ...llm.models import get_default_model
-from ...logmanager import Log
 from ...message import Message, len_tokens
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
@@ -120,9 +119,12 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
         )
         return
 
-    # Replace the conversation history
-    ctx.manager.log = Log(compacted_msgs)
-    ctx.manager.write()
+    # Install the trim as a view, as the automatic trim does: the master log
+    # stays intact, so the byte-range recovery references the trim stamped
+    # into truncated messages keep pointing at the original content.
+    view_name = ctx.manager.get_next_view_name()
+    ctx.manager.create_view(view_name, compacted_msgs)
+    ctx.manager.switch_view(view_name)
 
     reduction_pct = (
         ((original_tokens - compacted_tokens) / original_tokens * 100)

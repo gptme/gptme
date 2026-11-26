@@ -503,3 +503,21 @@ def test_replay_tool_does_not_raise_for_other_tools(tmp_path):
     )
     # append lives in save.py; the replay must not blow up on the import.
     _replay_tool(log, "append")
+
+
+def test_replay_tool_ignores_system_prompt_examples(capsys):
+    """/replay todo must not restore the tool examples shipped in the system prompt (#5179)."""
+    from gptme.commands.export import _replay_tool
+    from gptme.logmanager import Log
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(["todo"])
+    example = Message("system", '```todo write\nadd "Set up project structure"\n```')
+    _replay_tool(Log(messages=[example, Message("user", "hi")]), "todo")
+    assert _get_todos() == {}
+    assert "No 'todo' operations found" in capsys.readouterr().out
+
+    real = Message("assistant", '```todo write\nadd "Real task"\n```')
+    _replay_tool(Log(messages=[example, Message("user", "hi"), real]), "todo")
+    assert [t["text"] for t in _get_todos().values()] == ["Real task"]

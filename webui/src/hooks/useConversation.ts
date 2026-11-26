@@ -571,6 +571,10 @@ export function useConversation(conversationId: string, serverId?: string) {
               // another approval from every viewer races that execution.
             },
             onElicitPending: (elicitation) => {
+              // Registration precedes emission: a reconnect snapshot (or another
+              // viewer) may already have restored this request. Do not invalidate
+              // its in-flight answer or reset its generating state on redelivery.
+              if (conversation$?.pendingElicitation.peek()?.id === elicitation.id) return;
               // The agent is blocked on this answer; show it like a pending tool.
               setGenerating(conversationId, false);
               setPendingElicitation(conversationId, elicitation);
@@ -856,6 +860,25 @@ export function useConversation(conversationId: string, serverId?: string) {
                 const pt = state.pendingTools[0];
                 setPendingTool(conversationId, pt.tool_id, pt.tooluse);
                 if (!pt.auto_confirm) {
+                  setGenerating(conversationId, false);
+                }
+              }
+              // The server emits elicit_pending once, so a (re)connect while the
+              // agent waits would otherwise never show the question.
+              if (state.pendingElicitations) {
+                const latest = state.pendingElicitations.at(-1) ?? null;
+                if (state.pendingElicitations.length > 1) {
+                  console.warn(
+                    '[useConversation] Multiple pending elicitations on reconnect — only restoring the latest'
+                  );
+                }
+                const current = conversation$?.pendingElicitation.peek();
+                // Keep the shown request (and any in-flight answer) when it is unchanged.
+                if ((current?.id ?? null) !== (latest?.id ?? null)) {
+                  setPendingElicitation(conversationId, latest);
+                }
+                if (latest) {
+                  // The agent is blocked on this answer, not generating.
                   setGenerating(conversationId, false);
                 }
               }

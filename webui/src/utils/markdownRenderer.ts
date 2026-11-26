@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Brain } from 'lucide-react';
 import { codeBlockLabelHtml } from '@/utils/codeBlockIcons';
+import { createRemoteImagePlaceholder, isRemoteImageUrl } from '@/utils/remoteImages';
 import { TabbedCodeBlock } from '@/components/TabbedCodeBlock';
 
 /**
@@ -217,9 +218,12 @@ export function customRenderer(
             // Replace <details><summary>...<pre><code>... with inline element
             const inline = document.createElement('div');
             inline.className = 'inline-codeblock';
-            inline.innerHTML =
-              `<span class="inline-codeblock-label">${data.summary.innerHTML}</span>` +
-              `<code class="${data.code.className}">${data.code.innerHTML}</code>`;
+            // Move the rendered nodes instead of re-parsing them as HTML: the
+            // code's className carries the untrusted fence langtag.
+            const label = document.createElement('span');
+            label.className = 'inline-codeblock-label';
+            label.append(...Array.from(data.summary.childNodes));
+            inline.append(label, data.code);
             details.replaceWith(inline);
           }
         }
@@ -307,6 +311,18 @@ export function customRenderer(
           const langFromInfo = value ? value.split('.').pop() : undefined;
           data.code.setAttribute('class', `hljs ${langFromInfo ? `language-${langFromInfo}` : ''}`);
         }
+      } else if (type === smd.SRC) {
+        const node = data.nodes[data.index];
+        if (node instanceof HTMLImageElement && isRemoteImageUrl(value)) {
+          // Model output is model-controlled, so a remote image is an
+          // exfiltration beacon until the user asks for it: render a
+          // placeholder that carries no `src` (gptme/gptme#5223).
+          const placeholder = createRemoteImagePlaceholder(value);
+          node.replaceWith(placeholder);
+          data.nodes[data.index] = placeholder;
+          return;
+        }
+        smd.default_set_attr(data, type, value);
       } else if (type === smd.HREF) {
         smd.default_set_attr(data, type, value);
         // Open external links in new tab

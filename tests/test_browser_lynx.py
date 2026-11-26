@@ -15,6 +15,84 @@ from gptme.tools._browser_lynx import _validate_url_scheme, read_url, search
 lynx_available = shutil.which("lynx") is not None
 
 
+def test_header_probe_bounds_bytes_before_decoding(monkeypatch):
+    """A large raw body must not be captured or decoded in full."""
+    import subprocess
+    import time
+
+    from gptme.tools import _browser_lynx
+
+    real_popen = subprocess.Popen
+    children = []
+
+    def fake_lynx(cmd, **kwargs):
+        child = real_popen(
+            [
+                sys.executable,
+                "-c",
+                "import os; "
+                "os.write(1, b'HTTP/1.1 302 Found\\r\\nLocation: /next\\r\\n\\r\\n'); "
+                "exec('for _ in range(32): os.write(1, b\"x\" * 65536)')",
+            ],
+            **kwargs,
+        )
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(_browser_lynx.subprocess, "Popen", fake_lynx)
+    headers = _browser_lynx._probe_headers(
+        ["lynx", "unused"], os.environ.copy(), time.monotonic() + 2
+    )
+    assert _browser_lynx._redirect_target(headers, "https://example.com/") == (
+        "https://example.com/next"
+    )
+    assert len(headers) < 65536
+    assert "xxxxxxxx" not in headers
+    assert children[0].poll() is not None
+
+
+@pytest.mark.parametrize("mode", ["oversized", "stalled"])
+def test_header_probe_rejects_oversized_or_stalled_headers(monkeypatch, mode):
+    import subprocess
+    import time
+
+    from gptme.tools import _browser_lynx
+
+    real_popen = subprocess.Popen
+    children = []
+    code = (
+        "import os; os.write(1, b'x' * 131072)"
+        if mode == "oversized"
+        else "import time; time.sleep(30)"
+    )
+
+    def fake_lynx(cmd, **kwargs):
+        child = real_popen([sys.executable, "-c", code], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(_browser_lynx.subprocess, "Popen", fake_lynx)
+    error = ValueError if mode == "oversized" else subprocess.TimeoutExpired
+    with pytest.raises(error):
+        _browser_lynx._probe_headers(
+            ["lynx", "unused"], os.environ.copy(), time.monotonic() + 0.5
+        )
+    assert children[0].poll() is not None
+
+
+@pytest.fixture
+def mock_probe_via_run(monkeypatch):
+    """Keep redirect-policy mocks separate from the real pipe-reader tests."""
+    from gptme.tools import _browser_lynx
+
+    def probe(cmd, env, deadline):
+        return _browser_lynx.subprocess.run(
+            cmd, env=env, timeout=_browser_lynx._remaining(deadline)
+        ).stdout
+
+    monkeypatch.setattr(_browser_lynx, "_probe_headers", probe)
+
+
 def test_url_scheme_validation():
     """Test that dangerous URL schemes are blocked in lynx backend."""
     # Valid schemes should work
@@ -304,3 +382,289 @@ def test_read_url_no_cookies():
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
         result = read_url("https://example.com/page")
         assert result == "mock content"
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_read_url_does_not_follow_redirect_to_disallowed_host():
+    """With allow-hosts set, a redirect to another host is not followed (gptme#5126)."""
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    ports: list[int] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            port = ports[0]
+            if self.path.startswith("/to-other"):
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{port}/secret")
+                self.end_headers()
+                self.wfile.write(b"moved")
+            elif self.path.startswith("/to-same"):
+                self.send_response(302)
+                self.send_header("Location", "/public")
+                self.end_headers()
+            else:
+                body = b"<p>SECRET</p>" if "secret" in self.path else b"<p>PUBLIC</p>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
+
+        do_HEAD = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_port
+    ports.append(port)
+    try:
+        set_session_allow_hosts(["127.0.0.1"])
+        with pytest.raises(ValueError, match="localhost"):
+            read_url(f"http://127.0.0.1:{port}/to-other")
+        # A redirect that stays on an allowed host is still followed.
+        assert "PUBLIC" in read_url(f"http://127.0.0.1:{port}/to-same")
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
+
+
+def test_redirect_target_parsing():
+    """_redirect_target only returns a Location from a redirect status's header block."""
+    from gptme.tools._browser_lynx import _redirect_target
+
+    base = "https://example.com/a/b"
+    assert _redirect_target("", base) is None
+    assert _redirect_target("HTTP/1.1 200 OK\nLocation: /x\n", base) is None
+    assert _redirect_target("garbage line\n", base) is None
+    # Relative Location is resolved against the current URL
+    assert (
+        _redirect_target("HTTP/1.1 302 Found\nLocation: c\n", base)
+        == "https://example.com/a/c"
+    )
+    # A Location after the blank line (body) is not a header
+    assert (
+        _redirect_target("HTTP/1.1 301 Moved\nServer: x\n\nLocation: /body\n", base)
+        is None
+    )
+    # Redirect status without a Location header
+    assert _redirect_target("HTTP/1.1 307 Temporary\nServer: x\n", base) is None
+
+
+def test_resolve_allowlisted_redirects_too_many_hops(mock_probe_via_run):
+    """An endless redirect chain raises instead of looping forever."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools._browser_lynx import _resolve_allowlisted_redirects
+
+    def mock_run(cmd, **kwargs):
+        return CompletedProcess(
+            cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /loop\n", stderr=""
+        )
+
+    with (
+        patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run),
+        pytest.raises(RuntimeError, match="Too many redirects"),
+    ):
+        _resolve_allowlisted_redirects("https://example.com/start", {})
+
+
+def test_read_url_cookies_stay_scoped_to_requested_host(mock_probe_via_run):
+    """Cookies go to the requested host, not to an allowlisted redirect target."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    cookie_contents: list[str] = []
+
+    def mock_run(cmd, **kwargs):
+        if "-mime_header" in cmd:
+            if "start.example.com" in cmd[-1]:
+                return CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="HTTP/1.1 302 Found\nLocation: https://other.example.org/x\n",
+                    stderr="",
+                )
+            return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
+        cookie_arg = next(a for a in cmd if a.startswith("-cookie_file="))
+        with open(cookie_arg.split("=", 1)[1]) as f:
+            cookie_contents.append(f.read())
+        return CompletedProcess(cmd, 0, stdout="page", stderr="")
+
+    try:
+        set_session_allow_hosts(["start.example.com", "other.example.org"])
+        with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
+            assert (
+                read_url("https://start.example.com/", cookies={"SID": "abc"}) == "page"
+            )
+    finally:
+        set_session_allow_hosts(None)
+
+    assert len(cookie_contents) == 1
+    assert ".start.example.com\t" in cookie_contents[0]
+    assert "other.example.org" not in cookie_contents[0]
+
+
+def test_read_url_redirect_chain_shares_one_deadline(mock_probe_via_run):
+    """Redirect probes and the final fetch draw on one timeout budget."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools import _browser_lynx
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    clock = [1000.0]
+    timeouts: list[float] = []
+
+    def fake_monotonic():
+        return clock[0]
+
+    def mock_run(cmd, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        clock[0] += 25  # each request is slow but individually valid
+        if "-mime_header" in cmd and not cmd[-1].endswith("/final"):
+            return CompletedProcess(
+                cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /final\n", stderr=""
+            )
+        if "-mime_header" in cmd:
+            return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
+        return CompletedProcess(cmd, 0, stdout="page", stderr="")
+
+    try:
+        set_session_allow_hosts(["example.com"])
+        with (
+            patch.object(_browser_lynx.time, "monotonic", fake_monotonic),
+            patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run),
+        ):
+            read_url("https://example.com/start")
+    finally:
+        set_session_allow_hosts(None)
+
+    assert timeouts == [60.0, 35.0, 10.0]
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+@pytest.mark.parametrize("head_status", [200, 400, 403, 404, 405, 501])
+def test_read_url_checks_get_redirect_regardless_of_head_response(head_status):
+    """HEAD responses cannot predict the redirects followed by a GET request."""
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    ports: list[int] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_HEAD(self):
+            self.send_response(head_status)
+            self.end_headers()
+
+        def do_GET(self):
+            if self.path.startswith("/to-other"):
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{ports[0]}/secret")
+                self.end_headers()
+            elif self.path.startswith("/to-same"):
+                self.send_response(302)
+                self.send_header("Location", "/public")
+                self.end_headers()
+            else:
+                body = b"<p>SECRET</p>" if "secret" in self.path else b"<p>PUBLIC</p>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    ports.append(server.server_port)
+    try:
+        set_session_allow_hosts(["127.0.0.1"])
+        assert "PUBLIC" in read_url(f"http://127.0.0.1:{ports[0]}/to-same")
+        with pytest.raises(ValueError, match="localhost"):
+            read_url(f"http://127.0.0.1:{ports[0]}/to-other")
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
+
+
+def test_read_url_redirect_probes_send_cookies(mock_probe_via_run):
+    """Allow-listed redirect probes carry the caller's cookies.
+
+    Google search relies on SOCS/CONSENT cookies to avoid a consent redirect; a
+    probe without them would follow that redirect instead of the search page.
+    """
+    from subprocess import CompletedProcess
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    probe_cookies: list[str] = []
+
+    def mock_run(cmd, **kwargs):
+        if "-mime_header" in cmd:
+            cookie_arg = next((a for a in cmd if a.startswith("-cookie_file=")), None)
+            assert cookie_arg is not None, f"probe without cookies: {cmd}"
+            assert "-accept_all_cookies" in cmd
+            with open(cookie_arg.split("=", 1)[1]) as f:
+                probe_cookies.append(f.read())
+            if not cmd[-1].endswith("/final"):
+                return CompletedProcess(
+                    cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /final\n", stderr=""
+                )
+            return CompletedProcess(cmd, 0, stdout="HTTP/1.1 200 OK\n", stderr="")
+        assert any(a.startswith("-cookie_file=") for a in cmd)
+        return CompletedProcess(cmd, 0, stdout="page", stderr="")
+
+    try:
+        set_session_allow_hosts(["www.google.com"])
+        with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
+            assert (
+                read_url("https://www.google.com/search?q=x", cookies={"SOCS": "abc"})
+                == "page"
+            )
+    finally:
+        set_session_allow_hosts(None)
+
+    assert len(probe_cookies) == 2
+    assert all("\tSOCS\tabc" in c for c in probe_cookies)
+
+
+def test_read_url_cookie_file_removed_when_redirect_probe_fails(mock_probe_via_run):
+    """The cookie file is cleaned up even if redirect resolution raises."""
+    from subprocess import CompletedProcess
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    cookie_paths: list[str] = []
+
+    def mock_run(cmd, **kwargs):
+        cookie_paths.extend(
+            a.split("=", 1)[1] for a in cmd if a.startswith("-cookie_file=")
+        )
+        return CompletedProcess(
+            cmd, 0, stdout="HTTP/1.1 302 Found\nLocation: /loop\n", stderr=""
+        )
+
+    try:
+        set_session_allow_hosts(["example.com"])
+        with (
+            patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run),
+            pytest.raises(RuntimeError, match="Too many redirects"),
+        ):
+            read_url("https://example.com/start", cookies={"SID": "abc"})
+    finally:
+        set_session_allow_hosts(None)
+
+    assert cookie_paths
+    assert not any(os.path.exists(p) for p in cookie_paths)

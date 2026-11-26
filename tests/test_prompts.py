@@ -222,7 +222,7 @@ def test_absolute_prompt_files_do_not_crash(tmp_path):
     (workspace / "gptme.toml").write_text(
         f"""
 [prompt]
-files = ["{workspace / "SOUL.md"}", "{outside / "secret.txt"}"]
+files = ["{(workspace / "SOUL.md").as_posix()}", "{(outside / "secret.txt").as_posix()}"]
 """
     )
 
@@ -314,6 +314,70 @@ exclude = ["*.lock", "*.jsonl"]
     assert not any("session.jsonl" in f for f in attached_files), (
         "*.jsonl files should be excluded"
     )
+
+
+def test_prompt_workspace_exclude_dir_patterns_via_symlinked_workspace(
+    tmp_path, requires_symlinks
+):
+    """A path pattern must still exclude when the workspace path is a symlink.
+
+    Glob matches are relative to the workspace as given, while the exclude
+    check compared them with the resolved workspace, so ``exclude = ["dist/*"]``
+    silently stopped working (macOS ``/tmp`` is itself a symlink).
+    """
+    from gptme.prompts import prompt_workspace
+
+    real = tmp_path / "real"
+    (real / "dist").mkdir(parents=True)
+    (real / "README.md").write_text("# Project")
+    (real / "dist" / "bundle.js").write_text("// bundled")
+    (real / "gptme.toml").write_text(
+        """
+[prompt]
+files = ["README.md", "dist/*.js"]
+exclude = ["dist/*"]
+"""
+    )
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    msgs = list(prompt_workspace(link, include_user_context=False))
+    attached_files = [str(f) for msg in msgs for f in msg.files]
+
+    assert any("README.md" in f for f in attached_files)
+    assert not any("bundle.js" in f for f in attached_files), attached_files
+
+
+def test_prompt_workspace_exclude_absolute_file_via_relative_symlinked_workspace(
+    tmp_path, monkeypatch, requires_symlinks
+):
+    """An absolute file path through a relative symlinked workspace is excluded.
+
+    Neither the relative workspace nor its resolved target is a prefix of
+    ``/abs/link/dist/bundle.js``; only the unresolved absolute workspace is.
+    """
+    from gptme.prompts import prompt_workspace
+
+    real = tmp_path / "real"
+    (real / "dist").mkdir(parents=True)
+    (real / "README.md").write_text("# Project")
+    (real / "dist" / "bundle.js").write_text("// bundled")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    (real / "gptme.toml").write_text(
+        f"""
+[prompt]
+files = ["README.md", "{(link / "dist" / "bundle.js").as_posix()}"]
+exclude = ["dist/*"]
+"""
+    )
+    monkeypatch.chdir(tmp_path)
+
+    msgs = list(prompt_workspace(Path("link"), include_user_context=False))
+    attached_files = [str(f) for msg in msgs for f in msg.files]
+
+    assert any("README.md" in f for f in attached_files)
+    assert not any("bundle.js" in f for f in attached_files), attached_files
 
 
 def test_prompt_workspace_exclude_dir_patterns(tmp_path):

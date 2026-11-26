@@ -6,12 +6,118 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
-from ._url_safety import _MAX_INPUT_LENGTH, _validate_url_scheme
+from ._url_safety import _MAX_INPUT_LENGTH, _get_allow_hosts, _validate_url_scheme
 
 logger = logging.getLogger(__name__)
+
+_MAX_REDIRECT_HOPS = 10
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# One budget for the whole fetch: redirect probes plus the final request.
+_FETCH_TIMEOUT = 60.0
+_MAX_PROBE_HEADER_BYTES = 64 * 1024
+
+
+def _status_code(head_dump: str) -> int | None:
+    lines = head_dump.splitlines()
+    if not lines:
+        return None
+    status = lines[0].split()
+    if len(status) < 2 or not status[0].upper().startswith("HTTP/"):
+        return None
+    return int(status[1]) if status[1].isdigit() else None
+
+
+def _remaining(deadline: float) -> float:
+    """Seconds left before ``deadline``; a spent budget times out immediately."""
+    return max(deadline - time.monotonic(), 0.01)
+
+
+def _redirect_target(head_dump: str, url: str) -> str | None:
+    """Return the absolute redirect target from a lynx HTTP header block."""
+    if _status_code(head_dump) not in _REDIRECT_STATUSES:
+        return None
+    for line in head_dump.splitlines()[1:]:
+        if not line.strip():
+            break
+        name, _, value = line.partition(":")
+        if name.strip().lower() == "location" and value.strip():
+            return urljoin(url, value.strip())
+    return None
+
+
+def _probe_headers(cmd: list[str], env: dict[str, str], deadline: float) -> str:
+    """Read only a bounded header block, then stop and reap the GET probe.
+
+    A reader thread keeps pipe reads deadline-bound on Windows too. Never use
+    communicate(): its capture would buffer the discarded raw body in memory.
+    """
+    with subprocess.Popen(
+        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+    ) as process:
+        assert process.stdout is not None
+        stream = process.stdout
+        headers = bytearray()
+
+        def read_headers() -> None:
+            while len(headers) <= _MAX_PROBE_HEADER_BYTES:
+                line = stream.readline(_MAX_PROBE_HEADER_BYTES + 1 - len(headers))
+                if not line:
+                    break
+                headers.extend(line)
+                if line in (b"\n", b"\r\n"):
+                    break
+
+        reader = threading.Thread(target=read_headers, daemon=True)
+        reader.start()
+        try:
+            reader.join(_remaining(deadline))
+            if reader.is_alive():
+                raise subprocess.TimeoutExpired(cmd, _FETCH_TIMEOUT)
+            if len(headers) > _MAX_PROBE_HEADER_BYTES:
+                raise ValueError("Lynx response headers exceed 64 KiB")
+            return headers.decode("utf-8", errors="replace")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            reader.join()
+
+
+def _resolve_allowlisted_redirects(
+    url: str,
+    env: dict[str, str],
+    deadline: float | None = None,
+    cookie_args: list[str] | None = None,
+) -> str:
+    """Follow redirects with GET probes, allowlist-checking every hop first.
+
+    lynx follows redirects to any host on its own, so with a host allowlist the
+    real fetch runs with ``-noredir`` against the URL resolved here. Probes use
+    GET because servers may handle HEAD differently; lynx prints the header
+    block with ``-mime_header``. All probes share ``deadline``. ``cookie_args``
+    go to every probe: a server may redirect differently without them (Google
+    sends cookie-less requests to its consent page).
+    """
+    if deadline is None:
+        deadline = time.monotonic() + _FETCH_TIMEOUT
+    extra = cookie_args or []
+    for _ in range(_MAX_REDIRECT_HOPS):
+        dump = _probe_headers(
+            ["lynx", "-mime_header", "-source", "-noredir", *extra, url],
+            env,
+            deadline,
+        )
+        target = _redirect_target(dump, url)
+        if target is None:
+            return url
+        _validate_url_scheme(target)
+        url = target
+    raise RuntimeError(f"Too many redirects fetching {url}")
 
 
 def read_url(url: str, cookies: dict | None = None) -> str:
@@ -19,13 +125,16 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     _validate_url_scheme(url)
 
     env = os.environ.copy()
-    cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
+    deadline = time.monotonic() + _FETCH_TIMEOUT
+    # Caller-supplied cookies belong to the requested host, not to wherever an
+    # allowlisted redirect ends up.
+    cookie_host = urlparse(url).hostname
 
     cookie_file = None
+    cookie_args: list[str] = []
     if cookies:
         # Create Netscape-format cookie file for lynx
-        parsed = urlparse(url)
-        domain = parsed.hostname
+        domain = cookie_host
         assert domain is not None  # Guaranteed by _validate_url_scheme().
         for name, value in cookies.items():
             if (
@@ -53,9 +162,17 @@ def read_url(url: str, cookies: dict | None = None) -> str:
             Path(cookie_file).unlink(missing_ok=True)
             cookie_file = None
             raise
-        cmd.extend([f"-cookie_file={cookie_file}", "-accept_all_cookies"])
+        cookie_args = [f"-cookie_file={cookie_file}", "-accept_all_cookies"]
 
     try:
+        if _get_allow_hosts() is not None:
+            # Only the first URL was checked above; lynx would otherwise follow a
+            # redirect to any host and return its content.
+            url = _resolve_allowlisted_redirects(url, env, deadline, cookie_args)
+            cmd = ["lynx", "--dump", "-noredir", url, "--display_charset=utf-8"]
+        else:
+            cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
+        cmd.extend(cookie_args)
         p = subprocess.run(
             cmd,
             env=env,
@@ -64,7 +181,7 @@ def read_url(url: str, cookies: dict | None = None) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=60,
+            timeout=_remaining(deadline),
         )
         return p.stdout
     finally:

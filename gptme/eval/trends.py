@@ -21,6 +21,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .leaderboard import parse_model_format
+
 
 def parse_run_timestamp(dirname: str) -> datetime:
     """Parse YYYYMMDD_HHMMSSZ directory name into datetime."""
@@ -52,8 +54,7 @@ def load_all_results(
                     passed_str = row.get("Passed", "").strip().lower()
                     if model and test and passed_str in ("true", "false"):
                         # Handle @format suffix in model name
-                        if "@" in model:
-                            model, fmt = model.rsplit("@", 1)
+                        model, fmt = parse_model_format(model, fmt)
                         all_results.append(
                             {
                                 "model": model,
@@ -121,6 +122,17 @@ def compute_trends(
             passed = sum(1 for r in runs_sorted if r["passed"])
             pass_rate = passed / total
 
+            # Check pass_rate first to catch intermittent tests before binary direction.
+            # Require at least 4 runs to avoid misclassifying single-change tests as flaky.
+            # A single status change (pass, pass, pass, fail) is a regression or
+            # improvement, not flakiness: require at least two flips.
+            flip_at = [
+                i
+                for i in range(1, total)
+                if runs_sorted[i - 1]["passed"] != runs_sorted[i]["passed"]
+            ]
+            flips = len(flip_at)
+
             entry = {
                 "model": model_key,
                 "test": test_name,
@@ -128,17 +140,24 @@ def compute_trends(
                 "previous_passed": previous["passed"],
                 "latest_run": latest["run"],
                 "previous_run": previous["run"],
+                # The runs on either side of the most recent status change:
+                # with [pass, pass, fail, fail] the last two runs both failed,
+                # so previous/latest alone do not show when the test broke.
+                "changed_from_run": runs_sorted[flip_at[-1] - 1]["run"]
+                if flip_at
+                else None,
+                "changed_to_run": runs_sorted[flip_at[-1]]["run"] if flip_at else None,
                 "pass_rate": round(pass_rate, 3),
                 "total_runs": total,
             }
-
-            # Check pass_rate first to catch intermittent tests before binary direction.
-            # Require at least 4 runs to avoid misclassifying single-change tests as flaky.
-            if total >= 4 and 0.1 < pass_rate < 0.9:
+            # With exactly one flip the direction is fixed wherever it landed:
+            # [pass, pass, fail, fail] broke and stayed broken, so it is a
+            # regression even though the last two runs agree.
+            if total >= 4 and 0.1 < pass_rate < 0.9 and flips >= 2:
                 flaky.append(entry)
-            elif previous["passed"] and not latest["passed"]:
+            elif not latest["passed"] and (previous["passed"] or flips == 1):
                 regressions.append(entry)
-            elif not previous["passed"] and latest["passed"]:
+            elif latest["passed"] and (not previous["passed"] or flips == 1):
                 improvements.append(entry)
             elif latest["passed"]:
                 stable_pass.append(entry)

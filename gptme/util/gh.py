@@ -6,6 +6,7 @@ Originally prototyped as scripts/gh-pr-view-with-pr-comments.py (since removed)
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -165,23 +166,73 @@ def _truncate_body(body: str, max_tokens: int = DEFAULT_TRUNCATE_TOKENS) -> str:
     )
 
 
+def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
+    """Collect a complete, consistent check-run listing or raise on partial data."""
+    runs: list[dict] = []
+    seen: set[int] = set()
+    total: int | None = None
+    page = 1
+    while True:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        data = json.loads(result.stdout)
+        if not isinstance(data, dict):
+            raise ValueError("Invalid check-run response")
+        count = data.get("total_count")
+        batch = data.get("check_runs")
+        if type(count) is not int or count < 0 or not isinstance(batch, list):
+            raise ValueError("Missing or invalid check-run count/list")
+        if total is None:
+            total = count
+        if count != total:
+            raise ValueError("Check-run total changed during pagination; retry")
+        for run in batch:
+            if not isinstance(run, dict) or type(run.get("id")) is not int:
+                raise ValueError("Invalid check-run entry")
+            if run["id"] in seen:
+                raise ValueError("Repeated check run during pagination; retry")
+            seen.add(run["id"])
+            runs.append(run)
+        if len(runs) > total:
+            raise ValueError("Check-run listing exceeds reported total")
+        if len(runs) == total:
+            return runs
+        if not batch:
+            raise ValueError("Incomplete check-run listing: empty page before total")
+        page += 1
+
+
+#: States whose check names matter most; they get a larger name budget.
+_ATTENTION_STATES = frozenset({"failure", "cancelled", "action_required", "timed_out"})
+#: Per-state name caps for the ``pr view`` Actions summary. Counts stay exact;
+#: only the listed names are capped, so a large CI matrix's passing jobs do not
+#: crowd the context while failures stay visible.
+_CHECK_NAMES_ATTENTION_LIMIT = 25
+_CHECK_NAMES_OTHER_LIMIT = 5
+
+
+def _cap_check_names(names: list[str], attention: bool) -> str:
+    limit = _CHECK_NAMES_ATTENTION_LIMIT if attention else _CHECK_NAMES_OTHER_LIMIT
+    if len(names) <= limit:
+        return ", ".join(names)
+    return f"{', '.join(names[:limit])}, ... (+{len(names) - limit} more)"
+
+
 def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
     """Get GitHub Actions status for a commit SHA."""
     try:
-        # Get check runs for the commit
-        check_runs_result = subprocess.run(
-            ["gh", "api", f"/repos/{owner}/{repo}/commits/{sha}/check-runs"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-
-        if check_runs_result.returncode != 0:
-            return None
-
-        check_runs_data = json.loads(check_runs_result.stdout)
-        check_runs = check_runs_data.get("check_runs", [])
+        # Read every page: a failure past the first page must not be reported
+        # as an all-green summary. Partial or inconsistent listings raise.
+        check_runs = _get_commit_check_runs(owner, repo, sha)
 
         if not check_runs:
             return None
@@ -239,9 +290,8 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
                 if len(checks) == 1:
                     lines.append(f"{emoji} {checks[0]}: {state}")
                 else:
-                    lines.append(
-                        f"{emoji} {len(checks)} checks {state}: {', '.join(checks)}"
-                    )
+                    names = _cap_check_names(checks, state in _ATTENTION_STATES)
+                    lines.append(f"{emoji} {len(checks)} checks {state}: {names}")
 
         # Add any remaining states not in priority order
         for state, checks in status_summary.items():
@@ -249,20 +299,20 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
                 if len(checks) == 1:
                     lines.append(f"❓ {checks[0]}: {state}")
                 else:
-                    lines.append(
-                        f"❓ {len(checks)} checks {state}: {', '.join(checks)}"
-                    )
+                    # Unknown states may need action: give them the larger cap.
+                    names = _cap_check_names(checks, True)
+                    lines.append(f"❓ {len(checks)} checks {state}: {names}")
 
         return "\n".join(lines) if lines else None
 
     except (
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
-        json.JSONDecodeError,
+        ValueError,
         KeyError,
     ) as e:
         logger.debug(f"Failed to get GitHub Actions status: {e}")
-        return None
+        return "⚠️ CI status unavailable (could not obtain a complete check listing; retry)."
 
 
 def _get_repo_from_git_remote(
@@ -1022,6 +1072,23 @@ def get_github_pr_content(url: str) -> str | None:
 DEFAULT_LOG_MAX_TOKENS = 4000
 
 
+def redact_gh_output(text: str) -> str:
+    """Apply the shell's credential-redaction policy to gh output.
+
+    ``gh auth token`` and similar commands print credentials on stdout, and CI
+    job logs can echo them. Shell, tmux and python output already pass this
+    policy before it is shown inline or written to ``tool-outputs/``. Same
+    switch (``GPTME_SHELL_REDACT_SECRETS``) and same heuristic -- this is not a
+    general secret scanner.
+    """
+    from ..config import get_config
+    from .redact import redact_secret_values_from_output
+
+    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        return text
+    return redact_secret_values_from_output(text)[0]
+
+
 def _truncate_log_tail(text: str, max_chars: int, hint: str = "") -> str:
     """Trim a CI log to ``max_chars`` by dropping the *head*, not the tail.
 
@@ -1141,15 +1208,25 @@ def get_github_run_logs(
         max_tokens: Approximate total output budget, at four characters per token
             including metadata and truncation notices (default: 4000)
         repo: Optional explicit ``owner/repo`` the run belongs to. When omitted,
-            ``gh`` resolves the repository from the current checkout.
+            ``gh`` resolves the repository from the session checkout.
 
     Returns:
-        Formatted string with run info and failure logs, or None on error
+        Formatted string with run info and failure logs, or None on error.
+        Raw job-log text is credential-redacted (``redact_gh_output``) before
+        failure extraction and truncation, so a credential is never clipped into
+        a fragment the filter no longer recognizes.
     """
     if not shutil.which("gh"):
         logger.debug("gh CLI not available")
         return None
 
+    from .workspace import get_workspace_cwd
+
+    cwd = get_workspace_cwd()
+    # An explicit repository does not need checkout inference. If the session
+    # checkout was removed, use a neutral directory, never the server's repo.
+    if repo and cwd and not Path(cwd).is_dir():
+        cwd = os.path.abspath(os.sep)
     repo_args = ["--repo", repo] if repo else []
 
     def bounded_output(output: str) -> str:
@@ -1182,6 +1259,7 @@ def get_github_run_logs(
                 "databaseId,displayTitle,event,headBranch,conclusion,status,workflowName,createdAt,updatedAt,url,jobs",
                 *repo_args,
             ],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -1242,13 +1320,14 @@ def get_github_run_logs(
         # logs for ALL failed jobs in a single call)
         log_result = subprocess.run(
             ["gh", "run", "view", run_id, "--log-failed", *repo_args],
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=False,
             timeout=60,
         )
         all_log_text = (
-            log_result.stdout
+            redact_gh_output(log_result.stdout)
             if log_result.returncode == 0 and log_result.stdout.strip()
             else ""
         )
@@ -1318,6 +1397,7 @@ def get_github_run_logs(
                         "api",
                         f"/repos/{owner}/{repo_name}/actions/jobs/{job_id}/logs",
                     ],
+                    cwd=cwd,
                     capture_output=True,
                     text=True,
                     check=False,
@@ -1325,7 +1405,7 @@ def get_github_run_logs(
                 )
                 if api_result.returncode == 0 and api_result.stdout.strip():
                     extracted = _truncate_log_tail(
-                        _extract_failure_sections(api_result.stdout),
+                        _extract_failure_sections(redact_gh_output(api_result.stdout)),
                         tokens_per_job * 4,
                     )
                     output += f"\n```\n{extracted}\n```\n"
@@ -1337,7 +1417,7 @@ def get_github_run_logs(
 
         return bounded_output(output)
 
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
         logger.warning(f"Failed to get run info: {e}")
         return None
     except json.JSONDecodeError as e:
