@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from ..context.config import parse_context_budget
-from ..tools import get_toolchain
+from ..tools import get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
+    is_mcp_allowlist_entry,
 )
 from ..tools._allowlist import is_tool_file_path as _is_tool_file_path
 from .chat import ChatConfig
@@ -269,6 +270,22 @@ def setup_config_from_cli(
                 for t in excluded_tools
                 if t not in default_tools and t not in TOOL_PRESETS
             ]
+            if tool_allowlist is None:
+                # From TOOL_ALLOWLIST. --tools rejects unknown exclusions at
+                # parse time, so do the same here: a typo ("-SHELL") must not
+                # leave the tool enabled. MCP names may be undiscoverable.
+                known = {tool.name for tool in get_available_tools()}
+                if unknown := [
+                    t
+                    for t in non_default
+                    if t not in known
+                    and not _is_tool_file_path(t)
+                    and not is_mcp_allowlist_entry(t)
+                ]:
+                    raise ValueError(
+                        "Invalid TOOL_ALLOWLIST: cannot exclude unknown tool(s): "
+                        f"{', '.join(unknown)}"
+                    )
             if non_default:
                 logger.warning(
                     "Tool(s) %s are not in the default toolset and cannot be excluded",

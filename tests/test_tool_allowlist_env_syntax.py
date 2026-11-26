@@ -88,6 +88,27 @@ def test_tool_allowlist_env_rejects_mixed_syntax(tmp_path, monkeypatch):
         setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
 
 
+@pytest.mark.parametrize("value", ["-SHELL", "-shel", "-save,-shel"])
+def test_tool_allowlist_env_rejects_unknown_exclusion(tmp_path, monkeypatch, value):
+    """A mistyped exclusion must not leave the tool enabled, as with --tools."""
+    monkeypatch.setenv("TOOL_ALLOWLIST", value)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ValueError, match="TOOL_ALLOWLIST.*unknown"):
+        setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+
+
+@pytest.mark.parametrize("value", ["-form", "-someserver.sometool"])
+def test_tool_allowlist_env_allows_non_default_exclusion(tmp_path, monkeypatch, value):
+    """Opt-in tools and MCP names are valid to exclude even if not loaded."""
+    monkeypatch.setenv("TOOL_ALLOWLIST", value)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+    assert config.chat is not None
+    assert "shell" in (config.chat.tools or [])
+
+
 def test_parser_strips_each_exclusion_prefix():
     """The internal exclusion spec has one leading '-', not one per name."""
     from gptme.config.cli_setup import parse_tool_specs
