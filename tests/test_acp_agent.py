@@ -2599,6 +2599,47 @@ class TestPromptCancel:
             agent._conn.session_update.call_args_list
         )
 
+    def test_turn_pre_hidden_context_survives_worker_error(self, monkeypatch):
+        """An ordinary provider failure must retain paid scout output on the loop."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.hooks import HookType
+        from gptme.message import Message
+
+        agent, log = _make_prompt_agent()
+        hidden = Message("system", "hidden scout context", hide=True)
+        loop_thread = threading.get_ident()
+        append_threads = []
+        log.append.side_effect = lambda msg: append_threads.append(
+            threading.get_ident()
+        )
+
+        def trigger_hook(hook_type, **kwargs):
+            if hook_type == HookType.TURN_PRE:
+                yield hidden
+
+        def failing_step(*args, **kwargs):
+            raise RuntimeError("provider unavailable")
+
+        monkeypatch.setattr(
+            importlib.import_module("gptme.hooks.registry"),
+            "trigger_hook",
+            trigger_hook,
+        )
+        monkeypatch.setattr(importlib.import_module("gptme.chat"), "step", failing_step)
+        result = _run(
+            agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+        )
+
+        persisted = [c.args[0] for c in log.append.call_args_list]
+        assert persisted.count(hidden) == 1
+        assert append_threads == [loop_thread] * len(persisted)
+        assert result.stop_reason == "cancelled"
+        assert "provider unavailable" in str(agent._conn.session_update.call_args_list)
+        assert hidden.content not in str(agent._conn.session_update.call_args_list)
+
     def test_cancel_during_turn_pre_hook_sends_no_scout_request(self, monkeypatch):
         """TURN_PRE (context scout) must not start a paid request after Stop."""
         if not _import_acp():

@@ -2058,7 +2058,15 @@ class GptmeAgent:
         waiters: set[asyncio.Future[Any]] = {worker, turn.cancel_waiter}
         await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
         if worker.done() and not turn.cancelled.is_set():
-            return worker.result()
+            try:
+                return worker.result()
+            except Exception:
+                # The caller still reports the error, but completed hook/tool
+                # output must survive it. This runs on the event loop, never
+                # concurrently with another log writer in the worker thread.
+                for message in turn.completed:
+                    log.append(message)
+                raise
         try:
             response_msgs, _ = await asyncio.wait_for(
                 asyncio.shield(worker), timeout=_CANCEL_GRACE_S
