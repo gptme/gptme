@@ -445,7 +445,12 @@ def chats_export(
         click.echo(f"Chat '{id}' not found")
         raise SystemExit(1)
 
-    log = LogManager.load(logdir)
+    try:
+        log = LogManager.load(logdir)
+    except FileNotFoundError as exc:
+        raise click.ClickException(f"Chat '{id}' not found") from exc
+    except OSError as exc:
+        raise click.ClickException(f"Cannot read chat '{id}': {exc}") from exc
 
     if safety_check or safety_json or judge:
         import json as _json  # fmt: skip
