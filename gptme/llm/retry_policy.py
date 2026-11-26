@@ -37,6 +37,19 @@ DEFAULT_BASE_DELAY = 1.0
 MAX_RETRY_DELAY = 60.0
 
 
+def is_quota_exhausted(error: BaseException) -> bool:
+    """Check the OpenAI SDK error body for a permanent billing quota error."""
+    body = getattr(error, "body", None)
+    if not isinstance(body, dict):
+        return False
+    return any(
+        payload.get(key) == "insufficient_quota"
+        for payload in (body, body.get("error"))
+        if isinstance(payload, dict)
+        for key in ("code", "type")
+    )
+
+
 def get_max_retries(default: int = DEFAULT_MAX_RETRIES) -> int:
     """Number of attempts for LLM calls, overridable via GPTME_LLM_MAX_RETRIES."""
     from ..config import get_config  # fmt: skip

@@ -204,6 +204,63 @@ def test_nonstreaming_transport_retry_and_active_budget(monkeypatch):
     assert budgets[0] is budgets[1] and budgets[0].attempts == 2
 
 
+@pytest.mark.parametrize("entrypoint", ["reply", "adapter"])
+@pytest.mark.parametrize("stream", [False, True], ids=["chat", "stream"])
+@pytest.mark.parametrize(
+    ("body", "expected_sends"),
+    [
+        pytest.param({"code": "insufficient_quota"}, 1, id="quota-code"),
+        pytest.param({"type": "insufficient_quota"}, 1, id="quota-type"),
+        pytest.param(
+            {"error": {"code": "insufficient_quota"}}, 1, id="nested-quota-code"
+        ),
+        pytest.param(
+            {"error": {"type": "insufficient_quota"}}, 1, id="nested-quota-type"
+        ),
+        pytest.param({"code": "rate_limit_exceeded"}, 3, id="rate-limit"),
+        pytest.param("rate limit without a structured body", 3, id="unstructured"),
+    ],
+)
+def test_openai_429_retries_only_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    entrypoint: str,
+    stream: bool,
+    body: dict[str, object] | str,
+    expected_sends: int,
+) -> None:
+    from openai import OpenAI, RateLimitError
+
+    from gptme.llm import llm_openai
+
+    sent: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(429, json={"error": body})
+
+    monkeypatch.setattr(llm_openai, "get_max_retries", lambda: 3)
+    monkeypatch.setattr(llm_openai, "backoff_wait", lambda *args: False)
+    messages = [Message("user", "hi")]
+    transport = httpx.MockTransport(respond)
+    with OpenAI(
+        api_key="offline",
+        base_url="https://offline.invalid/v1",
+        max_retries=0,
+        http_client=httpx.Client(transport=transport),
+    ) as client:
+        monkeypatch.setitem(llm_openai.clients, "openai", client)
+        with pytest.raises(RateLimitError) as caught:
+            if entrypoint == "reply":
+                llm.reply(messages, MODEL, stream=stream)
+            elif stream:
+                list(llm_openai.stream(messages, MODEL, None))
+            else:
+                llm_openai.chat(messages, MODEL, None)
+
+    assert caught.value.body == body
+    assert len(sent) == expected_sends
+
+
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 408, 409, 429, 500, 503])
 @pytest.mark.parametrize("sdk", ["openai", "anthropic"])
 def test_sdk_status_classification(status, sdk):
