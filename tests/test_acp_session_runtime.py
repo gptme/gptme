@@ -1635,3 +1635,125 @@ def test_prompt_cancelled_inside_runtime_is_an_error(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="cancelled before it completed"):
         _run(runtime.prompt("cancel"))
     _run(runtime.close())
+
+
+@pytest.mark.timeout(15)
+def test_stop_loop_does_not_hang_on_task_that_ignores_cancellation(
+    monkeypatch, tmp_path
+):
+    """A task that swallows CancelledError must not block loop shutdown."""
+    import gptme.server.acp_session_runtime as mod
+
+    monkeypatch.setattr(mod, "_SHUTDOWN_GRACE_S", 0.2)
+    started = threading.Event()
+
+    class _StubbornClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            started.set()
+            while True:
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    continue
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _StubbornClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    result: list[BaseException] = []
+
+    def _caller() -> None:
+        try:
+            asyncio.run(runtime.prompt("stubborn"))
+        except BaseException as e:
+            result.append(e)
+
+    t = threading.Thread(target=_caller, daemon=True)
+    t.start()
+    assert started.wait(5)
+    loop_thread = runtime._loop_thread
+    began = time.monotonic()
+    runtime._stop_loop()
+    assert time.monotonic() - began < 10
+    assert loop_thread is not None and not loop_thread.is_alive()
+    t.join(5)
+    assert not t.is_alive()
+    # The caller is released with an error rather than hanging on the loop.
+    assert len(result) == 1
+    assert isinstance(result[0], ConnectionError)
+
+
+@pytest.mark.timeout(60)
+def test_acp_step_thread_two_turns_reuse_live_runtime(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """The production thread-spawned step path keeps one runtime across turns."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.session_step as sessions_mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    monkeypatch.setattr(sessions_mod, "trigger_hook", lambda *args, **kwargs: [])
+
+    from gptme.logmanager import LogManager
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    session = ConversationSession(
+        id="sid-thread-2turn", conversation_id=conversation_id
+    )
+    session.use_acp = True
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    session.acp_runtime = runtime
+    with SessionManager._lock:
+        SessionManager._sessions["sid-thread-2turn"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-thread-2turn")
+
+    def _wait_step_complete(before: int) -> int:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            count = len([e for e in session.events if e["type"] == "step_complete"])
+            if count > before and not session.generating:
+                return count
+            time.sleep(0.05)
+        raise AssertionError("ACP step thread did not complete")
+
+    try:
+        completions = 0
+        for content in ["first turn", "second turn"]:
+            resp = client.post(
+                f"/api/v2/conversations/{conversation_id}",
+                json={"role": "user", "content": content},
+            )
+            assert resp.status_code == 200
+            assert sessions_mod._start_acp_step_thread(
+                conversation_id, session, tmp_path
+            )
+            completions = _wait_step_complete(completions)
+            assert runtime.is_subprocess_alive()
+
+        errors = [e for e in session.events if e["type"] == "error"]
+        assert errors == []
+        assert session.last_error is None
+        assert len(created) == 1
+
+        manager = LogManager.load(conversation_id)
+        assistant_msgs = [
+            m.content for m in manager.log.messages if m.role == "assistant"
+        ]
+        assert assistant_msgs == ["echo:first turn", "echo:second turn"]
+    finally:
+        _run(runtime.close())
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-thread-2turn", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-thread-2turn"
+            )

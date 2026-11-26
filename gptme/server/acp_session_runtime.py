@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     import concurrent.futures
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine
     from pathlib import Path
 
 from gptme.acp.client import GptmeAcpClient
@@ -34,6 +34,36 @@ from gptme.acp.client import GptmeAcpClient
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
+
+
+# How long the runtime loop waits for cancelled tasks and async generators to
+# unwind before the loop is closed anyway. A task that swallows
+# ``CancelledError`` must not keep the loop thread alive forever.
+_SHUTDOWN_GRACE_S = 5.0
+
+
+def _run_until_complete_bounded(
+    loop: asyncio.AbstractEventLoop,
+    awaitable: Awaitable[Any],
+    timeout: float,
+    what: str,
+) -> None:
+    """Run ``awaitable`` on ``loop`` for at most ``timeout`` seconds.
+
+    ``run_until_complete`` has no timeout of its own, and ``asyncio.wait_for``
+    still awaits the cancelled future, so neither bounds a coroutine that
+    swallows ``CancelledError``. ``asyncio.wait`` returns on the timeout and
+    leaves the task behind.
+    """
+    task = asyncio.ensure_future(awaitable, loop=loop)
+    loop.run_until_complete(asyncio.wait({task}, timeout=timeout))
+    if not task.done():
+        logger.warning(
+            "ACP runtime loop shutdown timed out after %.1fs waiting for %s",
+            timeout,
+            what,
+        )
+        task.cancel()
 
 
 class _LoopCalls:
@@ -206,12 +236,20 @@ class AcpSessionRuntime:
                         for task in pending:
                             task.cancel()
                         if pending:
-                            loop.run_until_complete(
-                                asyncio.gather(*pending, return_exceptions=True)
+                            _run_until_complete_bounded(
+                                loop,
+                                asyncio.gather(*pending, return_exceptions=True),
+                                _SHUTDOWN_GRACE_S,
+                                "cancelled tasks",
                             )
                         # Finalize the spawn_agent_process async generator (and
                         # any other) on its own loop, not via GC on another one.
-                        loop.run_until_complete(loop.shutdown_asyncgens())
+                        _run_until_complete_bounded(
+                            loop,
+                            loop.shutdown_asyncgens(),
+                            _SHUTDOWN_GRACE_S,
+                            "async generators",
+                        )
                     except Exception:
                         logger.debug(
                             "Failed to shut down ACP runtime async generators",
@@ -433,6 +471,10 @@ class AcpSessionRuntime:
             proc = getattr(self._client, "_process", None)
             if self._close_on_loop_sync(timeout):
                 return
+            # The graceful close did not finish: retire the loop before reaping
+            # by pid, so its child watcher cannot race the synchronous waitpid
+            # over the same child.
+            self._stop_loop(join_timeout=timeout)
             if proc is None:
                 return
             if not isinstance(proc, subprocess.Popen):
