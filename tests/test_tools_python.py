@@ -741,7 +741,7 @@ def test_execute_python_timeout_before_result(monkeypatch):
     """A timeout outside IPython's catcher still returns the timeout message."""
     from gptme.tools import python as python_tool
 
-    monkeypatch.setenv("GPTME_IPYTHON_BACKEND", "inprocess")
+    monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
     monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "1")
     ipython = python_tool._get_ipython()
 
@@ -777,9 +777,10 @@ def test_execute_python_timeout_before_result(monkeypatch):
 
 
 def test_execute_python_reraises_cli_termination(monkeypatch):
+    from gptme.tools import python as python_tool
     from gptme.util.interrupt import CliTermination
 
-    monkeypatch.setenv("GPTME_IPYTHON_BACKEND", "inprocess")
+    monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
     with pytest.raises(CliTermination) as exc:
         run(
             "from gptme.util.interrupt import CliTermination; raise CliTermination(143)"
