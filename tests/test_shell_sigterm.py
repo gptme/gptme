@@ -21,6 +21,8 @@ pytestmark = pytest.mark.skipif(
     "mode",
     [
         "terminate",
+        "python-terminate",
+        "python-exit",
         "subagent-timeout",
         "subagent-timeout-shell",
         "default-return",
@@ -75,6 +77,19 @@ def fake_chat(*args, **kwargs):
         job = start_background_job("exec sleep 300")
         child_pid = job.process.pid
     temporary = ready.with_suffix(".tmp")
+    if mode.startswith("python-"):
+        from gptme.tools.python import execute_python
+        code = (
+            "from pathlib import Path\nimport time\n"
+            f"Path({str(temporary)!r}).write_text({f'{child_pid} {os.getpgid(child_pid)}'!r})\n"
+            f"Path({str(temporary)!r}).replace({str(ready)!r})\n"
+            + ("time.sleep(30)" if mode == "python-terminate" else "raise SystemExit(7)")
+        )
+        list(execute_python(code, [], None))
+        # A user-cell exit is an ordinary tool error. An external SIGTERM must
+        # instead escape the cell and run the CLI's finally cleanup.
+        assert mode == "python-exit", "CLI resumed after SIGTERM in IPython"
+        return
     temporary.write_text(f"{child_pid} {os.getpgid(child_pid)}")
     temporary.replace(ready)
     if mode == "terminate" or mode.startswith("subagent-timeout"):
@@ -102,6 +117,8 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
         XDG_CONFIG_HOME=str(tmp_path / "config"),
         XDG_DATA_HOME=str(tmp_path / "data"),
         XDG_STATE_HOME=str(tmp_path / "state"),
+        HOME=str(tmp_path / "home"),
+        GPTME_IPYTHON_BACKEND="inprocess",
     )
     child_pid = None
     child_pgid = None
@@ -123,7 +140,7 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
                 stdout, stderr = process.communicate(timeout=5)
                 pytest.fail(f"CLI failed before job start: {stdout}\n{stderr}")
             child_pid, child_pgid = map(int, ready.read_text().split())
-            if mode == "terminate":
+            if mode in {"terminate", "python-terminate"}:
                 os.kill(child_pid, 0)
                 process.send_signal(signal.SIGTERM)
             elif mode.startswith("subagent-timeout"):
@@ -144,7 +161,8 @@ assert signal.getsignal(signal.SIGTERM) == previous_handler
                 os.kill(child_pid, 0)
             expected_code = (
                 128 + signal.SIGTERM
-                if mode == "terminate" or mode.startswith("subagent-timeout")
+                if mode in {"terminate", "python-terminate"}
+                or mode.startswith("subagent-timeout")
                 else 0
             )
             assert process.returncode == expected_code, (stdout, stderr)

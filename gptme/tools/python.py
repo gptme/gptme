@@ -52,6 +52,7 @@ from ..hooks import (
 from ..message import Message
 from ..util.context import md_codeblock
 from ..util.interrupt import (
+    CliTermination,
     clear_pending,
     interruptible_sleep,
     kill_processes,
@@ -1227,6 +1228,11 @@ def execute_python(
         captured_stderr = stderr_capture.get_captured()
         post_images = pre_images if timed_out_fired else _snapshot_images(cwd)
 
+    # IPython catches SystemExit (including the CLI's SIGTERM) as a cell
+    # error. Re-raise only external termination, not a user's own sys.exit().
+    for error in (result.error_before_exec, result.error_in_exec):
+        if isinstance(error, CliTermination):
+            raise error
     if timed_out_fired:
         yield Message(
             "system",
