@@ -1270,6 +1270,7 @@ def test_eval_csv_round_trip_preserves_status(
     restored = read_results_from_csv(str(csv_path))[config][0]
     assert restored.status == status
     assert restored.to_dict()["passed"] == bool(case_passed)
+    assert all(case.passed for case in restored.results) == bool(case_passed)
     if cases:
         assert restored.results == cases
 

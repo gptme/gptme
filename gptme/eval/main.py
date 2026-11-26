@@ -968,8 +968,8 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
                 status = cast(Status, csv_status)
             cases_file = test_dir / "cases.csv"
             cases = list(_read_case_results(cases_file))
-            if not cases_file.exists():
-                # A copied CSV retains the aggregate outcome, not checker details.
+            if not cases:
+                # Without checker details, retain the CSV's aggregate outcome.
                 cases = [
                     CaseResult(
                         name="CSV aggregate",
