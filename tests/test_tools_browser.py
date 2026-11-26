@@ -1668,6 +1668,12 @@ class TestOpenPageSessionReuse:
         def stalled_commit(*args, **kwargs):
             # A same-document URL update in the old page must not count either.
             page.url = "https://example.com/account#updated"
+            # Playwright emits framenavigated even for replaceState/hash changes.
+            # Deliver it if the implementation ever listens for that event, so a
+            # regression that treats it as a commit fails this test.
+            for call in page.on.call_args_list:
+                if call.args[0] == "framenavigated":
+                    call.args[1](page.main_frame)
             raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
 
         page.goto.side_effect = stalled_commit
