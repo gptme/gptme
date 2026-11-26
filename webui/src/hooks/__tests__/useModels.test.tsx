@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useModels } from '../useModels';
+import { bumpProviderStatusVersion } from '@/stores/setupWizard';
 
 const mockConnected$ = observable(true);
 const mockApi = { baseUrl: 'http://models.test', authHeader: 'Bearer test' };
@@ -287,6 +288,39 @@ it('preserves a saved favorite when an older catalog read completes after the PO
       json: async () => ({ models: [], default: 'initial/model', favorites: [], recommended: [] }),
     });
     await Promise.all([save, read]);
+  });
+  await waitFor(() => expect(composer.result.current.favorites).toEqual(['model/A']));
+  await act(async () => {
+    await composer.result.current.toggleFavorite('model/B');
+  });
+  expect(mockFetch).toHaveBeenLastCalledWith(
+    'http://models.test/api/v2/user/favorites',
+    expect.objectContaining({ body: JSON.stringify({ favorites: ['model/A', 'model/B'] }) })
+  );
+});
+
+it('keeps pending favorites in the visible catalog across provider setup refreshes', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  let finishSave!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishSave = resolve;
+    })
+  );
+  let save!: Promise<boolean>;
+  act(() => {
+    save = composer.result.current.toggleFavorite('model/A');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  act(() => {
+    bumpProviderStatusVersion();
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+  await act(async () => {
+    finishSave({ ok: true, json: async () => ({ favorites: ['model/A'] }) });
+    await save;
   });
   await waitFor(() => expect(composer.result.current.favorites).toEqual(['model/A']));
   await act(async () => {

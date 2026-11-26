@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
@@ -42,8 +42,23 @@ export function useModels() {
   // All mounted pickers share one catalog, scoped to the server and credentials.
   // Read mutations from this cache too: a second consumer may save before React
   // has rendered the first consumer's optimistic update.
-  const queryKey = ['models', api.baseUrl, api.authHeader, providerStatusVersion] as const;
+  const queryKey = useMemo(
+    () => ['models', api.baseUrl, api.authHeader] as const,
+    [api.baseUrl, api.authHeader]
+  );
   const enabled = isConnected && !isDemoMode();
+  const previousProviderStatusVersion = useRef(providerStatusVersion);
+  useEffect(() => {
+    if (previousProviderStatusVersion.current === providerStatusVersion) return;
+    previousProviderStatusVersion.current = providerStatusVersion;
+    // Setup refreshes this server's catalog, not its identity. Keep pending
+    // preference mutations and every consumer on the same cache and write queue.
+    void queryClient
+      .cancelQueries({ queryKey, exact: true })
+      .then(() =>
+        queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false })
+      );
+  }, [providerStatusVersion, queryClient, queryKey]);
 
   const authedHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
