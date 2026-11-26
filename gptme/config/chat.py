@@ -170,7 +170,13 @@ class ChatConfig:
         return None
 
     @classmethod
-    def from_dict(cls, config_data: dict, *, create_workspace: bool = True) -> Self:
+    def from_dict(
+        cls,
+        config_data: dict,
+        *,
+        create_workspace: bool = True,
+        tolerate_malformed_env: bool = False,
+    ) -> Self:
         """Create a ChatConfig instance from a dictionary. Warns about unknown keys."""
         _logdir = config_data.pop("_logdir", None)
 
@@ -224,10 +230,13 @@ class ChatConfig:
             raise ValueError("env must be an object")
         # A conversation's saved config is user-editable state: a stray compound
         # value must not make the conversation impossible to resume or list.
-        env_source = (
-            path_with_tilde(_logdir / "config.toml") if _logdir else "chat config"
-        )
-        env = _stringify_env(_drop_malformed_env_entries(env, env_source))
+        # API dictionaries still reject malformed values instead of dropping them.
+        if tolerate_malformed_env:
+            env_source = (
+                path_with_tilde(_logdir / "config.toml") if _logdir else "chat config"
+            )
+            env = _drop_malformed_env_entries(env, env_source)
+        env = _stringify_env(env)
         mcp_data = config_data.pop("mcp", None)
         if mcp_data is not None and not isinstance(mcp_data, dict):
             raise ValueError("mcp must be an object")
@@ -334,7 +343,11 @@ class ChatConfig:
             else:
                 config_data = tomlkit.loads(text).unwrap()
             config_data["_logdir"] = path
-            return cls.from_dict(config_data, create_workspace=create_workspace)
+            return cls.from_dict(
+                config_data,
+                create_workspace=create_workspace,
+                tolerate_malformed_env=True,
+            )
         except _CHAT_CONFIG_LOAD_ERRORS as e:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
             # Keep _logdir unset so save() cannot overwrite an unreadable config

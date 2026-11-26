@@ -68,7 +68,10 @@ def test_env_skips_compound_values_in_config_files(tmp_path, caplog, value, laye
     from gptme.config.models import ProjectConfig
 
     if layer == "chat":
-        chat = ChatConfig.from_dict({"env": {"EXAMPLE_KEY": value, "COSTS": False}})
+        chat = ChatConfig.from_dict(
+            {"_logdir": tmp_path, "env": {"EXAMPLE_KEY": value, "COSTS": False}},
+            tolerate_malformed_env=True,
+        )
         assert "EXAMPLE_KEY" not in chat.env
         assert chat.env["COSTS"] == "false"
     elif layer == "project":
@@ -79,6 +82,18 @@ def test_env_skips_compound_values_in_config_files(tmp_path, caplog, value, laye
         assert project.env["COSTS"] == "false"
     assert "env.EXAMPLE_KEY in " in caplog.text
     assert "must be a scalar value (skipped)" in caplog.text
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+@pytest.mark.parametrize("with_logdir", [False, True])
+def test_chat_api_rejects_compound_env(tmp_path, value, with_logdir):
+    from gptme.config.chat import ChatConfig
+
+    data = {"env": {"EXAMPLE_KEY": value, "COSTS": False}}
+    if with_logdir:
+        data["_logdir"] = tmp_path
+    with pytest.raises(ValueError, match="env.EXAMPLE_KEY must be a scalar value"):
+        ChatConfig.from_dict(data)
 
 
 @pytest.mark.parametrize("value", [["a"], {"nested": "a"}])

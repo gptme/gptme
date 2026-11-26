@@ -3839,6 +3839,21 @@ def test_v2_chat_config_patch_rejects_non_object_json(
     assert response.get_json() == {"error": "JSON body must be an object"}
 
 
+@pytest.mark.parametrize("bad_env", [["a"], {"nested": "a"}])
+def test_v2_chat_config_patch_rejects_compound_env(client: FlaskClient, bad_env):
+    """A rejected API edit must not erase the previously saved env entry."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    url = f"/api/v2/conversations/{conversation_id}/config"
+    response = client.patch(url, json={"env": {"EXAMPLE_KEY": "original"}})
+    assert response.status_code == 200
+
+    response = client.patch(url, json={"env": {"EXAMPLE_KEY": bad_env}})
+
+    assert response.status_code == 400
+    assert "env.EXAMPLE_KEY must be a scalar value" in response.get_json()["error"]
+    assert client.get(url).get_json()["env"]["EXAMPLE_KEY"] == "original"
+
+
 @pytest.mark.parametrize("bad_workspace", [[], 42, {"path": "~/tmp"}])
 def test_v2_chat_config_patch_rejects_invalid_workspace_type(
     client: FlaskClient, bad_workspace: object
