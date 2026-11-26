@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from '@jest/globals';
 import {
   addServer,
+  adoptSameOriginServer,
   getActiveServer,
   serverRegistry$,
   sameOriginServer$,
@@ -16,6 +17,33 @@ describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
   beforeEach(() => {
     serverRegistry$.set({ servers: [], activeServerId: '', connectedServerIds: [] });
     sameOriginServer$.set(null);
+  });
+
+  it('preserves a known preset credential when discovery precedes an explicit baseUrl link', () => {
+    setLocation('http://myhost:5700/#baseUrl=http://127.0.0.1:5700');
+    const local = addServer({
+      name: 'Local',
+      baseUrl: 'http://127.0.0.1:5700',
+      authToken: 'saved-local-token',
+      useAuthToken: true,
+      isPreset: true,
+    });
+    setActiveServer(local.id);
+    const hash = 'baseUrl=http://127.0.0.1:5700';
+    const registry = structuredClone(serverRegistry$.peek());
+    adoptSameOriginServer(registry, window.location.origin);
+    serverRegistry$.set(registry);
+    sameOriginServer$.set(window.location.origin);
+
+    expect(getConnectionConfigFromSources(hash)).toMatchObject({
+      baseUrl: 'http://127.0.0.1:5700',
+      authToken: 'saved-local-token',
+      useAuthToken: true,
+    });
+    expect(getActiveServer()?.id).toBe(local.id);
+    expect(
+      registry.servers.find((s) => s.baseUrl === window.location.origin)?.authToken
+    ).toBeNull();
   });
 
   it('preserves selected-server token links on a custom static frontend after failed discovery', () => {

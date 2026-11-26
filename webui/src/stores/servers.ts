@@ -113,9 +113,19 @@ export async function probeSameOriginServer(
 }
 
 /** Replace the stock preset, preserving explicit selections and origin-bound auth. */
-export function adoptSameOriginServer(registry: ServerRegistry, origin: string): void {
+export function adoptSameOriginServer(
+  registry: ServerRegistry,
+  origin: string,
+  hash: string = typeof window !== 'undefined' ? window.location.hash.slice(1) : ''
+): void {
+  const explicitDestination = new URLSearchParams(hash).get('baseUrl');
   const preset = registry.servers.find((s) => {
     if (!s.isPreset) return false;
+    // An explicit link still owns its saved entry and origin-bound credentials.
+    // Create a separate serving entry rather than retargeting/removing that one.
+    if (explicitDestination && normalizeUrl(s.baseUrl) === normalizeUrl(explicitDestination)) {
+      return false;
+    }
     try {
       return (
         ['localhost', '127.0.0.1', '[::1]'].includes(new URL(s.baseUrl).hostname) ||
