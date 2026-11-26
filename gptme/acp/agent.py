@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..config import ChatConfig, MCPServerConfig, get_config, get_project_config
+from ..constants import INTERRUPT_CONTENT
 from ..dirs import get_logs_dir
 from ..hooks import HookType, register_hook
 from ..hooks.confirm import ConfirmationResult
@@ -1871,6 +1872,7 @@ class GptmeAgent:
                 # session/cancel: persist what completed, send nothing more.
                 for response_msg in response_msgs:
                     log.append(response_msg)
+                log.append(_RuntimeMessage("system", INTERRUPT_CONTENT))
                 _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
                 return _PromptResponse(stop_reason="cancelled")
 
@@ -1928,6 +1930,7 @@ class GptmeAgent:
                     log.append(response_msg)
 
             if turn.cancelled.is_set():
+                log.append(_RuntimeMessage("system", INTERRUPT_CONTENT))
                 chat_stop_reason = "cancelled"
             _PromptResponse = _check_acp_import(PromptResponse, "PromptResponse")
             return _PromptResponse(stop_reason=chat_stop_reason)
@@ -2077,8 +2080,15 @@ class GptmeAgent:
                 late_msgs = turn.completed
                 if not done.cancelled() and done.exception() is None:
                     late_msgs, _ = done.result()
-                for late_msg in late_msgs[len(completed) :]:
+                pending = late_msgs[len(completed) :]
+                for late_msg in pending:
                     log.append(late_msg)
+                if pending:
+                    # A late assistant message can supersede the marker saved
+                    # by prompt(). Keep CLI resume at the input prompt too.
+                    from ..message import Message
+
+                    log.append(Message("system", INTERRUPT_CONTENT))
             finally:
                 self._draining_sessions.discard(turn.session_id)
 

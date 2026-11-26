@@ -26,6 +26,7 @@ from gptme.acp.types import (
     ToolCallStatus,
     ToolKind,
 )
+from gptme.constants import INTERRUPT_CONTENT
 from gptme.hooks.confirm import ConfirmAction
 from gptme.tools import ToolUse
 
@@ -1913,7 +1914,8 @@ class TestPromptCancel:
         # Completed steps are persisted; the interrupted one is dropped.
         persisted = [call.args[0].content for call in log.append.call_args_list]
         assert persisted[0] == "loop"
-        assert len(persisted) % 2 == 1
+        assert persisted[-1] == INTERRUPT_CONTENT
+        assert len(persisted[:-1]) % 2 == 1
 
     def test_cancel_answers_promptly_while_worker_is_blocked(self, monkeypatch):
         """A worker stuck in a tool must not hold session/prompt open."""
@@ -1972,17 +1974,28 @@ class TestPromptCancel:
         # The released worker stops at its next checkpoint, not another step.
         assert steps == 2
         # The step completed before the cancel is persisted with the answer...
-        assert at_return == ["block", "```shell\necho 1\n```", "out 1"]
+        assert at_return == [
+            "block",
+            "```shell\necho 1\n```",
+            "out 1",
+            INTERRUPT_CONTENT,
+        ]
         # ...and the step that finished after it is appended once it stops, so
         # no executed tool goes unrecorded in the conversation.
         persisted = [c.args[0].content for c in log.append.call_args_list]
-        assert persisted == at_return + ["```shell\necho 2\n```", "out 2"]
+        assert persisted == at_return + [
+            "```shell\necho 2\n```",
+            "out 2",
+            INTERRUPT_CONTENT,
+        ]
 
     @pytest.mark.parametrize("late", [False, True])
     def test_cancel_between_tools_preserves_executed_output(
         self, monkeypatch, tmp_path, late
     ):
         """The real tool loop must retain output yielded before its next checkpoint."""
+        from gptme.chat import _should_prompt_for_input
+        from gptme.logmanager import Log
         from gptme.message import Message
         from gptme.tools.base import ToolSpec
 
@@ -2018,18 +2031,19 @@ class TestPromptCancel:
                 await agent.cancel(session_id="s1")
                 if late:
                     result = await asyncio.wait_for(task, 2.0)
-                    assert [c.args[0].content for c in log.append.call_args_list] == [
+                    at_return = [c.args[0] for c in log.append.call_args_list]
+                    assert [m.content for m in at_return] == [
                         "go",
                         assistant,
+                        INTERRUPT_CONTENT,
                     ]
+                    assert _should_prompt_for_input(Log(at_return))
                     release.set()
                 else:
                     release.set()
                     result = await asyncio.wait_for(task, 2.0)
                 deadline = time.monotonic() + 3.0
-                while (
-                    len(log.append.call_args_list) < 3 and time.monotonic() < deadline
-                ):
+                while "s1" in agent._draining_sessions and time.monotonic() < deadline:
                     await asyncio.sleep(0.01)
                 return result
             finally:
@@ -2040,10 +2054,17 @@ class TestPromptCancel:
         assert marker.read_text() == "first"
         assert ran == ["first"]
         persisted = [c.args[0] for c in log.append.call_args_list]
-        assert [m.content for m in persisted] == ["go", assistant, "effect completed"]
+        expected = ["go", assistant]
+        if late:
+            expected.append(INTERRUPT_CONTENT)
+        expected.extend(["effect completed", INTERRUPT_CONTENT])
+        assert [m.content for m in persisted] == expected
+        assert _should_prompt_for_input(Log(persisted))
+        assert persisted[-1].role == "system"
         assert persisted[1].metadata["tool_format"] == "markdown"
         assert "tool_ms" not in persisted[1].metadata.get("timings", {})
-        assert persisted[2].metadata["timings"]["tool_ms"] >= 0
+        result_msg = next(m for m in persisted if m.content == "effect completed")
+        assert result_msg.metadata["timings"]["tool_ms"] >= 0
 
     @pytest.mark.parametrize("blocked_part", ["worker", "cleanup"])
     def test_reload_waits_for_cancelled_session_writers(
@@ -2109,13 +2130,16 @@ class TestPromptCancel:
                     await asyncio.sleep(0.01)
                 assert await agent.load_session(session_id="s1") is not None
                 restored = agent._registry.get("s1").log
+                from gptme.chat import _should_prompt_for_input
+
+                assert _should_prompt_for_input(restored.log)
                 restored.append(Message("user", "new prompt"))
                 reread = LogManager.load(tmp_path / "s1", lock=False)
-                assert [m.content for m in reread.log] == [
-                    "old prompt",
-                    "old result",
-                    "new prompt",
-                ]
+                expected = ["old prompt"]
+                if blocked_part == "worker":
+                    expected.append(INTERRUPT_CONTENT)
+                expected.extend(["old result", INTERRUPT_CONTENT, "new prompt"])
+                assert [m.content for m in reread.log] == expected
             finally:
                 release.set()
                 release_close.set()
@@ -2205,7 +2229,7 @@ class TestPromptCancel:
         # No updates after the cancel, but every message is still persisted.
         assert final_sends == 1
         persisted = [c.args[0].content for c in log.append.call_args_list]
-        assert persisted == ["go", "done", "note A", "note B"]
+        assert persisted == ["go", "done", "note A", "note B", INTERRUPT_CONTENT]
         assert "s1" not in agent._active_turns
 
     def test_prompt_during_cancel_cleanup_does_not_start_a_turn(self, monkeypatch):
@@ -2326,6 +2350,7 @@ class TestPromptCancel:
                 assert [c.args[0].content for c in log.append.call_args_list] == [
                     "go",
                     "short",
+                    INTERRUPT_CONTENT,
                 ]
                 assert not finished.is_set()
             finally:
@@ -2694,7 +2719,7 @@ class TestPromptCancel:
         assert result.stop_reason == "cancelled"
         assert sends == 1
         persisted = [c.args[0].content for c in log.append.call_args_list]
-        assert persisted == ["go", "done", "note A", "note B"]
+        assert persisted == ["go", "done", "note A", "note B", INTERRUPT_CONTENT]
 
     def test_cancel_returns_while_error_report_is_blocked(self, monkeypatch):
         """Stop also releases a prompt that is reporting a failed turn."""
