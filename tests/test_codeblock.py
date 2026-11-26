@@ -1950,6 +1950,63 @@ def test_thinking_tag_concatenated_to_closing_fence():
     assert "print('hello')" in blocks[1].content
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("width", [4, 5, 6, 7])
+def test_six_backtick_markdown_with_nested_example(width: int, streaming: bool) -> None:
+    fence = "`" * width
+    content = "# Heading\n```text\nexample\n```"
+    first_block = f"{fence}markdown\n{content}\n{fence}"
+    second_block = "```text\nfollowing block\n```"
+    blocks = Codeblock.iter_from_markdown(
+        f"{first_block}\n\n{second_block}\n\n", streaming=streaming
+    )
+    assert [(block.lang, block.content, block.fence) for block in blocks] == [
+        ("markdown", content, fence),
+        ("text", "following block", "```"),
+    ]
+    assert [block.to_markdown() for block in blocks] == [first_block, second_block]
+
+
+def test_six_backtick_markdown_streaming_prefix() -> None:
+    content = "# Heading\n```\n\nMore text"
+    before_closer = f"``````markdown\n{content}\n"
+    markdown = before_closer + "``````\n\n"
+    for end in range(1, len(markdown)):
+        assert Codeblock.iter_from_markdown(markdown[:end], streaming=True) == [], end
+    blocks = Codeblock.iter_from_markdown(markdown, streaming=True)
+    assert [(block.lang, block.content, block.fence) for block in blocks] == [
+        ("markdown", content, "``````"),
+    ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_wide_markdown_after_blank_line_preserves_literal_thinking(
+    streaming: bool,
+) -> None:
+    prefix = "```text\nprevious block\n```\n\n"
+    content = "# Heading\n```\n\n<think>\nLiteral text"
+    markdown = f"{prefix}``````markdown\n{content}\n``````\n\n"
+    blocks = Codeblock.iter_from_markdown(markdown, streaming=streaming)
+    assert [(block.content, block.fence) for block in blocks] == [
+        ("previous block", "```"),
+        (content, "``````"),
+    ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("duplicate_closer", [False, True])
+def test_adjacent_fences_preserve_triple_width(
+    streaming: bool, duplicate_closer: bool
+) -> None:
+    closer = "```\n" if duplicate_closer else ""
+    markdown = f"```shell\necho example\n{closer}``````text\noutput\n```\n\n"
+    blocks = Codeblock.iter_from_markdown(markdown, streaming=streaming)
+    assert [(block.lang, block.content, block.fence) for block in blocks] == [
+        ("shell", "echo example", "```"),
+        ("text", "output", "```"),
+    ]
+
+
 def test_adjacent_outer_fences_split_tool_blocks():
     """Inner-loop recovery: 6-backtick line inside an open block yields both blocks.
 
@@ -3417,8 +3474,9 @@ def test_outer_closer_index_matches_forward_depth_scan() -> None:
 @pytest.mark.parametrize("prose_lines", [1, 30])
 @pytest.mark.parametrize("outer_length", [4, 5])
 @pytest.mark.parametrize("literal_reasoning", ["", "<think>\nliteral\n</think>\n"])
+@pytest.mark.parametrize("command_closer", ["```", "``````"])
 def test_long_outer_fence_before_six_backtick_command(
-    prose_lines: int, outer_length: int, literal_reasoning: str
+    prose_lines: int, outer_length: int, literal_reasoning: str, command_closer: str
 ) -> None:
     """Six backticks cannot split into a long outer closer plus a new opener."""
     fence = "`" * outer_length
@@ -3426,11 +3484,13 @@ def test_long_outer_fence_before_six_backtick_command(
     markdown = (
         f"{fence}save a.md\n{content}\n{fence}\n"
         + "Narration.\n" * prose_lines
-        + "``````shell\ncat a.md\n```\n"
+        + f"``````shell\ncat a.md\n{command_closer}\n"
     )
-    assert list(_extract_codeblocks(markdown)) == [
-        Codeblock("save a.md", content, fence=fence),
-        Codeblock("shell", "cat a.md"),
+    expected = [Codeblock("save a.md", content, fence=fence)]
+    if command_closer == "``````":
+        expected.append(Codeblock("shell", "cat a.md", fence=command_closer))
+    assert [block.to_markdown() for block in _extract_codeblocks(markdown)] == [
+        block.to_markdown() for block in expected
     ]
 
 
@@ -3443,9 +3503,10 @@ def test_joined_fence_scan_is_scoped_to_each_outer_length(
     expected = []
     for outer_length in outer_lengths:
         fence = "`" * outer_length
+        command_fence = "```" if outer_length == 3 else "``````"
         markdown += (
             f"{fence}save a.md\nhello\n{fence}\nNarration.\n"
-            "``````shell\ncat a.md\n```\n"
+            f"``````shell\ncat a.md\n{command_fence}\n"
         )
         if outer_length == 3:
             expected.extend(
@@ -3456,9 +3517,14 @@ def test_joined_fence_scan_is_scoped_to_each_outer_length(
             )
         else:
             expected.extend(
-                [Codeblock("save a.md", "hello"), Codeblock("shell", "cat a.md")]
+                [
+                    Codeblock("save a.md", "hello", fence=fence),
+                    Codeblock("shell", "cat a.md", fence=command_fence),
+                ]
             )
-    assert list(_extract_codeblocks(markdown)) == expected
+    assert [block.to_markdown() for block in _extract_codeblocks(markdown)] == [
+        block.to_markdown() for block in expected
+    ]
 
 
 @pytest.mark.parametrize("outer_length", [4, 5])
@@ -3513,13 +3579,15 @@ def test_joined_fence_after_ambiguous_bare_fence_prefers_literal_content(
     """
     narration = "Checking:\n" * prose_lines
     boundary = "\n" if confirmed_close else ""
+    command_fence = "``````" if confirmed_close else "```"
     markdown = (
-        f"```save a.json\n{{}}\n```\n{boundary}{narration}``````shell\necho ok\n```"
+        f"```save a.json\n{{}}\n```\n{boundary}{narration}"
+        f"``````shell\necho ok\n{command_fence}"
     )
     expected_content = "{}" if confirmed_close else "{}\n```\n" + narration.rstrip("\n")
-    assert list(_extract_codeblocks(markdown)) == [
-        Codeblock("save a.json", expected_content),
-        Codeblock("shell", "echo ok"),
+    assert [block.to_markdown() for block in _extract_codeblocks(markdown)] == [
+        f"```save a.json\n{expected_content}\n```",
+        f"{command_fence}shell\necho ok\n{command_fence}",
     ]
 
 

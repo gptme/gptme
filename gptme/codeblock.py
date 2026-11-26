@@ -373,6 +373,13 @@ def _is_thinking_lang(lang: str) -> bool:
     return first in ("thinking", "think")
 
 
+def _recover_repeated_closer(line: str, after_triple_closer: bool) -> str:
+    """Recognize a duplicated triple closer using only prior parser state."""
+    if after_triple_closer and re.match(r"^`{6}[^`\s]", line):
+        return line[3:]
+    return line
+
+
 # Languages where a bare fence at depth 1 is never a nested opener.
 # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
 # only produces false positives (swallowing prose + output blocks into
@@ -444,9 +451,11 @@ def _line_fence_states(
     heredoc_terminator: str | None = None
     # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
     ambiguous_fence_kept = False
+    after_triple_closer = False
     for i, line in enumerate(lines):
         if depth == 0:
-            scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
+            scan = _recover_repeated_closer(line, after_triple_closer)
+            after_triple_closer = False
             fence_match = re.match(r"^(`{3,})", scan)
             if fence_match:
                 fence_len = len(fence_match.group(1))
@@ -725,6 +734,7 @@ def _line_fence_states(
                 states.append((depth, True, outer_lang))
                 depth -= 1
                 if depth == 0:
+                    after_triple_closer = fence_len == 3
                     fence_len = 0
                     outer_lang = ""
                 continue
@@ -1066,18 +1076,11 @@ def _extract_codeblocks(
     lines = markdown.split("\n")
     outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     i = 0
+    after_triple_closer = False
 
     while i < len(lines):
-        line = lines[i]
-
-        # Recover from malformed adjacent outer fences where a block closes and the
-        # next one opens on the same line, e.g. "``````patch file.py" instead of
-        # "```\n```patch file.py". ToolUse._to_markdown always emits triple fences,
-        # so six leading backticks followed immediately by a language tag is a good
-        # signal that the first three backticks belong to the previous block.
-        if re.match(r"^`{6}[^`\s]", line):
-            line = line[3:]
-            lines[i] = line
+        line = _recover_repeated_closer(lines[i], after_triple_closer)
+        after_triple_closer = False
 
         # Look for code block start (3+ backticks)
         # Count the backticks at the start of the line
@@ -1549,5 +1552,8 @@ def _extract_codeblocks(
             # (this handles the unfinished nested test case)
             if reprocess_current_line:
                 continue
+            # A joined closer is handled above. At top level, only an immediately
+            # preceding standalone triple closer can justify stripping another.
+            after_triple_closer = fence_len == 3 and lines[i - 1].rstrip() == "```"
         else:
             i += 1
