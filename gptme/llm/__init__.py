@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import sys
 import time
@@ -361,6 +362,12 @@ _CONTEXT_LENGTH_ERROR_PHRASES = (
     "input is too long for the model",
     "too many input tokens",
 )
+# Anthropic's overflow message: "prompt is too long: 208310 tokens > 200000 maximum".
+# Matched on the token counts so "prompt is too long: maximum field length ..."
+# (a request-shape error) is not treated as context overflow.
+_ANTHROPIC_PROMPT_TOO_LONG_RE = re.compile(
+    r"prompt is too long: \d+ tokens > \d+ maximum"
+)
 
 
 def mark_llm_reply_origin(
@@ -432,7 +439,9 @@ def is_context_length_error(e: BaseException) -> bool:
         return True
 
     text = " ".join((str(e), str(body))).lower()
-    return any(phrase in text for phrase in _CONTEXT_LENGTH_ERROR_PHRASES)
+    return any(phrase in text for phrase in _CONTEXT_LENGTH_ERROR_PHRASES) or bool(
+        _ANTHROPIC_PROMPT_TOO_LONG_RE.search(text)
+    )
 
 
 @trace_function(name="llm.reply", attributes={"component": "llm"})

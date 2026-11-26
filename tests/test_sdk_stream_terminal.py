@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import httpx
 import httpx2
 import pytest
-from anthropic.types import InputJSONDelta, TextDelta, ToolUseBlock
+from anthropic.types import InputJSONDelta, MessageDeltaEvent, TextDelta, ToolUseBlock
 from openai.types.chat import ChatCompletionChunk
 
 from gptme.llm import llm_anthropic, llm_openai
@@ -106,6 +106,15 @@ def _sdk_stream(
                 )
             )
     if terminal:
+        events.append(
+            MessageDeltaEvent.model_validate(
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "tool_use" if native else "end_turn"},
+                    "usage": {"output_tokens": 12},
+                }
+            )
+        )
         events.append(SimpleNamespace(type="message_stop"))
     client = MagicMock()
     client.messages.stream.return_value = nullcontext(iter(events))

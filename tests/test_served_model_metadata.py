@@ -591,6 +591,9 @@ def _anthropic_stream_events(model: Any):
         ),
         SimpleNamespace(
             type="message_delta",
+            # The provider reads stop_reason from the delta to decide whether
+            # unfinished native tool calls may be emitted.
+            delta=SimpleNamespace(stop_reason="end_turn", stop_sequence=None),
             usage=SimpleNamespace(
                 input_tokens=10,
                 output_tokens=5,

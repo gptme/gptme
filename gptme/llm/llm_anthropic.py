@@ -9,6 +9,7 @@ from collections.abc import Callable, Generator, Iterable
 from dataclasses import replace
 from functools import wraps
 from pathlib import Path
+from types import SimpleNamespace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -185,7 +186,53 @@ class _UsageMetrics(Protocol):
     def cache_read_input_tokens(self) -> int | None: ...
 
 
-def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
+_USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+
+
+def _merge_stream_usage(
+    start: _UsageMetrics | None, delta: _UsageMetrics
+) -> _UsageMetrics:
+    """Combine ``message_start`` usage with the ``message_delta`` usage.
+
+    Anthropic's ``message_delta`` usage is cumulative but may omit fields
+    (typically it carries only ``output_tokens``); omitted fields keep the
+    ``message_start`` value, as the Anthropic SDK's own stream accumulator does.
+    """
+    if start is None:
+        return delta
+    merged = {}
+    for field in _USAGE_FIELDS:
+        value = getattr(delta, field, None)
+        merged[field] = value if value is not None else getattr(start, field, None)
+    return cast(_UsageMetrics, SimpleNamespace(**merged))
+
+
+# Stop reasons where the output ran out of room mid-reply. Everything up to the
+# cut is usable; only a tool call still being written at the cut is not.
+_TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "model_context_window_exceeded"})
+
+
+def _is_complete_tool_json(streamed: str) -> bool:
+    """Whether the streamed argument fragments form a complete JSON object.
+
+    Anthropic stops a tool_use block even when the token cap cut it off
+    mid-arguments, so only the fragments themselves show whether the call can
+    run. An empty fragment string is the no-argument call, which is complete.
+    """
+    try:
+        return isinstance(json.loads(streamed or "{}"), dict)
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
+def _record_usage(
+    usage: _UsageMetrics, model: str, success: bool = True
+) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
         return None
@@ -207,7 +254,7 @@ def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
     record_llm_request(
         provider="anthropic",
         model=model,
-        success=True,
+        success=success,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_creation_tokens=cache_creation_tokens,
@@ -507,6 +554,10 @@ def _build_thinking_param(
     return {"type": "enabled", "budget_tokens": thinking_budget}
 
 
+# Anthropic rejects ``budget_tokens`` below this with HTTP 400.
+_MIN_THINKING_BUDGET = 1024
+
+
 def _adjust_thinking_budget(
     max_tokens: int, thinking_budget: int, use_thinking: bool, model: str = ""
 ) -> tuple[int, bool]:
@@ -524,11 +575,22 @@ def _adjust_thinking_budget(
     """
     if not use_thinking or _requires_adaptive_thinking(model):
         return thinking_budget, use_thinking
+    if thinking_budget < _MIN_THINKING_BUDGET:
+        logger.warning(
+            "thinking_budget=%d is below Anthropic's minimum of %d; "
+            "disabling extended thinking. Increase %s or unset it.",
+            thinking_budget,
+            _MIN_THINKING_BUDGET,
+            ENV_REASONING_BUDGET,
+        )
+        return thinking_budget, False
     if max_tokens >= thinking_budget + _MIN_RESPONSE_TOKENS:
         return thinking_budget, use_thinking
     new_budget = max_tokens - _MIN_RESPONSE_TOKENS
-    if new_budget <= 0:
-        # Not enough room for thinking AND a useful response — disable thinking.
+    if new_budget < _MIN_THINKING_BUDGET:
+        # Not enough room for the API's minimum thinking budget AND a useful
+        # response — disable thinking rather than send a budget Anthropic
+        # rejects with HTTP 400.
         logger.warning(
             "max_tokens=%d is too small to accommodate thinking tokens "
             "and a useful response (min %d tokens); "
@@ -1148,6 +1210,8 @@ def _stream_with_client(
     captured_metadata: MessageMetadata | None = None
     # Model id Anthropic reports on message_start (message.model).
     served_model: str | None = None
+    # Usage reported on message_start; message_delta may omit these fields.
+    start_usage: _UsageMetrics | None = None
     # Track the signature for the current thinking block so it can be embedded
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
@@ -1198,11 +1262,22 @@ def _stream_with_client(
     from .recovery import reserve_recovery_request  # fmt: skip
 
     saw_message_stop = False
+    stop_reason: str | None = None
     native_pending: list[str] | None = None
+    # Whether the current tool_use block streamed any argument JSON; a
+    # no-argument call (e.g. ``complete``) may stream none at all.
+    tool_json_emitted = False
+    # Argument JSON streamed so far for the current tool_use block. A block
+    # also stops when the token cap cut it off mid-arguments, so this is what
+    # tells a finished call from a truncated one.
+    tool_json_parts: list[str] = []
+    # (index into native_pending, tool name) of a tool_use block that no later
+    # block has followed, so a truncated reply may have cut it off.
+    last_tool_call: tuple[int, str] | None = None
 
     def _emit(text: str) -> Generator[str, None, None]:
         # Preserve order after the first native call, withholding executable
-        # syntax until message_stop confirms the message was not truncated.
+        # syntax until message_stop and stop_reason show which calls completed.
         if native_pending is not None:
             native_pending.append(text)
         else:
@@ -1225,13 +1300,18 @@ def _stream_with_client(
                 case "content_block_start":
                     chunk = cast(anthropic.types.RawContentBlockStartEvent, chunk)
                     block = chunk.content_block
+                    # Blocks are streamed one at a time: a new one means the
+                    # previous tool call was written out in full.
+                    last_tool_call = None
                     if isinstance(block, anthropic.types.ToolUseBlock):
                         tool_use = block
                         if native_pending is None:
                             native_pending = []
-                        yield from _emit(
-                            f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
-                        )
+                        tool_json_emitted = False
+                        tool_json_parts = []
+                        tool_name = canonical_tool_name(tool_use.name)
+                        last_tool_call = (len(native_pending), tool_name)
+                        yield from _emit(f"\n@{tool_name}({tool_use.id}): ")
                     elif isinstance(block, anthropic.types.ThinkingBlock):
                         _current_thinking = []
                         yield from _emit("<think>\n")
@@ -1255,7 +1335,9 @@ def _stream_with_client(
                             _current_thinking.append(delta.thinking)
                             yield from _emit(delta.thinking)
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
-                        if delta.partial_json is not None:
+                        if delta.partial_json:
+                            tool_json_emitted = True
+                            tool_json_parts.append(delta.partial_json)
                             yield from _emit(delta.partial_json)
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # Capture signature for embedding in the closing </think> tag.
@@ -1276,7 +1358,27 @@ def _stream_with_client(
                     if isinstance(stop_block, anthropic.types.TextBlock):
                         pass
                     elif isinstance(stop_block, anthropic.types.ToolUseBlock):
-                        pass
+                        if not tool_json_emitted:
+                            # Without an argument object the call header is
+                            # not parsed as a tool call; match chat()'s
+                            # json.dumps(block.input).
+                            yield from _emit(json.dumps(stop_block.input or {}))
+                            tool_json_emitted = True
+                        # A block stops even when the token cap cut it off
+                        # mid-arguments, so the stop alone does not prove the
+                        # call finished. Only a parseable argument object does;
+                        # otherwise keep it marked as the possibly-cut call.
+                        # An empty fragment set is deliberately left marked:
+                        # it is the no-argument call, but it is also what a cap
+                        # landing right after ``content_block_start`` leaves, so
+                        # only the truncation branch can decide, and it withholds
+                        # a call it cannot prove finished.
+                        if (
+                            tool_json_parts
+                            and last_tool_call is not None
+                            and _is_complete_tool_json("".join(tool_json_parts))
+                        ):
+                            last_tool_call = None
                     elif isinstance(stop_block, anthropic.types.ThinkingBlock):
                         # Embed the signature so it's preserved in message history
                         # and can be passed back to the API on subsequent turns.
@@ -1302,6 +1404,7 @@ def _stream_with_client(
                         chunk,
                     )
                     served_model = _served_model_of(chunk.message) or served_model
+                    start_usage = chunk.message.usage
                     # Capture input/cache token counts (and the request's
                     # reasoning effort) as a fallback for callers that break
                     # the stream before message_delta arrives (e.g.
@@ -1316,9 +1419,18 @@ def _stream_with_client(
                         )
                 case "message_delta":
                     chunk = cast(anthropic.types.MessageDeltaEvent, chunk)
+                    stop_reason = chunk.delta.stop_reason
                     # Record usage from message_delta which contains the final/cumulative usage
                     # and capture metadata for message attachment
-                    captured_metadata = _record_usage(chunk.usage, model)
+                    # A reply whose tool calls are rejected below still
+                    # costs tokens, but is not a successful request.
+                    captured_metadata = _record_usage(
+                        _merge_stream_usage(start_usage, chunk.usage),
+                        model,
+                        success=native_pending is None
+                        or stop_reason == "tool_use"
+                        or stop_reason in _TRUNCATED_STOP_REASONS,
+                    )
                 case "message_stop":
                     saw_message_stop = True
                 case _:
@@ -1331,6 +1443,41 @@ def _stream_with_client(
             "Anthropic stream ended without terminal message_stop"
         )
     if native_pending:
+        if stop_reason in _TRUNCATED_STOP_REASONS:
+            # Keep the calls that finished, so the turn makes progress, and
+            # tell the model about the one that did not. Raising here would
+            # discard the whole reply, and asking again hits the same limit.
+            if last_tool_call is not None:
+                start, name = last_tool_call
+                logger.warning(
+                    "Anthropic reply hit %s; not running the unfinished %s call",
+                    stop_reason,
+                    name,
+                )
+                notice = (
+                    f"\n[The last `{name}` tool call in this reply was cut off "
+                    f"({stop_reason}) and was not run. Retry with less output, "
+                    "e.g. split a large write into several calls.]\n"
+                )
+                # Ahead of the finished calls: break_on_tooluse stops reading
+                # at the first one, and history conversion drops text that
+                # follows the last.
+                del native_pending[start:]
+                native_pending.insert(0, notice)
+        elif stop_reason != "tool_use":
+            # Another known terminal reason (e.g. refusal) is not a
+            # transport failure: replaying with the same cap can charge for
+            # the same unfinished call repeatedly. Missing reasons remain
+            # protocol errors, eligible for the normal transport retry policy.
+            message = (
+                f"Anthropic tool stream ended with stop_reason={stop_reason!r}; "
+                "withholding unfinished tool calls"
+            )
+            if stop_reason is None:
+                raise RemoteProtocolError(message)
+            from anthropic import APIError  # fmt: skip
+
+            raise APIError(message, request=stream.response.request, body=None)
         yield "".join(native_pending)
 
     # Return the captured metadata (accessible via StopIteration.value)
