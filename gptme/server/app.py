@@ -172,16 +172,18 @@ def create_app(
     if server_default_model:
         app.config["SERVER_DEFAULT_MODEL"] = server_default_model
         SessionManager.set_server_default_model(server_default_model.full)
-
-        @app.before_request
-        def propagate_default_model():
-            """Propagate the server's default model to each request's ContextVar."""
-            # Only set if not already set in this context
-            if get_default_model() is None:
-                set_default_model(server_default_model)
     else:
         app.config.pop("SERVER_DEFAULT_MODEL", None)
         SessionManager.set_server_default_model(None)
+
+    @app.before_request
+    def propagate_default_model() -> None:
+        """Propagate the current server default to fresh request contexts."""
+        # Read app state rather than the startup snapshot: preference saves can
+        # change the default (or establish one on a server started without one).
+        current_default = app.config.get("SERVER_DEFAULT_MODEL")
+        if get_default_model() is None and current_default is not None:
+            set_default_model(current_default)
 
     # Register v2 API, workspace API, tasks API, and auth API
     # noreorder
