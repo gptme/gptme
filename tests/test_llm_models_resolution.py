@@ -1079,3 +1079,49 @@ class TestModelMetaEdgeCases:
         m1 = ModelMeta(provider="openai", model="test", context=128_000)
         m2 = ModelMeta(provider="openai", model="test", context=64_000)
         assert m1 != m2
+
+
+@pytest.mark.parametrize(
+    ("bare", "expected_provider"),
+    [
+        ("grok-4.6", "xai"),
+        ("deepseek-v4-pro", "deepseek"),
+        # Already vendor-first by dict order; must stay that way.
+        ("gpt-5.5", "openai"),
+    ],
+)
+def test_bare_model_name_prefers_vendor_api(bare, expected_provider):
+    from gptme.llm.models import get_model
+
+    assert get_model(bare).provider == expected_provider
+
+
+def test_shared_bare_names_prefer_non_reseller_providers() -> None:
+    """Shared bare names prefer a matching provider outside the reseller set.
+
+    This guards the configured reseller ordering, not model ownership; the
+    explicit vendor cases above independently check the known collisions.
+    """
+    from gptme.llm.models import MODELS, get_model
+    from gptme.llm.models.resolution import _RESELLER_PROVIDERS
+
+    non_resellers_by_name: dict[str, set[str]] = {}
+    reseller_names: set[str] = set()
+    for provider, models in MODELS.items():
+        names = set(models) | {
+            alias
+            for alias, target in MODEL_ALIASES.get(provider, {}).items()
+            if target in models
+        }
+        # Provider-qualified names take a separate path before bare lookup.
+        names = {name for name in names if "/" not in name}
+        if provider in _RESELLER_PROVIDERS:
+            reseller_names.update(names)
+        else:
+            for name in names:
+                non_resellers_by_name.setdefault(name, set()).add(provider)
+
+    shared = reseller_names.intersection(non_resellers_by_name)
+    assert shared  # the guard is vacuous if no names overlap
+    for name in sorted(shared):
+        assert get_model(name).provider in non_resellers_by_name[name], name

@@ -190,6 +190,21 @@ def _find_closest_model_properties(
     return None
 
 
+# Providers that resell or proxy other vendors' models. A bare model name
+# resolves to these only when no vendor API lists it.
+_RESELLER_PROVIDERS = frozenset(
+    {
+        "openai-subscription",
+        "grok-subscription",
+        "opencode-go",
+        "openrouter",
+        "requesty",
+        "gptme",
+        "azure",
+    }
+)
+
+
 def get_model(model: str) -> ModelMeta:
     meta = _resolve_model(model)
     if meta.supports_mid_system and not infer_supports_mid_system(meta.model, model):
@@ -378,8 +393,13 @@ def _resolve_model(model: str) -> ModelMeta:
         # Unknown provider
         log_warn_once(f"Unknown model {model}, using fallback metadata")
         return ModelMeta(provider="unknown", model=model, context=128_000)
-    # try to find model in all providers, starting with static models
-    for provider in cast(list[Provider], MODELS.keys()):
+    # try to find model in all providers, starting with static models.
+    # Vendor APIs win over subscription/gateway providers that list the same
+    # name (grok-4.6 -> xai, not grok-subscription), independent of dict order.
+    for provider in sorted(
+        cast(list[Provider], MODELS.keys()),
+        key=lambda p: p in _RESELLER_PROVIDERS,
+    ):
         if model in MODELS[provider]:
             return ModelMeta(provider, model, **MODELS[provider][model])
         # Also resolve bare model aliases (e.g., gpt-5.6 -> openai/gpt-5.6-sol).
