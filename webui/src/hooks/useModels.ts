@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isCancelledError, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { setupWizard$ } from '@/stores/setupWizard';
@@ -54,7 +54,7 @@ export function useModels() {
     // Setup refreshes this server's catalog, not its identity. Keep pending
     // preference mutations and every consumer on the same cache and write queue.
     void queryClient
-      .cancelQueries({ queryKey, exact: true })
+      .cancelQueries({ queryKey, exact: true }, { revert: false })
       .then(() =>
         queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false })
       );
@@ -82,6 +82,22 @@ export function useModels() {
     staleTime: 0,
   });
 
+  // Setup can replace a read while a preference write is waiting on it. Follow
+  // the replacement instead of deriving a write from the pre-refresh snapshot.
+  const settleCatalog = async () => {
+    for (;;) {
+      try {
+        await queryClient.fetchQuery<ModelsResponse>({
+          queryKey,
+          staleTime: queryClient.getQueryState(queryKey)?.fetchStatus === 'fetching' ? 0 : Infinity,
+        });
+        if (queryClient.getQueryState(queryKey)?.fetchStatus !== 'fetching') return;
+      } catch (err) {
+        if (!isCancelledError(err)) throw err;
+      }
+    }
+  };
+
   // Persist the favorites list. Optimistically updates shared state and reverts on failure.
   const favoritesMutation = useMutation({
     // Serialize writes from every consumer so rapid toggles cannot send competing
@@ -91,10 +107,7 @@ export function useModels() {
       // Join any activation/Settings refresh before deriving a replacement list.
       // Cancelling it would discard newer favorites and default-model settings.
       try {
-        await queryClient.fetchQuery<ModelsResponse>({
-          queryKey,
-          staleTime: queryClient.getQueryState(queryKey)?.fetchStatus === 'fetching' ? 0 : Infinity,
-        });
+        await settleCatalog();
       } catch (err) {
         console.error('Failed to refresh models before saving favorites:', err);
         return false;
@@ -124,11 +137,7 @@ export function useModels() {
         // Let it finish (preserving other refreshed settings), then publish the
         // confirmed write. A failed refresh must not undo a successful POST.
         try {
-          await queryClient.fetchQuery<ModelsResponse>({
-            queryKey,
-            staleTime:
-              queryClient.getQueryState(queryKey)?.fetchStatus === 'fetching' ? 0 : Infinity,
-          });
+          await settleCatalog();
         } catch (err) {
           console.error('Failed to refresh models after saving favorites:', err);
         }
@@ -149,7 +158,6 @@ export function useModels() {
     modelId: string
   ): Promise<{ ok: boolean; restartRequired: boolean }> => {
     try {
-      await queryClient.cancelQueries({ queryKey, exact: true });
       const response = await fetch(`${api.baseUrl}/api/v2/user/default-model`, {
         method: 'POST',
         headers: authedHeaders(),
@@ -157,9 +165,9 @@ export function useModels() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const saved = (await response.json()) as { restart_required?: boolean };
-      // A refresh can start while the POST is pending. Abort it before publishing
-      // the confirmed default so its older response cannot overwrite the save.
-      await queryClient.cancelQueries({ queryKey, exact: true });
+      // Preserve the initial/setup catalog and refreshed favorites. Joining the
+      // read before publishing also prevents its old default overwriting this save.
+      await settleCatalog();
       queryClient.setQueryData<ModelsResponse>(queryKey, (current) =>
         current ? { ...current, default: modelId } : current
       );

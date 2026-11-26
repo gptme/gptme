@@ -203,15 +203,20 @@ it('does not let a catalog fetch started during a default save restore the old d
   const signal = mockFetch.mock.calls[2][1].signal as AbortSignal;
   await act(async () => {
     finishSave({ ok: true, json: async () => ({ restart_required: false }) });
-    await save;
     finishRead({
       ok: true,
-      json: async () => ({ models: [], default: 'initial/model', favorites: [], recommended: [] }),
+      json: async () => ({
+        models: [],
+        default: 'initial/model',
+        favorites: ['model/A'],
+        recommended: [],
+      }),
     });
-    await read;
+    await Promise.all([save, read]);
   });
   await waitFor(() => expect(composer.result.current.defaultModel).toBe('new/model'));
-  expect(signal.aborted).toBe(true);
+  expect(composer.result.current.favorites).toEqual(['model/A']);
+  expect(signal.aborted).toBe(false);
 });
 
 it('waits for a Settings refresh before replacing favorites', async () => {
@@ -330,4 +335,73 @@ it('keeps pending favorites in the visible catalog across provider setup refresh
     'http://models.test/api/v2/user/favorites',
     expect.objectContaining({ body: JSON.stringify({ favorites: ['model/A', 'model/B'] }) })
   );
+});
+
+it('retries a canceled catalog refresh before saving a favorite', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  mockFetch.mockReturnValueOnce(new Promise(() => {}));
+  act(() => {
+    void composer.result.current.refetch();
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  let save!: Promise<boolean>;
+  act(() => {
+    save = composer.result.current.toggleFavorite('model/B');
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      models: [],
+      default: 'setup/model',
+      favorites: ['model/A'],
+      recommended: [],
+    }),
+  });
+  await act(async () => {
+    bumpProviderStatusVersion();
+  });
+  await act(async () => {
+    expect(await save).toBe(true);
+  });
+  expect(mockFetch).toHaveBeenCalledWith(
+    'http://models.test/api/v2/user/favorites',
+    expect.objectContaining({ body: JSON.stringify({ favorites: ['model/A', 'model/B'] }) })
+  );
+});
+
+it('finishes the initial catalog load when saving a default before it arrives', async () => {
+  let finishRead!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishRead = resolve;
+    })
+  );
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+  let save!: ReturnType<typeof composer.result.current.saveDefaultModel>;
+  act(() => {
+    save = composer.result.current.saveDefaultModel('new/model');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  await act(async () => {
+    finishRead({
+      ok: true,
+      json: async () => ({
+        models: [{ id: 'model/A', provider: 'model', model: 'A', context: 1000 }],
+        default: 'initial/model',
+        favorites: ['model/A'],
+        recommended: [],
+      }),
+    });
+    expect(await save).toEqual({ ok: true, restartRequired: false });
+  });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('new/model'));
+  expect(composer.result.current.availableModels).toEqual(['model/A']);
+  expect(composer.result.current.favorites).toEqual(['model/A']);
 });
