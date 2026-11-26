@@ -470,3 +470,39 @@ it('keeps queued favorite toggles bound to the account that requested them', asy
   );
   expect(composer.result.current.favorites).toEqual([]);
 });
+
+it('does not overwrite a newer Settings default with a delayed save response', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  let finishSave!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishSave = resolve;
+    })
+  );
+  let save!: ReturnType<typeof composer.result.current.saveDefaultModel>;
+  act(() => {
+    save = composer.result.current.saveDefaultModel('older/model');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  mockFetch.mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({
+      models: [],
+      default: 'settings/model',
+      favorites: [],
+      recommended: [],
+    }),
+  }));
+  await act(async () => {
+    await composer.result.current.refetch();
+  });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('settings/model'));
+  await act(async () => {
+    finishSave({ ok: true, json: async () => ({ restart_required: false }) });
+    expect((await save).ok).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(composer.result.current.defaultModel).toBe('settings/model');
+});

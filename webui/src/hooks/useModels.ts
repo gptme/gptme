@@ -158,6 +158,7 @@ export function useModels() {
   const saveDefaultModel = async (
     modelId: string
   ): Promise<{ ok: boolean; restartRequired: boolean }> => {
+    const initialCatalog = queryClient.getQueryData<ModelsResponse>(queryKey);
     try {
       const response = await fetch(`${baseUrl}/api/v2/user/default-model`, {
         method: 'POST',
@@ -174,12 +175,17 @@ export function useModels() {
         // The preference POST succeeded even if the independent catalog failed.
         console.error('Failed to refresh models after saving default:', err);
       }
-      queryClient.setQueryData<ModelsResponse>(queryKey, (current) => ({
-        models: EMPTY_MODELS,
-        recommended: EMPTY_IDS,
-        ...current,
-        default: modelId,
-      }));
+      queryClient.setQueryData<ModelsResponse>(queryKey, (current) => {
+        // Settings or another consumer may have confirmed a newer default while
+        // this response was delayed. Do not replace that authoritative value.
+        if (initialCatalog && current && current.default !== initialCatalog.default) return current;
+        return {
+          models: EMPTY_MODELS,
+          recommended: EMPTY_IDS,
+          ...current,
+          default: modelId,
+        };
+      });
       return { ok: true, restartRequired: !!saved.restart_required };
     } catch (err) {
       console.error('Failed to save default model:', err);
