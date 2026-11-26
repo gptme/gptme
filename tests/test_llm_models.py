@@ -299,6 +299,15 @@ def test_gpt_6_1_sol_registered(provider):
     assert get_model(f"{provider}/gpt-6.1-sol").context == 1_050_000
 
 
+@pytest.mark.parametrize("provider", ["openai", "openai-subscription"])
+def test_gpt_6_2_sol_registered(provider):
+    """Without an entry, GPT-6.2 Sol falls back to another model's $5/$30 metadata."""
+    meta = get_model(f"{provider}/gpt-6.2-sol")
+    assert meta.model == "gpt-6.2-sol"
+    assert meta.context == 1_050_000
+    assert (meta.price_input, meta.price_output) == (2, 10)
+
+
 @pytest.mark.parametrize("provider", sorted(RECOMMENDED_MODELS))
 def test_recommended_models_have_metadata(provider):
     """Every recommended/summary model must exist in the static registry.
