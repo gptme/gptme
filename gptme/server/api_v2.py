@@ -152,8 +152,9 @@ _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 # Commands that must not run in server mode:
 # - exit/restart: terminate or restart the server process
 # - edit: launches an interactive $EDITOR subprocess, blocking the worker thread
-# - delete (without --force): calls input() waiting for stdin that never arrives
-_SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete"}
+# - delete/rm (without --force): calls input() waiting for stdin that never arrives
+# - export: writes a local HTML file as a CLI operation, not a server download
+_SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete", "rm", "export"}
 
 
 def _parse_conversation_cursor(raw: str) -> tuple[float, str | None]:
@@ -3009,7 +3010,12 @@ def api_commands():
     """
     from ..commands import get_user_commands
 
-    return flask.jsonify({"commands": get_user_commands()})
+    commands = [
+        command
+        for command in get_user_commands()
+        if command.lstrip("/") not in _SERVER_BLOCKED_COMMANDS
+    ]
+    return flask.jsonify({"commands": commands})
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>/config", methods=["GET"])

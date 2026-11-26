@@ -1314,7 +1314,7 @@ def test_api_providers_health_timeout_returns_quickly(
     }
 
 
-def test_api_v2_commands(client: FlaskClient):
+def test_api_v2_commands(client: FlaskClient) -> None:
     """Test the /api/v2/commands endpoint returns available commands."""
     response = client.get("/api/v2/commands")
     assert response.status_code == 200
@@ -1322,10 +1322,11 @@ def test_api_v2_commands(client: FlaskClient):
     assert "commands" in data
     commands = data["commands"]
     assert isinstance(commands, list)
-    # Core commands should always be registered
     assert "/help" in commands
-    assert "/exit" in commands
     assert "/model" in commands
+    assert not {"/exit", "/restart", "/edit", "/delete", "/rm", "/export"}.intersection(
+        commands
+    )
 
 
 def test_api_v2_conversation_command(conv, client: FlaskClient):
