@@ -892,3 +892,17 @@ def test_gemini_flash_lite_hidden_from_setup_but_still_resolvable() -> None:
     meta = get_model("gemini/gemini-2.5-flash-lite")
     assert meta.model == "gemini-2.5-flash-lite"
     assert meta.deprecated
+
+
+def test_gpt4o_alias_prices_match_published_rates():
+    """The `gpt-4o` alias points at gpt-4o-2024-08-06, not the 2024-05-13 snapshot.
+
+    OpenAI's model page (verified 2026-11-24) lists $2.50/$10 per 1M tokens for
+    the alias; the old $5/$15 was the 2024-05-13 snapshot price, which made
+    every gpt-4o cost estimate roughly double. The page also lists a 16,384
+    max output, which bounds the compaction budget.
+    """
+    meta = get_model("openai/gpt-4o")
+    assert meta.price_input == pytest.approx(2.5)
+    assert meta.price_output == pytest.approx(10)
+    assert meta.max_output == 16_384

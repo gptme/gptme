@@ -203,11 +203,15 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "preferred_edit_format": "whole",
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
-    # GPT-4o
+    # GPT-4o (alias -> gpt-4o-2024-08-06)
+    # https://platform.openai.com/docs/models/gpt-4o (verified 2026-11-24):
+    # $2.50/$10 per 1M tokens, 16,384 max output. The $5/$15 that used to sit
+    # here was the 2024-05-13 snapshot price, so estimates read ~2x high.
     "gpt-4o": {
         "context": 128_000,
-        "price_input": 5,
-        "price_output": 15,
+        "max_output": 16_384,
+        "price_input": 2.5,
+        "price_output": 10,
         "supports_vision": True,
         "supports_parallel_tool_calls": True,
         "supports_strict_tools": True,
