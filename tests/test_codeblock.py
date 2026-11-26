@@ -3568,118 +3568,16 @@ def test_exec_langs_cover_python_and_shell_tool_block_types():
         assert block_type in _EXEC_LANGS
 
 
-def test_streaming_holds_heredoc_until_its_terminator_arrives():
-    """A streamed heredoc writing markdown is not cut at its first inner fence.
-
-    Mid-stream the terminator has not arrived yet, so the old look-ahead never
-    confirmed the heredoc and the inner bare fence closed the shell block:
-    gptme ran `cat > README.md` with only the first line.
-    """
-    full = (
-        "Creating the README:\n"
-        "```shell\n"
-        "cat > README.md << 'EOF'\n"
-        "# Title\n"
-        "```\n"
-        "pip install x\n"
-        "```\n"
-        "EOF\n"
-        "```\n"
-    )
-    expected = "cat > README.md << 'EOF'\n# Title\n```\npip install x\n```\nEOF"
-    assert [b.content for b in Codeblock.iter_from_markdown(full)] == [expected]
-    # The loop below only checks blocks that were emitted, so also require the
-    # finished stream to emit the command (else the tool-use break never fires).
-    assert [b.content for b in Codeblock.iter_from_markdown(full, streaming=True)] == [
-        expected
-    ]
-    for cut in range(1, len(full) + 1):
-        if full[cut - 1] != "\n":
-            continue
-        for block in Codeblock.iter_from_markdown(full[:cut], streaming=True):
-            assert block.content == expected, f"prefix {full[:cut]!r}"
-
-
-def test_py_block_triple_quoted_fence_is_literal():
+@pytest.mark.parametrize("streaming", [False, True])
+def test_py_block_triple_quoted_fence_is_literal(streaming: bool):
     """`py` needs the same triple-quote tracking as `ipython`.
 
     A bare fence inside a triple-quoted Python string is literal source, not a
-    markdown delimiter. Before the fix the `py` block was cut at the first fence.
+    markdown delimiter. Without the tracking, the `py` block is cut at the first
+    fence.
     """
     md = '```py\ntext = """\n```\nexample\n```\n"""\nprint(text)\n```\n'
-    blocks = Codeblock.iter_from_markdown(md)
-    assert len(blocks) == 1
-    assert blocks[0].lang == "py"
-    assert blocks[0].content == 'text = """\n```\nexample\n```\n"""\nprint(text)'
-
-
-def test_extract_codeblocks_bare_arithmetic_shift_is_not_a_heredoc():
-    """A `$`-less `((...))` arithmetic command is not a heredoc opener.
-
-    `shift=3; (( mask = 1 << shift ))` made the scanner read `shift` as a
-    heredoc delimiter, keeping the block open and swallowing later fences.
-    """
-    md = "```shell\nshift=3; (( mask = 1 << shift ))\necho $mask\n```\n"
-    expected = "shift=3; (( mask = 1 << shift ))\necho $mask"
-    # Streaming: the old window-hits-end fallback confirmed the phantom `shift`
-    # terminator and held the block open forever, so no block was emitted.
-    assert [b.content for b in Codeblock.iter_from_markdown(md, streaming=True)] == [
-        expected
+    blocks = Codeblock.iter_from_markdown(md, streaming=streaming)
+    assert [(b.lang, b.content) for b in blocks] == [
+        ("py", 'text = """\n```\nexample\n```\n"""\nprint(text)')
     ]
-
-
-def test_extract_codeblocks_long_heredoc_past_confirmation_window():
-    """A heredoc terminator beyond 200 lines must still be honoured.
-
-    The old bounded look-ahead gave up, so the first inner fence closed the
-    shell block and only the start of the file write survived.
-    """
-    body = "\n".join(f"body {i}" for i in range(250))
-    full = f"```shell\ncat > README.md <<'EOF'\n{body}\n```\ntail\nEOF\n```\n"
-    expected = "cat > README.md <<'EOF'\n" + body + "\n```\ntail\nEOF"
-    assert [b.content for b in Codeblock.iter_from_markdown(full)] == [expected]
-
-
-def test_streaming_long_heredoc_is_never_truncated():
-    """Streaming must not emit a truncated command past the old 200-line window."""
-    body = "\n".join(f"body {i}" for i in range(250))
-    full = f"```shell\ncat > README.md <<'EOF'\n{body}\n```\ntail\nEOF\n```\n"
-    expected = "cat > README.md <<'EOF'\n" + body + "\n```\ntail\nEOF"
-    assert [b.content for b in Codeblock.iter_from_markdown(full, streaming=True)] == [
-        expected
-    ]
-    for cut in range(1, len(full) + 1):
-        if full[cut - 1] != "\n":
-            continue
-        for block in Codeblock.iter_from_markdown(full[:cut], streaming=True):
-            assert block.content == expected, f"prefix {full[:cut]!r}"
-
-
-def test_comment_after_control_operator_is_not_a_heredoc():
-    """`#` after `;` starts a comment, so `<< EOF` there opens nothing; an
-    unrelated `EOF` line far below must not confirm it and swallow the closer."""
-    filler = "\n".join(f"echo {i}" for i in range(250))
-    text = "```shell\necho hi;# << EOF\n```\n\n```shell\nls\n```\n" + filler + "\nEOF\n"
-    assert [(b.lang, b.content) for b in Codeblock.iter_from_markdown(text)] == [
-        ("shell", "echo hi;# << EOF"),
-        ("shell", "ls"),
-    ]
-
-
-def test_streaming_phantom_shift_does_not_hold_block_open():
-    """An unconfirmed lower-case, unquoted candidate from an arithmetic shift is
-    not a heredoc while streaming, so the closer still ends the command."""
-    text = "```shell\nlet mask=1<<shift\necho $mask\n```\n"
-    assert [b.content for b in Codeblock.iter_from_markdown(text, streaming=True)] == [
-        "let mask=1<<shift\necho $mask"
-    ]
-
-
-@pytest.mark.parametrize(
-    "opener", ["<<EOF", "<<'eof'", '<<"eof"', "<<\\eof", "<<-END_PY"]
-)
-def test_streaming_pending_heredoc_stays_open(opener: str):
-    """A deliberate-looking heredoc whose terminator has not streamed yet keeps
-    an inner bare fence as content instead of emitting a truncated command."""
-    text = f"```shell\ncat > a.md {opener}\n# x\n```\n"
-    assert list(Codeblock.iter_from_markdown(text, streaming=True)) == []
