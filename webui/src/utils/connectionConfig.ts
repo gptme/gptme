@@ -7,6 +7,7 @@ import {
   sameOriginServer$,
 } from '@/stores/servers';
 import { isViteDev } from '@/utils/viteEnv';
+import { isTauriEnvironment } from '@/utils/tauri';
 
 const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 const DEFAULT_CLOUD_APP_BASE_URL = 'https://gptme.ai';
@@ -256,7 +257,9 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
   // timed out or failed. Never let an unavailable server redirect its token to
   // a previously selected remote. Non-HTTP native webviews keep the legacy flow.
   const pageOrigin =
-    typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)
+    typeof window !== 'undefined' &&
+    !isTauriEnvironment() &&
+    /^https?:$/.test(window.location.protocol)
       ? window.location.origin
       : null;
   const fragmentBaseUrl =

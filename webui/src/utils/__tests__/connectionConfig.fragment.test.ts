@@ -7,6 +7,7 @@ import {
   setActiveServer,
 } from '@/stores/servers';
 import { setLocation } from '@/test-utils/location';
+import * as tauri from '@/utils/tauri';
 import { getConnectionConfigFromSources } from '../connectionConfig';
 
 // Uses the real server registry: the bug lives in how the two modules interact.
@@ -33,6 +34,26 @@ describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
     expect(serverRegistry$.peek().servers.find((s) => s.id === remote.id)?.authToken).toBe(
       'remote-token'
     );
+  });
+
+  it('keeps native token-only links on the API server, not the HTTP Tauri asset origin', () => {
+    setLocation('http://tauri.localhost/');
+    const native = jest.spyOn(tauri, 'isTauriEnvironment').mockReturnValue(true);
+    try {
+      const server = addServer({
+        name: 'Local',
+        baseUrl: 'http://127.0.0.1:5700',
+        authToken: null,
+        useAuthToken: false,
+      });
+      setActiveServer(server.id);
+      expect(getConnectionConfigFromSources('userToken=native-token')).toMatchObject({
+        baseUrl: 'http://127.0.0.1:5700',
+        authToken: 'native-token',
+      });
+    } finally {
+      native.mockRestore();
+    }
   });
 
   it('keeps the stored token of a known server when the link has no userToken', () => {
