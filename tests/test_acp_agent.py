@@ -2528,6 +2528,77 @@ class TestPromptCancel:
         assert result.stop_reason == "cancelled"
         assert generations == []
 
+    @pytest.mark.parametrize("cancel", [False, True])
+    def test_turn_pre_hidden_context_is_persisted_on_loop(self, monkeypatch, cancel):
+        """A hook outliving Stop must not write the log from its worker thread."""
+        if not _import_acp():
+            pytest.skip("acp not installed")
+        import importlib
+
+        from gptme.hooks import HookType
+        from gptme.message import Message
+
+        monkeypatch.setattr("gptme.acp.agent._CANCEL_GRACE_S", 0.01)
+        agent, log = _make_prompt_agent()
+        hook_started = threading.Event()
+        release_hook = threading.Event()
+        loop_thread = threading.get_ident()
+        append_threads = []
+        log.append.side_effect = lambda msg: append_threads.append(
+            threading.get_ident()
+        )
+        hidden = Message("system", "hidden scout context", hide=True)
+
+        def trigger_hook(hook_type, **kwargs):
+            if hook_type == HookType.TURN_PRE:
+                hook_started.set()
+                assert release_hook.wait(timeout=3.0)
+                yield hidden
+
+        monkeypatch.setattr(
+            importlib.import_module("gptme.hooks.registry"),
+            "trigger_hook",
+            trigger_hook,
+        )
+        monkeypatch.setattr(
+            importlib.import_module("gptme.chat"), "step", lambda *a, **kw: iter([])
+        )
+
+        async def scenario():
+            task = asyncio.create_task(
+                agent.prompt(prompt=[{"type": "text", "text": "go"}], session_id="s1")
+            )
+            await _wait_until(hook_started.is_set, task)
+            if cancel:
+                await agent.cancel(session_id="s1")
+                result = await asyncio.wait_for(task, timeout=1.0)
+                assert agent._session_is_finishing("s1")
+                release_hook.set()
+                for _ in range(100):
+                    if not agent._session_is_finishing("s1"):
+                        break
+                    await asyncio.sleep(0.01)
+                assert not agent._session_is_finishing("s1")
+            else:
+                release_hook.set()
+                result = await asyncio.wait_for(task, timeout=2.0)
+            return result
+
+        try:
+            result = _run(scenario())
+        finally:
+            release_hook.set()
+
+        persisted = [c.args[0] for c in log.append.call_args_list]
+        assert persisted.count(hidden) == 1
+        assert append_threads == [loop_thread] * len(persisted)
+        assert result.stop_reason == ("cancelled" if cancel else "end_turn")
+        if cancel:
+            assert persisted[-1].content == INTERRUPT_CONTENT
+        assert "hidden scout context" not in str(
+            agent._conn.session_update.call_args_list
+        )
+
     def test_cancel_during_turn_pre_hook_sends_no_scout_request(self, monkeypatch):
         """TURN_PRE (context scout) must not start a paid request after Stop."""
         if not _import_acp():

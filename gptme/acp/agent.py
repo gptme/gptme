@@ -1754,12 +1754,9 @@ class GptmeAgent:
                         ):
                             for msg in turn_msgs:
                                 step_log.append(msg)
-                                if getattr(msg, "hide", False):
-                                    # Persist hidden context for the model; do
-                                    # not forward it as visible ACP agent text.
-                                    log.append(msg)
-                                else:
-                                    response_msgs.append(msg)
+                                # Persist on the event loop with other output,
+                                # including when this hook outlives cancellation.
+                                response_msgs.append(msg)
                         turn.completed = list(response_msgs)
                         return _run_steps(response_msgs, step_log, max_steps)
                 except _TurnCancelled:
@@ -1905,7 +1902,10 @@ class GptmeAgent:
             # nor logged). Now they are forwarded via session_update so clients see tool output.
             # This is intentional: clients receive one assistant-text stream + any tool results.
             for response_msg in response_msgs:
-                if response_msg.role == "assistant":
+                if response_msg.hide:
+                    # Hidden hook context belongs in the transcript, not ACP UI.
+                    log.append(response_msg)
+                elif response_msg.role == "assistant":
                     # Tokens were already sent via on_token batching; just persist to log.
                     log.append(response_msg)
                 elif id(response_msg) in delivered_as_content:
