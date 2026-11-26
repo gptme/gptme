@@ -404,10 +404,33 @@ def parse_lesson(path: Path) -> Lesson:
             except yaml.YAMLError:
                 pass  # Markdown code examples and prose need not be valid YAML.
             else:
-                if node is None or (
-                    isinstance(node, yaml.ScalarNode)
-                    and (
-                        node.style in {"|", ">"} or node.tag == "tag:yaml.org,2002:null"
+                declared_mapping = isinstance(node, yaml.MappingNode) and any(
+                    isinstance(key, yaml.ScalarNode)
+                    and key.value
+                    in {
+                        "name",
+                        "description",
+                        "id",
+                        "match",
+                        "status",
+                        "depends",
+                        "globs",
+                        "priority",
+                        "triggers",
+                        "alwaysApply",
+                        "version",
+                    }
+                    for key, _ in node.value
+                )
+                if (
+                    node is None
+                    or declared_mapping
+                    or (
+                        isinstance(node, yaml.ScalarNode)
+                        and (
+                            node.style in {"|", ">"}
+                            or node.tag == "tag:yaml.org,2002:null"
+                        )
                     )
                 ):
                     thematic_break = False

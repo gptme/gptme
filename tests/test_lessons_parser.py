@@ -1075,6 +1075,24 @@ def test_commented_yaml_fence_keeps_metadata_after_blank_comment(
     assert lesson.title == "Actual Lesson"
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        '"status": deprecated',
+        "'status': deprecated",
+        "  status: deprecated",
+        "{status: deprecated}",
+    ],
+)
+def test_yaml_mapping_syntax_preserves_declared_metadata(tmp_path: Path, metadata: str):
+    path = tmp_path / "lesson.md"
+    path.write_text(f"---\n\n# Settings\n{metadata}\n---\n# Actual Lesson\nBody\n")
+    lesson = parse_lesson(path)
+    assert lesson.metadata.status == "deprecated"
+    assert lesson.title == "Actual Lesson"
+    assert not lesson.malformed_frontmatter
+
+
 @pytest.mark.parametrize("quote", ["'", '"'])
 def test_quoted_prose_after_heading_is_body(tmp_path: Path, quote: str):
     path = tmp_path / "lesson.md"
