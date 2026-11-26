@@ -544,10 +544,13 @@ class AcpSessionRuntime:
     async def _close_impl(self) -> None:
         if self._client is None:
             return
+        # Keep the handle until __aexit__ succeeds: if the transport is already
+        # broken and the close raises, a later terminate_subprocess_sync() must
+        # still be able to find and signal the subprocess.
         client = self._client
+        await client.__aexit__(None, None, None)
         self._client = None
         self._session_id = None
-        await client.__aexit__(None, None, None)
 
     async def __aenter__(self) -> AcpSessionRuntime:
         await self.start()

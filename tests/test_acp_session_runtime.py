@@ -1757,3 +1757,33 @@ def test_acp_step_thread_two_turns_reuse_live_runtime(
             SessionManager._conversation_sessions[conversation_id].discard(
                 "sid-thread-2turn"
             )
+
+
+@pytest.mark.timeout(15)
+def test_failed_close_keeps_client_handle_for_sync_terminate(monkeypatch, tmp_path):
+    """A raising __aexit__ must not drop the only handle to the subprocess."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingExitClient(_DummyClient):
+        _process = object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise ConnectionError("transport already gone")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingExitClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    with pytest.raises(ConnectionError):
+        _run(runtime.close())
+    assert runtime._client is not None
+
+    runtime.terminate_subprocess_sync(timeout=1.0)
+    assert fallback == [_FailingExitClient._process]
+    assert runtime._client is None
