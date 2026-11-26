@@ -167,10 +167,18 @@ export function useModels() {
       const saved = (await response.json()) as { restart_required?: boolean };
       // Preserve the initial/setup catalog and refreshed favorites. Joining the
       // read before publishing also prevents its old default overwriting this save.
-      await settleCatalog();
-      queryClient.setQueryData<ModelsResponse>(queryKey, (current) =>
-        current ? { ...current, default: modelId } : current
-      );
+      try {
+        await settleCatalog();
+      } catch (err) {
+        // The preference POST succeeded even if the independent catalog failed.
+        console.error('Failed to refresh models after saving default:', err);
+      }
+      queryClient.setQueryData<ModelsResponse>(queryKey, (current) => ({
+        models: EMPTY_MODELS,
+        recommended: EMPTY_IDS,
+        ...current,
+        default: modelId,
+      }));
       return { ok: true, restartRequired: !!saved.restart_required };
     } catch (err) {
       console.error('Failed to save default model:', err);

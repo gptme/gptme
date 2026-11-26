@@ -405,3 +405,28 @@ it('finishes the initial catalog load when saving a default before it arrives', 
   expect(composer.result.current.availableModels).toEqual(['model/A']);
   expect(composer.result.current.favorites).toEqual(['model/A']);
 });
+
+it('reports a confirmed default save even if the initial catalog read fails', async () => {
+  let finishRead!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishRead = resolve;
+    })
+  );
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ restart_required: true }) });
+  let save!: ReturnType<typeof composer.result.current.saveDefaultModel>;
+  act(() => {
+    save = composer.result.current.saveDefaultModel('new/model');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  await act(async () => {
+    finishRead({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
+    expect(await save).toEqual({ ok: true, restartRequired: true });
+  });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('new/model'));
+  consoleError.mockRestore();
+});
