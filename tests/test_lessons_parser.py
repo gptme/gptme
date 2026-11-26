@@ -1093,6 +1093,15 @@ def test_yaml_mapping_syntax_preserves_declared_metadata(tmp_path: Path, metadat
     assert not lesson.malformed_frontmatter
 
 
+def test_indented_unquoted_glob_after_blank_comment_keeps_metadata(tmp_path: Path):
+    path = tmp_path / "lesson.mdc"
+    path.write_text("---\n\n# Settings\n  globs: **/*.py\n---\n# Python Rules\nBody\n")
+    lesson = parse_lesson(path)
+    assert lesson.metadata.globs == ["**/*.py"]
+    assert lesson.title == "Python Rules"
+    assert not lesson.malformed_frontmatter
+
+
 @pytest.mark.parametrize("quote", ["'", '"'])
 def test_quoted_prose_after_heading_is_body(tmp_path: Path, quote: str):
     path = tmp_path / "lesson.md"

@@ -400,7 +400,9 @@ def parse_lesson(path: Path) -> Lesson:
             # Empty/comment-only headers, explicit nulls and block scalars
             # remain YAML. Quoted prose after a heading can still be a motto.
             try:
-                node = yaml.compose(fence.group(1), Loader=_YamlSafeLoader)
+                node = yaml.compose(
+                    _fix_unquoted_globs(fence.group(1)), Loader=_YamlSafeLoader
+                )
             except yaml.YAMLError:
                 pass  # Markdown code examples and prose need not be valid YAML.
             else:
