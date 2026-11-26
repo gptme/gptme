@@ -113,6 +113,21 @@ def check_generation_gate() -> None:
         check()
 
 
+def generation_gate_aborted() -> bool:
+    """Return True when the bound gate would abort the generation.
+
+    Lets a retry backoff wait (which cannot raise) react to a Stop instead of
+    sleeping out the full delay. The gate's only contract is "raises to abort",
+    so any exception it raises means aborted; ``check_generation_gate`` raises
+    the same signal again for the caller.
+    """
+    try:
+        check_generation_gate()
+    except BaseException:
+        return True
+    return False
+
+
 @contextmanager
 def recovery_disabled() -> Iterator[None]:
     """Keep request accounting, but forbid replay for non-resettable consumers.
@@ -337,6 +352,10 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
     generation = current_generation()
     try:
         while True:
+            # A Stop must also gate retries: the gate is checked once in reply()
+            # before the first attempt, but a cancel can land during the backoff
+            # wait. No provider request may start after it.
+            check_generation_gate()
             if time.monotonic() >= budget.deadline:
                 raise _budget_error("LLM recovery deadline exceeded")
             if (
@@ -388,10 +407,15 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
                 # provider attempt after the monotonic budget has expired.
                 if delay >= budget.deadline - time.monotonic():
                     raise
+                # The third argument (abort predicate) makes the wait end as
+                # soon as Stop arrives instead of sleeping out the delay.
                 if (
-                    backoff_wait(delay, generation)
+                    backoff_wait(delay, generation, generation_gate_aborted)
                     or time.monotonic() >= budget.deadline
                 ):
+                    # If the wait ended because of Stop, surface that signal
+                    # instead of the provider error so the caller cancels.
+                    check_generation_gate()
                     raise
     finally:
         _recovering.reset(token)
