@@ -51,6 +51,24 @@ def test_whitespace_only_stream_is_rejected(monkeypatch: pytest.MonkeyPatch):
         _reply_stream([Message("user", "hi")], MODEL, None)
 
 
+def test_billed_blank_stream_is_a_normal_finish(monkeypatch: pytest.MonkeyPatch):
+    """A streamed blank reply that the provider billed did arrive.
+
+    Classifying it as lost output made a headless run replay the same blank
+    answer until the recovery budget ran out.
+    """
+    metadata: MessageMetadata = {
+        "model": MODEL,
+        "usage": {"output_tokens": 3},
+    }
+    monkeypatch.setattr("gptme.llm._stream", _fake_stream(["\n"], metadata))
+
+    with pytest.raises(EmptyStreamError) as excinfo:
+        _reply_stream([Message("user", "hi")], MODEL, None)
+
+    assert excinfo.value.normal_finish
+
+
 def test_text_without_tools_is_still_returned(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "gptme.llm._stream", _fake_stream(["hello", " world"], {"model": MODEL})

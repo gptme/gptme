@@ -25,6 +25,7 @@ from .constants import (
 from .hooks import HookType, StopPropagation, trigger_hook
 from .init import init
 from .llm import (
+    EmptyStreamError,
     is_llm_reply_error,
     reply,
 )
@@ -49,6 +50,7 @@ from .tools import (
     execute_msg,
     get_tool_format,
     get_tools,
+    has_tool,
 )
 from .tools._url_safety import set_session_allow_hosts
 from .tools.complete import SessionCompleteException
@@ -81,6 +83,50 @@ _naming_threads_lock = threading.Lock()
 _idle_autowake_blocked: ContextVar[bool] = ContextVar(
     "idle_autowake_blocked", default=False
 )
+
+
+# True while a non-interactive chat loop runs; step() uses it to decide whether
+# an empty reply after a tool result may end the session (see below).
+_headless_run: ContextVar[bool] = ContextVar("headless_run", default=False)
+
+
+def _empty_reply_ends_turn(
+    messages: list[Message], output_schema: type | None = None
+) -> bool:
+    """Whether an empty reply right now is the model ending a headless run.
+
+    Without the `complete` tool, a headless run ends on any reply without tool
+    calls. Some models (gpt-6.1-sol) answer "nothing left to do" after their
+    last tool result with an empty message instead of text. Replaying that
+    request returns the same empty answer until the recovery budget is spent
+    and the run fails. With `complete` loaded, an empty reply stays an error:
+    the auto-reply nudge would otherwise read it as a finished turn (#4222).
+    A structured-output request (`output_schema`) also stays an error: an empty
+    reply cannot satisfy it, and ending the run would hand the caller silent
+    success with no schema-conforming answer.
+    """
+    if not _headless_run.get() or has_tool("complete") or output_schema is not None:
+        return False
+    if not messages or messages[-1].role != "system":
+        return False
+    # Only this turn's tool results count: a newer user prompt (even one
+    # followed by a STEP_PRE notice) is owed a real answer.
+    saw_tool_step = False
+    for msg in reversed(messages):
+        if msg.role == "user":
+            # A compaction checkpoint request whose replies so far were all
+            # tool steps still owes its written checkpoint: ending here would
+            # skip applying it and resuming the interrupted task.
+            return saw_tool_step and "compaction_checkpoint_view" not in (
+                msg.metadata or {}
+            )
+        if msg.role == "assistant":
+            if not any(True for _ in ToolUse.iter_from_content(msg.content)):
+                # The last reply has no tool call (nothing ran since), or an
+                # earlier tool-free reply already answered the last prompt.
+                return saw_tool_step
+            saw_tool_step = True
+    return saw_tool_step
 
 
 class IdleNotificationWake:
@@ -477,6 +523,34 @@ def _run_chat_loop(
     output_schema=None,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
+    headless_token = _headless_run.set(not interactive)
+    try:
+        _run_chat_loop_inner(
+            manager,
+            prompt_queue,
+            stream,
+            tool_format=tool_format,
+            model=model,
+            interactive=interactive,
+            no_confirm=no_confirm,
+            logdir=logdir,
+            output_schema=output_schema,
+        )
+    finally:
+        _headless_run.reset(headless_token)
+
+
+def _run_chat_loop_inner(
+    manager,
+    prompt_queue,
+    stream,
+    tool_format=None,
+    model=None,
+    interactive=True,
+    no_confirm=False,
+    logdir=None,
+    output_schema=None,
+):
 
     # After an exhausted interactive provider failure, skip drain/consume until
     # the user submits a normal (non-command) message. Slash commands must not
@@ -969,6 +1043,17 @@ def _process_message_conversation(
                 print_inline_cost(response_msg)
 
         if command_consumed:
+            break
+
+        # step() ended the turn on an empty reply (see _empty_reply_ends_turn):
+        # the last assistant message still holds the previous tool call, so
+        # the runnable check below would otherwise generate again.
+        if any(
+            msg.role == "system"
+            and msg.ui_only
+            and "session_stop_outcome" in (msg.metadata or {})
+            for msg in response_msgs
+        ):
             break
 
         # Tool execution can consume Ctrl-C itself and yield paired results.
@@ -1616,20 +1701,46 @@ def step(
 
         # generate response — `reply()` tags only the provider call, after
         # GENERATION_PRE hooks, so tool/hook failures still propagate.
-        with terminal_state_title("🤔 generating"):
-            msg_response = _reply_with_overflow_recovery(
-                log=log,
-                msgs=msgs,
-                model=model,
-                stream=stream,
-                tools=tools,
-                workspace=workspace,
-                output_schema=output_schema,
-                on_token=on_token,
-                on_thinking=on_thinking,
-                logdir=logdir,
-                max_tokens=max_tokens,
+        from .llm.recovery import empty_reply_ends_turn
+
+        empty_ends_turn = _empty_reply_ends_turn(log.messages, output_schema)
+        try:
+            with (
+                terminal_state_title("🤔 generating"),
+                empty_reply_ends_turn(empty_ends_turn),
+            ):
+                msg_response = _reply_with_overflow_recovery(
+                    log=log,
+                    msgs=msgs,
+                    model=model,
+                    stream=stream,
+                    tools=tools,
+                    workspace=workspace,
+                    output_schema=output_schema,
+                    on_token=on_token,
+                    on_thinking=on_thinking,
+                    logdir=logdir,
+                    max_tokens=max_tokens,
+                )
+        except EmptyStreamError as exc:
+            # Only a normal finish is the model ending its turn; a malformed or
+            # cut-off response stays a provider error.
+            if not (empty_ends_turn and exc.normal_finish):
+                raise
+            logger.warning(
+                "Model ended the run with an empty reply after a tool result"
             )
+            # End the turn through the normal loop (background jobs still get
+            # their wait) and leave a hidden stop marker so a resume returns to
+            # the prompt instead of regenerating. No empty assistant message.
+            yield Message(
+                "system",
+                "Model ended the turn with an empty reply.",
+                ui_only=True,
+                hide=True,
+                metadata={"session_stop_outcome": "completed"},
+            )
+            return
         # Retain the parser even for replies with no calls: XML examples in a
         # markdown explanation must not become writes after a format switch.
         msg_response = msg_response.replace(

@@ -1827,6 +1827,10 @@ def extra_body(
     return body
 
 
+# Chat Completions finish reasons that mean the provider cut the reply off.
+_CUTOFF_FINISH_REASONS = frozenset({"length", "content_filter"})
+
+
 def _stream_responses(
     messages: list[Message],
     model: str,
@@ -1944,6 +1948,11 @@ def _stream_responses(
             model,
             reasoning_effort=reasoning_effort,
             served_model=served_model,
+        )
+    if incomplete:
+        captured_metadata = cast(
+            MessageMetadata,
+            {**(captured_metadata or {"model": model}), "incomplete": True},
         )
     return phases.metadata(captured_metadata, "".join(output))
 
@@ -2155,6 +2164,7 @@ def _stream_with_client(
     # Up to one degeneration retry (first attempt only) plus one malformed
     # retry (once, guarded by tool_choice): each gets its own iteration, so
     # a degenerate first attempt cannot use up the forced-tool-call retry.
+    cutoff_finish = False
     for _degen_attempt in range(3):
         _is_degen_retry = _degen_attempt > 0
         in_reasoning_block = False
@@ -2466,6 +2476,10 @@ def _stream_with_client(
                 if captured_metadata is None:
                     captured_metadata = {"model": model}
                 captured_metadata["native_finish_reason"] = native_finish
+            # Token limit or content filter: an empty reply here is a cut-off,
+            # not the model choosing to say nothing. Applied after the
+            # request-metadata fallback below so it cannot pre-empt it.
+            cutoff_finish = stop_reason in _CUTOFF_FINISH_REASONS
             if _used_relaxed_fallback:
                 _remember_openrouter_relaxed(f"{provider}:{model_meta.model}")
             break  # Normal completion — no retry needed.
@@ -2543,6 +2557,11 @@ def _stream_with_client(
         # Covers the OpenRouter header-only metadata built before the stream
         # and a usage chunk that arrived before the last model-bearing chunk.
         captured_metadata["served_model"] = served_model
+
+    if cutoff_finish:
+        if captured_metadata is None:
+            captured_metadata = {"model": model}
+        captured_metadata["incomplete"] = True
 
     if thought_signatures:
         if captured_metadata is None:

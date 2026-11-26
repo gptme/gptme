@@ -303,13 +303,33 @@ class EmptyStreamError(httpx.RemoteProtocolError):
     nudge then treats as a completed reply.
     """
 
-    def __init__(self, model: str, metadata: MessageMetadata | None):
+    def __init__(
+        self,
+        model: str,
+        metadata: MessageMetadata | None,
+        *,
+        received_output: bool = False,
+    ):
         self.model = model
         self.metadata = metadata
         # e.g. Gemini's MALFORMED_RESPONSE: deterministic for the same request,
         # so not worth replaying (see recovery.is_transient_provider_error)
         self.native_finish_reason = (metadata or {}).get("native_finish_reason")
+        # Responses API `response.incomplete`: the provider cut the reply off.
+        self.incomplete = bool((metadata or {}).get("incomplete"))
         usage = (metadata or {}).get("usage")
+        # The provider billed visible (non-reasoning) output that never reached
+        # the stream: the zero-chunk glitch, not the model choosing silence.
+        # `received_output` guards the converse: a reply that streamed text which
+        # strips to nothing (e.g. a billed trailing newline) did arrive, so
+        # replaying it only repeats the same blank answer.
+        output_tokens = (usage or {}).get("output_tokens")
+        reasoning_tokens = (usage or {}).get("reasoning_tokens") or 0
+        self.lost_output = (
+            not received_output
+            and isinstance(output_tokens, int)
+            and output_tokens - reasoning_tokens > 0
+        )
         detail = f" (usage: {usage})" if usage else ""
         if self.native_finish_reason:
             detail += (
@@ -318,6 +338,15 @@ class EmptyStreamError(httpx.RemoteProtocolError):
             )
         super().__init__(
             f"Provider stream for {model} ended without any output{detail}"
+        )
+
+    @property
+    def normal_finish(self) -> bool:
+        """Whether the provider finished normally (the model chose to say nothing)."""
+        return (
+            not self.native_finish_reason
+            and not self.incomplete
+            and not self.lost_output
         )
 
 
@@ -1267,7 +1296,7 @@ def _reply_stream(
         # with positive output usage in metadata) must not become an empty
         # assistant turn. Partial/interrupted output and reasoning-only text
         # are non-empty here and are left alone.
-        err = EmptyStreamError(model, stream.metadata)
+        err = EmptyStreamError(model, stream.metadata, received_output=bool(output))
         setattr(err, _LLM_CHUNK_HOOK_EMITTED_ATTR, chunk_hook_emitted)
         # Tag here rather than relying on `reply()`'s outer handler: direct
         # `_reply_stream` callers (e.g. the server session-step loop) bypass

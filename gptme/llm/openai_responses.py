@@ -596,6 +596,7 @@ def _stream_responses_events(
             yield event
 
     emitted = False
+    emitted_ws = ""
     for chunk in _stream_responses_event_chunks(
         _counted(event_iter),
         usage_callback=usage_callback,
@@ -604,10 +605,17 @@ def _stream_responses_events(
         terminal=terminal,
         calls=calls,
     ):
-        emitted = emitted or bool(chunk)
+        # A whitespace-only chunk is not the answer: some backends stream a
+        # newline and carry the real text only in the terminal response, so the
+        # fallback below must still apply.
+        if chunk.strip():
+            emitted = True
+        else:
+            emitted_ws += chunk
         yield chunk
 
     response_obj = terminal.get("response")
+    strip_prefix = emitted_ws
     ordered_output: list[str | _ResponseFunctionCall] = []
     for index, item in enumerate(_obj_get(response_obj, "output", None) or []):
         if _obj_get(item, "type") == "function_call":
@@ -616,7 +624,17 @@ def _stream_responses_events(
             if not any(previous is call for previous in ordered_output):
                 ordered_output.append(call)
         elif not emitted and _obj_get(item, "type") == "message":
-            ordered_output.extend(_completed_output_chunks({"output": [item]}))
+            for chunk in _completed_output_chunks({"output": [item]}):
+                # The streamed whitespace is already in the output. If the
+                # terminal text repeats it, yielding both would add it twice
+                # (four leading spaces turn a heading into a code block). Only
+                # the very start of the reply is affected: later parts keep
+                # their own indentation.
+                if strip_prefix:
+                    chunk = chunk.removeprefix(strip_prefix)
+                    strip_prefix = ""
+                if chunk:
+                    ordered_output.append(chunk)
     # Terminal order is authoritative; retain calls from delta-only providers.
     ordered_output.extend(
         call

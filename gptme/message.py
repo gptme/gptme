@@ -278,6 +278,10 @@ class MessageMetadata(TypedDict, total=False):
     max_steps_stop: bool
     # Complete hook accepted a stop after verification (not the tool ack).
     session_stop_outcome: str
+    # Provider cut the response off (Responses `response.incomplete`, Chat
+    # Completions `length`/`content_filter`):
+    # an empty reply then is a cut-off, not the model ending its turn.
+    incomplete: bool
     # Idle child/watch notice. Transparent to crash-recovery so a progress or
     # notification-only completion does not start an unrequested model turn.
     idle_notification: bool

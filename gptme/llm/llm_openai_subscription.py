@@ -860,6 +860,12 @@ def stream(
         nonlocal _served_model
         _served_model = served
 
+    _incomplete = False
+
+    def _capture_incomplete() -> None:
+        nonlocal _incomplete
+        _incomplete = True
+
     # The parser can raise while the event generator is suspended at yield.
     # Close it explicitly so retained exception tracebacks do not hold sockets.
     phases = ResponsesPhaseCapture()
@@ -869,6 +875,7 @@ def stream(
             phases.events(events),
             usage_callback=_capture_usage,
             model_callback=_capture_model,
+            incomplete_callback=_capture_incomplete,
         ):
             output.append(chunk)
             yield chunk
@@ -884,6 +891,9 @@ def stream(
         # Model id exactly as the ChatGPT backend reported it (e.g.
         # "gpt-5.6-sol"), recorded even when it matches the requested model.
         effort_meta["served_model"] = _served_model
+    if _incomplete:
+        # `response.incomplete`: an empty reply is a cut-off, not a finish.
+        effort_meta["incomplete"] = True
     effort_meta = phases.metadata(effort_meta, "".join(output)) or effort_meta
     if not _usage_holder:
         return effort_meta

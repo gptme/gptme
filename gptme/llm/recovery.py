@@ -87,6 +87,11 @@ _budget: ContextVar[RecoveryBudget | None] = ContextVar(
 )
 _recovering: ContextVar[bool] = ContextVar("llm_recovering", default=False)
 _replay_enabled: ContextVar[bool] = ContextVar("llm_replay_enabled", default=True)
+# Set by a caller for whom an empty reply is a legitimate end of turn (see
+# chat.step): an EmptyStreamError is then final rather than replayed.
+_empty_reply_ends_turn: ContextVar[bool] = ContextVar(
+    "llm_empty_reply_ends_turn", default=False
+)
 _notification: ContextVar[Callable[[RetryNotice], None] | None] = ContextVar(
     "llm_recovery_notification", default=None
 )
@@ -104,6 +109,16 @@ def recovery_disabled() -> Iterator[None]:
         yield
     finally:
         _replay_enabled.reset(token)
+
+
+@contextmanager
+def empty_reply_ends_turn(enabled: bool = True) -> Iterator[None]:
+    """Treat an empty provider reply as final instead of replaying it."""
+    token = _empty_reply_ends_turn.set(enabled)
+    try:
+        yield
+    finally:
+        _empty_reply_ends_turn.reset(token)
 
 
 def get_recovery_budget() -> RecoveryBudget | None:
@@ -243,6 +258,15 @@ def is_transient_provider_error(error: BaseException) -> bool:
         # The provider says the output was malformed; llm_openai already retried
         # once with a forced tool call, and replaying the same request again
         # fails the same way (gemini-4-neon: 11/11 attempts).
+        return False
+    if (
+        isinstance(error, EmptyStreamError)
+        and _empty_reply_ends_turn.get()
+        and error.normal_finish
+    ):
+        # The caller accepts an empty reply as the model ending its turn (e.g.
+        # gpt-6.1-sol after its last tool result, with no `complete` tool):
+        # replaying it repeats the same empty answer up to the attempt limit.
         return False
     if isinstance(
         error,
