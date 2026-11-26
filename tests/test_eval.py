@@ -1,3 +1,4 @@
+import csv
 import importlib
 import json
 import logging
@@ -27,7 +28,7 @@ from gptme.eval.run import (
     run_evals,
 )
 from gptme.eval.suites import suites, tests_map
-from gptme.eval.types import CaseResult, EvalResult, ModelConfig
+from gptme.eval.types import CaseResult, EvalResult, ModelConfig, Status
 from gptme.message import Message
 
 # importlib.import_module returns the actual module object from sys.modules,
@@ -1224,6 +1225,59 @@ def test_write_results_includes_token_columns(tmp_path):
     assert r.cache_creation_tokens == 150
     assert r.cache_hit_rate == 0.50
     assert r.num_steps == 3
+
+
+@pytest.mark.parametrize(
+    ("status", "case_passed", "legacy_status"),
+    [
+        ("success", True, "success"),
+        ("success", False, "error"),
+        ("error", None, "error"),
+        ("timeout", None, "error"),
+    ],
+)
+def test_eval_csv_round_trip_preserves_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status: Status,
+    case_passed: bool | None,
+    legacy_status: Status,
+) -> None:
+    from gptme.eval.main import read_results_from_csv, write_results
+
+    monkeypatch.setenv("EVAL_RESULTS_DIR", str(tmp_path))
+    config = ModelConfig(model="test-model", tool_format="tool")
+    cases = (
+        []
+        if case_passed is None
+        else [CaseResult(name="checker", passed=case_passed, duration=0.1)]
+    )
+    result = EvalResult(
+        name="hello",
+        status=status,
+        results=cases,
+        timings={"gen": 1.0, "run": 0.5, "eval": 0.1},
+        gen_stdout="",
+        gen_stderr="",
+        run_stdout="",
+        run_stderr="",
+        log_dir=tmp_path / "log",
+        workspace_dir=tmp_path / "workspace",
+    )
+    write_results({config: [result]})
+    csv_path = next(tmp_path.glob("*/eval_results.csv"))
+    assert read_results_from_csv(str(csv_path))[config][0].status == status
+
+    # Simulate a file written before the Status column existed.
+    with csv_path.open(newline="") as f:
+        row = next(csv.DictReader(f))
+    assert row.pop("Status") == status
+    assert row["Passed"] == ("true" if case_passed else "false")
+    with csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+    assert read_results_from_csv(str(csv_path))[config][0].status == legacy_status
 
 
 def test_apply_adversarial_framing_prepends_text():
