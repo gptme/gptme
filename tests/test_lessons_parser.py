@@ -1023,6 +1023,34 @@ def test_heading_after_blank_opening_divider_is_body(tmp_path: Path, text: str):
     assert not lesson.ambiguous_frontmatter
 
 
+@pytest.mark.parametrize("marker", ["```", "~~~~", "````"])
+def test_fenced_metadata_example_after_heading_is_body(tmp_path: Path, marker: str):
+    path = tmp_path / "lesson.md"
+    content = (
+        f"---\n\n# Deploy\n\n{marker}yaml\nstatus: active\n"
+        f"match:\n  keywords: [deploy]\n{marker}\n\n---\nMore\n"
+    )
+    path.write_text(content)
+    lesson = parse_lesson(path)
+    assert lesson.title == "Deploy"
+    assert lesson.body == content
+    assert not lesson.malformed_frontmatter
+    assert not lesson.ambiguous_frontmatter
+
+
+@pytest.mark.parametrize("value", ["", "null\n", "~\n", "Null\n"])
+def test_blank_comment_header_keeps_real_title(tmp_path: Path, value: str):
+    path = tmp_path / "lesson.md"
+    content = f"---\n\n# Draft notes\n{value}---\n# Real Lesson\n\nDescription.\n"
+    path.write_text(content)
+    lesson = parse_lesson(path)
+    assert lesson.title == "Real Lesson"
+    assert lesson.description == "Description."
+    assert lesson.malformed_frontmatter is bool(value)
+    assert not lesson.ambiguous_frontmatter
+    assert lesson.body == (content if value else "# Real Lesson\n\nDescription.")
+
+
 @pytest.mark.parametrize("scalar", ["|\n  explicit scalar", "'scalar'", '"scalar"'])
 def test_explicit_block_scalar_is_not_ambiguous_prose(tmp_path: Path, scalar: str):
     path = tmp_path / "lesson.md"

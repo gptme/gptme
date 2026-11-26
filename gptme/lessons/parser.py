@@ -302,6 +302,24 @@ def _fix_unquoted_globs(frontmatter_str: str) -> str:
     return "\n".join(fixed_lines)
 
 
+def _outside_code_fences(content: str) -> str:
+    """Keep only lines outside Markdown backtick/tilde code examples."""
+    lines = []
+    fence = ""
+    for line in content.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if marker:
+            mark, info = marker.groups()
+            if not fence:
+                fence = mark
+            elif mark[0] == fence[0] and len(mark) >= len(fence) and not info.strip():
+                fence = ""
+            continue
+        if not fence:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def parse_lesson(path: Path) -> Lesson:
     """Parse lesson or skill file with optional YAML frontmatter.
 
@@ -373,20 +391,26 @@ def parse_lesson(path: Path) -> Lesson:
             and re.search(
                 r"^(?:name|description|id|match|status|depends|globs|priority|"
                 r"triggers|alwaysApply|version)[ \t]*:",
-                fence.group(1),
+                _outside_code_fences(fence.group(1)),
                 re.MULTILINE,
             )
             is None
         )
         if thematic_break and fence is not None:
-            # Block scalar indicators explicitly declare YAML, unlike quoted
-            # prose after a Markdown heading (e.g. a one-line motto).
+            # Empty/comment-only headers, explicit nulls and block scalars
+            # remain YAML. Quoted prose after a heading can still be a motto.
             try:
                 node = yaml.compose(fence.group(1), Loader=_YamlSafeLoader)
             except yaml.YAMLError:
-                node = None
-            if isinstance(node, yaml.ScalarNode) and node.style in {"|", ">"}:
-                thematic_break = False
+                pass  # Markdown code examples and prose need not be valid YAML.
+            else:
+                if node is None or (
+                    isinstance(node, yaml.ScalarNode)
+                    and (
+                        node.style in {"|", ">"} or node.tag == "tag:yaml.org,2002:null"
+                    )
+                ):
+                    thematic_break = False
         if thematic_break:
             fence = None
         ambiguous_frontmatter = (

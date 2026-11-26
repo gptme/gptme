@@ -1143,7 +1143,15 @@ def test_bom_skill_starting_with_markdown_divider_is_indexed(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "text", ["- item", "key: value", '"Measure twice, cut once."', "'Measure twice.'"]
+    "text",
+    [
+        "- item",
+        "key: value",
+        '"Measure twice, cut once."',
+        "'Measure twice.'",
+        "```yaml\nstatus: active\n```",
+        "~~~yaml\nmatch:\n  keywords: [deploy]\n~~~",
+    ],
 )
 def test_thematic_break_body_reserves_first_root_slot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str
