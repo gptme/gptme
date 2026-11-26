@@ -10,6 +10,7 @@ import pytest
 from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
 from gptme.context.config import ContextConfig
 from gptme.context.scout import (
+    _MAX_SCOUT_FILES,
     _SCOUT_SENTINEL,
     _UNTRUSTED_PREAMBLE,
     _advertised_resolved,
@@ -295,6 +296,29 @@ class TestScoutFiles:
         assert _paths(paths) == [readme.resolve()]
         assert paths[0].dev == readme.stat().st_dev
         assert paths[0].ino == readme.stat().st_ino
+
+    @pytest.mark.parametrize("repeated_path", ["./file_0.py", "unlisted.py"])
+    def test_file_cap_counts_only_unique_advertised_files(
+        self, tmp_path: Path, repeated_path: str
+    ) -> None:
+        files = [tmp_path / f"file_{i}.py" for i in range(_MAX_SCOUT_FILES + 1)]
+        for file in files:
+            file.touch()
+        names = [file.name for file in files]
+        reply = "\n".join([names[0], *([repeated_path] * _MAX_SCOUT_FILES), *names[1:]])
+
+        with (
+            patch(
+                "gptme.context.selector.file_selector.get_workspace_files",
+                return_value=files,
+            ),
+            patch("gptme.llm.reply", return_value=self._make_reply(reply)),
+        ):
+            selected = scout_files("find relevant files", tmp_path, "cheap-model")
+
+        assert [item.path for item in selected] == [
+            file.resolve() for file in files[:_MAX_SCOUT_FILES]
+        ]
 
     def test_ignores_nonexistent_paths(self, tmp_path):
         """Advertised-set validation is reached (tree is non-empty) and misses drop."""
