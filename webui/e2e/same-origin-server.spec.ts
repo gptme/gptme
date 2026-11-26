@@ -5,6 +5,12 @@ const token = 'same-origin-test-token';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
+test.afterEach(async ({ page }) => {
+  // Lazy route chunks can still be forwarded when assertions finish. Drain
+  // those handlers before Playwright disposes their API responses at teardown.
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
 // Serve the real frontend under a non-loopback origin while emulating only
 // the API. This exercises startup ordering, registry persistence, ApiProvider's
 // authenticated probe and the actual (unmocked) token dialog together.
@@ -75,25 +81,34 @@ test('fresh same-origin browser asks for a token, connects, and reconnects after
   expect(loopbackRequests()).toBe(0);
 });
 
-test('same-origin connection fragment reuses its token without a welcome wizard or duplicate Local', async ({
-  page,
-  baseURL,
-}) => {
-  await serveSameOrigin(page, baseURL!);
-  await page.goto(`${origin}/#baseUrl=${encodeURIComponent(origin)}&userToken=${token}`);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect
-    .poll(async () =>
-      page.evaluate(() => {
-        const stored = localStorage.getItem('gptme_servers');
-        return stored ? JSON.parse(stored).servers : [];
-      })
-    )
-    .toEqual([
-      expect.objectContaining({
-        baseUrl: origin,
-        authToken: token,
-        name: 'self-hosted.gptme.test:5700',
-      }),
-    ]);
-});
+for (const fragment of [
+  `baseUrl=${encodeURIComponent(origin)}&userToken=${token}`,
+  `userToken=${token}`,
+]) {
+  test(`same-origin connection fragment ${fragment.split('=')[0]} reuses its token without a wizard or duplicate Local`, async ({
+    page,
+    baseURL,
+  }) => {
+    await serveSameOrigin(page, baseURL!);
+    const connected = page.waitForResponse(
+      (response) => response.url().includes('/api/v2/conversations') && response.status() === 200
+    );
+    await page.goto(`${origin}/#${fragment}`);
+    await connected;
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const stored = localStorage.getItem('gptme_servers');
+          return stored ? JSON.parse(stored).servers : [];
+        })
+      )
+      .toEqual([
+        expect.objectContaining({
+          baseUrl: origin,
+          authToken: token,
+          name: 'self-hosted.gptme.test:5700',
+        }),
+      ]);
+  });
+}

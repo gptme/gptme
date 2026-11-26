@@ -1,6 +1,6 @@
 import './polyfills';
 import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
+
 import './index.css';
 import { isDemoMode } from './utils/connectionConfig';
 import { setupLogging } from './utils/logging';
@@ -53,6 +53,9 @@ async function mountApp() {
   if (!isTauriEnvironment() && !isDemoMode()) {
     await initializeSameOriginServer();
   }
+  // ApiContext consumes #userToken at module initialization. Load it only
+  // after discovery so the token applies to this origin, not the old preset.
+  const { default: App } = await import('./App.tsx');
   createRoot(document.getElementById('root')!).render(<App />);
 }
 
