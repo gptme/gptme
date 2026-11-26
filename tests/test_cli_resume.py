@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path  # noqa: TC003
 
@@ -61,6 +62,19 @@ def populated_logs(logs_dir: Path) -> tuple[Path, list[Path]]:
     s1 = _make_session(logs_dir, "session-beta", task="Write tests", mtime_offset=-10)
     s2 = _make_session(logs_dir, "session-gamma", mtime_offset=-20)
     return logs_dir, [s0, s1, s2]
+
+
+@pytest.fixture()
+def many_sessions(logs_dir: Path) -> tuple[Path, list[Path]]:
+    """Create 25 sessions in reverse recency order with fixed, distinct mtimes."""
+    logs_dir.mkdir()
+    sessions = {}
+    for index in reversed(range(25)):
+        session = _make_session(logs_dir, f"session-{index:02}")
+        stamp = 1_700_000_000 - index
+        os.utime(session / "conversation.jsonl", (stamp, stamp))
+        sessions[index] = session
+    return logs_dir, [sessions[index] for index in range(25)]
 
 
 # ── unit tests ──────────────────────────────────────────────────────────
@@ -241,6 +255,49 @@ def test_resume_last_index(populated_logs: tuple[Path, list[Path]], monkeypatch)
     result = runner.invoke(resume, ["--last", "1"])
     assert result.exit_code == 0
     assert "session-beta" in result.output
+
+
+@pytest.mark.parametrize("last", [19, 20, 24])
+def test_resume_last_beyond_display_limit(
+    many_sessions: tuple[Path, list[Path]],
+    monkeypatch: pytest.MonkeyPatch,
+    last: int,
+) -> None:
+    logs_dir, sessions = many_sessions
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    result = CliRunner().invoke(resume, ["--last", str(last), "--output", "json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["session"] == str(sessions[last])
+
+
+def test_resume_list_keeps_display_limit(
+    many_sessions: tuple[Path, list[Path]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logs_dir, sessions = many_sessions
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    assert _list_sessions(logs_dir) == sessions[:20]
+    result = CliRunner().invoke(resume, ["--list", "--last", "24"])
+    assert result.exit_code == 0, result.output
+    rows = [line for line in result.output.splitlines() if line.startswith("  [")]
+    assert len(rows) == 20
+    assert all(
+        session.name in row for session, row in zip(sessions[:20], rows, strict=True)
+    )
+    assert sessions[20].name not in result.output
+
+
+@pytest.mark.parametrize("last", [-1, 25])
+def test_resume_last_out_of_range_uses_full_count(
+    many_sessions: tuple[Path, list[Path]],
+    monkeypatch: pytest.MonkeyPatch,
+    last: int,
+) -> None:
+    logs_dir, _ = many_sessions
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    result = CliRunner().invoke(resume, ["--last", str(last)])
+    assert result.exit_code != 0
+    assert isinstance(result.exception, SystemExit)
+    assert f"Only 25 session(s) available; requested index {last}." in result.output
 
 
 def test_resume_explicit_session(populated_logs: tuple[Path, list[Path]], monkeypatch):
