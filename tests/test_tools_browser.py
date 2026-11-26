@@ -1640,7 +1640,9 @@ class TestOpenPageSessionReuse:
         page.url = "https://example.com/account"
         bp._current_page = page
         with (
-            patch.object(bp.time, "monotonic", side_effect=[100.0, commit_finished]),
+            # Patch the module's local alias, not the stdlib module: replacing
+            # time.monotonic globally would affect every thread in the process.
+            patch.object(bp, "_monotonic", side_effect=[100.0, commit_finished]),
             patch.object(bp, "_page_snapshot", return_value="snapshot"),
         ):
             assert bp._goto_and_snapshot(page.url) == "snapshot"
@@ -1650,27 +1652,29 @@ class TestOpenPageSessionReuse:
         )
         page.wait_for_load_state.assert_called_once_with("load", timeout=remaining_ms)
 
-    def test_old_document_navigation_does_not_count_as_commit(self):
-        """An SPA URL update cannot make a stalled goto return the old page."""
+    def test_load_timeout_before_commit_drops_tab_and_keeps_session(self):
+        """A stalled commit must not leave an ambiguous tab live for later actions.
+
+        Playwright stops waiting, but the browser may still commit the
+        navigation later. The tab is closed so a following click/fill cannot hit
+        a half-navigated page, while the context (and its login) survives.
+        """
         from gptme.tools import _browser_playwright as bp
 
         page = MagicMock()
         page.is_closed.return_value = False
         page.url = "https://example.com/account"
+
+        def stalled_commit(*args, **kwargs):
+            # A same-document URL update in the old page must not count either.
+            page.url = "https://example.com/account#updated"
+            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
+
+        page.goto.side_effect = stalled_commit
         ctx = MagicMock()
         bp._current_page = page
         bp._current_context = ctx
 
-        def old_document_updates_url(*args, **kwargs):
-            page.url = "https://example.com/account#updated"
-            # Playwright emits this even for same-document replaceState/hash
-            # changes. Deliver the event if the implementation listens for it.
-            for call in page.on.call_args_list:
-                if call.args[0] == "framenavigated":
-                    call.args[1](page.main_frame)
-            raise bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
-
-        page.goto.side_effect = old_document_updates_url
         with (
             patch.object(bp, "_browser", None),
             patch.object(bp, "_page_snapshot") as snapshot,
@@ -1681,10 +1685,15 @@ class TestOpenPageSessionReuse:
 
         snapshot.assert_not_called()
         page.wait_for_load_state.assert_not_called()
+        page.close.assert_called_once_with()
+        assert bp._current_page is None
+        # The session context is kept, so the login survives.
         close.assert_not_called()
         assert bp._current_context is ctx
+        ctx.close.assert_not_called()
 
-    def test_load_timeout_before_commit_raises_without_closing_session(self):
+    def test_open_page_after_pre_commit_timeout_reuses_session_context(self):
+        """The dropped tab's context is reused, so cookies/localStorage survive."""
         from gptme.tools import _browser_playwright as bp
 
         page = MagicMock()
@@ -1692,20 +1701,111 @@ class TestOpenPageSessionReuse:
         page.url = "https://example.com/account"
         page.goto.side_effect = bp.PlaywrightTimeoutError("Timeout 16000ms exceeded")
         ctx = MagicMock()
+        new_page = MagicMock()
+        new_page.is_closed.return_value = False
+        new_page.url = "https://example.com/login"
+        ctx.new_page.return_value = new_page
         bp._current_page = page
         bp._current_context = ctx
 
         with (
             patch.object(bp, "_browser", None),
-            patch.object(bp, "_page_snapshot") as snapshot,
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
             patch.object(bp, "_close_current_page") as close,
             pytest.raises(RuntimeError, match="Timed out navigating"),
         ):
             bp._open_page(MagicMock(), "https://example.com/unreachable")
 
-        snapshot.assert_not_called()
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            patch.object(bp, "_close_current_page") as close,
+        ):
+            assert bp._open_page(MagicMock(), "https://example.com/login") == "snapshot"
+
+        ctx.new_page.assert_called_once_with()
+        new_page.goto.assert_called_once_with(
+            "https://example.com/login",
+            wait_until="commit",
+            timeout=bp.INTERACTIVE_NAVIGATION_TIMEOUT_MS,
+        )
+        close.assert_not_called()
+        ctx.close.assert_not_called()
+        assert bp._current_page is new_page
+        assert bp._current_context is ctx
+
+    def test_close_page_resets_owned_context_when_no_tab_remains(self):
+        """close_page() must still reset the session after a dropped tab."""
+        from gptme.tools import _browser_playwright as bp
+
+        ctx = MagicMock()
+        bp._current_page = None
+        bp._current_context = ctx
+        bp._session_owner = bp._conversation_key()
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(
+                bp,
+                "_execute_with_retry",
+                side_effect=lambda func, *args, **kwargs: func(
+                    MagicMock(), *args, **kwargs
+                ),
+            ),
+        ):
+            assert bp.close_page() == "Page closed."
+
+        ctx.close.assert_called_once_with()
+        assert bp._current_context is None
+
+    def test_snapshot_failure_after_commit_timeout_names_the_committed_url(self):
+        """A snapshot failure must not read like a failed navigation."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(
+                bp,
+                "_page_snapshot",
+                side_effect=bp.PlaywrightTimeoutError("aria_snapshot timeout"),
+            ),
+            patch.object(bp, "_close_current_page") as close,
+            pytest.raises(RuntimeError, match="snapshot failed"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/account")
+
         close.assert_not_called()
         assert bp._current_context is ctx
+
+    def test_allowlist_failure_in_timeout_snapshot_still_propagates(self):
+        """Allowlist enforcement keeps raising ValueError through the fallback."""
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        page.wait_for_load_state.side_effect = bp.PlaywrightTimeoutError(
+            "Timeout waiting for load"
+        )
+        bp._current_page = page
+        bp._current_context = MagicMock()
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_page_snapshot", side_effect=ValueError("blocked host")),
+            pytest.raises(ValueError, match="blocked host"),
+        ):
+            bp._open_page(MagicMock(), "https://example.com/account")
 
     def test_load_timeout_on_blocked_host_closes_session_before_reading(self):
         """The timeout fallback still enforces the allowlist on the live URL."""

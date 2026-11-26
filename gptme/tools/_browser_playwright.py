@@ -11,6 +11,7 @@ import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic as _monotonic
 from typing import TypeVar
 
 from playwright.sync_api import (
@@ -706,7 +707,7 @@ def _goto_and_snapshot(url: str) -> str:
     if page is None:
         raise RuntimeError("No page is currently open")
     committed = False
-    deadline = time.monotonic() + INTERACTIVE_NAVIGATION_TIMEOUT_MS / 1000
+    deadline = _monotonic() + INTERACTIVE_NAVIGATION_TIMEOUT_MS / 1000
     try:
         # Unlike framenavigated, goto's commit wait cannot be satisfied by a
         # same-document URL update in the old page while the request is pending.
@@ -714,7 +715,7 @@ def _goto_and_snapshot(url: str) -> str:
         committed = True
         # Share one budget between the commit and load waits. A zero timeout
         # disables Playwright's deadline, so keep the remaining wait positive.
-        remaining_ms = max(1, (deadline - time.monotonic()) * 1000)
+        remaining_ms = max(1, (deadline - _monotonic()) * 1000)
         page.wait_for_load_state("load", timeout=remaining_ms)
         # A redirect may land outside the allowlist; reject the final URL.
         _validate_page_url(page.url)
@@ -724,9 +725,25 @@ def _goto_and_snapshot(url: str) -> str:
         # out, so keep it: read the committed page (_page_snapshot enforces the
         # allowlist on the live URL), or report the timeout if nothing loaded.
         if not committed:
+            # Playwright stopped waiting, but the browser may still commit this
+            # navigation later. Leaving that tab live would let the next
+            # click_element()/fill_element() act on an ambiguous page, so drop
+            # the tab while keeping the session context (and its login).
+            _drop_current_page_handle()
             raise RuntimeError(f"Timed out navigating to {url}: {e}") from e
         logger.info(f"Load event for '{url}' timed out; reading committed page")
-        return _page_snapshot(timeout_ms=TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
+        try:
+            return _page_snapshot(timeout_ms=TIMED_OUT_SNAPSHOT_TIMEOUT_MS)
+        except ValueError:
+            # Allowlist enforcement already closed the page; keep its signal.
+            raise
+        except Exception as snapshot_error:
+            # Say the navigation committed and the session survived, so the
+            # agent calls snapshot_page() instead of retrying the navigation.
+            raise RuntimeError(
+                f"Navigated to {url} but the load event timed out and the "
+                f"snapshot failed: {snapshot_error}"
+            ) from snapshot_error
     except Exception as e:
         _close_current_page()
         if isinstance(e, ValueError):
@@ -845,10 +862,16 @@ def _enforce_current_page_allowlist() -> None:
 
 def close_page() -> str:
     """Close the current interactive browsing page."""
-    if _current_page is None and not (
-        _is_cdp_connection()
-        and _browser is not None
-        and _browser._session_context is not None
+    # A timed-out navigation drops the tab but keeps the session context, so
+    # the context (not only the page) decides whether there is anything to close.
+    if (
+        _current_page is None
+        and _current_context is None
+        and not (
+            _is_cdp_connection()
+            and _browser is not None
+            and _browser._session_context is not None
+        )
     ):
         return "No page is currently open."
     return _execute_with_retry(_do_close_page)
