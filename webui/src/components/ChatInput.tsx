@@ -70,8 +70,8 @@ import { useAgents } from '@/hooks/useAgents';
 import { useFileAutocomplete } from '@/hooks/useFileAutocomplete';
 import { FileAutocomplete } from '@/components/FileAutocomplete';
 import { VoiceButton } from '@/components/VoiceButton';
+import { isCallFor, useOptionalVoiceCall } from '@/contexts/VoiceCallContext';
 import { SpeechInputButton } from '@/components/SpeechInputButton';
-import { useSettings } from '@/contexts/SettingsContext';
 import {
   Select,
   SelectContent,
@@ -114,6 +114,8 @@ interface Props {
   /** Server that owns the conversation; defaults to the primary server. */
   serverId?: string;
   onSend?: (message: string, options?: ChatOptions) => void | Promise<void>;
+  /** New-chat view: create a conversation for a voice call; returns its id. */
+  onStartVoice?: (options: ChatOptions) => Promise<string>;
   onInterrupt?: () => Promise<void>;
   isReadOnly?: boolean;
   defaultModel?: string;
@@ -794,6 +796,7 @@ export const ChatInput: FC<Props> = ({
   conversationId,
   serverId,
   onSend,
+  onStartVoice,
   onInterrupt,
   isReadOnly,
   defaultModel = '',
@@ -808,7 +811,6 @@ export const ChatInput: FC<Props> = ({
 }) => {
   const { isConnected$, connectionConfig } = useApi();
   const { toast } = useToast();
-  const { settings } = useSettings();
   const sidebarSelectedWorkspace = use$(selectedWorkspace$);
   const sidebarSelectedAgent = use$(selectedAgent$);
 
@@ -1108,13 +1110,24 @@ export const ChatInput: FC<Props> = ({
   // must treat this as busy, otherwise a queued message flushes mid-step and the
   // server rejects it with "Generation already in progress".
   const isBusy = isGenerating || !!conversation?.pendingTool || !!conversation?.pendingElicitation;
+  // A live voice call in this conversation: typed messages go to the call.
+  const voiceCall = useOptionalVoiceCall();
+  const activeServerId = use$(serverRegistry$.activeServerId);
+  const voiceCallHere =
+    !editMode &&
+    voiceCall?.state === 'recording' &&
+    isCallFor(voiceCall, conversationId, serverId ?? activeServerId);
+  // A live call takes typed text over its own connection, so it wins over the
+  // API connection status.
   const placeholder = isReadOnly
     ? 'This is a demo conversation (read-only)'
-    : connectionStatus === 'connecting'
-      ? 'Connecting…'
-      : !isConnected
-        ? 'Connect to gptme to send messages'
-        : "What's on your mind...";
+    : voiceCallHere
+      ? 'Type to the voice call (answered aloud)…'
+      : connectionStatus === 'connecting'
+        ? 'Connecting…'
+        : !isConnected
+          ? 'Connect to gptme to send messages'
+          : "What's on your mind...";
 
   // Don't disable input while waiting for session - let users type
   // Session will be established by the time they finish typing
@@ -1326,6 +1339,21 @@ export const ChatInput: FC<Props> = ({
     }
 
     if (!onSend || uploadInFlight.current) return;
+
+    // During a voice call in this conversation, typed text goes to the call
+    // (the voice model answers aloud; the turn is added to the chat by the
+    // voice server) instead of starting a text-agent step. Attachments cannot
+    // go over the call, so a message with files still uses the normal send.
+    if (voiceCallHere && message.trim() && attachedFiles.length === 0) {
+      if (voiceCall?.sendText(message.trim())) {
+        setMessage('');
+        if (typeof window !== 'undefined' && storageKey) {
+          localStorage.removeItem(storageKey);
+        }
+        if (textareaRef.current) textareaRef.current.style.height = '';
+      }
+      return;
+    }
 
     // Files are always buffered locally — pass raw File objects for upload on send
     const pendingFiles =
@@ -1922,8 +1950,20 @@ export const ChatInput: FC<Props> = ({
                         onTranscript={handleTranscript}
                         disabled={isDisabled || isGenerating}
                       />
-                      {settings.voiceServerUrl && (
-                        <VoiceButton voiceServerUrl={settings.voiceServerUrl} />
+                      {conversationId ? (
+                        <VoiceButton conversationId={conversationId} serverId={serverId} />
+                      ) : (
+                        onStartVoice && (
+                          <VoiceButton
+                            startConversation={() =>
+                              onStartVoice({
+                                model: hasExplicitModelSelection ? effectiveModel : undefined,
+                                reasoningEffort,
+                                workspace: selectedWorkspace || undefined,
+                              })
+                            }
+                          />
+                        )
                       )}
                       <SubmitButton
                         isBusy={isBusy}

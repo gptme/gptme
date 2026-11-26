@@ -7,6 +7,7 @@
 import { act } from '@testing-library/react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useVoiceSession } from '../useVoiceSession';
+import { PCMPlayer } from '@/audio/pcm-player';
 
 // ─── Mock AudioContext ───────────────────────────────────────────────────────
 
@@ -112,6 +113,12 @@ class MockWebSocket {
   emitAudioEnd() {
     if (this.onmessage) {
       this.onmessage({ data: JSON.stringify({ type: 'audio_end' }) });
+    }
+  }
+
+  emitClear() {
+    if (this.onmessage) {
+      this.onmessage({ data: JSON.stringify({ type: 'clear' }) });
     }
   }
 
@@ -361,7 +368,146 @@ describe('useVoiceSession', () => {
     expect(mockWs.readyState).toBe(3);
   });
 
-  it('does not start when voiceServerUrl is empty', () => {
+  it('resolves the URL per call when given a resolver', async () => {
+    const resolve = jest.fn(async () => 'ws://server.local/api/v2/conversations/c/voice?ticket=t1');
+    const { result } = renderHook(() => useVoiceSession(resolve));
+
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
+
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(window.WebSocket).toHaveBeenCalledWith(
+      'ws://server.local/api/v2/conversations/c/voice?ticket=t1'
+    );
+    act(() => {
+      mockWs.emitReady();
+    });
+    await waitFor(() => expect(result.current.state).toBe('recording'));
+  });
+
+  it('ends with an error and releases the mic when the resolver fails', async () => {
+    const resolve = jest.fn(async () => {
+      throw new Error('Grok unavailable');
+    });
+    const { result } = renderHook(() => useVoiceSession(resolve));
+
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
+
+    expect(window.WebSocket).not.toHaveBeenCalled();
+    expect(result.current.error).toBe('Grok unavailable');
+    expect(result.current.state).toBe('ended');
+  });
+
+  it('keeps playing buffered audio when the provider finishes streaming (audio_end)', async () => {
+    // Regression: audio_end arrives as soon as the provider has *sent* the reply,
+    // usually long before it has played. Resetting the player on it cut replies
+    // off after about a second.
+    const reset = jest.spyOn(PCMPlayer.prototype, 'reset');
+    const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
+    act(() => {
+      mockWs.emitReady();
+    });
+    await waitFor(() => expect(result.current.state).toBe('recording'));
+
+    act(() => {
+      mockWs.emitAudioEnd();
+    });
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('drops queued audio when the server signals a barge-in (clear)', async () => {
+    const reset = jest.spyOn(PCMPlayer.prototype, 'reset');
+    const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
+    act(() => {
+      mockWs.emitReady();
+    });
+    await waitFor(() => expect(result.current.state).toBe('recording'));
+
+    act(() => {
+      mockWs.emitClear();
+    });
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends typed text into a live call and refuses when there is none', async () => {
+    const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
+    expect(result.current.sendText('too early')).toBe(false);
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
+    act(() => {
+      mockWs.emitReady();
+    });
+    await waitFor(() => expect(result.current.state).toBe('recording'));
+    expect(result.current.sendText('typed during the call')).toBe(true);
+    expect(mockWs.sentMessages).toContain(
+      JSON.stringify({ type: 'text', text: 'typed during the call' })
+    );
+  });
+
+  it('a superseded setup failing later does not close the newer call', async () => {
+    let rejectA: (e: Error) => void = () => {};
+    const resolveA = () =>
+      new Promise<string>((_, reject) => {
+        rejectA = reject;
+      });
+    const { result } = renderHook(() => useVoiceSession(null));
+    act(() => {
+      result.current.start(resolveA); // call A waits on its ticket
+    });
+    await flushMicrotasks();
+    act(() => {
+      result.current.stop();
+    });
+    act(() => {
+      result.current.start('ws://test.local/voice'); // call B
+    });
+    await flushMicrotasks();
+    act(() => {
+      mockWs.emitReady();
+    });
+    await waitFor(() => expect(result.current.state).toBe('recording'));
+
+    await act(async () => {
+      rejectA(new Error('ticket request failed'));
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(result.current.state).toBe('recording');
+    expect(result.current.error).toBeNull();
+    expect(result.current.sendText('still connected')).toBe(true);
+  });
+
+  it('ending a call that is still connecting releases the microphone at once', async () => {
+    const stopTrack = jest.spyOn(MockMediaStreamTrack.prototype, 'stop');
+    const neverResolves = () => new Promise<string>(() => {});
+    const { result } = renderHook(() => useVoiceSession(null));
+    act(() => {
+      result.current.start(neverResolves); // waiting on conversation/ticket
+    });
+    await flushMicrotasks();
+    expect(stopTrack).not.toHaveBeenCalled();
+    act(() => {
+      result.current.stop();
+    });
+    expect(stopTrack).toHaveBeenCalled();
+    expect(mockCtx.closed).toBe(true);
+  });
+
+  it('does not start when the voice target is empty', () => {
     const { result } = renderHook(() => useVoiceSession(''));
     act(() => {
       result.current.start();

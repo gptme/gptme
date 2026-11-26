@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
+import { serverRegistry$ } from '@/stores/servers';
 import { ChatInput } from '../ChatInput';
 import { AttachmentUploadError } from '@/utils/api';
 import type { PendingElicitation } from '@/stores/conversations';
@@ -24,6 +25,21 @@ const mockConversation$ = observable<{
   chatConfig: { chat: {} },
 });
 
+// VoiceButton queries the server's voice status; covered by its own tests.
+jest.mock('@/components/VoiceButton', () => ({ VoiceButton: () => null }));
+
+// A live voice call can be bound to a conversation; null = no call provider.
+let mockVoiceCall: {
+  state: string;
+  conversationId: string | null;
+  serverId: string | null;
+  sendText: jest.Mock;
+} | null = null;
+jest.mock('@/contexts/VoiceCallContext', () => ({
+  ...jest.requireActual('@/contexts/VoiceCallContext'),
+  useOptionalVoiceCall: () => mockVoiceCall,
+}));
+
 jest.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({
     settings: {
@@ -33,7 +49,6 @@ jest.mock('@/contexts/SettingsContext', () => ({
       showInitialSystem: false,
       hasCompletedSetup: true,
       welcomeBackground: '',
-      voiceServerUrl: '',
     },
     updateSettings: jest.fn(),
     resetSettings: jest.fn(),
@@ -151,6 +166,7 @@ describe('ChatInput', () => {
     mockSaveDefaultModel.mockReset();
     mockSaveDefaultModel.mockResolvedValue({ ok: true, restartRequired: false });
     mockDefaultModel = '';
+    mockVoiceCall = null;
     window.localStorage.clear();
     mockConversation$.set({
       isGenerating: false,
@@ -228,6 +244,44 @@ describe('ChatInput', () => {
       expect(onSendB).not.toHaveBeenCalled();
     }
   );
+
+  it('sends typed text to a live voice call in this conversation instead of the agent', () => {
+    const onSend = jest.fn();
+    const sendText = jest.fn(() => true);
+    // The call records its concrete owner: the active (primary) server here.
+    const activeServerId = serverRegistry$.activeServerId.get() ?? null;
+    mockVoiceCall = {
+      state: 'recording',
+      conversationId: 'conv-a',
+      serverId: activeServerId,
+      sendText,
+    };
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    const textbox = screen.getByRole('textbox');
+    expect(textbox).toHaveAttribute('placeholder', 'Type to the voice call (answered aloud)…');
+    fireEvent.change(textbox, { target: { value: '  no, I meant the other file  ' } });
+    fireEvent.submit(textbox.closest('form')!);
+    expect(sendText).toHaveBeenCalledWith('no, I meant the other file');
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textbox).toHaveValue('');
+  });
+
+  it('keeps sending to the agent when the voice call belongs to another conversation', async () => {
+    const onSend = jest.fn().mockResolvedValue(undefined);
+    const sendText = jest.fn(() => true);
+    mockVoiceCall = {
+      state: 'recording',
+      conversationId: 'conv-b',
+      serverId: serverRegistry$.activeServerId.get() ?? null,
+      sendText,
+    };
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={observable(false)} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hello agent' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    await waitFor(() => expect(onSend).toHaveBeenCalled());
+    expect(onSend.mock.calls[0][0]).toBe('hello agent');
+    expect(sendText).not.toHaveBeenCalled();
+  });
 
   it('persists queued text through remount and supports non-destructive edit/cancel', () => {
     const onSend = jest.fn();

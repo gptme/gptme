@@ -348,26 +348,6 @@ export function SettingsContent({
                 </SelectContent>
               </Select>
             </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <Label htmlFor="voice-server-url" className="text-sm">
-                Voice server URL
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                WebSocket URL of a running gptme-voice-server instance, e.g.{' '}
-                <code className="rounded bg-muted px-1">ws://localhost:5700/voice</code>. Leave
-                empty to hide the voice button.
-              </p>
-              <Input
-                id="voice-server-url"
-                type="text"
-                placeholder="ws://localhost:5700/voice"
-                value={settings.voiceServerUrl}
-                onChange={(e) => updateSettings({ voiceServerUrl: e.target.value.trim() })}
-              />
-            </div>
           </div>
         );
 

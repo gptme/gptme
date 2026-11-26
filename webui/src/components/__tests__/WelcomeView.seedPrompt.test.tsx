@@ -22,6 +22,9 @@ const isAutoConnecting$ = observable(false);
 const compatibilityWarning$ = observable<null>(null);
 const lastConnectionResult$ = observable<null>(null);
 
+// VoiceButton queries the server's voice status; covered by its own tests.
+jest.mock('@/components/VoiceButton', () => ({ VoiceButton: () => null }));
+
 jest.mock('@/utils/viteEnv', () => ({
   isViteDev: false,
   isEmbeddedMode: true,

@@ -193,6 +193,25 @@ export const WelcomeView = () => {
     }
   };
 
+  // Start a realtime voice call from the new-chat view: create an empty
+  // conversation with the composer's settings and open it. The call itself
+  // lives in VoiceCallProvider, so it survives this navigation.
+  const handleStartVoice = async (options: ChatOptions): Promise<string> => {
+    const conversationId = `chat-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    await api.createConversation(conversationId, [], {
+      chat: {
+        model: options.model,
+        reasoning_effort: options.reasoningEffort,
+        workspace: options.workspace || '.',
+      },
+    });
+    if (mountedRef.current) navigate(chatRoute(conversationId));
+    void queryClient.invalidateQueries({
+      queryKey: conversationsQueryKey(connectionConfig.baseUrl),
+    });
+    return conversationId;
+  };
+
   // Auto-send a seed the host flagged as already submitted — gptme.ai's landing
   // hero forwards the prompt a visitor typed before signing in, so they should
   // not have to press Enter a second time. Waits for a connection so the send
@@ -673,6 +692,7 @@ export const WelcomeView = () => {
                 key={draftKey}
                 ref={chatInputRef}
                 onSend={handleSend}
+                onStartVoice={handleStartVoice}
                 autoFocus$={autoFocus$}
                 value={inputValue}
                 onChange={handleInputChange}

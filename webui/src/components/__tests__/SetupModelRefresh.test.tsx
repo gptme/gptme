@@ -14,6 +14,9 @@ const mockFetch = jest.fn();
 const mockInvokeTauri = jest.fn();
 const mockIsConnected$ = observable(true);
 
+// VoiceButton queries the server's voice status; covered by its own tests.
+jest.mock('@/components/VoiceButton', () => ({ VoiceButton: () => null }));
+
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     api: { baseUrl: 'http://127.0.0.1:5700', authHeader: null },
