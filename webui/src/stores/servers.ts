@@ -145,7 +145,7 @@ export function adoptSameOriginServer(registry: ServerRegistry, origin: string):
   }
   target.baseUrl = origin;
   target.name = new URL(origin).host;
-  target.isPreset = true;
+  if (!existing) target.isPreset = true;
   if (preset && preset.id !== target.id) {
     registry.servers = registry.servers.filter((s) => s.id !== preset.id);
     registry.connectedServerIds = registry.connectedServerIds.filter((id) => id !== preset.id);

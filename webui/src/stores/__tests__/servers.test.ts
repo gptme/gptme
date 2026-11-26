@@ -100,7 +100,11 @@ describe('same-origin discovery', () => {
     });
     adoptSameOriginServer(registry, 'http://myhost:5700');
     expect(registry.servers).toHaveLength(1);
-    expect(registry.servers[0]).toMatchObject({ id: 'lan', authToken: 'lan-token' });
+    expect(registry.servers[0]).toMatchObject({
+      id: 'lan',
+      authToken: 'lan-token',
+      isPreset: false,
+    });
     expect(registry.activeServerId).toBe('lan');
     expect(registry.connectedServerIds).toEqual(['lan']);
   });
