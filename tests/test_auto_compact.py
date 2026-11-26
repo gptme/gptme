@@ -3,7 +3,12 @@ Tests for auto-compacting functionality that handles conversations with massive 
 """
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
+from threading import Barrier
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -16,6 +21,9 @@ from gptme.tools.autocompact import (
     should_auto_compact,
 )
 from gptme.util.output_storage import create_tool_result_summary
+
+if TYPE_CHECKING:
+    from _collections_abc import dict_items
 
 
 def _message_outputs(items: list[Message | StopPropagation]) -> list[Message]:
@@ -2021,6 +2029,80 @@ def test_autocompact_hook_honors_keep_head(monkeypatch):
         f"Expected keep_head=3 from env override, got {captured_keep_head.get('value')}; "
         "hook.py must call _get_keep_head() and pass it as CompressionConfig.keep_head"
     )
+
+
+@pytest.mark.parametrize(
+    "scenario", ["stale-cooldown", "cooldown-overflow", "latch-overflow"]
+)
+def test_autocompact_concurrent_pruning(
+    scenario: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two conversations can prune the same snapshot without aborting the hook."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import hook
+
+    barrier = Barrier(2, timeout=5)
+
+    class CooldownEntries(dict[tuple[str, str], tuple[float, int]]):
+        def items(self) -> "dict_items[tuple[str, str], tuple[float, int]]":
+            snapshot = self.copy().items()
+            # Synchronize after both the expiry scan and the overflow snapshot.
+            barrier.wait()
+            return snapshot
+
+    class LatchEntries(dict[tuple[str, str], int]):
+        def __len__(self) -> int:
+            size = super().__len__()
+            # Both callers must compute the same overflow after taking a key snapshot.
+            barrier.wait()
+            return size
+
+    now = 1_000_000.0
+    oldest = ("/conv/oldest", "main")
+    retained = ("/conv/retained", "main")
+    newest = ("/conv/newest", "main")
+    expected_attempts: dict[tuple[str, str], tuple[float, int]] = {}
+    expected_latches: dict[tuple[str, str], int] = {}
+    if scenario == "latch-overflow":
+        attempts: dict[tuple[str, str], tuple[float, int]] = {}
+        latches: dict[tuple[str, str], int] = LatchEntries(
+            {oldest: 3, retained: 5, newest: 7}
+        )
+        expected_latches = {retained: 5, newest: 7}
+    else:
+        interval = hook._autocompact_min_interval
+        cutoff = now - interval
+        if scenario == "stale-cooldown":
+            oldest_time, retained_time = cutoff - 1, cutoff
+        else:
+            oldest_time, retained_time = cutoff, cutoff + 1
+        expected_attempts = {
+            retained: (retained_time, 5),
+            newest: (now, 7),
+        }
+        attempts = CooldownEntries(
+            {
+                retained: expected_attempts[retained],
+                oldest: (oldest_time, 3),
+                newest: (now, 7),
+            }
+        )
+        latches = {}
+    monkeypatch.setattr(hook, "_last_autocompact_attempt", attempts)
+    monkeypatch.setattr(hook, "_failed_summarize", latches)
+    monkeypatch.setattr(hook, "_MAX_TRACKED_CONVERSATIONS", 2)
+    monkeypatch.setattr(hook, "time", SimpleNamespace(time=lambda: now))
+
+    managers = [
+        LogManager([Message("user", "Hello")], logdir=tmp_path / f"session-{i}")
+        for i in range(2)
+    ]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(list, hook.autocompact_hook(m)) for m in managers]
+        assert [future.result() for future in futures] == [[], []]
+
+    assert dict(dict.items(attempts)) == expected_attempts
+    assert dict(dict.items(latches)) == expected_latches
 
 
 def test_autocompact_throttle_is_per_conversation(monkeypatch):
