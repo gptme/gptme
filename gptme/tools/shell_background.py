@@ -221,6 +221,8 @@ class BackgroundJob:
     _stdout_read_offset: int = field(default=0, repr=False)
     _stderr_read_offset: int = field(default=0, repr=False)
     conversation_id: str | None = None
+    # Branch a server wake appends the completion to (best effort; see start).
+    branch: str = "main"
     process_group_id: int | None = field(default=None, repr=False)
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -1327,6 +1329,21 @@ def _current_conversation_id() -> str | None:
     return current_conversation_id.get() or (manager.chat_id if manager else None)
 
 
+def _current_branch(conversation_id: str | None) -> str:
+    """Branch of the log advancing this conversation, else ``main``.
+
+    Only trust the context-local manager when it belongs to the same
+    conversation; a server thread may still carry another conversation's log.
+    """
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    if manager is None or getattr(manager, "chat_id", None) != conversation_id:
+        return "main"
+    branch = getattr(manager, "current_branch", None)
+    return branch if isinstance(branch, str) and branch else "main"
+
+
 def _current_log_dir() -> Path | None:
     from ..logmanager import LogManager
 
@@ -1594,6 +1611,105 @@ def _notify_completion(job: BackgroundJob) -> None:
         _completion_queue.put(job)
         if condition := _job_conditions.get(job.conversation_id):
             condition.notify_all()
+    # The CLI is woken by the condition above (LOOP_CONTINUE wait). An idle
+    # server conversation has no such waiter: ring the same doorbell subagent
+    # completions use. Never while this thread still holds the job lock.
+    try:
+        wake_server_for_completed_jobs(job.conversation_id)
+    except Exception:
+        logger.debug(
+            "Could not wake server for background job #%s", job.id, exc_info=True
+        )
+
+
+def wake_server_for_completed_jobs(conversation_id: str | None) -> bool:
+    """Deliver queued job completions to an idle server conversation.
+
+    Mirrors subagent completion: claim the completions, persist them through
+    ``SessionManager.request_watch_wake`` (same busy, ACP, ``watch_autowake``
+    and interrupt policy), and put back whatever could not be delivered so
+    STEP_PRE, or the next ``retry_deferred_watch_wakes``, still sees it.
+    Returns True if any completion was delivered by a wake.
+
+    A no-op outside a server process (the server module is never imported
+    just for this) and for conversations without a server session.
+    """
+    if _job_lock._is_owned():  # type: ignore[attr-defined]
+        # A caller holds the job lock; waking from here could invert lock
+        # order with server locks. The step-end retry delivers it instead.
+        return False
+    if conversation_id is None or not _has_server_session(conversation_id):
+        return False
+    from ..server.session_models import SessionManager
+
+    with _job_lock:
+        jobs = _take_completed_jobs_locked(conversation_id)
+        if not jobs:
+            return False
+        # Rendering consumes a late kill notice; keep it for a requeue.
+        notices = [job._late_kill_notice for job in jobs]
+        try:
+            messages = [_completion_message(job) for job in jobs]
+        except Exception:
+            # The jobs are already claimed: a rendering failure must put them
+            # back or their completions are lost with no later retry.
+            logger.warning(
+                "Could not render background job completions for %s",
+                conversation_id,
+                exc_info=True,
+            )
+            _requeue_completed_jobs(list(zip(jobs, notices)))
+            return False
+    by_branch: dict[str, list[int]] = {}
+    for index, job in enumerate(jobs):
+        by_branch.setdefault(job.branch, []).append(index)
+    undelivered: list[int] = []
+    for branch, indexes in by_branch.items():
+        body = "\n\n".join(messages[i].content for i in indexes)
+        try:
+            delivered = SessionManager.request_watch_wake(
+                conversation_id, Message("system", body), branch=branch
+            )
+        except Exception:
+            logger.debug(
+                "Background job wake failed for %s", conversation_id, exc_info=True
+            )
+            delivered = False
+        if not delivered:
+            undelivered.extend(indexes)
+    if undelivered:
+        _requeue_completed_jobs([(jobs[i], notices[i]) for i in sorted(undelivered)])
+    return len(undelivered) < len(jobs)
+
+
+def _requeue_completed_jobs(
+    items: list[tuple[BackgroundJob, str | None]],
+) -> None:
+    """Return claimed completions to the front of the queue, in order."""
+    with _job_lock, _completion_queue.mutex:
+        live = []
+        queued = {id(job) for job in _completion_queue.queue}
+        for job, notice in items:
+            # Teardown may have run meanwhile: never resurrect its event.
+            if _background_jobs.get(job.conversation_id, {}).get(job.id) is not job:
+                continue
+            if id(job) in queued:
+                # A kill recorded while this completion was claimed saw it
+                # notified but not queued, took it as delivered and re-queued
+                # the job with a late notice. The completion never went out:
+                # fold the reason into it, or its render becomes the notice
+                # alone and the job's output is lost.
+                if notice is None and job._late_kill_notice is not None:
+                    job.kill_reason = job._late_kill_notice
+                    job._late_kill_notice = None
+                # Otherwise the claimed item was itself a notice; the newer one
+                # supersedes it. Either way, do not queue the job twice.
+                continue
+            if job._late_kill_notice is None:
+                job._late_kill_notice = notice
+            live.append(job)
+        _completion_queue.queue.extendleft(reversed(live))
+        _completion_queue.not_empty.notify(len(live))
 
 
 def _record_kill_reason(job: BackgroundJob, reason: str) -> None:
@@ -1609,6 +1725,16 @@ def _record_kill_reason(job: BackgroundJob, reason: str) -> None:
             return
         job._late_kill_notice = reason
         _completion_queue.put(job)
+    # The original completion may already have woken and finished a step.
+    # Ring again for this new notice, outside the job lock like _notify_completion.
+    try:
+        wake_server_for_completed_jobs(job.conversation_id)
+    except Exception:
+        logger.debug(
+            "Could not wake server for background job #%s kill notice",
+            job.id,
+            exc_info=True,
+        )
 
 
 def _jobs_for(conversation_id: str | None) -> dict[int, BackgroundJob]:
@@ -1634,6 +1760,7 @@ def register_background_job(
 ) -> BackgroundJob:
     """Register an already-running command without starting an output reader."""
     conversation_id = _current_conversation_id()
+    branch = _current_branch(conversation_id)
     with _job_lock:
         job = BackgroundJob(
             id=_get_next_job_id_locked(conversation_id),
@@ -1645,6 +1772,7 @@ def register_background_job(
             _close_callback=close_callback,
             _output_callback=output_callback,
             log_dir=_current_log_dir(),
+            branch=branch,
         )
         if capture is not None:
             # Transfer the already-running capture, not its bytes or feeder.
@@ -1656,6 +1784,10 @@ def register_background_job(
                 capture._output_callback = (
                     None if capture._spool_from_reader else output_callback
                 )
+                # The capture replaces the constructed job, so it must carry
+                # the branch resolved above; a promoted foreground job would
+                # otherwise keep BackgroundJob's default "main".
+                capture.branch = branch
                 job = capture
         _jobs_for(conversation_id)[job.id] = job
     return job
@@ -1813,6 +1945,7 @@ def start_background_job(
             # after the leader may have exited and its PID may have been reused.
             process_group_id=None if _is_windows else process.pid,
             log_dir=_current_log_dir(),
+            branch=_current_branch(conversation_id),
         )
         _jobs_for(conversation_id)[job_id] = job
     if not _is_windows:
@@ -1948,15 +2081,48 @@ def background_job_completion_hook(
     # paths also bind an explicit context for tools; use that only when the
     # manager cannot provide an ID. Never use process-local LogManager state here.
     conversation_id = getattr(manager, "chat_id", None) or current_conversation_id.get()
+    # A server conversation can deliver another branch's completion later via
+    # its own wake (``retry_deferred_watch_wakes`` runs once this step ends), so
+    # claim only this step's branch there. The CLI has no such wake: an
+    # off-branch completion left queued would never arrive, so take them all.
+    # Resolve this before taking the job lock (server locks come first).
+    branch = (
+        getattr(manager, "current_branch", None) or "main"
+        if _has_server_session(conversation_id)
+        else None
+    )
     # Reset takes these locks in the same order. Holding both while claiming and
     # validating completions makes delivery atomic with conversation teardown.
-    with _job_lock, _completion_queue.mutex:
+    with _job_lock:
+        own_jobs = _take_completed_jobs_locked(conversation_id, branch=branch)
+        messages = [_completion_message(job) for job in own_jobs]
+    yield from messages
+
+
+def _has_server_session(conversation_id: str | None) -> bool:
+    """Whether a server session is attached (never imports the server)."""
+    if conversation_id is None or "gptme.server.session_models" not in sys.modules:
+        return False
+    from ..server.session_models import SessionManager
+
+    return bool(SessionManager.get_sessions_for_conversation(conversation_id))
+
+
+def _take_completed_jobs_locked(
+    conversation_id: str | None, branch: str | None = None
+) -> list[BackgroundJob]:
+    """Claim this conversation's queued completions. Caller holds ``_job_lock``.
+
+    With ``branch``, claim only completions started on that branch.
+    """
+    with _completion_queue.mutex:
         own_jobs = cast(
             list[BackgroundJob],
             [
                 job
                 for job in _completion_queue.queue
                 if job.conversation_id == conversation_id
+                and (branch is None or job.branch == branch)
                 and _background_jobs.get(conversation_id, {}).get(job.id) is job
             ],
         )
@@ -1964,8 +2130,7 @@ def background_job_completion_hook(
         _completion_queue.queue = type(_completion_queue.queue)(
             job for job in _completion_queue.queue if id(job) not in own_job_ids
         )
-        messages = [_completion_message(job) for job in own_jobs]
-    yield from messages
+    return own_jobs
 
 
 def _background_wait_input(

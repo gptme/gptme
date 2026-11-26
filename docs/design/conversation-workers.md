@@ -201,32 +201,38 @@ Current mechanisms — they share primitives but **not one transport**:
 | Peer mail | other process → `prompt_queue.py` (`prompt-queue.jsonl`, flock) | yes | **yes, by polling**: `_run_peer_wake_check` every `_PEER_WAKE_INTERVAL = 2.0` s → `request_peer_wake` |
 | Watch event | in-process queue | no (re-queued on failed wake) | yes, `request_watch_wake`; retried at step end by `retry_deferred_watch_wakes` |
 | Subagent completion | in-process queue + `notification_ready.signal` | no | yes, via `request_watch_wake` (`subagent/hooks.py:348`) |
-| Shell background job completion | `shell_background._completion_queue` + condition | no | **no idle wake found** (below) |
+| Shell background job completion | `shell_background._completion_queue` + condition | no | yes, via `request_watch_wake` (fixed after this audit, below); retried at step end |
 | Progress | in-process queue, drained into the next wake | no | rides along; never wakes by itself |
 
-**Audit finding — shell-background completion has no idle wake.** `_notify_completion`
-(`tools/shell_background.py:1585`) enqueues to `_completion_queue` and notifies a
-condition; it neither calls `notification_ready.signal` nor `request_watch_wake`, and
-`shell_background.py` references no `SessionManager`. `retry_deferred_watch_wakes`
-drains only watch events and subagent completions. So an idle server conversation is not
-woken by a finished `run_in_background` job; the result is picked up by the
-LOOP_CONTINUE hook only when some other event starts a step (and
-`background_job_wait_hook` subscribes to `notification_ready` for *child* wakeups, not
-for job exit). This is a parity gap versus subagent completion, independent of worker
-processes, and is the cheapest concrete consolidation: make job completion call the
-same `request_watch_wake` path (event-specific message, same busy/autowake policy).
-**Verified** (follow-up pass): `tests/test_wake_admission_matrix.py::test_shell_background_completion_has_no_idle_wake`
-starts a real `printf` job through `start_background_job`; on exit the job is queued
-(`_completion_notified`, present in `_completion_queue`) but `request_watch_wake` and
-`notification_ready.signal` are never called. This is a unit-level reproduction against
-the real module, not a live-server run.
+**Historical audit finding — shell-background completion had no idle wake.** Before
+this fix, `_notify_completion` only queued the completion and notified a condition;
+`retry_deferred_watch_wakes` drained watch events and subagent completions, not shell
+jobs. An idle server conversation therefore waited for an unrelated step to receive
+a finished job's result. The original characterization test reproduced that gap with
+a real `printf` job; it has been replaced by
+`tests/test_wake_admission_matrix.py::test_shell_background_completion_wakes_idle_conversation`,
+which verifies the corrected behaviour below.
+
+**Fixed** (third pass): `_notify_completion` now rings the same doorbell as subagent
+completion. `wake_server_for_completed_jobs` claims the conversation's queued
+completions, persists them through `request_watch_wake` (so busy, ACP,
+`watch_autowake` and the interrupt rule of the next paragraph apply unchanged), and
+puts back whatever it could not deliver for STEP_PRE; `retry_deferred_watch_wakes`
+calls it at step end, so a job that finished while the conversation was busy still
+wakes it once idle. The job records the branch of the log that started it. It is a
+no-op outside a server process and for conversations without a server session (CLI,
+thread-mode subagents), which keep the condition/LOOP_CONTINUE path. The matrix test
+now pins idle wake (claimed once, not re-delivered by STEP_PRE), busy deferral plus
+step-end retry, and the no-session no-op. Known residual: like subagent completion,
+a step ending in the short window between a failed wake's claim and its requeue can
+leave a completion queued until the next step or wake.
 
 Shared already: `_conversation_busy` and `_dispatch_reserved_step` (admission +
 dispatch) are used by both the watch and peer paths, and `use_acp` conversations
 explicitly defer both (so a wake never answers a conversation whose input cursor a
 different runtime owns). `session.interrupted` suppresses peer wakes (a user-stopped
 conversation is not restarted). **`request_watch_wake` does not check it and clears it**
-(`session.interrupted = False` at reservation), so a subagent completion or watch event
+(`session.interrupted = False` at reservation), so a subagent completion, shell job completion or watch event
 restarts a conversation the user stopped. Pinned by
 `test_interrupted_watch_wake_restarts_conversation_today` next to
 `test_interrupted_peer_wake_leaves_conversation_stopped`. Whether that is intended (a
@@ -271,8 +277,8 @@ Split **enqueue** from **doorbell** from **admission**:
 
 The existing code already does steps 1, 3 (partially) and 4 (persist-then-drain with a
 documented "True even if dispatch failed" rule to avoid duplicate replay). What is
-missing is the `event_id` ack/dedup, the unified `kind`, and job-completion
-participation.
+missing is the `event_id` ack/dedup and the unified `kind`; job completion now
+participates in the in-process doorbell (§5).
 
 ### 5.2 Cross-harness adapters (design only; not implemented, not verified live)
 
@@ -317,8 +323,8 @@ payoff; the in-tree deletion is modest.
 
 **Stage it:**
 
-1. **Now:** land #5059 (decoupling + hostile-host-cwd regression coverage). Fix the
-   shell-background idle-wake gap (§5) independently; it needs no worker.
+1. **Now:** land #5059 (decoupling + hostile-host-cwd regression coverage). The
+   shell-background idle-wake gap (§5) is fixed independently; it needed no worker.
 2. **Prototype in-tree behind an opt-in flag** (e.g. `GPTME_SERVER_WORKERS=1`): lazy
    `spawn` worker per conversation, JSON-lines contract of §4, `LogManager` lock as the
    lease, process-group supervision, host-side admission unchanged. Start with the
@@ -338,8 +344,8 @@ host today and would have to be re-homed or proxied — see gaps).
 * Prototype exec's code strings; it does **not** run real gptme tools, an LLM turn, or a
   third-party plugin end to end. The `open`/`Path.exists`/`subprocess`/native-`getcwd`
   isolation result is real, but "plugin unmodified" was demonstrated with a stand-in.
-* Peer/watch wake during busy/idle/ACP/interrupted states and the shell-job no-wake gap
-  are now demonstrated against the real admission code (§5,
+* Peer/watch wake during busy/idle/ACP/interrupted states and shell-job idle/busy
+  delivery are now demonstrated against the real admission code (§5,
   `tests/test_wake_admission_matrix.py`), with the step dispatcher mocked. Still not
   demonstrated: those events crossing a *process* boundary into a worker, and a live
   server run. §5.1 remains a design.
