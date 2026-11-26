@@ -35,6 +35,10 @@ REVIEWED: dict[tuple[str, str], str] = {
         "_load_context_files",
     ): "Fallback only when the caller passes no workspace.",
     (
+        "tools/autocompact/resume.py",
+        "_is_config_secret",
+    ): "Matches the credential writer's process-relative store when XDG_CONFIG_HOME is empty, not a session file.",
+    (
         "tools/precommit.py",
         "get_precommit_runner",
     ): "Absolutizes a relative PATH entry; unrelated to session files.",

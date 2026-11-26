@@ -10,10 +10,14 @@ import tomlkit
 STORED_CREDENTIALS_SOURCE = "credentials.toml"
 
 
+def get_credentials_dir() -> Path:
+    """Directory holding the credential store. Pure lookup: creates nothing."""
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme"
+
+
 def _get_credentials_path() -> Path:
     """Return the path to gptme's persisted credential store."""
-    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    config_dir = config_dir / "gptme"
+    config_dir = get_credentials_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / STORED_CREDENTIALS_SOURCE
 

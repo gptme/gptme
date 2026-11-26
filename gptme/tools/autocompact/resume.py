@@ -4,6 +4,7 @@ Creates structured summaries of conversations using LLM, extracts
 context files, and manages conversation resumption.
 """
 
+import errno
 import logging
 import re
 from collections import Counter
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ... import llm
+from ...credentials import get_credentials_dir
+from ...dirs import get_config_dir
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, MessageMetadata, len_tokens
@@ -152,12 +155,31 @@ def _parse_context_files(content: str) -> list[str]:
     return unique_paths
 
 
-_SECRET_DIR_PARTS = frozenset({".ssh", ".gnupg", ".aws"})
+_SECRET_DIR_PARTS = frozenset(
+    {".ssh", ".gnupg", ".pgp", ".aws", ".azure", ".kube", ".docker"}
+)
+# Credential directories under ``.config``.
+_SECRET_CONFIG_DIRS = frozenset({"secrets", "gh", "gcloud", "gptme"})
+_SECRET_FILE_NAMES = frozenset(
+    {
+        ".envrc",
+        ".netrc",
+        ".git-credentials",
+        ".pgpass",
+        ".npmrc",
+        ".pypirc",
+        "id_rsa",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+    }
+)
+_SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".pkcs12", ".keystore")
 _ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
 
 
 def _is_secret_bearing_path(path: Path) -> bool:
-    """True for files that hold credentials (dotenv files, key directories).
+    """True for files that hold credentials (dotenv, rc and key files, key dirs).
 
     Resume re-injects context files verbatim into the next prompt, so a model
     that merely inspected ``secrets/posthog.env`` would otherwise ship every
@@ -165,13 +187,120 @@ def _is_secret_bearing_path(path: Path) -> bool:
     """
     parts = tuple(part.lower() for part in path.parts)
     if _SECRET_DIR_PARTS.intersection(parts) or any(
-        a == ".config" and b == "secrets" for a, b in zip(parts, parts[1:])
+        a == ".config" and b in _SECRET_CONFIG_DIRS for a, b in zip(parts, parts[1:])
     ):
         return True
     name = path.name.lower()
+    # Git's plaintext credential store can live under any XDG_CONFIG_HOME.
+    # Keep ordinary git/config readable rather than excluding the whole dir.
+    if parts[-2:] == ("git", "credentials"):
+        return True
+    if name in _SECRET_FILE_NAMES or name.endswith(_SECRET_SUFFIXES):
+        return True
     if name.endswith(_ENV_TEMPLATE_SUFFIXES):
         return False
     return name == ".env" or ".env." in name or name.endswith(".env")
+
+
+# Secret holders inside gptme's config dir: provider keys, ``[env]`` keys,
+# subscription OAuth tokens and MCP OAuth tokens (``gptme.mcp.oauth.TOKEN_DIRNAME``,
+# not imported because that module needs the optional ``mcp`` extra).
+_CONFIG_SECRET_FILES = frozenset(
+    {"credentials.toml", "config.toml", "config.local.toml"}
+)
+_CONFIG_SECRET_DIRS = frozenset({"auth", "oauth", "mcp-oauth"})
+
+
+def _is_config_secret_name(filename: str) -> bool:
+    """Known secret files and their backups, including editor tilde/swap files."""
+    filename = filename.lower().removeprefix(".")
+    return any(
+        filename in (name, name + "~") or filename.startswith(name + ".")
+        for name in _CONFIG_SECRET_FILES
+    )
+
+
+def _gptme_config_dirs() -> list[Path]:
+    """gptme's resolved config/credential directories, wherever XDG puts them.
+
+    Uses the credential writer's own path helper, so a relocated (or empty,
+    hence cwd-relative) ``XDG_CONFIG_HOME`` is covered: such a store has no
+    ``.config`` part for ``_is_secret_bearing_path`` to match.
+    """
+    dirs = []
+    for d in (get_config_dir(), get_credentials_dir()):
+        try:
+            dirs.append(d.resolve())
+        except (OSError, RuntimeError):
+            continue
+    return dirs
+
+
+def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
+    """Protect dedicated stores in full, and known secrets in cwd's source tree.
+
+    Empty XDG_CONFIG_HOME makes the credential writer use ``./gptme``. Do not
+    suppress that entire source tree, but include config backups and cloud auth
+    alongside provider/OAuth credentials. Compare components case-insensitively
+    (conservatively even on Linux), and protect secret symlinks' backing paths.
+    """
+
+    def parts(p: Path) -> tuple[str, ...]:
+        return tuple(part.lower() for part in p.parts)
+
+    def resolved_parts(p: Path) -> tuple[str, ...]:
+        try:
+            return parts(p.resolve())
+        except RuntimeError:
+            # Path.resolve raises RuntimeError for loops on Python < 3.13.
+            return ()
+        except OSError as e:
+            if e.errno == errno.ELOOP:
+                return ()
+            raise
+
+    path_parts = parts(path)
+    for d in config_dirs:
+        dir_parts = parts(d)
+        if path_parts[: len(dir_parts)] == dir_parts:
+            # Only consider the source-tree exception for a matching store.
+            # This is deliberately process-relative, like the credential writer,
+            # not relative to the conversation's workspace.
+            try:
+                source_parts = parts((Path.cwd() / "gptme").resolve())
+            except (OSError, RuntimeError):
+                # No safe source-tree exception: protect the store in full.
+                return True
+            if dir_parts != source_parts:
+                return True
+            relative = path_parts[len(dir_parts) :]
+            if relative and relative[0] in _CONFIG_SECRET_DIRS:
+                return True
+            if len(relative) == 1 and _is_config_secret_name(relative[0]):
+                return True
+
+        # A credential writer follows symlinks. Reject a direct suggestion of
+        # the target too, even if it lives outside the config directory.
+        try:
+            secret_paths = [d / name for name in _CONFIG_SECRET_FILES]
+            secret_paths.extend(
+                p for p in d.glob("*") if _is_config_secret_name(p.name)
+            )
+            if any(path_parts == resolved_parts(p) for p in secret_paths):
+                return True
+            for name in _CONFIG_SECRET_DIRS:
+                token_dir = d / name
+                # rglob does not follow directory symlinks. Check each entry's
+                # target too: individual OAuth files (and subdirectories) may
+                # link outside the store even when token_dir itself does not.
+                for entry in (token_dir, *token_dir.rglob("*")):
+                    target_parts = resolved_parts(entry)
+                    if target_parts and path_parts[: len(target_parts)] == target_parts:
+                        return True
+        except (OSError, RuntimeError):
+            # An unreadable or looping store cannot be classified safely.
+            return True
+    return False
 
 
 def _load_context_files(
@@ -198,6 +327,7 @@ def _load_context_files(
     """
     loaded_files: list[tuple[str, str]] = []
     workspace_path = (workspace or Path.cwd()).resolve()
+    config_dirs = _gptme_config_dirs()
 
     for file_path in file_paths:
         # Resolve path. Absolute and ~/ suggestions are allowed only when the
@@ -224,7 +354,12 @@ def _load_context_files(
             )
             continue
 
-        if _is_secret_bearing_path(candidate) or _is_secret_bearing_path(full_path):
+        if (
+            _is_secret_bearing_path(candidate)
+            or _is_secret_bearing_path(full_path)
+            or _is_config_secret(candidate, config_dirs)
+            or _is_config_secret(full_path, config_dirs)
+        ):
             logger.warning("Skipping credential-bearing context file: %s", file_path)
             continue
 
