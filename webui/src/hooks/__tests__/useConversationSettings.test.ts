@@ -1,5 +1,6 @@
 import { chatConfigToFormValues, formValuesToChatConfig } from '../useConversationSettings';
 import type { ChatConfig } from '@/types/api';
+import { formSchema } from '@/schemas/conversationSettings';
 
 const makeConfig = (overrides: Partial<ChatConfig['chat']> = {}): ChatConfig => ({
   chat: {
@@ -31,6 +32,87 @@ const makeConfig = (overrides: Partial<ChatConfig['chat']> = {}): ChatConfig => 
 });
 
 describe('conversation settings round trip', () => {
+  const makeRemoteConfig = (): ChatConfig => {
+    const config = makeConfig();
+    const remote = {
+      ...config.mcp.servers[0],
+      url: 'https://mcp.example.com/events',
+      headers: { Authorization: 'Bearer test-token' },
+      transport: 'sse',
+      extra_option: { timeout: 30 },
+    };
+    config.mcp.servers = [remote];
+    return config;
+  };
+
+  it('preserves all MCP server fields through validation on an unrelated save', () => {
+    const original = makeRemoteConfig();
+    const values = chatConfigToFormValues(original);
+    values.chat.name = 'renamed';
+
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.chat.name).toBe('renamed');
+    expect(config.mcp.servers).toEqual(original.mcp.servers);
+  });
+
+  it('round-trips a remote-only server without requiring a stdio command', () => {
+    const original = makeRemoteConfig();
+    original.mcp.servers[0].command = '';
+    const values = chatConfigToFormValues(original);
+
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.mcp.servers).toEqual(original.mcp.servers);
+  });
+
+  it.each(['', 'not-a-url', 'file:///tmp/server'])(
+    'still requires a command for a server without an HTTP URL (%s)',
+    (url) => {
+      const values = chatConfigToFormValues(makeConfig());
+      values.mcp.servers![0].command = '';
+      values.mcp.servers![0].url = url;
+
+      expect(formSchema.safeParse(values).success).toBe(false);
+    }
+  );
+
+  it('keeps remote metadata with its row through rename, reorder, and removal', () => {
+    const original = makeRemoteConfig();
+    original.mcp.servers.unshift(makeConfig().mcp.servers[0]);
+    original.mcp.servers.push({
+      ...makeConfig().mcp.servers[0],
+      name: 'removed',
+    });
+    const values = chatConfigToFormValues(original);
+    values.mcp.servers = [values.mcp.servers![1], values.mcp.servers![0]];
+    values.mcp.servers[0].name = 'remote-renamed';
+
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.mcp.servers).toEqual([
+      { ...original.mcp.servers[1], name: 'remote-renamed' },
+      original.mcp.servers[0],
+    ]);
+  });
+
+  it('applies edited stdio fields while retaining remote metadata', () => {
+    const original = makeRemoteConfig();
+    const values = chatConfigToFormValues(original);
+    values.mcp.servers![0].command = 'updated-command';
+    values.mcp.servers![0].args = '--new, value';
+    values.mcp.servers![0].env = [{ key: ' NEW ', value: 'kept' }];
+
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.mcp.servers[0]).toEqual({
+      ...original.mcp.servers[0],
+      command: 'updated-command',
+      args: ['--new', 'value'],
+      env: { NEW: 'kept' },
+    });
+  });
+
   it('preserves automatic (null) tool format in form values', () => {
     const values = chatConfigToFormValues(makeConfig());
     expect(values.chat.tool_format).toBeNull();

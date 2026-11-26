@@ -1,29 +1,36 @@
 import { z } from 'zod';
 import { ToolFormat } from '@/types/api';
 
-export const mcpServerSchema = z.object({
-  name: z.string().min(1, 'Server name cannot be empty'),
-  enabled: z.boolean(),
-  command: z.string().min(1, 'Command cannot be empty'),
-  args: z.string(),
-  // Display-only companion to `args`: the argv the row was loaded from, so an
-  // unchanged field can round-trip exactly. Never rendered or submitted.
-  originalArgs: z.array(z.string()).optional(),
-  // Retained by the global editor even though the shared form edits stdio fields only.
-  url: z.string().optional(),
-  headers: z.record(z.string(), z.string()).optional(),
+export const mcpServerSchema = z
+  .object({
+    name: z.string().min(1, 'Server name cannot be empty'),
+    enabled: z.boolean(),
+    command: z.string(),
+    args: z.string(),
+    // Display-only companion to `args`: the argv the row was loaded from, so an
+    // unchanged field can round-trip exactly. Never rendered or submitted.
+    originalArgs: z.array(z.string()).optional(),
+    // Preserve fields the shared stdio editor does not expose, including future ones.
+    originalServer: z.record(z.string(), z.unknown()).optional(),
+    // Retained by the global editor even though the shared form edits stdio fields only.
+    url: z.string().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
 
-  original_name: z.string().optional(),
-  rename_locked: z.boolean().optional(),
-  env: z
-    .array(
-      z.object({
-        key: z.string().min(1, 'Variable name cannot be empty'),
-        value: z.string(),
-      })
-    )
-    .optional(),
-});
+    original_name: z.string().optional(),
+    rename_locked: z.boolean().optional(),
+    env: z
+      .array(
+        z.object({
+          key: z.string().min(1, 'Variable name cannot be empty'),
+          value: z.string(),
+        })
+      )
+      .optional(),
+  })
+  .refine((server) => Boolean(server.command) || /^https?:\/\//.test(server.url ?? ''), {
+    path: ['command'],
+    message: 'Command cannot be empty',
+  });
 
 export const formSchema = z.object({
   chat: z.object({
