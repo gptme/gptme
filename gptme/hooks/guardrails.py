@@ -199,10 +199,12 @@ def _is_secret_spelling(expanded: str) -> bool:
         return True
 
     # .env and its environment variants (.env.production, .env.test.local, ...),
-    # but not .envrc or templates such as .env.example
-    if basename.endswith(_ENV_TEMPLATE_SUFFIXES):
-        return False
-    return basename == ".env" or basename.startswith(".env.")
+    # but not .envrc or templates such as .env.example and
+    # .env.production.example. The template exemption is scoped to this branch so
+    # it cannot mask a non-.env name that happens to end in a template suffix.
+    if basename == ".env" or basename.startswith(".env."):
+        return not basename.endswith(_ENV_TEMPLATE_SUFFIXES)
+    return False
 
 
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:

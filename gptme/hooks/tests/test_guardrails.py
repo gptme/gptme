@@ -104,7 +104,18 @@ class TestIsSecretPath:
         assert _is_secret_path(name)
 
     @pytest.mark.parametrize(
-        "name", [".env.example", ".env.sample", ".env.template", ".env.dist", ".envrc"]
+        "name",
+        [
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            ".env.dist",
+            ".envrc",
+            # Template suffixes apply to environment-specific templates too;
+            # these are checked in with placeholders, not credentials.
+            ".env.production.example",
+            ".env.local.template",
+        ],
     )
     def test_dot_env_templates_are_not_secret(self, name):
         assert not _is_secret_path(name)
