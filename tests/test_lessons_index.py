@@ -1167,8 +1167,15 @@ def test_thematic_break_body_reserves_first_root_slot(
     assert [lesson.title for lesson in index.lessons] == ["First Title"]
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "status: deprecated\nmatch:\n  keywords: [deploy]",
+        "defaults: &d {status: deprecated, match: {keywords: [deploy]}}\n<<: *d",
+    ],
+)
 def test_commented_inactive_metadata_still_suppresses_later_copy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metadata: str
 ):
     monkeypatch.setenv("GPTME_LESSON_CACHE", "0")
     clear_cache()
@@ -1176,8 +1183,7 @@ def test_commented_inactive_metadata_still_suppresses_later_copy(
     first.mkdir()
     second.mkdir()
     (first / "lesson.md").write_text(
-        "---\n\n# Settings\nstatus: deprecated\nmatch:\n  keywords: [deploy]\n"
-        "---\n# Actual Lesson\n"
+        f"---\n\n# Settings\n{metadata}\n---\n# Actual Lesson\n"
     )
     (second / "lesson.md").write_text(
         "---\nmatch:\n  keywords: [deploy]\n---\n# Later\n"

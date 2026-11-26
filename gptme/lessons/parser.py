@@ -403,6 +403,14 @@ def parse_lesson(path: Path) -> Lesson:
                 node = yaml.compose(
                     _fix_unquoted_globs(fence.group(1)), Loader=_YamlSafeLoader
                 )
+                if isinstance(node, yaml.MappingNode):
+                    # Inspect the same effective keys as the final YAML load,
+                    # including declarations inherited through merge aliases.
+                    loader = _YamlSafeLoader("")
+                    try:
+                        loader.flatten_mapping(node)
+                    finally:
+                        loader.dispose()
             except yaml.YAMLError:
                 pass  # Markdown code examples and prose need not be valid YAML.
             else:

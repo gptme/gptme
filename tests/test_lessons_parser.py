@@ -1082,6 +1082,9 @@ def test_commented_yaml_fence_keeps_metadata_after_blank_comment(
         "'status': deprecated",
         "  status: deprecated",
         "{status: deprecated}",
+        "defaults: &d {status: deprecated}\n<<: *d",
+        "defaults: &d {status: deprecated}\n<<: [*d]",
+        "defaults: &d {status: deprecated}\nother: &o {<<: *d}\n<<: *o",
     ],
 )
 def test_yaml_mapping_syntax_preserves_declared_metadata(tmp_path: Path, metadata: str):
