@@ -1764,6 +1764,24 @@ class TestOpenPageSessionReuse:
         ctx.close.assert_called_once_with()
         assert bp._current_context is None
 
+    def test_close_page_keeps_friendly_message_for_another_owner(self):
+        """A dropped tab must not turn close_page() into an ownership error."""
+        from gptme.tools import _browser_playwright as bp
+
+        ctx = MagicMock()
+        bp._current_page = None
+        bp._current_context = ctx
+        bp._session_owner = "conv-a"
+
+        with (
+            patch.object(bp, "_browser", None),
+            patch.object(bp, "_conversation_key", return_value="conv-b"),
+        ):
+            assert bp.close_page() == "No page is currently open."
+
+        ctx.close.assert_not_called()
+        assert bp._current_context is ctx
+
     def test_snapshot_failure_after_commit_timeout_names_the_committed_url(self):
         """A snapshot failure must not read like a failed navigation."""
         from gptme.tools import _browser_playwright as bp

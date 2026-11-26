@@ -864,9 +864,12 @@ def close_page() -> str:
     """Close the current interactive browsing page."""
     # A timed-out navigation drops the tab but keeps the session context, so
     # the context (not only the page) decides whether there is anything to close.
+    # Only its owner may treat it as open; another conversation keeps getting the
+    # friendly message instead of an ownership error from _do_close_page().
+    owned_context = _current_context if _session_belongs_to_caller() else None
     if (
         _current_page is None
-        and _current_context is None
+        and owned_context is None
         and not (
             _is_cdp_connection()
             and _browser is not None
