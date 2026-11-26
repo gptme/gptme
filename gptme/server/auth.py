@@ -259,14 +259,17 @@ def validate_cookie_origin():
     state-changing request authenticated only by the cookie must come from the
     server's own origin or a configured ``--cors-origin``.
 
-    Requests carrying an ``Authorization`` header are exempt (a forged browser
-    request cannot set one), as are requests with neither ``Origin`` nor
-    ``Referer`` (non-browser clients; browsers send ``Origin`` on every
+    Requests carrying a ``Bearer`` Authorization header are exempt (a forged
+    browser request cannot set one), as are requests with neither ``Origin``
+    nor ``Referer`` (non-browser clients; browsers send ``Origin`` on every
     ``POST``/``PUT``/``PATCH``/``DELETE`` issued by ``fetch`` or a form).
+    Other schemes are not exempt: browsers attach cached ``Basic`` credentials
+    (e.g. from a reverse proxy) to forged requests too, and such a request is
+    authenticated by the cookie (see ``require_auth``).
     """
     if not _auth_enabled or request.method in _SAFE_METHODS:
         return None
-    if request.headers.get("Authorization"):
+    if request.headers.get("Authorization", "").lower().startswith("bearer"):
         return None
     if not request.cookies.get(AUTH_COOKIE_NAME):
         return None
@@ -384,17 +387,21 @@ def require_auth(f):
         # 1. Check Authorization header (preferred method)
         auth_header = request.headers.get("Authorization")
         token = None
+        foreign_scheme: str | None = None
 
         if auth_header:
             try:
                 scheme, token = auth_header.split(" ", 1)
-                if scheme.lower() != "bearer":
-                    logger.warning(f"Invalid authentication scheme: {scheme}")
-                    return jsonify({"error": "Invalid authentication scheme"}), 401
             except ValueError:
                 logger.warning("Invalid Authorization header format")
                 return jsonify({"error": "Invalid authorization header format"}), 401
-            if not token:
+            if scheme.lower() != "bearer":
+                # Not ours: e.g. a basic-auth reverse proxy in front of the
+                # server, whose cached credentials browsers attach to
+                # EventSource requests. Fall through to the cookie/query token.
+                foreign_scheme = scheme
+                token = None
+            elif not token:
                 return jsonify({"error": "Missing bearer credentials"}), 401
 
         # 2. Check HttpOnly cookie (for SSE/EventSource connections)
@@ -412,6 +419,9 @@ def require_auth(f):
                 )
 
         if not token:
+            if foreign_scheme:
+                logger.warning(f"Invalid authentication scheme: {foreign_scheme}")
+                return jsonify({"error": "Invalid authentication scheme"}), 401
             logger.warning("Missing authentication credentials")
             return jsonify({"error": "Missing authentication credentials"}), 401
 
