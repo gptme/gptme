@@ -446,3 +446,34 @@ def test_render_pr_body_cli_rejected_gate(tmp_path: Path) -> None:
     assert result == 0
     # Not written to file means stdout was printed; just check the function returns
     assert not gate.eligible
+
+
+WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github/workflows/self-heal.yml"
+
+
+def _workflow_steps() -> list[dict[str, Any]]:
+    import yaml
+
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text())
+    return [step for job in workflow["jobs"].values() for step in job["steps"]]
+
+
+def test_workflow_run_steps_do_not_interpolate_branch_names() -> None:
+    # workflow_run.head_branch is the triggering branch name, which a PR author
+    # chooses; expression-interpolating it into a run script makes it code.
+    for step in _workflow_steps():
+        for expression in step.get("run", "").split("${{")[1:]:
+            expression = expression.split("}}", 1)[0]
+            assert "head_branch" not in expression, step["name"]
+            assert "headRefName" not in expression, step["name"]
+
+
+def test_workflow_checkouts_do_not_persist_credentials() -> None:
+    checkouts = [
+        step
+        for step in _workflow_steps()
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    assert checkouts
+    for step in checkouts:
+        assert step.get("with", {}).get("persist-credentials") is False, step["name"]

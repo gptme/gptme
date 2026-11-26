@@ -39,20 +39,24 @@ jobs:
         # No ref: defaults to base branch (master), not the fork's head SHA.
         # This prevents a malicious fork from exfiltrating secrets by modifying
         # scripts/github_ci_self_heal.py — we always run the trusted base copy.
+        with:
+          persist-credentials: false
 
       - name: Get PR number
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          # pull_requests[] is empty for fork PRs — look up by head SHA instead.
-          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          # pull_requests[] is empty for fork PRs — look up by head SHA and
+          # branch instead, so a second open PR at the same commit is not picked.
           # Collect all matching PR numbers first, then take the first.
           # Piping --paginate directly to head -1 triggers SIGPIPE and can abort
           # the step under pipefail before GITHUB_OUTPUT is written.
           PR_NUMBERS=$(gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
             --paginate \
-            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" \
+            --jq '.[] | select(.head.sha == env.HEAD_SHA and .head.ref == env.HEAD_BRANCH) | .number' \
             2>/dev/null || true)
           PR_NUMBER=$(echo "${PR_NUMBERS}" | head -1)
           if [ -z "$PR_NUMBER" ]; then
@@ -277,6 +281,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           path: base
+          # PR-head code runs validation commands in this job; keep the
+          # contents:write token out of .git/config on disk.
+          persist-credentials: false
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -359,6 +366,13 @@ jobs:
           HEAD_REF: ${{ needs.analyze.outputs.head_sha }}
         run: |
           set -eo pipefail
+          # Target the source PR's branch as reported by the API metadata the
+          # gate evaluated, never a workflow_run event field, and pass it as data.
+          BASE_BRANCH=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['headRefName'])" /tmp/artifacts/pr-metadata.json)
+          if [ -z "$BASE_BRANCH" ]; then
+            echo "No headRefName in PR metadata — aborting"
+            exit 1
+          fi
           cd pr-head
           FIX_BRANCH="self-heal/pr-${PR_NUMBER}-run-${{ github.run_id }}"
           git config user.name "gptme-bot"
@@ -393,7 +407,7 @@ jobs:
 
           gh pr create \
             --repo ${{ github.repository }} \
-            --base "${{ github.event.workflow_run.head_branch }}" \
+            --base "$BASE_BRANCH" \
             --head "$FIX_BRANCH" \
             --draft \
             --title "fix: auto-fix for PR #${PR_NUMBER}" \
