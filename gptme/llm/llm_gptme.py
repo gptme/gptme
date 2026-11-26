@@ -151,7 +151,9 @@ def _load_token(service_url: str | None = None) -> dict | None:
 
     try:
         data = json.loads(token_path.read_bytes())
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, RecursionError) as e:
+        # RecursionError: a deeply nested JSON document. Treat it like any other
+        # unreadable token so callers can fall back to GPTME_CLOUD_API_KEY.
         logger.warning(f"Failed to read gptme token: {e}")
         return None
 

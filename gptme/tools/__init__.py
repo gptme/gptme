@@ -20,6 +20,7 @@ from ._allowlist import (
     expand_tool_allowlist_presets,
     is_hint_pattern,
     is_mcp_allowlist_entry,
+    is_tool_file_path,
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
@@ -486,7 +487,7 @@ def init_tools(
         file_paths: list[str] = []
         tool_names: list[str] = []
         for item in allowlist or []:
-            if item.endswith(".py") or "/" in item or "\\" in item:
+            if is_tool_file_path(item):
                 file_paths.append(item)
             else:
                 tool_names.append(item)

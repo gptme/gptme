@@ -329,15 +329,25 @@ def _read_one(
             )
             return
 
-    if not path.exists():
+    try:
+        exists = path.exists()
+        is_dir = exists and path.is_dir()
+        is_file = exists and not is_dir and path.is_file()
+    except (OSError, ValueError) as exc:
+        # e.g. ENAMETOOLONG for an over-long path component: report it for this
+        # path only, so later paths in a batch are still read.
+        yield Message("system", f"Cannot access path {path_display}: {exc}")
+        return
+
+    if not exists:
         yield Message("system", f"File not found: {path}")
         return
 
-    if path.is_dir():
+    if is_dir:
         yield from _list_directory(path)
         return
 
-    if not path.is_file():
+    if not is_file:
         yield Message("system", f"Not a file: {path}")
         return
 

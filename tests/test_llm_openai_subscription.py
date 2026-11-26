@@ -984,14 +984,14 @@ def test_transform_clamps_instructions_to_codex_char_cap(caplog):
             [], "gpt-5.6-sol", instructions=over
         )
     assert len(body["instructions"]) == cap
-    # Remove only the overflow from the largest context message. The smaller
-    # system prompt and workspace/lesson instructions survive byte-for-byte.
-    assert body["instructions"].split("\n\n") == [
-        head,
-        large_context[: -(len(over) - cap)],
-        workspace,
-        lesson,
-    ]
+    # Cut only the middle of the largest context message. The smaller system
+    # prompt and workspace/lesson instructions survive byte-for-byte.
+    marker = llm_openai_subscription.CODEX_INSTRUCTIONS_TRUNCATION_MARKER
+    keep = len(large_context) - (len(over) - cap) - len(marker)
+    clamped_context = "x" * (keep // 2) + marker + "x" * (keep - keep // 2)
+    assert body["instructions"] == (
+        f"{head}\n\n{clamped_context}\n\n{workspace}\n\n{lesson}"
+    )
     assert "removed" in caplog.text
 
 
@@ -1046,8 +1046,10 @@ def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
 
     request_json = mock_post.call_args.kwargs["json"]
     assert len(request_json["instructions"]) == cap
-    assert request_json["instructions"].startswith(first)
-    assert request_json["instructions"].split("\n\n")[1] == second[:-overflow]
+    assert request_json["instructions"].startswith(f"{first}\n\nB")
+    assert request_json["instructions"].endswith("B")
+    # The shared converter clamps first, so its marker is the one in the request.
+    assert "truncated to fit the Responses API" in request_json["instructions"]
 
 
 def test_stream_reuses_connection_across_completed_calls():

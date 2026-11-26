@@ -683,7 +683,11 @@ class Subagent:
             "cache_creation_tokens": None,
         }
         try:
-            conv_fn = self.logdir / "conversation.jsonl"
+            # Manual compaction rewrites conversation.jsonl, but keeps every
+            # original record (and subsequent replies) in lossless.jsonl.
+            conv_fn = self.logdir / "lossless.jsonl"
+            if not conv_fn.exists():
+                conv_fn = self.logdir / "conversation.jsonl"
             if not conv_fn.exists():
                 # Some log layouts use the directory name as the file
                 candidates = list(self.logdir.glob("*.jsonl"))
@@ -697,10 +701,19 @@ class Subagent:
             cache_creation_total = 0
             saw_usage = False
             saw_cache = False
+            # A fork-mode log starts with fork_message_count messages copied
+            # from the parent (one JSONL record each). Their usage was the
+            # parent's, so skip them as _read_log does.
+            skip = self.fork_message_count
             with open(conv_fn, "rb") as f:
                 for line in f:
                     line = line.strip()
-                    if not line or b'"metadata"' not in line:
+                    if not line:
+                        continue
+                    if skip > 0:
+                        skip -= 1
+                        continue
+                    if b'"metadata"' not in line:
                         continue
                     try:
                         msg = json.loads(line)

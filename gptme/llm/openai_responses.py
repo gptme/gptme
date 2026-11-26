@@ -24,6 +24,51 @@ logger = logging.getLogger(__name__)
 
 # Responses API rejects `instructions` longer than 1,048,576 characters.
 _RESPONSES_INSTRUCTIONS_MAX_CHARS = 1_048_576
+_RESPONSES_INSTRUCTIONS_TRUNCATION_MARKER = "\n\n[... middle of instructions truncated to fit the Responses API character cap ...]\n\n"
+
+
+def clamp_responses_instructions(
+    text: str | list[str],
+    limit: int = _RESPONSES_INSTRUCTIONS_MAX_CHARS,
+    marker: str = _RESPONSES_INSTRUCTIONS_TRUNCATION_MARKER,
+) -> str:
+    """Keep Responses `instructions` within the API character cap.
+
+    Pass separate system messages to preserve their boundaries. A pre-joined
+    string uses paragraphs as a best-effort fallback for direct callers.
+    When possible, cut only the middle of the largest message; this preserves
+    every smaller instruction and avoids sacrificing roughly half the prompt for
+    a small overflow. The largest message keeps both ends because
+    `prepare_messages` merges adjacent system messages, so trailing guidance may
+    sit at its tail. If no single message can absorb the excess, fall back to
+    retaining both ends of the joined text.
+    """
+    parts = list(text) if isinstance(text, list) else text.split("\n\n")
+    text = "\n\n".join(parts)
+    if len(text) <= limit:
+        return text
+
+    overflow = len(text) - limit
+    largest_index = max(range(len(parts)), key=lambda index: len(parts[index]))
+    largest = parts[largest_index]
+    keep = len(largest) - overflow - len(marker)
+    if keep > 0:
+        head_len = keep // 2
+        tail_start = len(largest) - (keep - head_len)
+        parts[largest_index] = largest[:head_len] + marker + largest[tail_start:]
+        clamped = "\n\n".join(parts)
+    else:
+        head_len = (limit - len(marker)) // 2
+        tail_len = limit - len(marker) - head_len
+        clamped = text[:head_len] + marker + text[-tail_len:]
+
+    logger.warning(
+        "Responses instructions exceeded %d chars (%d); removed %d chars to fit the API cap",
+        limit,
+        len(text),
+        overflow,
+    )
+    return clamped
 
 
 class ResponsesStreamError(httpx.RemoteProtocolError):
@@ -354,13 +399,9 @@ def _messages_dicts_to_responses_input(
             }
         )
 
-    instructions = "\n\n".join(instructions_parts).strip() or None
-    if instructions and len(instructions) > _RESPONSES_INSTRUCTIONS_MAX_CHARS:
-        logger.warning(
-            "Truncating instructions to %d chars (Responses API cap)",
-            _RESPONSES_INSTRUCTIONS_MAX_CHARS,
-        )
-        instructions = instructions[:_RESPONSES_INSTRUCTIONS_MAX_CHARS]
+    instructions = (
+        clamp_responses_instructions(instructions_parts) if instructions_parts else None
+    )
     return instructions, _pair_missing_tool_results(items)
 
 
@@ -431,13 +472,9 @@ def _messages_to_responses_input(
             }
         )
 
-    instructions = "\n\n".join(instructions_parts).strip() or None
-    if instructions and len(instructions) > _RESPONSES_INSTRUCTIONS_MAX_CHARS:
-        logger.warning(
-            "Truncating instructions to %d chars (Responses API cap)",
-            _RESPONSES_INSTRUCTIONS_MAX_CHARS,
-        )
-        instructions = instructions[:_RESPONSES_INSTRUCTIONS_MAX_CHARS]
+    instructions = (
+        clamp_responses_instructions(instructions_parts) if instructions_parts else None
+    )
     return instructions, _pair_missing_tool_results(items)
 
 

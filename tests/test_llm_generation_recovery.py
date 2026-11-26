@@ -204,7 +204,7 @@ def test_nonstreaming_transport_retry_and_active_budget(monkeypatch):
     assert budgets[0] is budgets[1] and budgets[0].attempts == 2
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 408, 429, 500, 503])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 408, 409, 429, 500, 503])
 @pytest.mark.parametrize("sdk", ["openai", "anthropic"])
 def test_sdk_status_classification(status, sdk):
     import importlib
@@ -217,7 +217,7 @@ def test_sdk_status_classification(status, sdk):
     error = module.APIStatusError("fixture", response=response, body=None)
     llm.mark_llm_reply_origin(error)
     assert recovery.is_transient_provider_error(error) == (
-        status in (408, 429) or status >= 500
+        status in (408, 409, 429) or status >= 500
     )
 
 

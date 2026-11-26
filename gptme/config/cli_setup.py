@@ -15,6 +15,7 @@ from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
 )
+from ..tools._allowlist import is_tool_file_path as _is_tool_file_path
 from .chat import ChatConfig
 from .core import (
     Config,
@@ -43,16 +44,6 @@ def _get_model_default_tool_format(model: str | None) -> str | None:
         return meta.default_tool_format
     except (ImportError, KeyError, ValueError, AttributeError):
         return None
-
-
-def _is_tool_file_path(value: str) -> bool:
-    return (
-        value.endswith(".py")
-        or value.startswith(("/", "./", "../", "~"))
-        or (
-            len(value) > 2 and value[1] == ":" and value[2] in "/\\"  # Windows C:\...
-        )
-    )
 
 
 def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
