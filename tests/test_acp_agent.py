@@ -260,6 +260,39 @@ class TestUpdateToolCall:
         )
         assert not agent._tool_calls["session_1"]
 
+    def test_late_terminal_send_keeps_replacement_session_call(self):
+        """An old send finishing after the drain bound must not edit a new session."""
+        agent = _make_agent_with_tool()
+
+        async def scenario():
+            sending = asyncio.Event()
+            release = asyncio.Event()
+
+            async def update(**kwargs):
+                sending.set()
+                await release.wait()
+
+            agent._conn.session_update.side_effect = update
+            task = asyncio.create_task(
+                agent._update_tool_call(
+                    "session_1", "call_existing", ToolCallStatus.COMPLETED
+                )
+            )
+            await sending.wait()
+            replacement = ToolCall(
+                tool_call_id="call_existing",
+                title="Replacement session call",
+                kind=ToolKind.EXECUTE,
+                status=ToolCallStatus.IN_PROGRESS,
+            )
+            agent._tool_calls["session_1"] = {"call_existing": replacement}
+            release.set()
+            await task
+            assert agent._tool_calls["session_1"]["call_existing"] is replacement
+            assert replacement.status == ToolCallStatus.IN_PROGRESS
+
+        _run(scenario())
+
     def test_update_no_connection(self):
         agent = GptmeAgent()
         # Should not raise

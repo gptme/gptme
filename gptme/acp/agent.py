@@ -470,13 +470,14 @@ class GptmeAgent:
         if not self._conn:
             return
 
-        # Update stored tool call
-        if session_id in self._tool_calls:
-            if tool_call_id in self._tool_calls[session_id]:
-                tc = self._tool_calls[session_id][tool_call_id]
-                tc.status = status
-                if content:
-                    tc.content = content
+        # Capture the owning session map before awaiting transport. A cancelled
+        # send can finish after a replacement session has reused this id.
+        calls = self._tool_calls.get(session_id, {})
+        tc = calls.get(tool_call_id)
+        if tc is not None:
+            tc.status = status
+            if content:
+                tc.content = content
 
         update: dict[str, Any] = {
             "sessionUpdate": "tool_call_update",
@@ -494,7 +495,8 @@ class GptmeAgent:
         # Terminal entries are retained until delivery succeeds. A failed send
         # leaves the intended outcome available for the end-of-turn retry.
         if status in (ToolCallStatus.COMPLETED, ToolCallStatus.FAILED):
-            self._tool_calls.get(session_id, {}).pop(tool_call_id, None)
+            if tc is not None and calls.get(tool_call_id) is tc:
+                calls.pop(tool_call_id)
 
     async def _request_tool_permission(
         self,
