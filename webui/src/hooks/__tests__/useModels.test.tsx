@@ -430,3 +430,43 @@ it('reports a confirmed default save even if the initial catalog read fails', as
   await waitFor(() => expect(composer.result.current.defaultModel).toBe('new/model'));
   consoleError.mockRestore();
 });
+
+it('keeps queued favorite toggles bound to the account that requested them', async () => {
+  const { wrapper } = setup();
+  const composer = renderHook(() => useModels(), { wrapper });
+  await waitFor(() => expect(composer.result.current.defaultModel).toBe('initial/model'));
+  let finishFirst!: (value: unknown) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finishFirst = resolve;
+    })
+  );
+  let first!: Promise<boolean>;
+  let second!: Promise<boolean>;
+  act(() => {
+    first = composer.result.current.toggleFavorite('model/A');
+  });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  act(() => {
+    second = composer.result.current.toggleFavorite('model/B');
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  mockApi.authHeader = 'Bearer other-user';
+  composer.rerender();
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+  await act(async () => {
+    finishFirst({ ok: true, json: async () => ({ favorites: ['model/A'] }) });
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+  });
+  expect(mockFetch).toHaveBeenLastCalledWith(
+    'http://models.test/api/v2/user/favorites',
+    expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'Bearer test' }),
+      body: JSON.stringify({ favorites: ['model/A', 'model/B'] }),
+    })
+  );
+  expect(composer.result.current.favorites).toEqual([]);
+});

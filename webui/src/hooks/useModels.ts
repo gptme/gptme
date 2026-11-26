@@ -34,6 +34,7 @@ const EMPTY_IDS: string[] = [];
 
 export function useModels() {
   const { api, isConnected$ } = useApi();
+  const { baseUrl, authHeader } = api;
   const isConnected = use$(isConnected$);
   // Setup can restart the same server without changing its URL, token or
   // connected flag. Refresh the catalog/default alongside provider status.
@@ -42,10 +43,7 @@ export function useModels() {
   // All mounted pickers share one catalog, scoped to the server and credentials.
   // Read mutations from this cache too: a second consumer may save before React
   // has rendered the first consumer's optimistic update.
-  const queryKey = useMemo(
-    () => ['models', api.baseUrl, api.authHeader] as const,
-    [api.baseUrl, api.authHeader]
-  );
+  const queryKey = useMemo(() => ['models', baseUrl, authHeader] as const, [baseUrl, authHeader]);
   const enabled = isConnected && !isDemoMode();
   const previousProviderStatusVersion = useRef(providerStatusVersion);
   useEffect(() => {
@@ -62,15 +60,15 @@ export function useModels() {
 
   const authedHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (api.authHeader) headers.Authorization = api.authHeader;
+    if (authHeader) headers.Authorization = authHeader;
     return headers;
-  }, [api.authHeader]);
+  }, [authHeader]);
 
   const { data, isLoading, error, refetch } = useQuery<ModelsResponse>({
     queryKey,
     enabled,
     queryFn: async ({ signal }) => {
-      const response = await fetch(`${api.baseUrl}/api/v2/models`, {
+      const response = await fetch(`${baseUrl}/api/v2/models`, {
         headers: authedHeaders(),
         signal,
       });
@@ -100,6 +98,9 @@ export function useModels() {
 
   // Persist the favorites list. Optimistically updates shared state and reverts on failure.
   const favoritesMutation = useMutation({
+    // Detach queued writes on an account/server switch so React Query cannot
+    // replace their mutation function with the new owner's credentials/cache.
+    mutationKey: [...queryKey, 'favorites'],
     // Serialize writes from every consumer so rapid toggles cannot send competing
     // replacement lists or roll back a newer successful save.
     scope: { id: JSON.stringify(queryKey) },
@@ -126,7 +127,7 @@ export function useModels() {
       };
       applyFavorites(next);
       try {
-        const response = await fetch(`${api.baseUrl}/api/v2/user/favorites`, {
+        const response = await fetch(`${baseUrl}/api/v2/user/favorites`, {
           method: 'POST',
           headers: authedHeaders(),
           body: JSON.stringify({ favorites: next }),
@@ -158,7 +159,7 @@ export function useModels() {
     modelId: string
   ): Promise<{ ok: boolean; restartRequired: boolean }> => {
     try {
-      const response = await fetch(`${api.baseUrl}/api/v2/user/default-model`, {
+      const response = await fetch(`${baseUrl}/api/v2/user/default-model`, {
         method: 'POST',
         headers: authedHeaders(),
         body: JSON.stringify({ model: modelId }),
