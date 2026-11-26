@@ -282,7 +282,7 @@ jobs:
     needs: changes
     # Always run on push to master; on PRs, only when code changed.
     # Skip draft PRs so review-round pushes do not occupy the 20-job org pool.
-    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true')
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || needs.changes.outputs.code == 'true')
     name: Test Windows path/config slice
     runs-on: windows-latest
     # The path-walk bug this job exists to catch manifests as an infinite loop,

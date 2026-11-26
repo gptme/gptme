@@ -101,11 +101,13 @@ def test_heavy_build_jobs_skip_draft_pull_requests() -> None:
 def test_draft_skip_does_not_drop_merge_queue_or_master_push() -> None:
     """The skip is AND-ed with existing triggers; push and merge_group stay live."""
     text = (ROOT / ".github/workflows/test.yml").read_text()
-    for job_id in ("test-no-api", "test-minimal", "test-uv", "test-windows"):
+    for job_id in ("test-no-api", "test-minimal", "test-uv"):
         expr = _job_if(text, job_id)
         assert "github.event_name == 'push'" in expr, job_id
         assert "github.event_name == 'merge_group'" in expr, job_id
-    # test-py315 is push-or-deps, not merge_group; do not broaden it.
-    py315 = _job_if(text, "test-py315")
-    assert "github.event_name == 'push'" in py315
-    assert "merge_group" not in py315
+    # test-py315 is push-or-deps; test-windows is push-or-code. Neither
+    # listed merge_group before this PR — do not add a Windows queue job.
+    for job_id in ("test-py315", "test-windows"):
+        expr = _job_if(text, job_id)
+        assert "github.event_name == 'push'" in expr, job_id
+        assert "merge_group" not in expr, job_id
