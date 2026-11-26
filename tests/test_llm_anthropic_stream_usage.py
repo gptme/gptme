@@ -322,9 +322,11 @@ def _stream_truncated(monkeypatch, blocks, stop_reason):
     ("cut_json", "second_call_ran"),
     [
         # The block stops even at the cut, so completeness comes from the
-        # arguments: a no-argument call and a closed object are complete, a
-        # fragment mid-string is not.
-        ("", True),
+        # arguments: a closed object is complete, a fragment mid-string is not,
+        # and an empty fragment set is ambiguous — it is both the no-argument
+        # call and what a cap landing right after the block start leaves — so
+        # it is withheld rather than run with empty kwargs.
+        ("", False),
         ("{}", True),
         ('{"path": "big.txt", "content": "ab', False),
     ],

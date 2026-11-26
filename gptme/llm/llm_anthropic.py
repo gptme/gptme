@@ -1364,8 +1364,15 @@ def _stream_with_client(
                         # mid-arguments, so the stop alone does not prove the
                         # call finished. Only a parseable argument object does;
                         # otherwise keep it marked as the possibly-cut call.
-                        if last_tool_call is not None and _is_complete_tool_json(
-                            "".join(tool_json_parts)
+                        # An empty fragment set is deliberately left marked:
+                        # it is the no-argument call, but it is also what a cap
+                        # landing right after ``content_block_start`` leaves, so
+                        # only the truncation branch can decide, and it withholds
+                        # a call it cannot prove finished.
+                        if (
+                            tool_json_parts
+                            and last_tool_call is not None
+                            and _is_complete_tool_json("".join(tool_json_parts))
                         ):
                             last_tool_call = None
                     elif isinstance(stop_block, anthropic.types.ThinkingBlock):
