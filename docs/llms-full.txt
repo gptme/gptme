@@ -7601,7 +7601,8 @@ system prompt are not.
 /export
 ^^^^^^^
 
-Export the conversation as an HTML file.
+Export the conversation as an HTML file from the terminal client. This command
+is not available in server mode; use the Web UI's conversation export instead.
 
 .. code-block:: text
 
