@@ -1232,6 +1232,7 @@ def test_write_results_includes_token_columns(tmp_path):
     [
         ("success", True, "success"),
         ("success", False, "error"),
+        ("success", None, "error"),
         ("error", None, "error"),
         ("timeout", None, "error"),
     ],
@@ -1266,7 +1267,19 @@ def test_eval_csv_round_trip_preserves_status(
     )
     write_results({config: [result]})
     csv_path = next(tmp_path.glob("*/eval_results.csv"))
-    assert read_results_from_csv(str(csv_path))[config][0].status == status
+    restored = read_results_from_csv(str(csv_path))[config][0]
+    assert restored.status == status
+    assert restored.to_dict()["passed"] == bool(case_passed)
+    if cases:
+        assert restored.results == cases
+
+    # A standalone CSV must preserve checker failure without its cases.csv.
+    standalone = tmp_path / "standalone.csv"
+    standalone.write_bytes(csv_path.read_bytes())
+    restored = read_results_from_csv(str(standalone))[config][0]
+    assert restored.status == status
+    assert all(case.passed for case in restored.results) == bool(case_passed)
+    assert restored.to_dict()["passed"] == bool(case_passed)
 
     # Simulate a file written before the Status column existed.
     with csv_path.open(newline="") as f:

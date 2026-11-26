@@ -966,10 +966,21 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
             status: Status = "success" if row["Passed"] == "true" else "error"
             if csv_status in get_args(Status):
                 status = cast(Status, csv_status)
+            cases_file = test_dir / "cases.csv"
+            cases = list(_read_case_results(cases_file))
+            if not cases_file.exists():
+                # A copied CSV retains the aggregate outcome, not checker details.
+                cases = [
+                    CaseResult(
+                        name="CSV aggregate",
+                        passed=row["Passed"] == "true",
+                        duration=0.0,
+                    )
+                ]
             result = EvalResult(
                 name=row["Test"],
                 status=status,
-                results=list(_read_case_results(test_dir / "cases.csv")),
+                results=cases,
                 timings={
                     "gen": float(row["Generation Time"]),
                     "run": float(row["Run Time"]),
