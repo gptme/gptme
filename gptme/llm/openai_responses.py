@@ -555,10 +555,15 @@ def _completed_output_chunks(response_obj: Any) -> Generator[str, None, None]:
         item_type = _obj_get(item, "type")
         if item_type == "message":
             for part in _obj_get(item, "content", None) or []:
-                if _obj_get(part, "type") == "output_text":
+                part_type = _obj_get(part, "type")
+                if part_type == "output_text":
                     text = _obj_get(part, "text", "")
-                    if text:
-                        yield text
+                elif part_type == "refusal":
+                    text = _obj_get(part, "refusal", "")
+                else:
+                    continue
+                if text:
+                    yield text
         elif item_type == "function_call":
             name = _obj_get(item, "name", "")
             call_id = _obj_get(item, "call_id", "") or _obj_get(item, "id", "")
@@ -736,6 +741,24 @@ def _stream_responses_event_chunks(
 
                 if text:
                     yield text
+
+        elif event_type == "response.refusal.delta":
+            # A refusal replaces the message text; render it like chat() does
+            # instead of ending the turn with an empty reply.
+            if in_reasoning_block:
+                yield "\n</think>\n"
+                in_reasoning_block = False
+            delta = _obj_get(event, "delta", "")
+            if delta:
+                # Flush text held back as a possible partial tag before the
+                # refusal, or it would be emitted after the refusal at the end
+                # of the stream and garble the ordering.
+                if pending and not in_duplicate_thinking_block:
+                    yield pending.replace("<thinking>", " thinking").replace(
+                        "</thinking>", "</think>"
+                    )
+                pending = ""
+                yield delta
 
         elif event_type in ("response.output_item.added", "response.output_item.done"):
             if in_reasoning_block:
