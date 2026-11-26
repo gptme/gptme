@@ -70,6 +70,86 @@ export function retargetPresetLocalToBundledOrigin(
   preset.baseUrl = origin;
 }
 
+/** Discover the serving API, not a hostname heuristic. Never follow redirects
+ * or attach a token belonging to one of the configured servers. */
+export async function probeSameOriginServer(
+  pageOrigin: string = window.location.origin,
+  fetcher: typeof fetch = fetch
+): Promise<string | null> {
+  let origin: string;
+  try {
+    const parsed = new URL(pageOrigin);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    origin = parsed.origin;
+  } catch {
+    return null;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetcher(`${origin}/api/v2`, {
+      signal: controller.signal,
+      credentials: 'same-origin',
+      redirect: 'error',
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    return data !== null &&
+      typeof data === 'object' &&
+      'api_version' in data &&
+      data.api_version === 2 &&
+      'message' in data &&
+      data.message === 'gptme v2 API'
+      ? origin
+      : null;
+  } catch {
+    // Static hosts may serve index.html here; offline hosts and non-APIs keep
+    // the existing registry and setup flow.
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Replace the stock preset, preserving explicit selections and origin-bound auth. */
+export function adoptSameOriginServer(registry: ServerRegistry, origin: string): void {
+  const preset = registry.servers.find((s) => s.isPreset);
+  const existing = registry.servers.find((s) => normalizeUrl(s.baseUrl) === normalizeUrl(origin));
+  const target = existing ?? preset;
+  if (!target) return;
+  const wasDefault = registry.activeServerId === preset?.id;
+  if (normalizeUrl(target.baseUrl) !== normalizeUrl(origin)) {
+    target.authToken = null;
+    target.useAuthToken = false;
+    target.sseToken = null;
+  }
+  target.baseUrl = origin;
+  target.name = new URL(origin).host;
+  target.isPreset = true;
+  if (preset && preset.id !== target.id) {
+    registry.servers = registry.servers.filter((s) => s.id !== preset.id);
+    registry.connectedServerIds = registry.connectedServerIds.filter((id) => id !== preset.id);
+  }
+  if (wasDefault) registry.activeServerId = target.id;
+  if (!registry.connectedServerIds.includes(target.id)) registry.connectedServerIds.push(target.id);
+}
+
+export const sameOriginServer$ = observable<string | null>(null);
+let sameOriginDiscovery: Promise<void> | undefined;
+
+/** Startup barrier: resolve the default before any clients or wizard mount. */
+export function initializeSameOriginServer(): Promise<void> {
+  return (sameOriginDiscovery ??= (async () => {
+    const origin = await probeSameOriginServer();
+    if (!origin) return;
+    const registry = structuredClone(serverRegistry$.peek());
+    adoptSameOriginServer(registry, origin);
+    serverRegistry$.set(registry);
+    sameOriginServer$.set(origin);
+  })());
+}
+
 /** Apply post-parse schema normalization to a registry read from storage.
  *  Mutates and returns the object. The caller should fall back to
  *  migrateFromLegacy() if the returned registry has no servers. */

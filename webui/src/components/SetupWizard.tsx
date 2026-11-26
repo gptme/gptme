@@ -26,7 +26,7 @@ import { isLocalApiBaseUrl } from '@/utils/openConversationPath';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { isCloudApiBaseUrl, isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
-import { getActiveServer } from '@/stores/servers';
+import { getActiveServer, sameOriginServer$ } from '@/stores/servers';
 import {
   bumpProviderStatusVersion,
   setupWizard$,
@@ -129,7 +129,18 @@ export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
   const { api, isConnected$, isExchangingAuthCode, connect, connectionConfig } = useApi();
   const isConnected = use$(isConnected$);
+  const sameOrigin = use$(sameOriginServer$);
+  const isSameOriginServer = sameOrigin !== null && connectionConfig.baseUrl === sameOrigin;
+  const connectionResult = use$(api.lastConnectionResult$);
+  const [tokenPromptDismissed, setTokenPromptDismissed] = useState(false);
   const demoMode = isDemoMode();
+  const needsServerToken =
+    !demoMode &&
+    isSameOriginServer &&
+    !isConnected &&
+    connectionResult?.ok === false &&
+    connectionResult.status === 401 &&
+    !tokenPromptDismissed;
   // Native auth callbacks reload the webview, losing the in-memory Cloud step.
   // ApiProvider detects the callback before rendering us; resume that step and
   // let the existing cloud connection checks decide when setup is complete.
@@ -142,7 +153,7 @@ export function SetupWizard() {
   // state atoms in the same event handler; a derived signal would close the dialog before the
   // 'complete' step could render.
   const [isOpen, setIsOpen] = useState(
-    !demoMode && !settings.hasCompletedSetup && !isHostedPageOrigin()
+    !demoMode && !settings.hasCompletedSetup && !isHostedPageOrigin() && !isSameOriginServer
   );
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -812,21 +823,83 @@ export function SetupWizard() {
     }
   };
 
+  const handleSameOriginToken = async () => {
+    const token = remoteAuthToken.trim();
+    if (!token || isConnecting) return;
+    setIsConnecting(true);
+    setConnectError(null);
+    try {
+      await connect({ baseUrl: sameOrigin!, authToken: token, useAuthToken: true }, undefined, {
+        suppressErrorToast: true,
+      });
+      setRemoteAuthToken('');
+      setTokenPromptDismissed(true);
+    } catch (error) {
+      setConnectError(formatUnknownError(error, 'Could not connect to this server.'));
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   return (
     <Dialog
-      open={isOpen}
+      open={isOpen || needsServerToken}
       onOpenChange={(open) => {
         if (!open) {
-          closeWizard();
+          if (needsServerToken) setTokenPromptDismissed(true);
+          else closeWizard();
         }
       }}
     >
       <DialogContent
         className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-md"
         onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={closeWizard}
+        onEscapeKeyDown={() => {
+          if (needsServerToken) setTokenPromptDismissed(true);
+          else closeWizard();
+        }}
       >
-        {step === 'welcome' && (
+        {needsServerToken ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Connect to {new URL(sameOrigin!).host}</DialogTitle>
+              <DialogDescription>
+                This server requires a token. Run <code>gptme-server token</code> on the server and
+                paste the token below.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSameOriginToken();
+              }}
+              className="flex flex-col gap-4"
+            >
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="same-origin-token">Server token</Label>
+                <Input
+                  id="same-origin-token"
+                  type="password"
+                  autoComplete="off"
+                  autoFocus
+                  value={remoteAuthToken}
+                  onChange={(event) => setRemoteAuthToken(event.target.value)}
+                />
+              </div>
+              {connectError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {connectError}
+                </p>
+              )}
+              <DialogFooter>
+                <Button type="submit" disabled={isConnecting || !remoteAuthToken.trim()}>
+                  {isConnecting ? 'Connecting...' : 'Connect'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </>
+        ) : null}
+        {!needsServerToken && step === 'welcome' && (
           <>
             <DialogHeader>
               <DialogTitle className="text-center text-2xl">Welcome to gptme</DialogTitle>
@@ -860,7 +933,7 @@ export function SetupWizard() {
           </>
         )}
 
-        {step === 'mode' && (
+        {!needsServerToken && step === 'mode' && (
           <>
             <DialogHeader>
               <DialogTitle>Choose your setup</DialogTitle>
@@ -914,7 +987,7 @@ export function SetupWizard() {
           </>
         )}
 
-        {step === 'local' && (
+        {!needsServerToken && step === 'local' && (
           <>
             <DialogHeader>
               <DialogTitle>{isRemoteOnlyTauri ? 'Remote server setup' : 'Local setup'}</DialogTitle>
@@ -1071,7 +1144,7 @@ export function SetupWizard() {
           </>
         )}
 
-        {step === 'cloud' && (
+        {!needsServerToken && step === 'cloud' && (
           <>
             <DialogHeader>
               <DialogTitle>Cloud setup</DialogTitle>
@@ -1122,7 +1195,7 @@ export function SetupWizard() {
           </>
         )}
 
-        {step === 'provider' && (
+        {!needsServerToken && step === 'provider' && (
           <>
             <DialogHeader data-testid="setup-wizard-provider">
               <DialogTitle>Configure a provider</DialogTitle>
@@ -1363,7 +1436,7 @@ export function SetupWizard() {
           </>
         )}
 
-        {step === 'complete' && (
+        {!needsServerToken && step === 'complete' && (
           <>
             <DialogHeader>
               <DialogTitle className="text-center">You&apos;re all set!</DialogTitle>

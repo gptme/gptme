@@ -2,11 +2,132 @@ import { describe, it, expect } from '@jest/globals';
 import type { ServerRegistry } from '@/types/servers';
 import {
   deriveServerName,
+  probeSameOriginServer,
+  adoptSameOriginServer,
   getBundledLoopbackOrigin,
   migrateCloudPreset,
   migrateTauriOriginPreset,
   retargetPresetLocalToBundledOrigin,
 } from '../servers';
+
+describe('same-origin discovery', () => {
+  const mockFetch = jest.fn();
+  beforeEach(() => mockFetch.mockReset());
+
+  it('recognizes a non-loopback gptme API without sending stored credentials', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ api_version: 2, message: 'gptme v2 API' }),
+    });
+    expect(await probeSameOriginServer('http://myhost:5700', mockFetch)).toBe('http://myhost:5700');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://myhost:5700/api/v2',
+      expect.objectContaining({
+        redirect: 'error',
+        credentials: 'same-origin',
+      })
+    );
+  });
+
+  it.each([
+    {
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('index.html');
+      },
+    },
+    { ok: true, json: async () => ({ api_version: 2, message: 'another API' }) },
+    { ok: true, json: async () => null },
+    { ok: false, json: async () => ({ api_version: 2, message: 'gptme v2 API' }) },
+  ])('rejects non-gptme responses', async (response) => {
+    mockFetch.mockResolvedValue(response);
+    expect(await probeSameOriginServer('https://chat.gptme.org', mockFetch)).toBeNull();
+  });
+
+  it('falls back on network failure', async () => {
+    mockFetch.mockRejectedValue(new TypeError('offline'));
+    expect(await probeSameOriginServer('https://example.com', mockFetch)).toBeNull();
+  });
+
+  it.each(['tauri://localhost', 'file://localhost', 'null', ''])(
+    'never fetches a non-HTTP origin %s',
+    async (origin) => {
+      expect(await probeSameOriginServer(origin, mockFetch)).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+  );
+
+  const makeRegistry = (): ServerRegistry => ({
+    activeServerId: 'local',
+    connectedServerIds: ['local'],
+    servers: [
+      {
+        id: 'local',
+        name: 'Local',
+        baseUrl: 'http://127.0.0.1:5700',
+        authToken: 'loopback-secret',
+        useAuthToken: true,
+        sseToken: 'loopback-sse',
+        isPreset: true,
+        createdAt: 1,
+        lastUsedAt: 1,
+      },
+    ],
+  });
+
+  it('replaces Local with the serving host without leaking a different server token', () => {
+    const registry = makeRegistry();
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    expect(registry.servers).toHaveLength(1);
+    expect(registry.servers[0]).toMatchObject({
+      name: 'myhost:5700',
+      baseUrl: 'http://myhost:5700',
+      authToken: null,
+      useAuthToken: false,
+      sseToken: null,
+    });
+    expect(registry.activeServerId).toBe('local');
+  });
+
+  it('reuses a registered same-origin server and its token instead of creating a duplicate', () => {
+    const registry = makeRegistry();
+    registry.servers.push({
+      ...registry.servers[0],
+      id: 'lan',
+      isPreset: false,
+      baseUrl: 'http://myhost:5700',
+      authToken: 'lan-token',
+    });
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    expect(registry.servers).toHaveLength(1);
+    expect(registry.servers[0]).toMatchObject({ id: 'lan', authToken: 'lan-token' });
+    expect(registry.activeServerId).toBe('lan');
+    expect(registry.connectedServerIds).toEqual(['lan']);
+  });
+
+  it('keeps a stored same-origin token and supports repeated discovery', () => {
+    const registry = makeRegistry();
+    registry.servers[0].baseUrl = 'http://myhost:5700';
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    expect(registry.servers[0].authToken).toBe('loopback-secret');
+    expect(registry.servers[0].name).toBe('myhost:5700');
+  });
+
+  it('does not override an explicitly selected remote server', () => {
+    const registry = makeRegistry();
+    registry.servers.push({
+      ...registry.servers[0],
+      id: 'custom',
+      isPreset: false,
+      baseUrl: 'https://other.example.com',
+    });
+    registry.activeServerId = 'custom';
+    adoptSameOriginServer(registry, 'http://myhost:5700');
+    expect(registry.activeServerId).toBe('custom');
+    expect(registry.servers[1].baseUrl).toBe('https://other.example.com');
+  });
+});
 
 describe('deriveServerName', () => {
   it('returns "Local" for default-port localhost URLs', () => {

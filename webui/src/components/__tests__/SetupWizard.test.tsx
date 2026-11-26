@@ -4,6 +4,7 @@ import { observable } from '@legendapp/state';
 import { SetupWizard } from '../SetupWizard';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { setupWizard$ } from '@/stores/setupWizard';
+import { sameOriginServer$ } from '@/stores/servers';
 import { toast } from 'sonner';
 import { setLocation } from '@/test-utils/location';
 
@@ -195,6 +196,7 @@ describe('SetupWizard', () => {
     localStorage.clear();
     setLocation('http://localhost/');
     isConnected$.set(false);
+    sameOriginServer$.set(null);
     lastConnectionResult$.set(null);
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
@@ -290,6 +292,68 @@ describe('SetupWizard', () => {
       expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
     }
   );
+
+  it('skips welcome while the discovered same-origin server connects, and after connection', () => {
+    setLocation('http://myhost:5700/');
+    mockConnectionBaseUrl = window.location.origin;
+    sameOriginServer$.set(window.location.origin);
+    const ui = (
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    const { rerender } = render(ui);
+    expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument();
+    isConnected$.set(true);
+    rerender(ui);
+    expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument();
+  });
+
+  it('asks only for a server token on same-origin 401, including after setup was completed', async () => {
+    localStorage.setItem('gptme-settings', JSON.stringify({ hasCompletedSetup: true }));
+    setLocation('http://myhost:5700/');
+    mockConnectionBaseUrl = window.location.origin;
+    sameOriginServer$.set(window.location.origin);
+    lastConnectionResult$.set({
+      ok: false,
+      status: 401,
+      reason: 'http_error',
+      url: `${window.location.origin}/api/v2/conversations?limit=1`,
+    });
+    mockConnect.mockRejectedValueOnce(new Error('Invalid token'));
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(screen.queryByText('Welcome to gptme')).not.toBeInTheDocument();
+    expect(screen.getByText('gptme-server token')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'test-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await screen.findByText('Invalid token');
+    expect(mockConnect).toHaveBeenCalledWith(
+      { baseUrl: 'http://myhost:5700', authToken: 'test-token', useAuthToken: true },
+      undefined,
+      { suppressErrorToast: true }
+    );
+    mockConnect.mockImplementationOnce(async () => {
+      isConnected$.set(true);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument());
+  });
+
+  it('does not offer the same-origin token prompt for an explicitly selected different server', () => {
+    sameOriginServer$.set('http://myhost:5700');
+    lastConnectionResult$.set({ ok: false, status: 401, url: 'http://127.0.0.1:5700/api/v2' });
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(screen.queryByLabelText('Server token')).not.toBeInTheDocument();
+    expect(screen.getByText('Welcome to gptme')).toBeInTheDocument();
+  });
 
   it('still auto-opens in Tauri', () => {
     setLocation('http://tauri.localhost/');
