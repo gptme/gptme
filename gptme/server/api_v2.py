@@ -1945,6 +1945,9 @@ def api_conversation_put(conversation_id: str):
     config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
+        if isinstance(request_config.model, str):
+            request_config.model = request_config.model.strip()
+            _validate_conversation_model(request_config.model)
         effective_model = _effective_model_for_effort_validation(request_config)
         if effective_model:
             from ..llm.models.effort import validate_reasoning_effort

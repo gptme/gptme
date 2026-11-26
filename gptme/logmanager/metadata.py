@@ -46,12 +46,20 @@ def _coerce(data: dict[str, Any]) -> ConversationMetadata:
     return meta
 
 
-def read_metadata(logdir: Path) -> ConversationMetadata:
-    """Read the sidecar; a missing or unreadable file yields the defaults."""
+def read_metadata(logdir: Path, *, strict: bool = False) -> ConversationMetadata:
+    """Read the sidecar, tolerating unreadable files unless editing with strict=True.
+
+    A missing sidecar always yields defaults; other read/parse failures must
+    propagate on the write path so an edit cannot overwrite unreadable data.
+    """
     path = logdir / METADATA_FILENAME
     try:
         data = tomlkit.parse(path.read_text(encoding="utf-8")).unwrap()
+    except FileNotFoundError:
+        return ConversationMetadata()
     except (OSError, ValueError, tomlkit.exceptions.TOMLKitError):
+        if strict:
+            raise
         return ConversationMetadata()
     return _coerce(data)
 
@@ -96,7 +104,7 @@ def update_metadata(logdir: Path, patch: dict[str, Any]) -> ConversationMetadata
     """
     if error := validate_metadata_patch(patch):
         raise ValueError(error)
-    meta = read_metadata(logdir)
+    meta = read_metadata(logdir, strict=True)
     defaults = ConversationMetadata()
     for key, value in patch.items():
         setattr(meta, key, getattr(defaults, key) if value is None else value)

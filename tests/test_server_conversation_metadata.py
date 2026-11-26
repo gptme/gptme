@@ -26,6 +26,49 @@ def _list_item(client: FlaskClient, cid: str) -> dict:
 
 
 class TestMetadata:
+    @pytest.mark.parametrize(
+        ("contents", "error_match"),
+        [
+            (b'description = "unterminated', "Unexpected end of file"),
+            (b"\xff", "invalid start byte"),
+        ],
+    )
+    def test_patch_preserves_unparseable_sidecar(self, tmp_path, contents, error_match):
+        from gptme.logmanager.metadata import read_metadata, update_metadata
+
+        sidecar = tmp_path / "metadata.toml"
+        sidecar.write_bytes(contents)
+        # List reads stay tolerant, but edits must not replace unreadable data.
+        assert read_metadata(tmp_path).starred is False
+        with pytest.raises(ValueError, match=error_match):
+            update_metadata(tmp_path, {"starred": True})
+        assert sidecar.read_bytes() == contents
+        assert not list(tmp_path.glob(".metadata-*"))
+
+    def test_patch_preserves_temporarily_unreadable_sidecar(
+        self, tmp_path, monkeypatch
+    ):
+        from pathlib import Path
+
+        from gptme.logmanager.metadata import read_metadata, update_metadata
+
+        sidecar = tmp_path / "metadata.toml"
+        contents = b'description = "keep me"\ntags = ["work"]\n'
+        sidecar.write_bytes(contents)
+        real_read = Path.read_text
+
+        def unreadable(path, *args, **kwargs):
+            if path == sidecar:
+                raise PermissionError("temporarily unreadable metadata")
+            return real_read(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", unreadable)
+        assert read_metadata(tmp_path).tags == []
+        with pytest.raises(PermissionError):
+            update_metadata(tmp_path, {"starred": True})
+        assert sidecar.read_bytes() == contents
+        assert not list(tmp_path.glob(".metadata-*"))
+
     def test_defaults(self, client: FlaskClient):
         cid = _create_conv(client)
         resp = client.get(f"/api/v2/conversations/{cid}/metadata")
@@ -279,6 +322,31 @@ class TestConfigPatchModelValidation:
             f"/api/v2/conversations/{cid}/config", json={"chat": {"model": model}}
         )
         assert resp.status_code == 200, resp.get_json()
+
+    @pytest.mark.parametrize("model", ["nonexistent-provider/zzz", "zzz-not-a-model"])
+    def test_creation_rejects_unroutable_model(self, client: FlaskClient, model: str):
+        from gptme.dirs import get_logs_dir
+
+        cid = f"conv-metadata-{uuid4().hex[:8]}"
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none", "config": {"chat": {"model": model}}},
+        )
+        assert resp.status_code == 400, resp.get_json()
+        assert not (get_logs_dir() / cid).exists()
+
+    def test_creation_saves_trimmed_routable_model(self, client: FlaskClient):
+        cid = f"conv-metadata-{uuid4().hex[:8]}"
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={
+                "prompt": "none",
+                "config": {"chat": {"model": " openai/some-future-model "}},
+            },
+        )
+        assert resp.status_code == 200, resp.get_json()
+        config = client.get(f"/api/v2/conversations/{cid}/config").get_json()
+        assert config["chat"]["model"] == "openai/some-future-model"
 
     def test_echoing_a_stored_unknown_model_is_accepted(self, client: FlaskClient):
         """A settings save that echoes the stored model must not 400 because
