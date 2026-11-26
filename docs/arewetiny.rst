@@ -44,8 +44,8 @@ Code size
    :parser: myst_parser.parsers.docutils_
 
 The report counts physical lines in tracked code files. It uses the same
-`code-size tool <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-dashboard#codesize--where-code-is-hard-to-review>`_
-as the `gptme-contrib dashboard <https://gptme.github.io/gptme-contrib/#codesize>`_.
+`code-size tool <https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-dashboard>`_
+as the `gptme-contrib dashboard <https://gptme.github.io/gptme-contrib/>`_.
 Follow the `shared report tracking issue <https://github.com/gptme/gptme/issues/5291>`_
 for changes to these measures.
 
