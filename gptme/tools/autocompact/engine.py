@@ -6,8 +6,8 @@ Implements strategic removal of content from conversations:
 2. Truncate largest tool results first (oh-my-opencode strategy)
 3. Extractive compression for long assistant messages
 
-Phase 0 replaces messages rather than deleting them so tool-call/result pairs
-stay provider-valid and later phases can still index into conversation.jsonl.
+Phase 0 replaces messages in place to preserve provider-valid tool-call/result
+pairs.
 """
 
 import logging
@@ -18,9 +18,8 @@ from ...context import strip_reasoning
 from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
 from ...util.master_context import (
-    MessageByteRange,
-    build_master_context_index,
     create_master_context_reference,
+    find_master_context_ranges,
 )
 from ...util.output_storage import (
     create_tool_result_summary,
@@ -39,8 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Score threshold below which a tool output is eligible for pre-pass stubbing.
 # Messages that score below this AND exceed the minimum size are replaced in
-# place (never deleted — that would break tool-call pairing and master-context
-# index mapping used by Phases 2–3).
+# place to preserve tool-call pairing.
 _PRUNE_SCORE_THRESHOLD = 1.0
 
 # Minimum token size before a tool output is eligible for pre-pass pruning.
@@ -154,11 +152,9 @@ def prune_stale_tool_outputs(
     - Tool results that contain error/failure content.
     - Tool results whose paths are still referenced by later messages.
 
-    In-place replacement (not deletion) keeps tool-call/result pairs
-    provider-valid and preserves 1:1 index mapping into conversation.jsonl
-    for Phase 2/3 master-context references. Original content is saved under
-    ``logdir/tool-outputs/`` when ``logdir`` is set, so recovery does not
-    depend on conversation.jsonl surviving a later rewrite.
+    In-place replacement keeps tool-call/result pairs provider-valid and
+    preserves input positions for Phase 2/3 references. When ``logdir`` is set,
+    recovery uses the original content saved under ``logdir/tool-outputs/``.
 
     When ``for_estimate`` is set, the stub uses the recovery-path template
     without writing a file (logdir-shaped path when ``logdir`` is set,
@@ -337,6 +333,8 @@ def auto_compact_log(
     logdir: Path | None = None,
     keep_head: int = 0,
     target_ratio: float = 1.0,
+    *,
+    source_logfile: Path | None = None,
 ) -> Generator[Message, None, None]:
     """
     Auto-compact log for conversations with massive tool results.
@@ -351,10 +349,8 @@ def auto_compact_log(
     the largest outputs for truncation.
 
     Master Context Architecture:
-    The original conversation.jsonl serves as the master context - an append-only
-    log that is never compacted. When truncating content, we include byte range
-    references to the master context for exact recovery. This allows aggressive
-    compaction while preserving full context accessibility.
+    The persisted branch transcript serves as the master context. When
+    truncating content, we include byte range references for exact recovery.
 
     Args:
         log: List of messages to compact
@@ -376,18 +372,14 @@ def auto_compact_log(
             behaviour. Callers that compact on a budget trigger pass a lower
             value (see ``TRIM_TARGET_RATIO``) to leave hysteresis headroom so the
             next turns do not re-trigger immediately.
+        source_logfile: Transcript for the input's branch, defaulting to
+            ``logdir / "conversation.jsonl"`` when a log directory is available.
     """
 
-    # Build master context index for byte-range references
-    master_context_index: list[MessageByteRange] = []
-    master_logfile: Path | None = None
-    if logdir:
+    master_logfile = source_logfile
+    if master_logfile is None and logdir is not None:
         master_logfile = logdir / "conversation.jsonl"
-        if master_logfile.exists():
-            master_context_index = build_master_context_index(master_logfile)
-            logger.debug(
-                f"Built master context index with {len(master_context_index)} entries"
-            )
+    source_messages = log
 
     # get the token limit
     model = get_default_model() or get_model("gpt-4")
@@ -401,8 +393,8 @@ def auto_compact_log(
     # Phase 0: Relevance-scored pruning of stale tool outputs.
     # Only when already over budget — same gate as estimate_compaction_savings —
     # so under-limit logs are returned unchanged. Stubs (does not delete) old,
-    # large, unreferenced tool outputs in place so tool-call pairing and
-    # master-context indices stay valid. Surviving content is kept verbatim.
+    # large, unreferenced tool outputs in place so tool-call pairing stays
+    # valid. Surviving content is kept verbatim.
     phase0_tokens_saved = 0
     if tokens >= limit:
         # Record keep/drop decisions before the live pass mutates the log.
@@ -462,6 +454,13 @@ def auto_compact_log(
             for idx, m in enumerate(log)
         )
         return
+
+    # The phases preserve input positions while replacing message content.
+    master_ranges = (
+        find_master_context_ranges(master_logfile, source_messages)
+        if master_logfile is not None
+        else {}
+    )
 
     if needs_compacting:
         logger.info(f"Auto-compacting log: {tokens} tokens exceeds limit of {limit}")
@@ -539,11 +538,7 @@ def auto_compact_log(
                 tool_name="autocompact",
             )
 
-            # Add master context reference for exact recovery
-            # Note: idx must match the message position in conversation.jsonl
-            # This is safe because Phases 0-2 preserve message positions (1:1 mapping)
-            if master_logfile and idx < len(master_context_index):
-                byte_range = master_context_index[idx]
+            if master_logfile is not None and (byte_range := master_ranges.get(idx)):
                 # Get first line as preview
                 preview = msg.content.split("\n")[0] if msg.content else None
                 master_ref = create_master_context_reference(
@@ -591,11 +586,9 @@ def auto_compact_log(
             compressed_tokens = len_tokens(compressed_content, model.model)
 
             if compressed_tokens < msg_tokens:
-                # Add master context reference for exact recovery
-                # Note: idx must match the message position in conversation.jsonl
-                # This is safe because Phases 0-3 preserve message positions (1:1 mapping)
-                if master_logfile and idx < len(master_context_index):
-                    byte_range = master_context_index[idx]
+                if master_logfile is not None and (
+                    byte_range := master_ranges.get(idx)
+                ):
                     # Get first line as preview
                     preview = msg.content.split("\n")[0] if msg.content else None
                     master_ref = create_master_context_reference(

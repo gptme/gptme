@@ -419,6 +419,7 @@ def autocompact_hook(
                 logdir=manager.logdir,
                 keep_head=_get_keep_head(),
                 trim_target_ratio=TRIM_TARGET_RATIO,
+                source_logfile=manager.logfile,
             )
             compacted_msgs = provider.compress(messages, config).messages
 

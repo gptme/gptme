@@ -1,6 +1,9 @@
 """Overflow retries preserve views, whole turns, and the output boundary."""
 
 import importlib
+import json
+import re
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -312,6 +315,86 @@ def test_trim_of_filtered_message_continues_dropping(tmp_path, monkeypatch):
     assert result.content == "Recovered"
     assert len(calls) == 2
     assert len(calls[1]) < len(calls[0])
+
+
+@pytest.mark.parametrize("branch", ["main", "feature"])
+@pytest.mark.parametrize("summarized", [False, True], ids=["full", "view"])
+def test_overflow_trim_recovers_original_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, branch: str, summarized: bool
+) -> None:
+    from gptme.llm.models import get_model
+    from gptme.tools.autocompact.recovery import compact_for_overflow
+
+    monkeypatch.setenv("GPTME_AUTOCOMPACT_KEEP_HEAD", "2")
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.engine.get_default_model",
+        lambda: get_model("openai/gpt-4"),
+    )
+    tool_result = Message(
+        "system",
+        "\n".join(f"{branch} résumé line {i}: result {i * 7919}" for i in range(1500)),
+        call_id="test-call",
+    )
+    explanation = Message(
+        "assistant",
+        " ".join(
+            f"Sentence {i} explains detail alpha{i} beta{i} gamma{i}."
+            for i in range(350)
+        ),
+    )
+    logdir = tmp_path / "conversation"
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "First question"),
+        Message("assistant", "First answer"),
+        Message("user", "Second question"),
+        Message("assistant", "Second answer"),
+        Message("user", f"Explain and check the {branch} results"),
+        explanation,
+        Message("assistant", "Checking the results"),
+        tool_result,
+        Message("assistant", "Done"),
+    ]
+    if branch != "main":
+        LogManager(messages[:-1], logdir=logdir).write()
+    manager = LogManager(messages, logdir=logdir, branch=branch)
+    manager.write()
+    if summarized:
+        manager.create_view(
+            "compacted-001",
+            [
+                messages[0],
+                Message("assistant", "## Objective\nCheckpoint"),
+                *messages[5:],
+            ],
+        )
+        manager.switch_view("compacted-001")
+
+    manager = LogManager.load(logdir, branch=branch, lock=False)
+    if summarized and branch != "main":
+        manager.switch_view("compacted-001")
+    source = manager.logfile
+    source_bytes = source.read_bytes()
+    original_messages = [msg.to_dict() for msg in manager.log.messages]
+
+    for _ in range(2):
+        compacted = compact_for_overflow(manager)
+        for original in (tool_result, explanation):
+            trimmed = next(
+                msg for msg in compacted if msg.timestamp == original.timestamp
+            )
+            match = re.search(
+                r"Master context: (.+) \(bytes (\d+)-(\d+)\)", trimmed.content
+            )
+            assert match, trimmed.content[-400:]
+            path, start, end = match.groups()
+            assert Path(path) == source, f"reference names {path}"
+            recovered = json.loads(source.read_bytes()[int(start) : int(end)])
+            assert recovered == original.to_dict(), (
+                f"reference points at {recovered['content'][:60]!r}"
+            )
+        assert source.read_bytes() == source_bytes
+        assert [msg.to_dict() for msg in manager.log.messages] == original_messages
 
 
 def test_signed_thinking_details_survive_overflow_trim(tmp_path, monkeypatch):

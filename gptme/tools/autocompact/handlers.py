@@ -99,7 +99,11 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     # Apply auto-compacting using the provider interface
     started = monotonic()
     provider = get_context_provider("default")
-    config = CompressionConfig(logdir=ctx.manager.logdir, keep_head=_get_keep_head())
+    config = CompressionConfig(
+        logdir=ctx.manager.logdir,
+        keep_head=_get_keep_head(),
+        source_logfile=ctx.manager.logfile,
+    )
     compacted_msgs = provider.compress(msgs, config).messages
 
     # Calculate reduction stats

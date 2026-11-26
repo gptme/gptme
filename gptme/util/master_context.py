@@ -1,15 +1,16 @@
 """
-Master Context utilities for tracking byte offsets in conversation.jsonl.
+Master Context utilities for tracking byte offsets in conversation transcripts.
 
-The master context is the original conversation.jsonl file which is never
-compacted. This allows aggressive compaction on the working context while
-preserving exact recovery via byte ranges.
+The master context is the branch transcript behind the working view.
+Compacting the view preserves the original transcript for exact recovery.
 """
 
 import json
 import logging
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..message import Message
@@ -127,6 +128,51 @@ def build_master_context_index(logfile: Path) -> list[MessageByteRange]:
         return []
 
     return index
+
+
+def _message_key(message: Message) -> tuple[datetime, str, str | None, str]:
+    call_id = message.call_id if isinstance(message.call_id, str) else None
+    return message.timestamp, message.role, call_id or None, message.content
+
+
+def find_master_context_ranges(
+    logfile: Path, messages: Sequence[Message]
+) -> dict[int, MessageByteRange]:
+    """Map input positions to matching transcript ranges, skipping ambiguous matches."""
+    from ..logmanager.manager import _message_from_json_line
+
+    keys = [_message_key(message) for message in messages]
+    wanted = set(keys)
+    matches: dict[tuple[datetime, str, str | None, str], MessageByteRange | None] = {}
+    try:
+        with logfile.open("rb") as file:
+            mtime = datetime.fromtimestamp(
+                os.fstat(file.fileno()).st_mtime, timezone.utc
+            )
+            offset = 0
+            for index, line in enumerate(file):
+                start, offset = offset, offset + len(line)
+                try:
+                    message = _message_from_json_line(
+                        line.decode("utf-8", errors="replace").strip(), logfile, mtime
+                    )
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    continue
+                key = _message_key(message)
+                if key in wanted:
+                    matches[key] = (
+                        None
+                        if key in matches
+                        else MessageByteRange(index, start, offset)
+                    )
+    except FileNotFoundError:
+        return {}
+
+    return {
+        index: byte_range
+        for index, key in enumerate(keys)
+        if (byte_range := matches.get(key)) is not None
+    }
 
 
 def create_master_context_reference(
