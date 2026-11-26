@@ -32,7 +32,8 @@ def _stop_acp_runtime_loops(monkeypatch):
     """Stop the dedicated event-loop thread of every runtime a test creates.
 
     Many tests never close their runtime; without this each would leak an
-    ``acp-runtime-loop`` daemon thread.
+    ``acp-runtime-loop`` daemon thread, and a runtime whose test failed before
+    its ``finally`` would also leave a real ACP subprocess running.
     """
     from gptme.server.acp_session_runtime import AcpSessionRuntime
 
@@ -46,7 +47,13 @@ def _stop_acp_runtime_loops(monkeypatch):
     monkeypatch.setattr(AcpSessionRuntime, "__init__", _tracking_init)
     yield
     for rt in runtimes:
-        rt._stop_loop()
+        # terminate_subprocess_sync closes the client (when the loop is still
+        # alive) and stops the loop, so a subprocess started by a test that
+        # failed early does not outlive the suite.
+        try:
+            rt.terminate_subprocess_sync(timeout=1.0)
+        except Exception:
+            rt._stop_loop()
 
 
 class _DummyBlock:
@@ -1612,3 +1619,19 @@ def test_prompt_cancellation_propagates_to_caller(monkeypatch, tmp_path):
         runtime._stop_loop()
     assert len(result) == 1
     assert isinstance(result[0], asyncio.CancelledError)
+
+
+def test_prompt_cancelled_inside_runtime_is_an_error(monkeypatch, tmp_path):
+    """A call cancelled inside the runtime loop is an error, not caller cancellation."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _SelfCancellingClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _SelfCancellingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    with pytest.raises(RuntimeError, match="cancelled before it completed"):
+        _run(runtime.prompt("cancel"))
+    _run(runtime.close())
