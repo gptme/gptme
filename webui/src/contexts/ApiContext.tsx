@@ -560,7 +560,11 @@ export function ApiProvider({
 
   const restartAutoConnect = useCallback(async () => {
     stopAutoConnect();
-    await autoConnect(false, true);
+    // Not a manual retry: the server was just launched and may not accept
+    // requests for several seconds. A failed first probe is an expected boot
+    // state, so it must stay silent and let the loop keep retrying — the
+    // exhausted budget reports the real failure.
+    await autoConnect(false, false);
   }, [autoConnect]);
 
   // Handle auth code exchange on mount

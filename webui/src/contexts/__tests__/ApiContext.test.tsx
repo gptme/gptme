@@ -862,10 +862,15 @@ describe('ApiProvider mobile auto-connect', () => {
 
       // The server was just launched and is not accepting requests yet.
       mockCheckConnection.mockImplementation(failProbe);
+      const toastErrorsBeforeRestart = mockToastError.mock.calls.length;
       await act(async () => {
         await ctx.restartAutoConnect();
       });
       expect(mockCheckConnection).toHaveBeenCalledTimes(probes + 1);
+      // A failed probe during the server's boot window is expected, not a
+      // user-visible failure: the restart path must stay silent and let the
+      // loop keep retrying.
+      expect(mockToastError).toHaveBeenCalledTimes(toastErrorsBeforeRestart);
 
       // The pre-launch probe failing late must not end the new loop.
       await act(async () => {
