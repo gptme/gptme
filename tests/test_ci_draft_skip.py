@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 
 HEAVY_TEST_JOBS = (
@@ -13,6 +15,12 @@ HEAVY_TEST_JOBS = (
     "test-api",
 )
 HEAVY_BUILD_JOBS = ("build-docker", "build-pyinstaller")
+
+# Exact guard text. Both workflows use the same condition; test.yml ANDs it
+# with the job's own trigger condition, build.yml uses it on its own.
+DRAFT_GUARD = (
+    "(github.event_name != 'pull_request' || github.event.pull_request.draft == false)"
+)
 
 
 def _job_block(workflow: str, job_id: str) -> str:
@@ -66,6 +74,19 @@ def _job_if(workflow: str, job_id: str) -> str:
     return " ".join(part for part in collected if part)
 
 
+def _assert_leading_draft_guard(expr: str, job_id: str) -> None:
+    """The skip must be the leading AND-ed conjunct, not a nested substring.
+
+    A bare substring check also passes for inverted logic such as
+    ``(github.event_name != 'pull_request' && github.event.pull_request.draft == false)``,
+    which keeps the heavy jobs off every non-draft PR.
+    """
+    bare_guard = DRAFT_GUARD[1:-1]
+    assert expr == bare_guard or expr.startswith(DRAFT_GUARD + " &&"), (
+        f"{job_id} draft guard is not AND-ed as the leading conjunct: {expr}"
+    )
+
+
 def test_test_yml_retriggers_when_draft_is_marked_ready() -> None:
     text = (ROOT / ".github/workflows/test.yml").read_text()
     assert "ready_for_review" in text
@@ -83,9 +104,7 @@ def test_heavy_test_jobs_skip_draft_pull_requests() -> None:
     for job_id in HEAVY_TEST_JOBS:
         expr = _job_if(text, job_id)
         assert expr, f"{job_id} has no job-level if:"
-        assert "github.event.pull_request.draft == false" in expr, (
-            f"{job_id} if: does not skip drafts: {expr}"
-        )
+        _assert_leading_draft_guard(expr, job_id)
 
 
 def test_heavy_build_jobs_skip_draft_pull_requests() -> None:
@@ -93,9 +112,18 @@ def test_heavy_build_jobs_skip_draft_pull_requests() -> None:
     for job_id in HEAVY_BUILD_JOBS:
         expr = _job_if(text, job_id)
         assert expr, f"{job_id} has no job-level if:"
-        assert "github.event.pull_request.draft == false" in expr, (
-            f"{job_id} if: does not skip drafts: {expr}"
-        )
+        _assert_leading_draft_guard(expr, job_id)
+
+
+def test_draft_guard_check_rejects_inverted_logic() -> None:
+    """Guard against the guard: a substring-only check would pass this form."""
+    inverted = (
+        "(github.event_name != 'pull_request' && "
+        "github.event.pull_request.draft == false) && "
+        "(github.event_name == 'push')"
+    )
+    with pytest.raises(AssertionError):
+        _assert_leading_draft_guard(inverted, "example")
 
 
 def test_draft_skip_does_not_drop_merge_queue_or_master_push() -> None:
