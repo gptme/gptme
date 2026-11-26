@@ -422,6 +422,14 @@ export function ApiProvider({
       const check = client.checkConnection();
       const probe = { settled: check.catch(() => false), isManualRetry };
       pendingAutoProbe = probe;
+      // Clear our entry on every exit path, but only while it is still ours: a
+      // newer attempt installs its own probe after bumping the generation, and
+      // a stale return must never discard that one. This keeps the invariant
+      // "pendingAutoProbe is null or an unresolved probe" explicit, so a manual
+      // retry can never join a settled probe and silently do nothing.
+      const clearPendingProbe = () => {
+        if (pendingAutoProbe === probe) pendingAutoProbe = null;
+      };
 
       try {
         const connected = await check;
@@ -429,8 +437,11 @@ export function ApiProvider({
         // credential change swaps in a fresh client and re-runs the effect. Bail
         // before touching shared state, or this stale attempt would clear the
         // newer attempt's retry timer and leave the active client disconnected.
-        if (generation !== autoConnectGeneration) return;
-        pendingAutoProbe = null;
+        if (generation !== autoConnectGeneration) {
+          clearPendingProbe();
+          return;
+        }
+        clearPendingProbe();
         if (connected) {
           console.log('[ApiContext] Auto-connect successful');
           client.setConnected(true);
@@ -444,13 +455,19 @@ export function ApiProvider({
           return;
         }
       } catch (error) {
-        if (generation !== autoConnectGeneration) return;
-        pendingAutoProbe = null;
+        if (generation !== autoConnectGeneration) {
+          clearPendingProbe();
+          return;
+        }
+        clearPendingProbe();
         console.log(`[ApiContext] Auto-connect attempt ${autoConnectAttempts} failed:`, error);
       }
 
       // Same staleness check for the post-probe classification and retry below.
-      if (generation !== autoConnectGeneration) return;
+      if (generation !== autoConnectGeneration) {
+        clearPendingProbe();
+        return;
+      }
 
       // CORS / Private Network Access failures don't recover by retrying within
       // the session. The user has a manual "Retry connection" button; spamming
