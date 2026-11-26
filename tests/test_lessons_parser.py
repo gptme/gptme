@@ -1011,7 +1011,7 @@ class TestFrontmatterFenceLines:
         assert has_frontmatter_fence(content) is expected
 
 
-@pytest.mark.parametrize("text", ["- item", "key: value"])
+@pytest.mark.parametrize("text", ["- item", "key: value", "Example: [not YAML"])
 def test_heading_after_blank_opening_divider_is_body(tmp_path: Path, text: str):
     path = tmp_path / "lesson.md"
     content = f"---\n\n# Title\n{text}\n\n---\nBody\n"
@@ -1023,24 +1023,49 @@ def test_heading_after_blank_opening_divider_is_body(tmp_path: Path, text: str):
     assert not lesson.ambiguous_frontmatter
 
 
-def test_explicit_block_scalar_is_not_ambiguous_prose(tmp_path: Path):
+@pytest.mark.parametrize("scalar", ["|\n  explicit scalar", "'scalar'", '"scalar"'])
+def test_explicit_block_scalar_is_not_ambiguous_prose(tmp_path: Path, scalar: str):
     path = tmp_path / "lesson.md"
-    path.write_text("---\n|\n  explicit scalar\n---\n# Title\nBody\n")
+    path.write_text(f"---\n{scalar}\n---\n# Title\nBody\n")
     lesson = parse_lesson(path)
     assert lesson.malformed_frontmatter
     assert not lesson.ambiguous_frontmatter
 
 
-def test_commented_yaml_fence_keeps_metadata_after_blank_comment(tmp_path: Path):
+@pytest.mark.parametrize("fence", ["---", "--- # YAML metadata"])
+def test_commented_yaml_fence_keeps_metadata_after_blank_comment(
+    tmp_path: Path, fence: str
+):
     path = tmp_path / "lesson.md"
     path.write_text(
-        "--- # YAML metadata\n\n# Settings\nstatus: deprecated\n"
+        f"{fence}\n\n# Settings\nstatus: deprecated\n"
         "match:\n  keywords: [deploy]\n---\n# Actual Lesson\nBody\n"
     )
     lesson = parse_lesson(path)
     assert lesson.metadata.status == "deprecated"
     assert lesson.metadata.keywords == ["deploy"]
     assert lesson.title == "Actual Lesson"
+
+
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_quoted_prose_after_heading_is_body(tmp_path: Path, quote: str):
+    path = tmp_path / "lesson.md"
+    content = (
+        f"---\n\n# Motto\n{quote}Measure twice, cut once.{quote}\n\n---\n## Details\n"
+    )
+    path.write_text(content)
+    lesson = parse_lesson(path)
+    assert lesson.title == "Motto"
+    assert lesson.body == content
+    assert not lesson.malformed_frontmatter
+    assert not lesson.ambiguous_frontmatter
+
+
+def test_invalid_metadata_after_blank_comment_still_raises(tmp_path: Path):
+    path = tmp_path / "lesson.md"
+    path.write_text("---\n\n# Settings\nmatch: [unclosed\n---\n# Actual Lesson\n")
+    with pytest.raises(ValueError, match="Invalid YAML frontmatter"):
+        parse_lesson(path)
 
 
 def test_block_scalar_after_blank_comment_still_warns(tmp_path: Path):

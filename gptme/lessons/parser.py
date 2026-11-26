@@ -363,20 +363,29 @@ def parse_lesson(path: Path) -> Lesson:
 
         # Fences must be whole lines: a "---" inside a YAML value is not a fence.
         fence = _FRONTMATTER_RE.match(content)
-        # A blank line followed by a Markdown heading makes the opening line
-        # a thematic break, even when the following body happens to be YAML.
+        # A blank line followed by a Markdown heading suggests a thematic break,
+        # unless the block declares lesson/skill/Cursor metadata. Generic YAML
+        # such as "key: value" can still be ordinary Markdown body content.
         thematic_break = (
             fence is not None
             and "#" not in content.splitlines()[0]
             and re.match(r"\A[ \t]*\r?\n\s*#{1,6}[ \t]+", fence.group(1)) is not None
+            and re.search(
+                r"^(?:name|description|id|match|status|depends|globs|priority|"
+                r"triggers|alwaysApply|version)[ \t]*:",
+                fence.group(1),
+                re.MULTILINE,
+            )
+            is None
         )
         if thematic_break and fence is not None:
-            # Explicit YAML scalars remain malformed headers, not body prose.
+            # Block scalar indicators explicitly declare YAML, unlike quoted
+            # prose after a Markdown heading (e.g. a one-line motto).
             try:
                 node = yaml.compose(fence.group(1), Loader=_YamlSafeLoader)
             except yaml.YAMLError:
                 node = None
-            if isinstance(node, yaml.ScalarNode) and node.style in {"|", ">", "'", '"'}:
+            if isinstance(node, yaml.ScalarNode) and node.style in {"|", ">"}:
                 thematic_break = False
         if thematic_break:
             fence = None
