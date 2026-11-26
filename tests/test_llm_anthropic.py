@@ -3,7 +3,8 @@ import logging
 import os
 import re
 import time
-from typing import assert_type
+from pathlib import Path
+from typing import assert_type, cast
 
 import httpx2
 import pytest
@@ -22,6 +23,7 @@ from gptme.llm.llm_anthropic import (
     _resolve_effort_level,
     _resolve_thinking_budget,
 )
+from gptme.llm.utils import extract_tool_uses_from_assistant_message
 from gptme.message import Message
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import ToolUse, get_tool, init_tools
@@ -124,6 +126,368 @@ def test_message_conversion_without_tools():
             ],
         },
     ]
+
+
+@pytest.mark.parametrize(
+    ("content", "has_call", "thinking"),
+    [
+        # Signed thinking followed by a plain answer, no tool call
+        (
+            "<think>\nsimple arithmetic\n<!-- think-sig: SIG123 -->\n</think>\n\nThe answer is 4.",
+            False,
+            "simple arithmetic",
+        ),
+        # Text after a native tool call, on the next line
+        (
+            'Let me save it.\n@save(call_1): {"path": "a.txt", "content": "x"}\nThe answer is 4.',
+            True,
+            None,
+        ),
+        # Streamed text directly after the tool JSON, on the same line
+        (
+            'Let me save it.\n@save(call_1): {"path": "a.txt", "content": "x"}The answer is 4.',
+            True,
+            None,
+        ),
+    ],
+)
+def test_assistant_text_survives_tool_conversion(
+    content: str, has_call: bool, thinking: str | None
+):
+    """Answer text must not be dropped when a turn has thinking or a tool call."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="What is 2+2?"),
+        Message(role="assistant", content=content),
+    ]
+    if has_call:
+        messages.append(Message(role="system", content="Saved", call_id="call_1"))
+    messages.append(Message(role="user", content="Thanks"))
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    texts = [p["text"] for p in parts if p["type"] == "text"]
+    assert any("The answer is 4." in t for t in texts), parts
+    assert not any("@save" in t or '"content"' in t for t in texts), parts
+    tool_uses = [p for p in parts if p["type"] == "tool_use"]
+    assert len(tool_uses) == (1 if has_call else 0), parts
+    if thinking:
+        assert {
+            "type": "thinking",
+            "thinking": thinking,
+            "signature": "SIG123",
+        } in parts
+
+
+def test_unsigned_thinking_without_tool_call_is_kept_verbatim():
+    """Visible <think> text from a non-reasoning model is not a signed
+    thinking block: it must not be stripped from later requests."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    content = "<think>\nweighing options\n</think>\n\nThe answer is 4."
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="What is 2+2?"),
+        Message(role="assistant", content=content),
+        Message(role="user", content="Thanks"),
+    ]
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    dumped = json.dumps(assistant["content"])
+    assert "weighing options" in dumped, assistant
+    assert "The answer is 4." in dumped, assistant
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize(
+    ("signature", "framed"), [("", False), ("SIG123", False), ("SIG123", True)]
+)
+def test_interleaved_thinking_preserves_tool_call_boundaries(
+    tag: str, signature: str, framed: bool
+) -> None:
+    """Thinking follows streamed tool JSON without a leading newline."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    signature_comment = f"\n<!-- think-sig: {signature} -->" if signature else ""
+    if framed:
+        footer = llm_anthropic._thinking_footer(signature, "Next file")
+        signature_comment = f"\n{footer}"
+    content = (
+        '\n@save(call_1): {"path": "a.txt", "content": "x"}'
+        f"<{tag}>\nNext file{signature_comment}\n</{tag}>\n\n"
+        '\n@save(call_2): {"path": "b.txt", "content": "y"}'
+    )
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Save both files"),
+        Message(role="assistant", content=content),
+        Message(role="system", content="Saved a.txt", call_id="call_1"),
+        Message(role="system", content="Saved b.txt", call_id="call_2"),
+        Message(role="user", content="Thanks"),
+    ]
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    calls = [p for p in parts if p["type"] == "tool_use"]
+    assert [p["id"] for p in calls] == ["call_1", "call_2"], parts
+    assert [p["input"] for p in calls] == [
+        {"path": "a.txt", "content": "x"},
+        {"path": "b.txt", "content": "y"},
+    ]
+    assert not any("@save" in p["text"] for p in parts if p["type"] == "text")
+    thinking = [p for p in parts if p["type"] == "thinking"]
+    assert thinking == (
+        [{"type": "thinking", "thinking": "Next file", "signature": signature}]
+        if signature
+        else []
+    )
+
+
+def test_same_line_text_after_tool_call_is_not_parsed_as_call():
+    """Text after a call's JSON is mid-line, so a call-like example in it
+    stays text instead of becoming a second call."""
+    init_tools(allowlist=["save"])
+    content = (
+        '@save(call_1): {"path": "a.txt", "content": "x"}'
+        '@save(call_2): {"path": "b.txt", "content": "y"}\n'
+        '@save(call_3): {"path": "c.txt", "content": "z"}'
+    )
+
+    parts, tool_uses = extract_tool_uses_from_assistant_message(
+        content, tool_format_override="tool"
+    )
+
+    assert [t.call_id for t in tool_uses] == ["call_1", "call_3"]
+    assert any("@save(call_2)" in p["text"] for p in parts), parts
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        # Text continues on the next line after same-line text
+        '@save(call_1): {"path": "a.txt", "content": "x"}- one\n- two',
+        # ...and the next part ends at another call
+        '@save(call_1): {"path": "a.txt", "content": "x"}- one\n- two\n'
+        '@save(call_2): {"path": "b.txt", "content": "y"}',
+    ],
+)
+def test_same_line_text_after_tool_call_stays_one_part(content: str):
+    """Providers join parts with blank lines, so text after a call that
+    spans lines must be one part, or a list or code sample breaks apart."""
+    init_tools(allowlist=["save"])
+
+    parts, _ = extract_tool_uses_from_assistant_message(
+        content, tool_format_override="tool"
+    )
+
+    texts = [p["text"] for p in parts]
+    assert texts == ["- one\n- two\n"], parts
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Here is the chart.",
+        "<think>\nlooking\n<!-- think-sig: SIG123 -->\n</think>\n\nHere is the chart.",
+    ],
+)
+def test_assistant_images_survive_tool_conversion(content: str, tmp_path: Path):
+    """Images attached to an assistant reply stay when native tools are on."""
+    from PIL import Image
+
+    image = tmp_path / "chart.png"
+    Image.new("RGB", (2, 2)).save(image)
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Plot it"),
+        Message(role="assistant", content=content, files=[image]),
+        Message(role="user", content="Thanks"),
+    ]
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    assert [p["type"] for p in parts].count("image") == 1, parts
+    assert parts[-1]["type"] == "image", parts
+    texts = [p["text"] for p in parts if p["type"] == "text"]
+    assert any("Here is the chart." in t for t in texts), parts
+
+
+@pytest.mark.parametrize("has_call", [False, True])
+def test_assistant_attachment_labels_stay_with_images(has_call: bool, tmp_path: Path):
+    """The production converter must retain each file label beside its image."""
+    from PIL import Image
+
+    images = [tmp_path / "first.png", tmp_path / "second.png"]
+    for image, color in zip(images, ["red", "blue"], strict=True):
+        Image.new("RGB", (2, 2), color=color).save(image)
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save
+    content = (
+        "<think>\nlooking\n<!-- think-sig: SIG123 -->\n</think>\nHere are the charts."
+    )
+    if has_call:
+        content += '\n@save(call_1): {"path": "a.txt", "content": "x"}'
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Compare the charts"),
+        Message(role="assistant", content=content, files=[*images]),
+    ]
+    if has_call:
+        messages.append(Message(role="system", content="Saved", call_id="call_1"))
+    messages.append(Message(role="user", content="Thanks"))
+
+    messages_dicts, _, _ = _prepare_messages_for_api(messages, [tool_save])
+
+    assistant = next(m for m in messages_dicts if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    assert parts[0] == {
+        "type": "thinking",
+        "thinking": "looking",
+        "signature": "SIG123",
+    }
+    image_indices = [i for i, part in enumerate(parts) if part["type"] == "image"]
+    assert len(image_indices) == 2, parts
+    for image, index in zip(images, image_indices, strict=True):
+        assert parts[index - 1]["type"] == "text", parts
+        assert (
+            parts[index - 1]["text"].strip().endswith(f"![{image.name}]({image.name}):")
+        ), parts
+        other = images[1] if image == images[0] else images[0]
+        assert other.name not in parts[index - 1]["text"], parts
+    assert sum(p["type"] == "tool_use" for p in parts) == has_call
+
+
+def test_text_after_tool_call_precedes_attached_image():
+    """Text that follows a tool call must stay before an attached image:
+    the image is appended while the text is still pending otherwise."""
+    init_tools(allowlist=["save"])
+
+    content = [
+        {
+            "type": "text",
+            "text": '@save(call_1): {"path": "a.txt", "content": "x"}'
+            "Here is the chart.",
+        },
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]
+
+    parts, tool_uses = extract_tool_uses_from_assistant_message(
+        cast("list[dict[str, str]]", content), tool_format_override="tool"
+    )
+
+    assert [t.call_id for t in tool_uses] == ["call_1"]
+    assert [p["type"] for p in parts] == ["text", "image_url"], parts
+    assert parts[0]["text"].strip() == "Here is the chart."
+
+
+def test_text_around_an_image_keeps_its_order():
+    """Text on both sides of an image stays separate and in place; buffering
+    the first text while appending the image would move the image first."""
+    init_tools(allowlist=["save"])
+
+    content = [
+        {"type": "text", "text": "Before"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        {"type": "text", "text": "After"},
+    ]
+
+    parts, tool_uses = extract_tool_uses_from_assistant_message(
+        cast("list[dict[str, str]]", content), tool_format_override="tool"
+    )
+
+    assert tool_uses == []
+    assert [p["type"] for p in parts] == ["text", "image_url", "text"], parts
+    assert parts[0]["text"].strip() == "Before"
+    assert parts[2]["text"].strip() == "After"
+
+
+@pytest.mark.parametrize("separator", ["", "\n"])
+def test_native_calls_keep_their_order_relative_to_text_and_images(
+    tmp_path: Path, separator: str
+) -> None:
+    from PIL import Image
+
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save is not None
+    image = tmp_path / "chart.png"
+    Image.new("RGB", (2, 2)).save(image)
+    messages = [
+        Message(role="system", content="System prompt"),
+        Message(role="user", content="Save both files"),
+        Message(
+            role="assistant",
+            content=(
+                'Before saving.\n@save(call_1): {"path":"a.txt","content":"x"}'
+                f"{separator}First saved.\n"
+                '@save(call_2): {"path":"b.txt","content":"y"}\nBoth saved.'
+            ),
+            files=[image],
+        ),
+        Message(role="system", content="Saved a.txt", call_id="call_1"),
+        Message(role="system", content="Saved b.txt", call_id="call_2"),
+    ]
+    converted, _, _ = _prepare_messages_for_api(messages, [tool_save])
+    assistant = next(m for m in converted if m["role"] == "assistant")
+    parts: list[dict] = json.loads(json.dumps(assistant["content"]))
+    order = []
+    for part in parts:
+        if part["type"] == "tool_use":
+            order.append(part["id"])
+        elif part["type"] == "image":
+            order.append("image")
+        elif part["type"] == "text":
+            order.extend(
+                text
+                for text in ("Before saving.", "First saved.", "Both saved.")
+                if text in part["text"]
+            )
+    assert order == [
+        "Before saving.",
+        "call_1",
+        "First saved.",
+        "call_2",
+        "Both saved.",
+        "image",
+    ], parts
+
+
+def test_native_calls_stay_on_both_sides_of_an_image() -> None:
+    init_tools(allowlist=["save"])
+    image = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+    }
+    content = [
+        {"type": "text", "text": '@save(call_1): {"path":"a.txt","content":"x"}'},
+        image,
+        {"type": "text", "text": '@save(call_2): {"path":"b.txt","content":"y"}'},
+    ]
+    converted = list(
+        llm_anthropic._handle_tools([{"role": "assistant", "content": content}])
+    )
+    parts = converted[0]["content"]
+    assert [part["type"] for part in parts] == ["tool_use", "image", "tool_use"]
+    assert parts[0]["id"] == "call_1"
+    assert parts[1] == image
+    assert parts[2]["id"] == "call_2"
 
 
 def test_message_conversion_with_tools():

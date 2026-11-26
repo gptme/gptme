@@ -1636,6 +1636,18 @@ def _extract_thinking_content(
             return first
         return block
 
+    def after_block(start: int, end: int) -> int:
+        """Where to resume after removing the block spanning ``start:end``.
+
+        Trailing whitespace goes with the block unless the kept text before it
+        does not end its line. A tool call after interleaved thinking would
+        otherwise join the previous call's JSON line and stop being parsed.
+        """
+        before = next((part for part in reversed(kept) if part), "")
+        if not before or before.endswith("\n"):
+            return end
+        return start + len(text_content[start:end].rstrip())
+
     call_start, call_end = next_call(0)
     while search_from < len(text_content):
         opener = opener_pattern.search(text_content, search_from)
@@ -1657,7 +1669,7 @@ def _extract_thinking_content(
             while end < len(text_content) and text_content[end].isspace():
                 end += 1
             kept.append(text_content[pos : opener.start()])
-            pos = search_from = end
+            pos = search_from = after_block(opener.start(), end)
             thinking_blocks.append((block, signature))
             continue
         next_framed = bisect_right(framed_starts, opener.start())
@@ -1681,7 +1693,7 @@ def _extract_thinking_content(
             search_from = opener.end()
             continue
         kept.append(text_content[pos : match.start()])
-        pos = search_from = match.end()
+        pos = search_from = after_block(match.start(), match.end())
         if block or signature:
             thinking_blocks.append((block, signature))
     kept.append(text_content[pos:])
@@ -1713,17 +1725,55 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             modified_message = dict(message)
             original_content = message["content"]
 
-            # Extract thinking content from <think> tags for proper Anthropic format
-            thinking_blocks, cleaned_content = _extract_thinking_content(
-                original_content
-            )
+            # Extract thinking within each text block, keeping attachment labels
+            # and images in their original order instead of flattening the list.
+            cleaned_content: str | list = original_content
+            thinking_blocks: list[tuple[str, str]] = []
+            if isinstance(original_content, list):
+                cleaned_content = []
+                for part in original_content:
+                    if part.get("type") == "text":
+                        blocks, text = _extract_thinking_content(part["text"])
+                        thinking_blocks.extend(blocks)
+                        if text:
+                            cleaned_content.append({**part, "text": text})
+                    else:
+                        cleaned_content.append(part)
+            else:
+                thinking_blocks, cleaned_content = _extract_thinking_content(
+                    original_content
+                )
 
             # Parse tool uses from the cleaned content (without thinking tags)
             content_parts, tool_uses = extract_tool_uses_from_assistant_message(
-                cleaned_content, tool_format_override="tool"
+                cleaned_content,
+                tool_format_override="tool",
+                tool_use_to_content=lambda tooluse: {
+                    "type": "tool_use",
+                    "id": tooluse.call_id or "",
+                    "name": native_tool_name(tooluse.tool),
+                    "input": tooluse.kwargs or {},
+                },
             )
 
-            # Build content array in proper order: thinking first, then text, then tools
+            # Unsigned thinking is dropped below, so with no signed block and
+            # no tool call there is nothing to convert: keep the original
+            # blocks, visible <think> text and images included.
+            if not any(sig for _, sig in thinking_blocks) and not tool_uses:
+                pending_call_ids = set()
+                yield modified_message
+                continue
+
+            # No tool call: the helper returns no parts, so keep the reply text.
+            # Otherwise a signed thinking block would replace the whole answer.
+            if not content_parts and not tool_uses and cleaned_content:
+                content_parts = (
+                    cleaned_content
+                    if isinstance(cleaned_content, list)
+                    else [{"type": "text", "text": cleaned_content}]
+                )
+
+            # Thinking comes first; text, images and tool calls retain their order.
             final_content: list[dict] = []
 
             # Add thinking blocks (must come first in Anthropic format).
@@ -1748,23 +1798,12 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                         "Skipping thinking block in history: no signature available"
                     )
 
-            # Add text content parts
+            # Add content parts, including tool uses in Anthropic format.
             for part in content_parts:
                 if isinstance(part, str) and part.strip():
                     final_content.append({"type": "text", "text": part})
                 elif isinstance(part, dict):
                     final_content.append(part)
-
-            # Add tool uses in Anthropic format
-            final_content.extend(
-                {
-                    "type": "tool_use",
-                    "id": tooluse.call_id or "",
-                    "name": native_tool_name(tooluse.tool),
-                    "input": tooluse.kwargs or {},
-                }
-                for tooluse in tool_uses
-            )
 
             if final_content:
                 modified_message["content"] = final_content

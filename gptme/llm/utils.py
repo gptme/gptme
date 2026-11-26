@@ -4,16 +4,19 @@ Shared utilities for LLM implementations.
 
 import base64
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from ..tools import ToolUse
-from ..tools.base import Parameter, ToolFormat
+from ..tools.base import Parameter, ToolFormat, find_json_end, toolcall_re
 from ..util.uri import is_uri
 
 
 def extract_tool_uses_from_assistant_message(
     message_content: str | list[dict[str, str]],
     tool_format_override: ToolFormat | None = None,
+    *,
+    tool_use_to_content: Callable[[ToolUse], dict] | None = None,
 ) -> tuple[list[dict], list[ToolUse]]:
     """Extract tool uses from assistant message content.
 
@@ -24,6 +27,8 @@ def extract_tool_uses_from_assistant_message(
     Args:
         message_content: The message content (string or list of content parts)
         tool_format_override: Override the global tool format for parsing
+        tool_use_to_content: If set, insert formatted tool blocks into
+            content_parts in their original order relative to text and images.
 
     Returns:
         tuple: (content_parts, tool_uses) where:
@@ -31,6 +36,7 @@ def extract_tool_uses_from_assistant_message(
             - tool_uses: List of extracted ToolUse objects with call_id
     """
     text = ""
+    carry = ""  # same-line text after a tool call, kept out of the parser
     content_parts = []
     tool_uses = []
 
@@ -42,6 +48,14 @@ def extract_tool_uses_from_assistant_message(
 
     for message_part in message_parts:
         if message_part["type"] != "text":
+            # Flush pending text before the non-text part so the original
+            # order is preserved: text that followed a tool call must come
+            # before an attached image, not after it.
+            pending = carry + text
+            if pending.strip():
+                content_parts.append({"type": "text", "text": pending})
+            carry = ""
+            text = ""
             content_parts.append(message_part)
             continue
 
@@ -75,18 +89,44 @@ def extract_tool_uses_from_assistant_message(
             # We only want to add a tool call if we have a call_id which
             # means it is a tool response
             if tooluse.call_id:
-                before_tool = text[: tooluse.start]
+                before_tool = carry + text[: tooluse.start]
 
                 if before_tool.strip():
                     content_parts.append({"type": "text", "text": before_tool})
 
                 tool_uses.append(tooluse)
+                if tool_use_to_content is not None:
+                    content_parts.append(tool_use_to_content(tooluse))
+                # Streamed text can follow the closing brace on the same
+                # line. Put back in the buffer it would start a line and
+                # could parse as another call, so carry it unparsed and
+                # prepend it to the next part: a separate part would be
+                # joined with blank lines by some providers.
+                carry = _text_after_tool_call(text, tooluse)
             else:
-                content_parts.append({"type": "text", "text": text})
+                content_parts.append({"type": "text", "text": carry + text})
+                carry = ""
             # The text is emptied to start over with the next lines if any.
             text = ""
 
+    # Keep text after the last tool call. A message without any tool call still
+    # returns no parts, so callers fall back to the raw content.
+    text = carry + text
+    if text.strip() and (content_parts or tool_uses):
+        content_parts.append({"type": "text", "text": text})
+
     return content_parts, tool_uses
+
+
+def _text_after_tool_call(text: str, tooluse: ToolUse) -> str:
+    """Return the text after a native tool call's JSON, or "" if unknown."""
+    if tooluse._format != "tool" or tooluse.start is None:
+        return ""
+    match = toolcall_re.match(text, tooluse.start)
+    if not match:
+        return ""
+    json_end = find_json_end(text, match.start(3))
+    return text[json_end:] if json_end is not None else ""
 
 
 def parameters2dict(parameters: list[Parameter]) -> dict[str, object]:
