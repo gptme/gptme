@@ -1,7 +1,11 @@
 """Tests for the Claude Code eval agent."""
 
+import json
 import os
+import shlex
 import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -178,8 +182,8 @@ def test_agent_custom_max_turns_forwarded_locally():
         assert cmd[idx + 1] == "42"
 
 
-def test_agent_tools_forwarded():
-    """Test that tools parameter is forwarded as --allowedTools."""
+def test_agent_tools_forwarded() -> None:
+    """Test that selected tools are available and pre-approved."""
     agent = ClaudeCodeAgent(
         model="claude-code/claude-sonnet-4-6", tools=["shell", "read"]
     )
@@ -207,9 +211,61 @@ def test_agent_tools_forwarded():
         agent.act(None, "test")
 
         cmd = mock_run.call_args[0][0]
-        assert "--allowedTools" in cmd
-        idx = cmd.index("--allowedTools")
-        assert cmd[idx + 1] == "shell,read"
+        for flag in ("--tools", "--allowedTools"):
+            assert cmd[cmd.index(flag) + 1] == "Bash,Read,Glob,Grep"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="The Claude CLI shim uses a shebang")
+@pytest.mark.parametrize(
+    "user_context", [False, True], ids=["isolated", "user-context"]
+)
+def test_claude_code_eval_cli_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    user_context: bool,
+) -> None:
+    """Run a patch-only eval through the CLI and capture the Claude Code argv."""
+    argv_file = tmp_path / "claude-argv.json"
+    claude = tmp_path / "claude"
+    claude.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        f"Path({str(argv_file)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+        """Path('hello.py').write_text('print("Hello, human!")')\n"""
+    )
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path), prepend=os.pathsep)
+    monkeypatch.setenv("EVAL_RESULTS_DIR", str(tmp_path / "results"))
+    cmd = [
+        sys.executable,
+        "-m",
+        "gptme.eval",
+        "hello-patch",
+        "-m",
+        "claude-code/claude-sonnet-4-6@markdown",
+        "--timeout",
+        "15",
+    ]
+    if user_context:
+        cmd.append("--user-context")
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=30, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert argv_file.exists(), result.stdout + result.stderr
+
+    args = json.loads(argv_file.read_text())
+    flags = {
+        flag: args[args.index(flag) + 1] if flag in args else None
+        for flag in ("--allowedTools", "--tools", "--setting-sources")
+    }
+    assert flags == {
+        "--allowedTools": "Read,Edit",
+        "--tools": "Read,Edit",
+        "--setting-sources": None if user_context else "",
+    }
+    assert "--strict-mcp-config" in args
 
 
 def test_agent_docker_mode():
@@ -237,6 +293,7 @@ def test_agent_docker_mode():
             model="claude-sonnet-4-6",
             tools=None,
             max_turns=30,
+            include_user_context=False,
         )
         mock_env.cleanup.assert_called_once()
 
@@ -278,7 +335,98 @@ def test_agent_docker_mode_with_tools():
             model="claude-sonnet-4-6",
             tools=["shell", "read"],
             max_turns=30,
+            include_user_context=False,
         )
+
+
+@pytest.mark.parametrize(
+    ("tools", "user_context", "selected", "approved"),
+    [
+        pytest.param(
+            ["read", "save", "append", "morph", "browser", "Bash", "ipython", "Read"],
+            False,
+            "Read,Glob,Grep,Write,Edit,WebFetch,WebSearch,Bash",
+            "Read,Glob,Grep,Write,Edit,WebFetch,WebSearch,Bash",
+            id="mixed-tools",
+        ),
+        pytest.param(["save"], False, "Read,Write", "Read,Write", id="save-only"),
+        pytest.param(
+            ["append"], True, "Read,Edit,Write", "Read,Edit,Write", id="append-only"
+        ),
+        pytest.param([], True, "", None, id="explicit-empty"),
+        pytest.param(["ipython"], False, "", None, id="unknown-only"),
+        pytest.param(
+            None,
+            False,
+            None,
+            "Bash,Read,Glob,Grep,Write,Edit,WebFetch,WebSearch",
+            id="isolated-unrestricted",
+        ),
+        pytest.param(None, True, None, None, id="user-context-unrestricted"),
+    ],
+)
+def test_agent_docker_cli_flags(
+    tools: list[str] | None,
+    user_context: bool,
+    selected: str | None,
+    approved: str | None,
+) -> None:
+    """Exercise the Docker launcher through the real agent and adapter."""
+    agent = ClaudeCodeAgent(
+        model="claude-code/claude-sonnet-4-6",
+        use_docker=True,
+        tools=tools,
+        include_user_context=user_context,
+    )
+    with (
+        patch("gptme.eval.agents.claude_code._MANAGED_MCP_CONFIG") as managed_mcp,
+        patch("gptme.eval.execenv.subprocess.run") as mock_run,
+        patch("gptme.eval.execenv.subprocess.Popen") as mock_popen,
+    ):
+        managed_mcp.is_file.return_value = True
+        mock_run.return_value.stdout = "container123\n"
+        mock_process = mock_popen.return_value
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = ("", "")
+
+        agent.act(None, "fix 'this' file")
+
+    managed_mcp.is_file.assert_not_called()
+    args = shlex.split(mock_popen.call_args.args[0][-1])
+    assert args[:3] == ["claude", "-p", WORKSPACE_INSTRUCTION + "fix 'this' file"]
+    flags = {
+        flag: args[args.index(flag) + 1] if flag in args else None
+        for flag in ("--tools", "--allowedTools", "--setting-sources")
+    }
+    assert flags == {
+        "--tools": selected,
+        "--allowedTools": approved,
+        "--setting-sources": None if user_context else "",
+    }
+    assert ("--strict-mcp-config" in args) == (not user_context or tools is not None)
+
+
+def test_agent_refuses_isolation_with_managed_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    managed_mcp = tmp_path / "managed-mcp.json"
+    managed_mcp.write_text('{"mcpServers": {}}')
+    monkeypatch.setattr(
+        "gptme.eval.agents.claude_code._MANAGED_MCP_CONFIG", managed_mcp
+    )
+    agent = ClaudeCodeAgent(
+        model="claude-code/claude-sonnet-4-6", tools=[], include_user_context=True
+    )
+    with (
+        patch(
+            "gptme.eval.agents.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ),
+        patch("gptme.eval.agents.claude_code.subprocess.run") as mock_run,
+        pytest.raises(RuntimeError, match="Cannot isolate MCP"),
+    ):
+        agent.act(None, "test")
+    mock_run.assert_not_called()
+    assert CostTracker.get_session_costs() is None
 
 
 def test_agent_docker_startup_failure_does_not_start_cost_session():

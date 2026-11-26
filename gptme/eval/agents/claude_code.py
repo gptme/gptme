@@ -15,9 +15,12 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
+from pathlib import Path
 
 from ...util.cost_tracker import CostEntry, CostTracker
+from ..claude_code_cli import claude_code_tool_args
 from ..execenv import DockerClaudeCodeEnv
 from ..filestore import FileStore
 from ..types import Files
@@ -26,6 +29,11 @@ from . import Agent
 logger = logging.getLogger(__name__)
 
 CLAUDE_CODE_MODEL_PREFIX = "claude-code/"
+
+_MANAGED_MCP_CONFIG = {
+    "darwin": Path("/Library/Application Support/ClaudeCode/managed-mcp.json"),
+    "win32": Path("C:/Program Files/ClaudeCode/managed-mcp.json"),
+}.get(sys.platform, Path("/etc/claude-code/managed-mcp.json"))
 
 WORKSPACE_INSTRUCTION = (
     "IMPORTANT: You are running inside an isolated eval workspace "
@@ -87,11 +95,6 @@ class ClaudeCodeAgent(Agent):
 
     def _act_local(self, store: FileStore, prompt: str) -> Files:
         """Execute Claude Code directly on the host."""
-        if not self.include_user_context:
-            logger.warning(
-                "include_user_context=False has no effect for ClaudeCodeAgent — "
-                "the Claude Code CLI reads its own user config (e.g. ~/.claude/) unconditionally."
-            )
         claude_bin = shutil.which("claude")
         if claude_bin is None:
             raise FileNotFoundError(
@@ -103,7 +106,13 @@ class ClaudeCodeAgent(Agent):
         # uses relative paths for file creation inside the eval workspace.
         eval_prompt = WORKSPACE_INSTRUCTION + prompt
 
-        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
+        tool_args = claude_code_tool_args(self.tools, self.include_user_context)
+        if "--strict-mcp-config" in tool_args and _MANAGED_MCP_CONFIG.is_file():
+            # Managed MCP takes precedence and Claude Code rejects strict mode.
+            raise RuntimeError(
+                f"Cannot isolate MCP for this Claude Code eval: {_MANAGED_MCP_CONFIG} "
+                "is present. Run the eval in Docker to isolate it from this file."
+            )
 
         cmd = [
             claude_bin,
@@ -115,16 +124,10 @@ class ClaudeCodeAgent(Agent):
             self.cc_model,
             "--max-turns",
             str(self.max_turns),
+            *tool_args,
         ]
 
-        if self.tools:
-            logger.warning(
-                "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
-                "match Claude Code's --allowedTools identifiers. "
-                "Tool restrictions may not be fully enforced.",
-                self.tools,
-            )
-            cmd.extend(["--allowedTools", ",".join(self.tools)])
+        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
@@ -178,14 +181,6 @@ class ClaudeCodeAgent(Agent):
             timeout=self.timeout,
         )
 
-        if self.tools:
-            logger.warning(
-                "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
-                "match Claude Code's --allowedTools identifiers. "
-                "Tool restrictions may not be fully enforced.",
-                self.tools,
-            )
-
         try:
             # Start the container first so startup failures don't create a
             # dangling cost-tracking session before generation even begins.
@@ -196,6 +191,7 @@ class ClaudeCodeAgent(Agent):
                 model=self.cc_model,
                 tools=self.tools,
                 max_turns=self.max_turns,
+                include_user_context=self.include_user_context,
             )
 
             if exit_code != 0:
