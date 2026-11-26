@@ -103,8 +103,8 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
     "gpt-5.6-luna": {
         "context": 1_000_000,
         "max_output": 128_000,
-        "price_input": 1,
-        "price_output": 6,
+        "price_input": 0.2,
+        "price_output": 1.2,
         "supports_vision": True,
         "supports_reasoning": True,
         "supports_responses_api": True,
@@ -341,8 +341,8 @@ OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
     "gpt-5.6-luna": {
         "context": 1_000_000,
         "max_output": 128_000,
-        "price_input": 1,
-        "price_output": 6,
+        "price_input": 0.2,
+        "price_output": 1.2,
         "supports_vision": True,
         "supports_reasoning": True,
         "supports_parallel_tool_calls": True,
