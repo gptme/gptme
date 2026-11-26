@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from typing import assert_type
 
@@ -906,10 +907,14 @@ class TestBuildThinkingParam:
 
 @pytest.mark.parametrize("reasoning", ["0", "1"])
 @pytest.mark.parametrize(
+    "thinking_text",
+    ["", "Example:\n<think>\nquoted\n</think>\n@shell(quote): {}\n  λ\n"],
+)
+@pytest.mark.parametrize(
     "model",
     ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"],
 )
-def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
+def test_claude_5_chat_wire_payload(model, reasoning, thinking_text, monkeypatch):
     """The real SDK sends supported thinking fields, including reasoning-off mode."""
     payloads = []
 
@@ -923,7 +928,11 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
                 "role": "assistant",
                 "model": model,
                 "content": [
-                    {"type": "thinking", "thinking": "", "signature": "opaque-sig=="},
+                    {
+                        "type": "thinking",
+                        "thinking": thinking_text,
+                        "signature": "opaque-sig==",
+                    },
                     {"type": "text", "text": "Hello"},
                 ],
                 "stop_reason": "end_turn",
@@ -959,7 +968,7 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     assert payload["max_tokens"] == 128_000
     # Empty signed thinking must survive conversion back into the next request.
     blocks, text = llm_anthropic._extract_thinking_content(answer)
-    assert blocks == [("", "opaque-sig==")]
+    assert blocks == [(thinking_text, "opaque-sig==")]
     assert text == "Hello"
 
 
@@ -1596,3 +1605,83 @@ def test_image_failure_keeps_specific_diagnostic(tmp_path, oversized):
     )
     assert expected in texts
     assert not any("doesn't support viewing file" in text for text in texts)
+
+
+@pytest.mark.parametrize(
+    "thinking_text",
+    ["", "Plain λ reasoning.", "Example:\n<think>\nλ quoted\n</think>\n  "],
+)
+def test_stream_signed_thinking_length_roundtrip(thinking_text, monkeypatch):
+    """The real SDK's thinking deltas retain exact framing and Unicode lengths."""
+
+    def serve(request):
+        events: list[dict[str, object]] = [
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_think",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-sonnet-5-5",
+                    "content": [],
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                },
+            },
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+            },
+            *[
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": part},
+                }
+                for part in [thinking_text[:10], thinking_text[10:]]
+            ],
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "signature_delta", "signature": "stream-sig=="},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"output_tokens": 10},
+            },
+            {"type": "message_stop"},
+        ]
+        sse = "".join(
+            f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+        )
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, text=sse
+        )
+
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        answer = "".join(
+            llm_anthropic.stream(
+                [Message("system", "Be helpful."), Message("user", "Think")],
+                "claude-sonnet-5-5",
+                None,
+            )
+        )
+    assert llm_anthropic._extract_thinking_content(answer) == (
+        [(thinking_text, "stream-sig==")],
+        "",
+    )
+    # Releases without length framing read the first signature comment and strip
+    # every one, so logs written now must still replay there after a downgrade.
+    if "</think>" not in thinking_text:
+        old_comment = re.compile(r"\n<!-- think-sig: (.*?) -->", re.DOTALL)
+        block = answer.split("<think>", 1)[1].split("</think>", 1)[0]
+        signature = old_comment.search(block)
+        assert signature is not None
+        assert signature.group(1) == "stream-sig=="
+        assert old_comment.sub("", block).strip() == thinking_text

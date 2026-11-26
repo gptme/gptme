@@ -2,6 +2,7 @@
 
 import re
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -1224,6 +1225,489 @@ def test_extract_thinking_content_multi_block():
     assert blocks[1] == ("second reasoning", sig2)
     assert "Answer here." in cleaned
     assert "<think>" not in cleaned
+
+
+def test_extract_thinking_content_keeps_literal_tags_after_text():
+    """gptme#5218 item 11: literal tags in prose or tool arguments are content."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        "<think>\nplan\n</think>\n"
+        "Run this:\n"
+        '@shell(call-1): {"command": "printf \'<think>keep</think>\'"}'
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert blocks == [("plan", "")]
+    assert "printf '<think>keep</think>'" in cleaned
+    assert cleaned.startswith("Run this:")
+
+
+def test_extract_thinking_content_span_across_tool_call_is_kept():
+    """A literal span that crosses a tool call must not delete the call."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    tool_call = '@save(call-1): {"path": "a.txt", "content": "x"}'
+    content = f"Note <thinking> starts here\n{tool_call}\nand ends </thinking> here."
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert blocks == []
+    assert cleaned == content
+
+
+def test_extract_thinking_content_interleaved_signed_block():
+    """A signed block after text is still real thinking (interleaved)."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    sig = "laterSig=="
+    content = (
+        "First answer.\n"
+        f"<think>\nmore reasoning\n<!-- think-sig: {sig} -->\n</think>\n"
+        "Second answer with literal <think>x</think>."
+    )
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert blocks == [("more reasoning", sig)]
+    assert "think-sig" not in cleaned
+    assert "First answer." in cleaned
+    assert "literal <think>x</think>." in cleaned
+
+
+def test_handle_tools_keeps_tool_use_with_literal_think_argument():
+    """The tool_use survives when its argument contains a literal think tag."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+
+    tool_call = '@shell(call-1): {"command": "printf \'<think>keep</think>\'"}'
+    result = list(
+        _handle_tools([{"role": "assistant", "content": f"Ok.\n{tool_call}"}])
+    )
+
+    content = result[0]["content"]
+    tool_uses = [b for b in content if b.get("type") == "tool_use"]
+    assert len(tool_uses) == 1
+    assert "<think>keep</think>" in str(tool_uses[0]["input"])
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("prefix", ["", "Wrap it in <think> tags.\n"])
+def test_handle_tools_literal_opener_before_signed_thinking(
+    tag: str, prefix: str
+) -> None:
+    """An unmatched literal cannot consume a later signed block or its tool pair."""
+    import json
+
+    from gptme.llm.llm_anthropic import _extract_thinking_content, _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    command = f"printf '<{tag}>'"
+    tool_call = f"@shell(call-1): {json.dumps({'command': command})}"
+    literal = prefix + tool_call
+    signed = f"<{tag}>\nmore reasoning\n<!-- think-sig: laterSig== -->\n</{tag}>"
+    content = f"{literal}\n{signed}\nDone."
+
+    assert _extract_thinking_content(content) == (
+        [("more reasoning", "laterSig==")],
+        f"{literal}\nDone.",
+    )
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "ok"},
+            ]
+        )
+    )
+    uses = [part for part in result[0]["content"] if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["input"] == {"command": command}
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "call-1"
+    assert result[0]["content"][0] == {
+        "type": "thinking",
+        "thinking": "more reasoning",
+        "signature": "laterSig==",
+    }
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_extract_thinking_content_unmatched_prose_opener(tag: str) -> None:
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    literal = f"Wrap it in <{tag}> tags."
+    content = (
+        f"{literal}\n<{tag}>\nreasoning\n<!-- think-sig: sig -->\n</{tag}>\nAnswer."
+    )
+    assert _extract_thinking_content(content) == (
+        [("reasoning", "sig")],
+        f"{literal}\nAnswer.",
+    )
+
+
+@pytest.mark.parametrize("multiline", [False, True])
+def test_extract_thinking_content_signed_literal_in_tool(multiline: bool) -> None:
+    """Even a signature-looking comment inside JSON is tool data, not thinking."""
+    import json
+
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    argument = "<think>\nliteral\n<!-- think-sig: not-a-signature -->\n</think>"
+    arguments = json.dumps({"content": argument}, indent=2 if multiline else None)
+    tool_call = f"@save(call-1): {arguments}"
+    content = (
+        f"{tool_call}\n"
+        "<think>\nreal reasoning\n<!-- think-sig: realSig -->\n</think>\nDone."
+    )
+    assert _extract_thinking_content(content) == (
+        [("real reasoning", "realSig")],
+        f"{tool_call}\nDone.",
+    )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize(
+    "reasoning",
+    [
+        'Consider this call:\n@shell(quoted): {"command": "echo example"}\nDo not run it.',
+        "The user wants <think> tags preserved.",
+        "The user wants <thinking> tags preserved.",
+        "Keep the literal <think>x</think> and <thinking>y</thinking>.",
+        "  reasoning with significant whitespace\n\n",
+    ],
+)
+@pytest.mark.parametrize("prefix", ["", "An interleaved answer.\n"])
+@pytest.mark.parametrize("length_framed", [False, True])
+def test_handle_tools_signed_thinking_keeps_quoted_content(
+    tag: str, reasoning: str, prefix: str, length_framed: bool
+) -> None:
+    """Replay the provider's exact signed text, not tags/calls quoted inside it."""
+    from gptme.llm.llm_anthropic import (
+        _extract_thinking_content,
+        _handle_tools,
+        _thinking_footer,
+    )
+    from gptme.tools import init_tools
+
+    init_tools()
+    if length_framed:
+        reasoning += "\nExample:\n<think>\nquoted\n</think>\nContinue"
+        reasoning += f"\n<think>\nx\n{_thinking_footer('inner', 'x')}\n</think>"
+    tool_call = '@shell(real-call): {"command": "echo real"}'
+    footer = (
+        _thinking_footer("signed==", reasoning)
+        if length_framed
+        else "<!-- think-sig: signed== -->"
+    )
+    content = f"{prefix}<{tag}>\n{reasoning}\n{footer}\n</{tag}>\n{tool_call}"
+    assert _extract_thinking_content(content) == (
+        [(reasoning, "signed==")],
+        f"{prefix}{tool_call}",
+    )
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "real-call", "content": "real"},
+            ]
+        )
+    )
+    assert result[0]["content"][0] == {
+        "type": "thinking",
+        "thinking": reasoning,
+        "signature": "signed==",
+    }
+    uses = [part for part in result[0]["content"] if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["input"] == {"command": "echo real"}
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "real-call"
+
+
+def test_extract_thinking_content_unsigned_before_signed() -> None:
+    """A legacy unsigned block must not absorb the following signed block."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        "<think>\nlegacy\n</think>\nAnswer.\n"
+        "<think>\nsigned\n<!-- think-sig: sig -->\n</think>"
+    )
+    assert _extract_thinking_content(content) == (
+        [("legacy", ""), ("signed", "sig")],
+        "Answer.",
+    )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize(
+    "reasoning",
+    [
+        "Use <{tag}> as a marker, closed by </{tag}> later.",
+        'Consider this:\n@shell(quoted): {{"command": "echo example"}}',
+    ],
+)
+def test_handle_tools_unsigned_reasoning_mentioning_tags(
+    tag: str, reasoning: str
+) -> None:
+    """History from another provider keeps leading reasoning out of the answer."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    reasoning = reasoning.format(tag=tag)
+    tool_call = '@shell(call-1): {"command": "echo real"}'
+    content = f"<{tag}>\n{reasoning}\n</{tag}>\n\nAnswer.\n{tool_call}"
+
+    result = list(_handle_tools([{"role": "assistant", "content": content}]))
+
+    parts = result[0]["content"]
+    assert [part["type"] for part in parts] == ["text", "tool_use"]
+    assert parts[0]["text"].strip() == "Answer."
+    assert parts[1]["id"] == "call-1"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("separator", [" tags wrap reasoning.", "\nplan"])
+def test_extract_thinking_content_leading_opener_closed_in_tool_call(
+    tag: str, separator: str
+) -> None:
+    """A closing tag inside tool JSON cannot close a leading literal opener."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        f"<{tag}>{separator} Check:\n"
+        f'@shell(call-1): {{"command": "grep -c \'</{tag}>\' log"}}'
+    )
+
+    assert _extract_thinking_content(content) == ([], content)
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("opener_close", ["plan</{tag}>", "plan\n</{tag}>"])
+@pytest.mark.parametrize(
+    "later_line", ["</{tag}> is the closing tag.", "</{tag}>", "Close with </{tag}>"]
+)
+def test_handle_tools_later_closing_tag_keeps_tool_pair(
+    tag: str, opener_close: str, later_line: str
+) -> None:
+    """Leading reasoning ends at its own closer, not at one after a tool call."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    tool_call = '@shell(call-1): {"command": "echo real"}'
+    content = (
+        f"<{tag}>\n{opener_close.format(tag=tag)}\n{tool_call}\n"
+        f"{later_line.format(tag=tag)}"
+    )
+
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "real"},
+            ]
+        )
+    )
+
+    uses = [part for part in result[0]["content"] if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "call-1"
+
+
+def test_extract_thinking_content_legacy_quoted_signature_comment() -> None:
+    """Without a length, a quoted comment drops the block instead of mis-signing it."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    reasoning = "Logs store <!-- think-sig: example --> comments."
+    content = f"<think>\n{reasoning}\n<!-- think-sig: real -->\n</think>\nAnswer."
+
+    blocks, cleaned = _extract_thinking_content(content)
+
+    assert [signature for _, signature in blocks] == [""]
+    assert cleaned == "Answer."
+
+
+def test_extract_thinking_content_many_literal_blocks() -> None:
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    literal = "Example: " + "<think>literal</think> " * 10_000
+    content = literal + "<think>\nreasoning\n<!-- think-sig: sig -->\n</think>"
+    assert _extract_thinking_content(content) == (
+        [("reasoning", "sig")],
+        literal.strip(),
+    )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("example_opener", ["<{tag}>\n", "Write <{tag}>\n"])
+@pytest.mark.parametrize("later_framed", [False, True])
+@pytest.mark.parametrize("gap", ["\nThen: ", "\n", ""])
+def test_extract_thinking_content_example_comment_before_call(
+    tag: str, example_opener: str, later_framed: bool, gap: str
+) -> None:
+    """A quoted signature comment must not borrow a later block's closing tag."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content, _thinking_footer
+
+    prose = (
+        example_opener.format(tag=tag)
+        + "<!-- think-sig: example -->\n"
+        + '@shell(real-call): {"command": "echo real"}'
+        + gap
+    )
+    footer = (
+        _thinking_footer("realSig", "reasoning")
+        if later_framed
+        else "<!-- think-sig: realSig -->"
+    )
+    signed = f"<{tag}>\nreasoning\n{footer}\n</{tag}>"
+
+    # Streamed history can open the later block directly after the call's JSON.
+    assert _extract_thinking_content(prose + signed) == (
+        [("reasoning", "realSig")],
+        prose.strip(),
+    )
+
+
+@pytest.mark.parametrize("chars", [3, 999])
+def test_extract_thinking_content_stale_length_keeps_signature_clean(
+    chars: int,
+) -> None:
+    """An edited block falls back to delimiters without corrupting the signature."""
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    content = (
+        "<think>\nedited reasoning\n<!-- think-sig: sig== -->\n"
+        f"<!-- think-sig: chars={chars} crc32=00000000 -->\n</think>\nDone."
+    )
+
+    assert _extract_thinking_content(content) == (
+        [("edited reasoning", "sig==")],
+        "Done.",
+    )
+
+
+@pytest.mark.parametrize("opener", ["<think>\n", "Write <think>\n"])
+def test_handle_tools_stale_length_aimed_at_earlier_opener(opener: str) -> None:
+    """A stale length that lands on an earlier opener must not swallow a call."""
+    from gptme.llm.llm_anthropic import _handle_tools, _thinking_footer
+    from gptme.tools import init_tools
+
+    init_tools()
+    head = f'{opener}first\n</think>\n@shell(call-1): {{"command": "echo real"}}\n'
+    signed = "<think>\nedited"
+    # The length reaches back to just after the first opener.
+    stale = len(head + signed) - len(opener)
+    footer = _thinking_footer("sig==", "x" * stale)
+    content = f"{head}{signed}\n{footer}\n</think>"
+
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "real"},
+            ]
+        )
+    )
+
+    parts = result[0]["content"]
+    assert [p["id"] for p in parts if p["type"] == "tool_use"] == ["call-1"]
+    assert [p["thinking"] for p in parts if p["type"] == "thinking"] == ["edited"]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("opener_close", ["plan</{tag}>", "plan\n</{tag}>"])
+@pytest.mark.parametrize(
+    "later_line", ["</{tag}>", "Close with </{tag}>", "Close with </{tag}>\nDone."]
+)
+def test_handle_tools_mid_line_closer_keeps_tool_pair(
+    tag: str, opener_close: str, later_line: str
+) -> None:
+    """Text after the closer on its line must not push the block past a call."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    tool_call = '@shell(call-1): {"command": "echo real"}'
+    content = (
+        f"<{tag}>\n{opener_close.format(tag=tag)}Answer.\n{tool_call}\n"
+        f"{later_line.format(tag=tag)}"
+    )
+
+    result = list(
+        _handle_tools(
+            [
+                {"role": "assistant", "content": content},
+                {"role": "user", "call_id": "call-1", "content": "real"},
+            ]
+        )
+    )
+
+    parts = result[0]["content"]
+    assert parts[0]["type"] == "text"
+    assert parts[0]["text"].startswith("Answer.")
+    uses = [part for part in parts if part["type"] == "tool_use"]
+    assert len(uses) == 1
+    assert uses[0]["id"] == result[1]["content"][0]["tool_use_id"] == "call-1"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("example", ['{"command": ', '{"command": "echo'])
+def test_handle_tools_mention_then_unfinished_call(tag: str, example: str) -> None:
+    """An unfinished example stays in the reasoning, so it cannot hide a call."""
+    from gptme.llm.llm_anthropic import _handle_tools
+    from gptme.tools import init_tools
+
+    init_tools()
+    content = (
+        f"<{tag}>\nClose with </{tag}> later.\n@shell(quoted): {example}\n"
+        f'</{tag}>\n\nAnswer.\n@shell(call-1): {{"command": "echo real"}}'
+    )
+
+    result = list(_handle_tools([{"role": "assistant", "content": content}]))
+
+    parts = result[0]["content"]
+    assert [part["type"] for part in parts] == ["text", "tool_use"]
+    assert parts[0]["text"].strip() == "Answer."
+    assert parts[1]["id"] == "call-1"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_extract_thinking_content_mention_then_quoted_call(tag: str) -> None:
+    """Known limit: a mentioned closer before a quoted call ends the reasoning.
+
+    It cannot be told apart from a real mid-line closer followed by a real call.
+    """
+    from gptme.llm.llm_anthropic import _extract_thinking_content
+
+    quoted = '@shell(quoted): {"command": "echo example"}'
+    content = f"<{tag}>\nClose with </{tag}> later.\n{quoted}\n</{tag}>\n\nAnswer."
+
+    assert _extract_thinking_content(content) == (
+        [("Close with", "")],
+        f"later.\n{quoted}\n</{tag}>\n\nAnswer.",
+    )
+
+
+@pytest.mark.parametrize(
+    "literal",
+    ["<think>literal</think> ", "Use <think> tags. "],
+)
+def test_extract_thinking_content_searches_tool_calls_once(
+    literal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Literal tags must not each rescan the rest of the reply for a tool call."""
+    from gptme.llm import llm_anthropic
+
+    spy = Mock(wraps=llm_anthropic.toolcall_re)
+    monkeypatch.setattr(llm_anthropic, "toolcall_re", spy)
+    content = "Example: " + literal * 100
+
+    assert llm_anthropic._extract_thinking_content(content) == ([], content.strip())
+    assert spy.search.call_count == 1
 
 
 def test_handle_tools_thinking_with_signature():
