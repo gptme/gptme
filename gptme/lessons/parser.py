@@ -363,7 +363,26 @@ def parse_lesson(path: Path) -> Lesson:
 
         # Fences must be whole lines: a "---" inside a YAML value is not a fence.
         fence = _FRONTMATTER_RE.match(content)
-        ambiguous_frontmatter = fence is None and has_frontmatter_fence(content)
+        # A blank line followed by a Markdown heading makes the opening line
+        # a thematic break, even when the following body happens to be YAML.
+        thematic_break = (
+            fence is not None
+            and "#" not in content.splitlines()[0]
+            and re.match(r"\A[ \t]*\r?\n\s*#{1,6}[ \t]+", fence.group(1)) is not None
+        )
+        if thematic_break and fence is not None:
+            # Explicit YAML scalars remain malformed headers, not body prose.
+            try:
+                node = yaml.compose(fence.group(1), Loader=_YamlSafeLoader)
+            except yaml.YAMLError:
+                node = None
+            if isinstance(node, yaml.ScalarNode) and node.style in {"|", ">", "'", '"'}:
+                thematic_break = False
+        if thematic_break:
+            fence = None
+        ambiguous_frontmatter = (
+            fence is None and not thematic_break and has_frontmatter_fence(content)
+        )
         malformed_frontmatter = ambiguous_frontmatter
         if fence:
             frontmatter_str = fence.group(1)
@@ -382,7 +401,12 @@ def parse_lesson(path: Path) -> Lesson:
                     )
                 else:
                     malformed_frontmatter = not isinstance(frontmatter, dict)
-                    ambiguous_frontmatter = isinstance(frontmatter, str)
+                    if isinstance(frontmatter, str):
+                        node = yaml.compose(frontmatter_str, Loader=_YamlSafeLoader)
+                        ambiguous_frontmatter = node is not None and node.style in {
+                            None,
+                            "",
+                        }
                 if frontmatter and isinstance(frontmatter, dict):
                     # Detect format based on file extension and frontmatter structure
                     has_globs = "globs" in frontmatter

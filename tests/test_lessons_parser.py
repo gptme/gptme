@@ -971,8 +971,8 @@ class TestFrontmatterFenceLines:
 
         lesson = parse_lesson(lesson_file)
 
-        assert lesson.malformed_frontmatter
-        assert lesson.ambiguous_frontmatter
+        assert not lesson.malformed_frontmatter
+        assert not lesson.ambiguous_frontmatter
         assert lesson.body == content
         assert lesson.title == "Deploy"
         assert lesson.description == "Always tag releases"
@@ -1009,3 +1009,44 @@ class TestFrontmatterFenceLines:
     )
     def test_has_frontmatter_fence(self, content: str, expected: bool):
         assert has_frontmatter_fence(content) is expected
+
+
+@pytest.mark.parametrize("text", ["- item", "key: value"])
+def test_heading_after_blank_opening_divider_is_body(tmp_path: Path, text: str):
+    path = tmp_path / "lesson.md"
+    content = f"---\n\n# Title\n{text}\n\n---\nBody\n"
+    path.write_text(content)
+    lesson = parse_lesson(path)
+    assert lesson.title == "Title"
+    assert lesson.body == content
+    assert not lesson.malformed_frontmatter
+    assert not lesson.ambiguous_frontmatter
+
+
+def test_explicit_block_scalar_is_not_ambiguous_prose(tmp_path: Path):
+    path = tmp_path / "lesson.md"
+    path.write_text("---\n|\n  explicit scalar\n---\n# Title\nBody\n")
+    lesson = parse_lesson(path)
+    assert lesson.malformed_frontmatter
+    assert not lesson.ambiguous_frontmatter
+
+
+def test_commented_yaml_fence_keeps_metadata_after_blank_comment(tmp_path: Path):
+    path = tmp_path / "lesson.md"
+    path.write_text(
+        "--- # YAML metadata\n\n# Settings\nstatus: deprecated\n"
+        "match:\n  keywords: [deploy]\n---\n# Actual Lesson\nBody\n"
+    )
+    lesson = parse_lesson(path)
+    assert lesson.metadata.status == "deprecated"
+    assert lesson.metadata.keywords == ["deploy"]
+    assert lesson.title == "Actual Lesson"
+
+
+def test_block_scalar_after_blank_comment_still_warns(tmp_path: Path):
+    path = tmp_path / "lesson.md"
+    path.write_text("---\n\n# Scalar notes\n|\n  scalar\n---\n# Actual Lesson\nBody\n")
+    lesson = parse_lesson(path)
+    assert lesson.malformed_frontmatter
+    assert not lesson.ambiguous_frontmatter
+    assert lesson.title == "Actual Lesson"
