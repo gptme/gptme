@@ -8,6 +8,7 @@ const mockError = jest.fn();
 const mockFetch = jest.fn();
 const mockOnSelect = jest.fn();
 const mockRefetch = jest.fn();
+const mockRefetchModels = jest.fn();
 let mockDefaultModelSource = 'config.toml';
 let mockApi = { baseUrl: 'http://127.0.0.1:5700', authHeader: 'Bearer test-token' };
 const mockConnected = observable(true);
@@ -35,6 +36,7 @@ jest.mock('@/hooks/useModels', () => ({
     ],
     defaultModel: 'anthropic/claude-sonnet-4-7',
     recommendedModels: ['anthropic/claude-sonnet-4-7'],
+    refetch: mockRefetchModels,
     isLoading: false,
     error: null,
   }),
@@ -151,6 +153,7 @@ describe('ServerDefaultModelSettings', () => {
     expect(mockOnSelect).toHaveBeenCalled();
     expect(mockSuccess).toHaveBeenCalledWith('Default model updated.');
     expect(mockRefetch).toHaveBeenCalled();
+    expect(mockRefetchModels).toHaveBeenCalled();
   });
 
   it('shows configured providers from user settings', () => {

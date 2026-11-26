@@ -1,4 +1,6 @@
 import '@testing-library/jest-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { SetupWizard } from '../SetupWizard';
@@ -87,6 +89,11 @@ jest.mock('@/components/ModelPicker', () => ({
   ModelPickerField: () => null,
 }));
 
+function QueryWrapper({ children }: { children: ReactNode }) {
+  const [client] = useState(() => new QueryClient());
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 it.each(['untouched', 'explicit choice', 'existing conversation'])(
   'refreshes setup models while preserving %s composer ownership',
   async (mode) => {
@@ -125,7 +132,8 @@ it.each(['untouched', 'explicit choice', 'existing conversation'])(
           />
           <SetupWizard />
         </TooltipProvider>
-      </SettingsProvider>
+      </SettingsProvider>,
+      { wrapper: QueryWrapper }
     );
     await waitFor(() =>
       expect(mockFetch).toHaveBeenCalledWith(
@@ -184,7 +192,7 @@ it.each(['resolve', 'reject'] as const)(
       json: async () => fresh,
     });
     Object.defineProperty(window, 'fetch', { writable: true, value: mockFetch });
-    const { result } = renderHook(() => useModels());
+    const { result } = renderHook(() => useModels(), { wrapper: QueryWrapper });
     expect(result.current.isLoading).toBe(true);
     act(() => {
       setupWizard$.providerStatusVersion.set(1);

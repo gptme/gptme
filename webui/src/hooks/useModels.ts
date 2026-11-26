@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { setupWizard$ } from '@/stores/setupWizard';
@@ -28,83 +29,21 @@ export interface ModelsResponse {
   favorites?: string[];
 }
 
+const EMPTY_MODELS: ModelInfo[] = [];
+const EMPTY_IDS: string[] = [];
+
 export function useModels() {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
   // Setup can restart the same server without changing its URL, token or
   // connected flag. Refresh the catalog/default alongside provider status.
   const providerStatusVersion = use$(setupWizard$.providerStatusVersion);
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [defaultModel, setDefaultModel] = useState<string | null>(null);
-  const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
-  const [favorites, setFavoritesState] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Mirror favorites in a ref so rapid toggles read the latest list instead of
-  // a stale closure value (which could drop a favorite under quick clicks).
-  const favoritesRef = useRef<string[]>([]);
-  useEffect(() => {
-    favoritesRef.current = favorites;
-  }, [favorites]);
-  const applyFavorites = useCallback((next: string[]) => {
-    favoritesRef.current = next;
-    setFavoritesState(next);
-  }, []);
-
-  useEffect(() => {
-    if (!isConnected || isDemoMode()) {
-      setIsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const fetchModels = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-
-        if (api.authHeader) {
-          headers.Authorization = api.authHeader;
-        }
-
-        const response = await fetch(`${api.baseUrl}/api/v2/models`, {
-          headers,
-        });
-
-        if (!response.ok) {
-          throw await buildModelsFetchError(response);
-        }
-
-        const data: ModelsResponse = await response.json();
-        if (cancelled) return;
-
-        setModels(data.models);
-        setDefaultModel(data.default || null);
-        setRecommendedModels(data.recommended || []);
-        setFavoritesState(data.favorites || []);
-      } catch (err) {
-        if (cancelled) return;
-        console.error('Failed to fetch models:', err);
-        setError(formatUnknownError(err, 'Failed to fetch models'));
-        setModels([]);
-        setDefaultModel(null);
-        setRecommendedModels([]);
-        setFavoritesState([]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-
-    fetchModels();
-    return () => {
-      cancelled = true;
-    };
-  }, [api.baseUrl, api.authHeader, isConnected, providerStatusVersion]);
+  const queryClient = useQueryClient();
+  // All mounted pickers share one catalog, scoped to the server and credentials.
+  // Read mutations from this cache too: a second consumer may save before React
+  // has rendered the first consumer's optimistic update.
+  const queryKey = ['models', api.baseUrl, api.authHeader, providerStatusVersion] as const;
+  const enabled = isConnected && !isDemoMode();
 
   const authedHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -112,10 +51,40 @@ export function useModels() {
     return headers;
   }, [api.authHeader]);
 
-  // Persist the favorites list. Optimistically updates local state and reverts on failure.
-  const saveFavorites = useCallback(
-    async (next: string[]): Promise<boolean> => {
-      const prev = favoritesRef.current;
+  const { data, isLoading, error, refetch } = useQuery<ModelsResponse>({
+    queryKey,
+    enabled,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`${api.baseUrl}/api/v2/models`, {
+        headers: authedHeaders(),
+        signal,
+      });
+      if (!response.ok) throw await buildModelsFetchError(response);
+      return response.json();
+    },
+    retry: false,
+    staleTime: Infinity,
+  });
+
+  // Persist the favorites list. Optimistically updates shared state and reverts on failure.
+  const favoritesMutation = useMutation({
+    // Serialize writes from every consumer so rapid toggles cannot send competing
+    // replacement lists or roll back a newer successful save.
+    scope: { id: JSON.stringify(queryKey) },
+    mutationFn: async (change: { next: string[] } | { modelId: string }): Promise<boolean> => {
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const prev = queryClient.getQueryData<ModelsResponse>(queryKey)?.favorites || [];
+      const next =
+        'next' in change
+          ? change.next
+          : prev.includes(change.modelId)
+            ? prev.filter((id) => id !== change.modelId)
+            : [...prev, change.modelId];
+      const applyFavorites = (favorites: string[]) => {
+        queryClient.setQueryData<ModelsResponse>(queryKey, (current) =>
+          current ? { ...current, favorites } : current
+        );
+      };
       applyFavorites(next);
       try {
         const response = await fetch(`${api.baseUrl}/api/v2/user/favorites`, {
@@ -124,8 +93,8 @@ export function useModels() {
           body: JSON.stringify({ favorites: next }),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as { favorites?: string[] };
-        if (data.favorites) applyFavorites(data.favorites);
+        const saved = (await response.json()) as { favorites?: string[] };
+        if (saved.favorites) applyFavorites(saved.favorites);
         return true;
       } catch (err) {
         console.error('Failed to save favorites:', err);
@@ -133,52 +102,45 @@ export function useModels() {
         return false;
       }
     },
-    [api.baseUrl, authedHeaders, applyFavorites]
-  );
-
-  const toggleFavorite = useCallback(
-    (modelId: string): Promise<boolean> => {
-      const current = favoritesRef.current;
-      return saveFavorites(
-        current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId]
-      );
-    },
-    [saveFavorites]
-  );
+  });
+  const saveFavorites = (next: string[]) => favoritesMutation.mutateAsync({ next });
+  const toggleFavorite = (modelId: string) => favoritesMutation.mutateAsync({ modelId });
 
   // Persist the default model for new chats. Returns whether a server restart is required.
-  const saveDefaultModel = useCallback(
-    async (modelId: string): Promise<{ ok: boolean; restartRequired: boolean }> => {
-      try {
-        const response = await fetch(`${api.baseUrl}/api/v2/user/default-model`, {
-          method: 'POST',
-          headers: authedHeaders(),
-          body: JSON.stringify({ model: modelId }),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as { restart_required?: boolean };
-        setDefaultModel(modelId);
-        return { ok: true, restartRequired: !!data.restart_required };
-      } catch (err) {
-        console.error('Failed to save default model:', err);
-        return { ok: false, restartRequired: false };
-      }
-    },
-    [api.baseUrl, authedHeaders]
-  );
+  const saveDefaultModel = async (
+    modelId: string
+  ): Promise<{ ok: boolean; restartRequired: boolean }> => {
+    try {
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const response = await fetch(`${api.baseUrl}/api/v2/user/default-model`, {
+        method: 'POST',
+        headers: authedHeaders(),
+        body: JSON.stringify({ model: modelId }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const saved = (await response.json()) as { restart_required?: boolean };
+      queryClient.setQueryData<ModelsResponse>(queryKey, (current) =>
+        current ? { ...current, default: modelId } : current
+      );
+      return { ok: true, restartRequired: !!saved.restart_required };
+    } catch (err) {
+      console.error('Failed to save default model:', err);
+      return { ok: false, restartRequired: false };
+    }
+  };
 
-  const availableModels = models.map((model) => model.id);
-
+  const models = data?.models || EMPTY_MODELS;
   return {
     models,
-    availableModels,
-    defaultModel,
-    isLoading,
-    error,
-    recommendedModels,
-    favorites,
+    availableModels: models.map((model) => model.id),
+    defaultModel: data?.default || null,
+    isLoading: enabled && isLoading,
+    error: error ? formatUnknownError(error, 'Failed to fetch models') : null,
+    recommendedModels: data?.recommended || EMPTY_IDS,
+    favorites: data?.favorites || EMPTY_IDS,
     saveFavorites,
     toggleFavorite,
     saveDefaultModel,
+    refetch,
   };
 }
