@@ -1621,6 +1621,65 @@ def test_failed_start_keeps_child_when_cleanup_raises(monkeypatch, tmp_path):
     assert loop_thread is not None and not loop_thread.is_alive()
 
 
+@pytest.mark.timeout(15)
+@pytest.mark.parametrize("failing_finishes_first", [True, False])
+def test_overlapping_failed_start_keeps_successful_session(
+    monkeypatch, tmp_path, failing_finishes_first
+):
+    """A failing start must only clear shared state that it still owns.
+
+    Two ``_start_impl`` calls overlap on one loop, e.g. a step resent after an
+    interrupt while the first start is still entering. Checks the shared
+    client/session pair only, not the caller-side ``_release_unstarted()``.
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+
+    async def _scenario() -> None:
+        release_first = asyncio.Event()
+        release_second = asyncio.Event()
+
+        class _GatedClient(_DummyClient):
+            def __init__(self, workspace: Path, **kwargs: Any) -> None:
+                super().__init__(workspace, **kwargs)
+                self.index = len(clients)
+                clients.append(self)
+
+            async def __aenter__(self):
+                await (release_first, release_second)[self.index].wait()
+                # Client 0 and client 1 swap roles between the two orderings.
+                if self.index == (0 if failing_finishes_first else 1):
+                    raise OSError("entry failed")
+                return self
+
+            async def new_session(
+                self, cwd: str | Path | None = None, **kwargs: Any
+            ) -> str:
+                return f"sess-{self.index}"
+
+        monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+        runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+        first = asyncio.create_task(runtime._start_impl())
+        await asyncio.sleep(0)
+        second = asyncio.create_task(runtime._start_impl())
+        await asyncio.sleep(0)
+        assert len(clients) == 2
+
+        # The first start always settles first: it either fails while the
+        # second is still entering, or succeeds before the second one fails.
+        release_first.set()
+        await asyncio.wait([first])
+        release_second.set()
+        await asyncio.wait([second])
+
+        winner = 1 if failing_finishes_first else 0
+        assert runtime._client is clients[winner]
+        assert runtime.session_id == f"sess-{winner}"
+
+    asyncio.run(_scenario())
+
+
 @pytest.mark.skipif(
     sys.platform == "win32", reason="needs POSIX signals and os.WNOHANG"
 )
