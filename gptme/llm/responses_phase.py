@@ -53,14 +53,17 @@ def _reasoning_spans(content: str) -> Iterator[tuple[int, int]]:
         yield match.start(), cursor
 
 
-def _normalize_prose(parts: list[str]) -> Iterator[str]:
-    """Scan one prose stream and keep the original item or native-call offsets."""
-    content = "".join(parts)
+def _normalize_prose(parts: list[str], separator: str = "") -> Iterator[str]:
+    """Scan rendered prose but return text using only the original item spans."""
+    content = separator.join(parts)
     spans = _reasoning_spans(content)
     span = next(spans, None)
     start = 0
     for part in parts:
         end = start + len(part)
+        # A removed span can end in the separator before this item.
+        while span is not None and span[1] <= start:
+            span = next(spans, None)
         cursor = start
         kept = []
         while span is not None and span[0] < end:
@@ -71,7 +74,7 @@ def _normalize_prose(parts: list[str]) -> Iterator[str]:
             span = next(spans, None)
         kept.append(content[cursor:end])
         yield "".join(kept)
-        start = end
+        start = end + len(separator)
 
 
 def _native_parts(content: str) -> tuple[list[str], list[ToolUse], list[str]] | None:
@@ -272,7 +275,11 @@ class ResponsesPhaseCapture:
             yield event
 
     def metadata(
-        self, metadata: MessageMetadata | None, content: str
+        self,
+        metadata: MessageMetadata | None,
+        content: str,
+        *,
+        prose_separator: str = "",
     ) -> MessageMetadata | None:
         ordered = [item for _, item in sorted(self.items.items())]
         if not any(item["type"] == "message" and "phase" in item for item in ordered):
@@ -286,7 +293,8 @@ class ResponsesPhaseCapture:
         calls = [call.call_id for call in parsed_calls]
         filtered: list[ResponsesTextItem | ResponsesCallItem] = []
         normalized = _normalize_prose(
-            [item["text"] for item in ordered if item["type"] == "message"]
+            [item["text"] for item in ordered if item["type"] == "message"],
+            prose_separator,
         )
         for item in ordered:
             if item["type"] == "function_call":

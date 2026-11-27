@@ -405,6 +405,62 @@ def test_split_fence_roundtrip(
             )
 
 
+@pytest.mark.parametrize("with_call", [False, True])
+def test_nonstream_fence_closer_uses_display_separator(
+    monkeypatch: pytest.MonkeyPatch, with_call: bool
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    before = "```xml\n<think>literal example</think>\n"
+    closer = "```"
+    reasoning = "<think>private plan</think>"
+    arguments = '{ "command": "printf literal" }'
+    items = [_message(before, "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": arguments,
+            }
+        )
+    items.extend(
+        [
+            _message(closer, "commentary", 2),
+            _message(reasoning + "Done", "final_answer", 3),
+        ]
+    )
+    msg = _reload(_generate(monkeypatch, "sdk_nonstream", items, "terminal"), "toml")
+    assert f"{closer}\n{reasoning}Done" in msg.content
+    assert (msg.metadata or {}).get("responses_output") is not None
+    assert "private plan" not in json.dumps(msg.metadata)
+
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    assert compacted.content == msg.content.replace(reasoning, "")
+    for provider in ("subscription", "sdk"):
+        replay = _prepare(msg, provider, with_call=with_call)
+        assert _prepare(compacted, provider, with_call=with_call) == replay
+        assert [item.get("phase", item.get("type")) for item in replay] == (
+            [
+                "commentary",
+                "function_call",
+                "commentary",
+                "final_answer",
+                "function_call_output",
+            ]
+            if with_call
+            else ["commentary", "commentary", "final_answer"]
+        )
+        assert replay[0]["content"] == before
+        assert replay[2 if with_call else 1]["content"] == closer
+        assert replay[3 if with_call else 2]["content"] == "Done"
+        if with_call:
+            assert replay[1]["arguments"] == arguments
+
+
 def test_rejected_call_not_reinstated_and_no_opaque_data() -> None:
     from gptme.llm.responses_phase import ResponsesPhaseCapture
 

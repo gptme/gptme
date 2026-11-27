@@ -1423,12 +1423,13 @@ def chat(
 
         if not output_chunks:
             raise ValueError("Responses API returned no usable output items")
-        content = "\n".join(
+        separator = "\n"
+        content = separator.join(
             _keep_calls_outside_fences(
-                [(text, call) for text, call in output_chunks if text], "\n"
+                [(text, call) for text, call in output_chunks if text], separator
             )
         )
-        return content, phases.metadata(metadata, content)
+        return content, phases.metadata(metadata, content, prose_separator=separator)
 
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
