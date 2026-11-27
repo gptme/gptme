@@ -712,48 +712,70 @@ _GH_BUILTIN_COMMANDS = frozenset(
 )
 
 
-def _gh_config_dir() -> Path:
+def _gh_config_dirs() -> list[Path]:
+    """Candidate gh config directories.
+
+    Windows resolves its config from ``%AppData%`` rather than XDG, so that
+    location is included whenever the variable is set. Reading an extra path
+    can only make the guard stricter; resolving the wrong single directory
+    would let an existing alias through without confirmation.
+    """
     if configured := os.environ.get("GH_CONFIG_DIR"):
-        return Path(configured)
+        return [Path(configured)]
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "gh"
+    dirs = [Path(base) / "gh"]
+    if appdata := os.environ.get("APPDATA"):
+        dirs.append(Path(appdata) / "GitHub CLI")
+    return dirs
 
 
-def _gh_data_dir() -> Path:
+def _gh_data_dirs() -> list[Path]:
+    """Candidate gh data directories (extension installs). See config dirs."""
     if configured := os.environ.get("GH_DATA_DIR"):
-        return Path(configured)
+        return [Path(configured)]
     base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    return Path(base) / "gh"
+    dirs = [Path(base) / "gh"]
+    for var in ("LOCALAPPDATA", "APPDATA"):
+        if value := os.environ.get(var):
+            candidate = Path(value) / "GitHub CLI"
+            if candidate not in dirs:
+                dirs.append(candidate)
+    return dirs
 
 
 def _gh_alias_values() -> dict[str, str]:
-    """Alias name -> definition from gh's config file (empty when unreadable).
+    """Alias name -> definition from gh's config files (empty when unreadable).
 
     Read on every call instead of cached: an alias defined through the shell
     tool mid-session must not stay invisible to this guard, and a missing or
     corrupt config must not stall the pass-through on a subprocess timeout.
     """
-    try:
-        config = yaml.safe_load((_gh_config_dir() / "config.yml").read_text())
-    except (OSError, yaml.YAMLError):
-        return {}
-    aliases = config.get("aliases") if isinstance(config, dict) else None
-    if not isinstance(aliases, dict):
-        return {}
-    return {str(name): str(value) for name, value in aliases.items()}
+    aliases: dict[str, str] = {}
+    for directory in _gh_config_dirs():
+        try:
+            config = yaml.safe_load((directory / "config.yml").read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        found = config.get("aliases") if isinstance(config, dict) else None
+        if isinstance(found, dict):
+            aliases.update({str(name): str(value) for name, value in found.items()})
+    return aliases
 
 
 def _gh_extension_names() -> frozenset[str]:
     """Names of installed gh extensions, from ``gh-<name>`` entries on disk."""
-    try:
-        entries = list((_gh_data_dir() / "extensions").iterdir())
-    except OSError:
-        return frozenset()
-    return frozenset(
-        entry.name.removeprefix("gh-")
-        for entry in entries
-        if entry.name.startswith("gh-")
-    )
+    names: set[str] = set()
+    for directory in _gh_data_dirs():
+        try:
+            entries = list((directory / "extensions").iterdir())
+        except OSError:
+            continue
+        names.update(
+            entry.name.removeprefix("gh-")
+            for entry in entries
+            if entry.name.startswith("gh-")
+        )
+    return frozenset(names)
 
 
 def _local_exec_reason(

@@ -211,6 +211,13 @@ def test_comment_backslash_does_not_continue_heredoc_header():
     assert is_denylisted(payload)[0]
 
 
+def test_quote_in_earlier_body_does_not_hide_a_comment_backslash():
+    """Quotes in a heredoc body are data and must not carry shell quote state."""
+    payload = "cat <<A\n'\nA\ncat <<echo # \\\necho\necho PROOF | sh\necho\n"
+    assert not is_allowlisted(payload)
+    assert is_denylisted(payload)[0]
+
+
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
 def test_bash_runs_pipeline_after_comment_backslash():
     payload = "cat <<echo # \\\necho\necho echo PROOF | sh\necho\n"

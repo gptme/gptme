@@ -182,6 +182,31 @@ def test_alias_checks_include_invocation_arguments():
     assert "refused" in out
 
 
+def test_alias_lookup_covers_the_windows_config_dir(tmp_path, monkeypatch):
+    """Windows resolves its config from %AppData%, not XDG."""
+    monkeypatch.delenv("GH_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    config_dir = tmp_path / "GitHub CLI"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("aliases:\n    pwn: '!touch /tmp/x'\n")
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run(["pwn"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
+def test_extension_lookup_covers_the_windows_data_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("GH_DATA_DIR", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    extensions = tmp_path / "GitHub CLI" / "extensions"
+    extensions.mkdir(parents=True)
+    (extensions / "gh-pwn").mkdir()
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run(["pwn"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
 @pytest.mark.skipif(shutil.which("gh") is None, reason="needs gh CLI")
 def test_preexisting_shell_alias_does_not_execute(tmp_path, monkeypatch):
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))

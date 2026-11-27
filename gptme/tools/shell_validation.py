@@ -355,16 +355,31 @@ def _scan_nesting(
         i += 1
 
 
-def _position_in_shell_comment(cmd: str, pos: int) -> bool:
+def _position_in_shell_comment(
+    cmd: str, pos: int, skip: list[tuple[int, int]] | None = None
+) -> bool:
     """Return True when ``pos`` lies inside an unquoted shell comment.
 
     Comments run to the end of the line, so a backslash there is data: bash
     does not treat the newline as a continuation. Mirrors the lexical rules in
     ``_blank_shell_comments``.
+
+    ``skip`` lists regions already known to be heredoc bodies. Their contents
+    are data: an apostrophe there does not open a shell string, so counting it
+    would leave ``in_single`` set and hide a later comment marker.
     """
     in_single = in_double = in_comment = False
+    regions = sorted(skip or [])
+    region_idx = 0
     i = 0
     while i < pos:
+        while region_idx < len(regions) and regions[region_idx][1] <= i:
+            region_idx += 1
+        if region_idx < len(regions):
+            start, end = regions[region_idx]
+            if start <= i < end:
+                i = min(end, pos)
+                continue
         char = cmd[i]
         if in_comment:
             if char == "\n":
@@ -480,7 +495,7 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             # continuation: bash ends the command line there. Treating it as a
             # continuation would push the body start past real command lines
             # and hide them as heredoc data.
-            if _position_in_shell_comment(cmd, newline_idx - 1):
+            if _position_in_shell_comment(cmd, newline_idx - 1, heredoc_regions):
                 break
             newline_idx += 1
         if newline_idx == -1:
