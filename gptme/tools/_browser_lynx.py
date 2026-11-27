@@ -10,8 +10,13 @@ import tempfile
 import threading
 import time
 from email.utils import mktime_tz, parsedate_tz
+from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus, urljoin, urlparse
+
+if TYPE_CHECKING:
+    from publicsuffixlist import PublicSuffixList
 
 from ._url_safety import _MAX_INPUT_LENGTH, _get_allow_hosts, _validate_url_scheme
 
@@ -94,8 +99,14 @@ def _probe_headers(cmd: list[str], env: dict[str, str], deadline: float) -> str:
 # deadline: lynx drops jar rows whose expiry is 0 when it loads them.
 _SESSION_COOKIE_TTL = 3600
 
-# Second-level labels under which country-code registries sell names (co.uk).
-_CCTLD_SECOND_LEVELS = frozenset({"ac", "co", "com", "edu", "gov", "net", "org"})
+
+@cache
+def _public_suffix_list() -> "PublicSuffixList":
+    """Load the bundled ICANN and private suffix list lazily, without network I/O."""
+    from publicsuffixlist import PublicSuffixList
+
+    return PublicSuffixList()
+
 
 # Netscape jar row: domain, path, name -> value, expiry, secure.
 _CookieKey = tuple[str, str, str]
@@ -176,15 +187,14 @@ def _cookie_default_path(url: str) -> str:
 def _cookie_domain(attribute: str, host: str) -> str | None:
     """Jar domain for a ``Domain`` attribute, or None if ``host`` may not set it.
 
-    A response may only scope a cookie to its own host or a parent of it. TLDs
-    and ``co.uk``-style suffixes are refused; there is no full public suffix
-    list here (``requests``, used for PDF fetches, has none either).
+    A response may only scope a cookie to its own host or a parent of it.
+    Public suffixes (including private hosting suffixes) cannot share cookies.
     """
     domain = attribute.removeprefix(".").lower()
     is_ip = ":" in host or host.rsplit(".", 1)[-1].isdigit()
     labels = domain.split(".")
     is_suffix = len(labels) < 2 or (
-        len(labels) == 2 and len(labels[1]) == 2 and labels[0] in _CCTLD_SECOND_LEVELS
+        not is_ip and _public_suffix_list().publicsuffix(domain) == domain
     )
     if domain == host:
         return host if is_ip or is_suffix else f".{domain}"

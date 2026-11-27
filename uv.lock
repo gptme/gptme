@@ -2144,6 +2144,7 @@ dependencies = [
     { name = "pick", marker = "sys_platform != 'win32'" },
     { name = "pillow" },
     { name = "platformdirs" },
+    { name = "publicsuffixlist" },
     { name = "pydantic" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
@@ -2356,6 +2357,7 @@ requires-dist = [
     { name = "playwright", marker = "extra == 'all'", specifier = "==1.65.1" },
     { name = "playwright", marker = "extra == 'browser'", specifier = "==1.65.1" },
     { name = "prometheus-client", marker = "extra == 'server'", specifier = ">=0.26.0" },
+    { name = "publicsuffixlist", specifier = ">=1.0,<2" },
     { name = "pydantic", specifier = ">=2.13.4,<3" },
     { name = "pydantic", marker = "extra == 'all'", specifier = ">=2.13.4,<3" },
     { name = "pydantic", marker = "extra == 'server'", specifier = ">=2.13.4,<3" },
@@ -5668,6 +5670,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/20/e5/16ff212c1e452235a90aeb09066144d0c5a6a8c0834397e03f5224495c4e/ptyprocess-0.7.0.tar.gz", hash = "sha256:5c5d0a3b48ceee0b48485e0c26037c0acd7d29765ca3fbb5cb3831d347423220", size = 70762, upload-time = "2020-12-28T15:15:30.155Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/22/a6/858897256d0deac81a172289110f31629fc4cee19b6f01283303e18c8db3/ptyprocess-0.7.0-py2.py3-none-any.whl", hash = "sha256:4b41f3967fce3af57cc7e94b888626c18bf37a083e3651ca8feeb66d492fef35", size = 13993, upload-time = "2020-12-28T15:15:28.35Z" },
+]
+
+[[package]]
+name = "publicsuffixlist"
+version = "1.1.2.20261127"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/77/93b8d9ac773b52e9c160f1c026317ef058648ceea117c45eaa9e1580e94c/publicsuffixlist-1.1.2.20261127.tar.gz", hash = "sha256:cb4ac2b1da6ee8c0e4c8b060dc5950a05ba4b88506de06fd74007491e4a608b1", size = 108831, upload-time = "2026-11-27T12:01:03.377Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/42/9136be6742df17e7671cc76960f307a24c5b6be64bb369ab557ae0094d88/publicsuffixlist-1.1.2.20261127-py3-none-any.whl", hash = "sha256:83ff9948bd1c82b1385a4026b5ffec5723f146adbbf91c076e761cac06029c15", size = 111577, upload-time = "2026-11-27T12:01:02.052Z" },
 ]
 
 [[package]]

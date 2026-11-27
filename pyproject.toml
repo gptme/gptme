@@ -33,6 +33,7 @@ dependencies = [
     "typing-extensions",
     "platformdirs>=4.11,<5",
     "requests>=2.34,<3",  # For HTTP requests in browser tool (PDF detection)
+    "publicsuffixlist>=1.0,<2",  # Offline ICANN/private suffix checks for browser cookies
     "json-repair>=0.61.7,<0.65",
     "mcp>=1.28.1,<2",  # MCP 2 requires a client/server API migration.
     "questionary>=2.1.1,<3",

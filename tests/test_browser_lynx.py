@@ -831,6 +831,14 @@ def _absorb(headers: list[str], url: str, jar_dir, seed: dict | None = None):
         # Suffixes shared between unrelated owners, and IP "parents".
         ("https://a.example.com/", "com", None),
         ("https://a.example.co.uk/", "co.uk", None),
+        ("https://evil.github.io/", "github.io", None),
+        ("https://evil.appspot.com/", "appspot.com", None),
+        ("https://evil.herokuapp.com/", "herokuapp.com", None),
+        # PSL wildcard rules and their exceptions must both be respected.
+        ("https://evil.foo.kawasaki.jp/", "foo.kawasaki.jp", None),
+        ("https://a.city.kawasaki.jp/", "city.kawasaki.jp", ".city.kawasaki.jp"),
+        ("https://github.io/", "github.io", "github.io"),
+        ("https://a.tenant.github.io/", "tenant.github.io", ".tenant.github.io"),
         ("https://127.0.0.1/", "0.0.1", None),
     ],
 )
