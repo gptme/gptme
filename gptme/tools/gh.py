@@ -743,23 +743,36 @@ def _gh_data_dirs() -> list[Path]:
     return dirs
 
 
-def _gh_alias_values() -> dict[str, str]:
-    """Alias name -> definition from gh's config files (empty when unreadable).
+def _gh_alias_values() -> dict[str, str] | None:
+    """Alias name -> definition from gh's config files.
+
+    Returns an empty dict when no config file exists. Returns ``None`` when a
+    config file exists but cannot be read or parsed: the guard then cannot
+    tell whether a subcommand is an alias, so it must refuse rather than let
+    an alias run unconfirmed.
 
     Read on every call instead of cached: an alias defined through the shell
-    tool mid-session must not stay invisible to this guard, and a missing or
-    corrupt config must not stall the pass-through on a subprocess timeout.
+    tool mid-session must not stay invisible to this guard, and a missing
+    config must not stall the pass-through on a subprocess timeout.
     """
     aliases: dict[str, str] = {}
     for directory in _gh_config_dirs():
+        path = directory / "config.yml"
         try:
-            config = yaml.safe_load((directory / "config.yml").read_text())
-        except (OSError, ValueError, yaml.YAMLError):
-            # ``read_text`` decodes with the locale encoding, so bytes that are
-            # invalid there raise ``UnicodeDecodeError`` (a ``ValueError``) and
-            # a corrupt file must not crash the pass-through. Skipping the
-            # directory can only make the guard stricter than gh itself.
+            # gh itself reads the config as UTF-8. The locale default would
+            # reject any non-ASCII alias on a cp1252 host and skip the whole
+            # file, hiding every alias it defines.
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
             continue
+        except (OSError, UnicodeDecodeError):
+            # The file exists but cannot be read: refusing unknown
+            # subcommands is the only fail-closed option.
+            return None
+        try:
+            config = yaml.safe_load(text)
+        except yaml.YAMLError:
+            return None
         found = config.get("aliases") if isinstance(config, dict) else None
         if isinstance(found, dict):
             aliases.update({str(name): str(value) for name, value in found.items()})
@@ -830,7 +843,10 @@ def _local_exec_reason(
     # execution; a plain alias that only expands to a safe gh command is fine.
     if sub in _seen:
         return "an alias cycle hides which command runs"
-    alias_value = _gh_alias_values().get(sub)
+    alias_values = _gh_alias_values()
+    if alias_values is None:
+        return "gh's config exists but could not be parsed; cannot rule out an alias"
+    alias_value = alias_values.get(sub)
     if alias_value is not None:
         if alias_value.startswith("!"):
             return f"`gh {sub}` is a shell alias, which runs local commands"

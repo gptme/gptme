@@ -207,18 +207,36 @@ def test_extension_lookup_covers_the_windows_data_dir(tmp_path, monkeypatch):
     assert "refused" in out
 
 
-def test_undecodable_config_does_not_crash_the_guard(tmp_path, monkeypatch):
-    """A ``config.yml`` that cannot be decoded must be skipped, not raised.
+def test_undecodable_config_refuses_unknown_subcommand(tmp_path, monkeypatch):
+    """A ``config.yml`` that cannot be parsed must refuse, not fail open.
 
-    ``read_text`` decodes with the locale encoding, so invalid bytes raise
-    ``UnicodeDecodeError`` (a ``ValueError``). Letting it escape crashed the
-    whole gh pass-through instead of returning a refusal or the gh output.
+    Skipping the file would hide any alias it defines, so an unknown
+    subcommand has to be refused rather than passed through unconfirmed.
     """
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
     (tmp_path / "config.yml").write_bytes(b"aliases:\n  pwn: \xff\xfe\n")
-    with patch("gptme.tools.gh.subprocess.run"):
+    with patch("gptme.tools.gh.subprocess.run") as run:
         out = _run(["pwn"])
+    run.assert_not_called()
+    assert "refused" in out
     assert "Traceback" not in out
+
+
+def test_utf8_config_with_non_ascii_alias_is_read(tmp_path, monkeypatch):
+    """The config is read as UTF-8, so a non-ASCII alias stays visible.
+
+    Decoding with the locale default raised ``UnicodeDecodeError`` on a
+    cp1252 host and skipped the file, which let an existing shell alias run
+    unconfirmed. The alias must still be found and refused.
+    """
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "config.yml").write_text(
+        "aliases:\n  перейти: '!touch /tmp/x'\n", encoding="utf-8"
+    )
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run(["перейти"])
+    run.assert_not_called()
+    assert "refused" in out
 
 
 @pytest.mark.skipif(shutil.which("gh") is None, reason="needs gh CLI")

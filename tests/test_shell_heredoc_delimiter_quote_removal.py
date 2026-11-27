@@ -145,6 +145,20 @@ def test_shift_or_literal_marker_does_not_hide_commands(opener: str):
     assert not is_allowlisted(cmd)
 
 
+def test_array_subscript_shift_does_not_hide_commands():
+    """``a[1<<X]=2`` is an assignment with a shift, not a heredoc opener.
+
+    Bash runs the next line. The closing ``]`` comes after the ``<<``, so a
+    bracket scan bounded by the ``<<`` misses it and the shift is misread as
+    a heredoc whose delimiter is ``X]=2``, blanking the pipeline.
+    """
+    cmd = "a[1<<X]=2\necho echo PROOF | sh\nX]=2\n"
+
+    assert _find_heredoc_regions(cmd) == []
+    assert not is_allowlisted(cmd)
+    assert is_denylisted(cmd)[0] is True
+
+
 @pytest.mark.parametrize(
     "cmd",
     [

@@ -301,7 +301,7 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     return "".join(out), i
 
 
-def _has_closing_bracket(cmd: str, start: int, end: int) -> bool:
+def _has_closing_bracket(cmd: str, start: int) -> bool:
     """Return True when a ``]`` closes a subscript before the word ends.
 
     Bash reads ``a[`` as a literal word, so an unclosed ``[`` must not be
@@ -309,13 +309,21 @@ def _has_closing_bracket(cmd: str, start: int, end: int) -> bool:
     suppress a later heredoc that bash does run. A real subscript
     (``arr[0]``, ``arr[$i]``, ``$[1 << 2]``) has its closing ``]`` before any
     word boundary.
+
+    The scan deliberately runs past a ``<<`` that appears inside the
+    subscript: ``a[1<<X]=2`` is an assignment whose subscript contains a
+    shift, so its ``]`` comes after the ``<<``. Stopping at the ``<<`` would
+    miss that ``]`` and misread the shift as a heredoc opener. ``<`` and
+    ``>`` are arithmetic operators there, not word boundaries, so only real
+    boundaries (whitespace, newline, control operators, quotes) end the word.
     """
     i = start
-    while i < end:
+    n = len(cmd)
+    while i < n:
         char = cmd[i]
         if char == "]":
             return True
-        if char.isspace() or char in ";&|<>()'\"`":
+        if char.isspace() or char in ";&|()'\"`":
             return False
         i += 1
     return False
@@ -368,9 +376,7 @@ def _scan_nesting(
             # ``echo [`` or ``echo a[`` would leave it open and hide every
             # later heredoc, including one bash actually runs.
             prev = cmd[i - 1] if i else ""
-            if (prev.isalnum() or prev in "_]$") and _has_closing_bracket(
-                cmd, i + 1, end
-            ):
+            if (prev.isalnum() or prev in "_]$") and _has_closing_bracket(cmd, i + 1):
                 stack.append(c)
         elif c == ")" and stack and stack[-1] == "(":
             stack.pop()
