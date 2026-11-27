@@ -927,6 +927,149 @@ class TestSensitiveArgs:
         """`cd /tmp; ls` should still be auto-approved — /tmp is not sensitive."""
         assert is_allowlisted("cd /tmp; ls")
 
+    def test_case_variant_home_dir_not_allowlisted(self):
+        """macOS is case-insensitive: ``~/.SSH/id_rsa`` opens ``~/.ssh/id_rsa``."""
+        assert not is_allowlisted("cat ~/.SSH/id_rsa")
+        assert not is_allowlisted("cat ~/.Aws/credentials")
+
+    def test_case_variant_absolute_prefix_not_allowlisted(self):
+        """macOS resolves ``/ETC/shadow`` to ``/etc/shadow``."""
+        assert not is_allowlisted("cat /ETC/shadow")
+
+    def test_symlinked_workspace_dir_into_absolute_prefix_not_allowlisted(
+        self, tmp_path, monkeypatch
+    ):
+        """``cat etc-link/hostname`` where ``etc-link -> /etc`` reads ``/etc``."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "etc-link").symlink_to("/etc")
+        monkeypatch.chdir(workspace)
+
+        assert _has_sensitive_args("cat etc-link/hostname", cwd=workspace)
+
+    def test_symlinked_workspace_dir_into_home_not_allowlisted(
+        self, tmp_path, monkeypatch
+    ):
+        """``cat link/id_rsa`` where ``link -> ~/.ssh`` reads the protected file."""
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "id_rsa").write_text("secret")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "link").symlink_to(home / ".ssh")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(workspace)
+
+        assert _has_sensitive_args("cat link/id_rsa", cwd=workspace)
+
+    @pytest.mark.parametrize(
+        "spelling", ["link/id_rsa", "~/.ssh/id_rsa", "keys/id_rsa"]
+    )
+    def test_symlinked_credential_location_requires_confirmation(
+        self, tmp_path, monkeypatch, spelling
+    ):
+        """Resolve protected locations too when ~/.ssh itself is a symlink."""
+        home = tmp_path / "home"
+        home.mkdir()
+        keys = tmp_path / "keys"
+        keys.mkdir()
+        (keys / "id_rsa").write_text("secret")
+        (home / ".ssh").symlink_to(keys, target_is_directory=True)
+        (tmp_path / "link").symlink_to(home / ".ssh", target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+
+        assert _has_sensitive_args(f"cat {spelling}", cwd=tmp_path)
+
+    @pytest.mark.parametrize("home_var", ["$HOME", "${HOME}"])
+    def test_home_variable_link_to_system_location_requires_confirmation(
+        self, tmp_path, monkeypatch, home_var
+    ):
+        """Expand home variables before checking symlink targets against /etc."""
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "etc-link").symlink_to("/etc", target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        assert _has_sensitive_args(f'cat "{home_var}/etc-link/shadow"', cwd=tmp_path)
+
+    def test_symlinked_system_location_requires_confirmation(
+        self, tmp_path, monkeypatch
+    ):
+        """Model macOS /etc -> /private/etc using real symlinks in a temp tree."""
+        from gptme.tools import shell_validation
+
+        protected = tmp_path / "etc"
+        target = tmp_path / "private" / "etc"
+        target.mkdir(parents=True)
+        protected.symlink_to(target, target_is_directory=True)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "etc-link").symlink_to(protected, target_is_directory=True)
+        monkeypatch.setattr(
+            shell_validation, "_SENSITIVE_PATH_PREFIXES", (str(protected) + "/",)
+        )
+
+        assert _has_sensitive_args("cat etc-link/shadow", cwd=workspace)
+
+    @pytest.mark.parametrize(
+        "spelling", ["/root/app/token.txt", "~/token.txt", "$HOME/token.txt"]
+    )
+    def test_home_inside_system_location_requires_confirmation(
+        self, monkeypatch, spelling
+    ):
+        """Home normalization must not hide a protected system ancestor."""
+        monkeypatch.setenv("HOME", "/root/app")
+        assert _has_sensitive_args(f"cat {spelling}")
+
+    @pytest.mark.parametrize("spelling", ["absolute", "~/token.txt", "$HOME/token.txt"])
+    def test_symlinked_home_preserves_system_ancestor(
+        self, tmp_path, monkeypatch, spelling
+    ):
+        """A home symlink out of a protected tree must retain lexical protection."""
+        from gptme.tools import shell_validation
+
+        protected = tmp_path / "protected"
+        protected.mkdir()
+        target = tmp_path / "target"
+        target.mkdir()
+        home = protected / "app"
+        home.symlink_to(target, target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(
+            shell_validation, "_SENSITIVE_PATH_PREFIXES", (str(protected) + "/",)
+        )
+        token = str(home / "token.txt") if spelling == "absolute" else spelling
+
+        assert _has_sensitive_args(f"cat {token}")
+
+    def test_distinct_case_variant_home_symlink_requires_confirmation(
+        self, tmp_path, monkeypatch
+    ):
+        """Case folding for comparison must not redirect filesystem resolution."""
+        home = tmp_path / "Home"
+        other = tmp_path / "home"
+        home.mkdir()
+        if other.exists():
+            pytest.skip("requires a case-sensitive filesystem")
+        other.mkdir()
+        (other / "link").symlink_to("/etc", target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        assert _has_sensitive_args(f"cat {other}/link/shadow", cwd=tmp_path)
+
+    def test_ordinary_workspace_file_still_allowlisted(self, tmp_path, monkeypatch):
+        """Resolution must not make ordinary relative reads sensitive."""
+        home = tmp_path / "home"
+        home.mkdir()
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "notes.md").write_text("hi")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(workspace)
+
+        assert not _has_sensitive_args("cat notes.md", cwd=workspace)
+
     @pytest.mark.parametrize(
         "command",
         [

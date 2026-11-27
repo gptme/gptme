@@ -771,16 +771,17 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
     abs_token = (
         os.path.normpath(re.sub(r"^/+", "/", token)) if token.startswith("/") else token
     )
-    if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
-        return True
+    home = os.path.expanduser("~")
+
     # Sensitive home-relative credential directories.
     # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
     # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
     # Use a boundary check (exact match or followed by "/") to avoid
     # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
-    normalized = token
-    home = os.path.expanduser("~")
-    if token == home or token.startswith(home + "/"):
+    normalized = abs_token
+    if token.casefold() == home.casefold() or token.casefold().startswith(
+        home.casefold() + "/"
+    ):
         normalized = "~" + token[len(home) :]
     else:
         for sub in ("${HOME}/", "$HOME/"):
@@ -814,10 +815,34 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
     # ensures the prefix check below is also correct as belt-and-suspenders.
     if ".." in normalized:
         normalized = os.path.normpath(normalized)
-    return any(
-        normalized == prefix or normalized.startswith(prefix + "/")
-        for prefix in _SENSITIVE_HOME_DIRS
-    )
+    # Normalize home variables before resolving paths, then check both system
+    # and credential locations. Resolve the protected locations too: ~/.ssh
+    # may link outside home, and macOS /etc links to /private/etc. Retain the
+    # literal spellings for case variants and paths that do not exist yet.
+    locations = {
+        spelling.rstrip("/").casefold()
+        for location in (*_SENSITIVE_PATH_PREFIXES, *_SENSITIVE_HOME_DIRS)
+        for spelling in (location, _resolve_symlinks(location, home))
+    }
+    # Keep the lexical absolute spelling too, including expansion of ~/$HOME:
+    # a home symlink can otherwise erase a protected ancestor such as /root.
+    # Resolve the original spelling independently: case-folded home matching
+    # must not redirect resolution to a different path on case-sensitive hosts.
+    absolute = home + normalized[1:] if normalized.startswith("~") else normalized
+    for candidate in (
+        abs_token,
+        normalized,
+        absolute,
+        _resolve_symlinks(abs_token, home),
+        _resolve_symlinks(normalized, home),
+    ):
+        folded = candidate.casefold()
+        if any(
+            folded == location or folded.startswith(location + "/")
+            for location in locations
+        ):
+            return True
+    return False
 
 
 def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
@@ -916,6 +941,25 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
                     return True
 
     return False
+
+
+def _resolve_symlinks(normalized: str, home: str) -> str:
+    """Return the absolute symlink target of a normalized path.
+
+    ``os.path.realpath`` resolves the components that exist, so a symlinked
+    directory is followed even when the leaf does not exist yet. Keep the
+    absolute spelling: mapping back to ~ would hide system ancestors when
+    home is nested inside a protected directory (e.g. /root/app).
+    """
+    if normalized == "~":
+        absolute = home
+    elif normalized.startswith("~/"):
+        absolute = os.path.join(home, normalized[2:])
+    elif normalized.startswith("/"):
+        absolute = normalized
+    else:
+        return normalized
+    return os.path.realpath(absolute)
 
 
 def _has_command_substitution(cmd: str) -> bool:
