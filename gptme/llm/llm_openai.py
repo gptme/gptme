@@ -512,6 +512,49 @@ def _prepare_messages_for_responses_api(
             replay = replay_responses_output(msg.content, captured)
             if replay is not None:
                 message["responses_items"] = replay
+    if not tools:
+        # Without tools, _handle_tools never turns ``@tool(call_id): ...`` text
+        # into function_call items, so a result keyed by call_id would be
+        # dropped as an orphan. Send unmatched results as labelled ``user``
+        # text instead: a ``system`` message becomes ``developer`` input or,
+        # at the start of a chunk, top-level ``instructions`` — which would
+        # give tool output (possibly echoing untrusted files) instruction
+        # priority over the request. A result that still pairs with a
+        # replayed native ``function_call`` keeps its native form. Count
+        # pending calls rather than collecting IDs, so a duplicate result for
+        # one call cannot hide the second result from the summary.
+        pending_calls: dict[str, int] = {}
+        for message in dicts:
+            if message["role"] == "assistant":
+                # Tool results follow the turn that issued the calls, so calls
+                # left pending from an earlier turn must not consume them: a
+                # reused call_id would otherwise pair a result with the wrong
+                # turn's call.
+                pending_calls.clear()
+                for item in message.get("responses_items", []):
+                    if item.get("type") == "function_call":
+                        replayed_id = item.get("call_id")
+                        if replayed_id:
+                            pending_calls[replayed_id] = (
+                                pending_calls.get(replayed_id, 0) + 1
+                            )
+                continue
+            result_call_id = message.get("call_id")
+            if message["role"] != "system" or not result_call_id:
+                continue
+            if pending_calls.get(result_call_id, 0):
+                pending_calls[result_call_id] -= 1
+                continue
+            message.pop("call_id")
+            message["role"] = "user"
+            content = message.get("content")
+            if isinstance(content, list):
+                message["content"] = [
+                    {"type": "text", "text": "Tool result:"},
+                    *content,
+                ]
+            else:
+                message["content"] = f"Tool result:\n{content or ''}"
     messages_dicts: Iterable[dict[str, Any]] = _process_msgs(dicts, model_meta)
 
     if tools:
