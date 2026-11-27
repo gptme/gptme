@@ -37,8 +37,65 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # On PRs, the macOS PyInstaller leg runs only when packaging inputs change.
+  # It was ~13% of gptme's PR job-minutes, and PR runs share the free-plan
+  # concurrency with master. Ubuntu still builds and smoke-tests the frozen
+  # server on every PR that triggers Build. Master pushes and dispatches
+  # (including release dispatches with a tag) build both OSes.
+  # Web UI manifests also trigger macOS to check platform-specific native deps.
+  # Docker covers its three Dockerfiles, package inputs and all web UI sources:
+  # its .dockerignore-filtered build context differs from the PyInstaller build.
+  changes:
+    name: Detect packaging and Docker changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pull-requests: read
+    outputs:
+      packaging: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.packaging || 'true' }}
+      docker: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.docker || 'true' }}
+    steps:
+    # PR file lists come from the API; no checkout is needed for inline rules.
+    - uses: dorny/paths-filter@v4
+      id: filter
+      continue-on-error: true
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        filters: |
+          packaging:
+            - 'webui/package.json'
+            - 'webui/package-lock.json'
+            - '*.spec'
+            - 'media/**'
+            - 'scripts/pyinstaller/**'
+            - 'scripts/build_server_executable.sh'
+            - 'scripts/smoke_frozen_server.py'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'Makefile'
+            - '.github/workflows/build.yml'
+          docker:
+            - 'scripts/Dockerfile'
+            - 'scripts/Dockerfile.dockerignore'
+            - 'scripts/Dockerfile.server'
+            - 'scripts/Dockerfile.server.dockerignore'
+            - 'scripts/Dockerfile.eval'
+            - 'scripts/Dockerfile.eval.dockerignore'
+            - '.dockerignore'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'README.md'
+            - 'webui/**'
+            - '.github/workflows/build.yml'
+
   build-docker:
     name: Docker
+    needs: changes
+    # changes is skipped off-PR, so its output is empty, which is not 'false':
+    # master pushes and dispatches always build. A failed detection
+    # also builds (fail open).
+    if: ${{ !cancelled() && needs.changes.outputs.docker != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -207,6 +264,10 @@ jobs:
 
   build-pyinstaller:
     name: PyInstaller binaries on ${{ matrix.os }}
+    needs: changes
+    # changes is skipped off-PR; run anyway. An empty output (skipped or failed
+    # detection) is not 'false', so both OSes build: fail open.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
@@ -214,7 +275,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]  # windows-latest
+        os: ${{ fromJSON(needs.changes.outputs.packaging == 'false' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}  # windows-latest
         python_version: ['3.13']
 
     steps:
