@@ -212,6 +212,11 @@ _warned_mcp_allowlists_lock = threading.Lock()
 FUNCTION_CALL_TOOL = "ipython"
 
 
+def _denied_for_read_only(tool: ToolSpec) -> bool:
+    # MCP capabilities are server-defined; no local read-only contract is enforced.
+    return tool.name in _READ_ONLY_DENIED_TOOLS or tool.is_mcp
+
+
 def restrict_tools_for_read_only(tools: list[ToolSpec]) -> list[ToolSpec]:
     """Drop tools and functions a read-only agent profile must not reach.
 
@@ -224,7 +229,7 @@ def restrict_tools_for_read_only(tools: list[ToolSpec]) -> list[ToolSpec]:
     """
     restricted: list[ToolSpec] = []
     for tool in tools:
-        if tool.name in _READ_ONLY_DENIED_TOOLS:
+        if _denied_for_read_only(tool):
             continue
         denied = _READ_ONLY_DENIED_FUNCTIONS.get(tool.name)
         if denied and tool.functions:
@@ -232,6 +237,12 @@ def restrict_tools_for_read_only(tools: list[ToolSpec]) -> list[ToolSpec]:
                 tool,
                 functions=[f for f in tool.functions if f.fn.__name__ not in denied],
             )
+            if tool.execute:
+                # Reinitialization may receive an already-adapted function tool.
+                # Its execute closure still captures the old function list.
+                from ._direct_call import make_direct_call_tool
+
+                tool = make_direct_call_tool(dataclasses.replace(tool, execute=None))
         restricted.append(tool)
     return restricted
 
@@ -599,7 +610,7 @@ def init_tools(
         # (file_paths + no names = only file tools; file_paths + names = both)
         name_allowlist = tool_names if (tool_names or file_paths) else allowlist
         for tool in get_toolchain(name_allowlist, include_mcp=include_mcp):
-            if is_read_only_session() and tool.name in _READ_ONLY_DENIED_TOOLS:
+            if is_read_only_session() and _denied_for_read_only(tool):
                 continue
             if has_tool(tool.name):
                 continue
@@ -621,7 +632,7 @@ def init_tools(
             matched_available = matching_allowlist_tools(tool_name, available_tools)
             if matched_available:
                 if is_read_only_session() and all(
-                    tool.name in _READ_ONLY_DENIED_TOOLS for tool in matched_available
+                    _denied_for_read_only(tool) for tool in matched_available
                 ):
                     # Deliberately dropped by restrict_tools_for_read_only, e.g. a
                     # resumed conversation whose stored tools name ``append``.
@@ -691,6 +702,10 @@ def get_toolchain(
                 logger.warning("Tool '%s' in allowlist not found, skipping", tool_name)
                 continue
 
+            if is_read_only_session() and all(
+                _denied_for_read_only(tool) for tool in matched_tools
+            ):
+                continue
             if not any(tool.is_available for tool in matched_tools):
                 msg = _unavailable_message(tool_name, matched_tools)
                 if strict:
@@ -710,6 +725,8 @@ def get_toolchain(
         if allowlist is not None and not explicitly_allowed:
             if warn_on_skipped_mcp and tool.is_mcp and tool.is_available:
                 skipped_mcp_tools.append(tool.name)
+            continue
+        if is_read_only_session() and _denied_for_read_only(tool):
             continue
         if not tool.is_available:
             continue
@@ -1311,6 +1328,10 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             )
 
         requested_spec = available[tool_name]
+        if is_read_only_session() and _denied_for_read_only(requested_spec):
+            raise ValueError(
+                f"Tool '{tool_name}' is not allowed in a read-only session"
+            )
         if not requested_spec.is_available:
             raise ValueError(_unavailable_message(tool_name, [requested_spec]))
 
@@ -1323,7 +1344,7 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
         )
         if is_read_only_session():
             for spec in to_load:
-                if spec.name in _READ_ONLY_DENIED_TOOLS:
+                if _denied_for_read_only(spec):
                     raise ValueError(
                         f"Tool '{spec.name}' is not allowed in a read-only session"
                     )

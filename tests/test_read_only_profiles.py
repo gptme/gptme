@@ -136,3 +136,61 @@ def test_read_only_startup_does_not_initialize_denied_tools(
     monkeypatch.setattr(gptme.tools, "_init_single_tool", initialize)
     init_tools(["read", "shell", "watch"], read_only=True, include_mcp=False)
     assert [call.args[0].name for call in initialize.call_args_list] == ["read"]
+
+
+def test_read_only_reinitialization_restricts_existing_direct_handler(
+    tmp_path,
+) -> None:
+    from gptme.message import Message
+    from gptme.tools import with_direct_function_calls
+    from gptme.tools.browser import tool as browser
+
+    # A prior non-read-only toolset may already carry a direct-call closure.
+    direct = with_direct_function_calls([browser])[0]
+    restricted = with_direct_function_calls(restrict_tools_for_read_only([direct]))[0]
+    assert restricted.execute is not None
+    target = tmp_path / "must-not-write.json"
+    result = restricted.execute(f"save_browser_state({str(target)!r})", None, None)
+    messages = [result] if isinstance(result, Message) else list(result)
+    text = "\n".join(message.content for message in messages)
+    assert "Unknown function" in text
+    assert not target.exists()
+
+
+def test_read_only_drops_server_generated_mcp_tools() -> None:
+    tools = [
+        ToolSpec(name="read", desc="Read"),
+        ToolSpec(name="filesystem.write_file", desc="Write", is_mcp=True),
+    ]
+    assert [tool.name for tool in restrict_tools_for_read_only(tools)] == ["read"]
+
+
+def test_read_only_dynamic_load_rejects_mcp_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    init_tools(["read"], read_only=True, include_mcp=False)
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda: [ToolSpec(name="fs.write", desc="Write", is_mcp=True)],
+    )
+    initialize = Mock(side_effect=AssertionError("MCP tool must not initialize"))
+    monkeypatch.setattr("gptme.tools._init_single_tool", initialize)
+    with pytest.raises(ValueError, match="not allowed in a read-only session"):
+        load_tool("fs.write", allow_required=True)
+    initialize.assert_not_called()
+
+
+def test_read_only_startup_skips_unavailable_denied_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.tools.read import tool as read
+
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **kwargs: [
+            read,
+            ToolSpec(name="computer", desc="Absent", available=False),
+        ],
+    )
+    tools = init_tools(["read", "computer"], read_only=True, include_mcp=False)
+    assert [tool.name for tool in tools] == ["read"]
