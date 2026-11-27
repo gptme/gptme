@@ -36,7 +36,14 @@ from ._computer_gate import sensitive_action_gate
 from ._url_safety import _validate_entry_url, _validate_page_url
 
 _browser: BrowserThread | None = None
-_last_logs: dict = {"logs": [], "errors": [], "url": None, "owner": None}
+# Console logs from each conversation's most recent page load, keyed by
+# conversation. A single process-wide slot let one conversation's load replace
+# another's between the ownership check and the response read in read_logs(),
+# so a caller could receive another conversation's private logs.
+_last_logs: dict[str | None, dict] = {}
+# Bound the per-conversation map: a long-lived server would otherwise keep one
+# entry per conversation it ever served.
+_MAX_LOG_ENTRIES = 8
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
@@ -253,17 +260,26 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         # page.url on the redirected host with nav_response still None.
         # Raises ValueError if blocked. Runs inside this try so the finally
         # below still closes the managed page.
-        _validate_page_url(page.url)
-
-        # Store logs only once the landing page passed the host check: a
-        # blocked redirect's console output must not reach read_logs(). Stamp
-        # the owner so another conversation cannot read them.
-        _last_logs = {
-            "logs": logs,
-            "errors": page_errors,
-            "url": url,
-            "owner": _conversation_key(),
-        }
+        owner = _conversation_key()
+        blocked = False
+        try:
+            _validate_page_url(page.url)
+        except ValueError:
+            # A blocked redirect's console output must not reach read_logs(),
+            # but the navigation errors do explain the failed load to the
+            # caller that asked for it.
+            blocked = True
+            raise
+        finally:
+            # Replacing the caller's own entry only: another conversation's
+            # logs stay readable by that conversation.
+            _last_logs[owner] = {
+                "logs": [] if blocked else logs,
+                "errors": page_errors,
+                "url": url,
+            }
+            while len(_last_logs) > _MAX_LOG_ENTRIES:
+                _last_logs.pop(next(iter(_last_logs)))
 
         # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:
@@ -397,27 +413,29 @@ def read_url(url: str) -> str:
 
 
 def read_logs() -> str:
-    """Read browser console logs from the last read URL."""
-    global _last_logs
+    """Read browser console logs from this conversation's last read URL."""
+    # Read the caller's entry once: another conversation's page load replaces
+    # only its own slot, and a single local snapshot keeps the ownership check
+    # and the response consistent.
+    entry = _last_logs.get(_conversation_key())
 
-    if not _last_logs["url"] or _last_logs.get("owner") != _conversation_key():
-        # Logs from another conversation's page are not this caller's to read.
+    if entry is None or not entry["url"]:
         return "No URL has been read yet."
 
-    result = [f"=== Logs for {_last_logs['url']} ==="]
+    result = [f"=== Logs for {entry['url']} ==="]
 
-    if _last_logs["logs"]:
+    if entry["logs"]:
         result.append("\n=== Console Logs ===")
         result.extend(
             f"[{log['type'].upper()}] {log['text']} ({log['location']})"
-            for log in _last_logs["logs"]
+            for log in entry["logs"]
         )
 
-    if _last_logs["errors"]:
+    if entry["errors"]:
         result.append("\n=== Page Errors ===")
-        result.extend(_last_logs["errors"])
+        result.extend(entry["errors"])
 
-    if not _last_logs["logs"] and not _last_logs["errors"]:
+    if not entry["logs"] and not entry["errors"]:
         result.append("\nNo logs or errors captured.")
 
     return "\n".join(result)
