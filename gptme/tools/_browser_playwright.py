@@ -144,6 +144,8 @@ def _restart_browser() -> None:
     _current_page = None
     _current_context = None
     _session_owner = None
+    # Captured console logs belong to pages the restart closes.
+    _last_logs.clear()
 
     if _browser is not None:
         try:
