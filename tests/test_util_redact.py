@@ -151,6 +151,43 @@ def test_url_scan_does_not_retry_overlapping_schemes(redactor, scheme_run):
     )
 
 
+@pytest.mark.parametrize("wrapper", ["", '"', "`", "<"])
+@pytest.mark.parametrize("username", ["admin", "", "john@corp.com"])
+def test_url_password_with_apostrophe(wrapper, username):
+    password = "o'" + "brien"
+    closing = ">" if wrapper == "<" else wrapper
+    line = f"DATABASE_URL={wrapper}postgres://{username}:{password}@db/app{closing}"
+    expected = line.replace(password, "[REDACTED]")
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize(
+    "redactor", ["redact_secrets_from_text", "redact_secret_values_from_output"]
+)
+@pytest.mark.parametrize("separator", ["=", ":"])
+def test_repeated_secret_assignments_do_not_rescan_suffixes(redactor, separator):
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                f"from gptme.util.redact import {redactor} as redact; "
+                f"prefix = 'INFO ' + ('token' + {separator!r}) * 100000; "
+                f"line = prefix + {OPAQUE!r} + '=='; "
+                "result = redact(line); "
+                "assert (result[0] if isinstance(result, tuple) else result) "
+                "== prefix + '[REDACTED]'"
+            ),
+        ],
+        check=True,
+        timeout=10,
+    )
+
+
 def test_output_redactor_keeps_source_code():
     line = 'API_KEY = os.environ["OPENAI_API_KEY"]\n'
     out, n = redact_secret_values_from_output(line)

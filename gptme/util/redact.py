@@ -96,7 +96,9 @@ _MIDLINE_SECRET_RE = re.compile(
     (["']?)                          # optional quote opening the value
     """
 )
-_MIDLINE_VALUE_RE = re.compile(r"""[^\s"'`,;)}\]?&#]+""")
+# Assignment separators terminate a candidate, except for trailing '=' padding.
+# Otherwise repeated ``token=`` prefixes each rescan the entire remaining line.
+_MIDLINE_VALUE_RE = re.compile(r"""[^\s"'`,;)}\]?&#=:]+=*(?![^\s"'`,;)}\]?&#])""")
 
 # Credentials embedded in a URL's userinfo component
 # (``https://user:password@host/...``). The scheme is required so a plain
@@ -104,11 +106,14 @@ _MIDLINE_VALUE_RE = re.compile(r"""[^\s"'`,;)}\]?&#]+""")
 # Consume a complete scheme-character run even when it is not a URL, rather
 # than retrying its overlapping suffixes after every hyphen/dot/plus. The
 # fallback preserves the original word-boundary semantics for real URLs.
-_URL_USERINFO_RE = re.compile(
-    r"""\b([a-z][a-z0-9+.\-]*://)([^\s:/?#"'`<>]*):([^\s/?#"'`<>]+)@"""
-    r"|\b[a-z][a-z0-9+.\-]*",
+_URL_SCHEME_RE = re.compile(
+    r"\b([a-z][a-z0-9+.\-]*://)|\b[a-z][a-z0-9+.\-]*",
     re.IGNORECASE,
 )
+# Apostrophes are valid userinfo characters in unquoted/double-quoted URLs.
+# Only a surrounding single-quoted field makes an apostrophe a boundary.
+_URL_AUTHORITY_RE = re.compile(r"""[^\s/?#"`<>]+""")
+_URL_SINGLE_QUOTED_AUTHORITY_RE = re.compile(r"""[^\s/?#"'`<>]+""")
 
 _REDACTED = "[REDACTED]"
 
@@ -280,13 +285,28 @@ def _redact_url_userinfo(line: str) -> str:
     if "://" not in line or "@" not in line:
         return line
 
-    def repl(match: re.Match[str]) -> str:
-        password = match.group(3)
-        if password is None or password == _REDACTED:
-            return match.group(0)
-        return f"{match.group(1)}{match.group(2)}:{_REDACTED}@"
-
-    return _URL_USERINFO_RE.sub(repl, line)
+    parts: list[str] = []
+    previous = 0
+    for match in _URL_SCHEME_RE.finditer(line):
+        if match.group(1) is None or match.start() < previous:
+            continue
+        single_quoted = match.start() > 0 and line[match.start() - 1] == "'"
+        pattern = (
+            _URL_SINGLE_QUOTED_AUTHORITY_RE if single_quoted else _URL_AUTHORITY_RE
+        )
+        authority = pattern.match(line, match.end())
+        if authority is None:
+            continue
+        userinfo, delimiter, _host = authority.group().rpartition("@")
+        _username, colon, password = userinfo.partition(":")
+        if not delimiter or not colon or not password or password == _REDACTED:
+            continue
+        end = authority.start() + len(userinfo)
+        start = end - len(password)
+        parts.extend((line[previous:start], _REDACTED))
+        previous = end
+    parts.append(line[previous:])
+    return "".join(parts)
 
 
 def _redact_line(line: str) -> str:
