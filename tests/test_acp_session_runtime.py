@@ -1561,6 +1561,143 @@ def test_runtime_cancelled_sync_close_uses_process_fallback(monkeypatch, tmp_pat
     assert runtime.session_id is None
 
 
+@pytest.mark.timeout(15)
+def test_start_entry_failure_stops_loop_and_leaves_no_child(monkeypatch, tmp_path):
+    """A failed client entry must not leak the dedicated loop thread (#5360)."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _MissingAgentClient(_DummyClient):
+        async def __aenter__(self):
+            raise FileNotFoundError("ACP agent command not found: 'missing-acp'")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _MissingAgentClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, command="missing-acp")
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    assert loop_thread is not None and loop_thread.is_alive()
+
+    with pytest.raises(FileNotFoundError, match="missing-acp"):
+        _run(runtime.start())
+
+    assert runtime._client is None
+    assert runtime.session_id is None
+    assert not runtime.is_subprocess_alive()
+    assert runtime._loop_thread is None
+    assert not loop_thread.is_alive()
+
+
+@pytest.mark.timeout(15)
+def test_failed_start_keeps_child_when_cleanup_raises(monkeypatch, tmp_path):
+    """A raising __aexit__ after failed setup must not drop the child handle."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingSetupClient(_DummyClient):
+        _process = object()
+
+        async def set_session_model(self, session_id: str, model_id: str) -> None:
+            raise RuntimeError("model rejected")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise OSError("broken transport")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingSetupClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, model="openai/gpt-4o-mini")
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+
+    with pytest.raises(RuntimeError, match="model rejected"):
+        _run(runtime.start())
+
+    assert fallback == [_FailingSetupClient._process]
+    assert runtime._client is None
+    assert runtime.session_id is None
+    assert runtime._loop_thread is None
+    assert loop_thread is not None and not loop_thread.is_alive()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="needs POSIX signals and os.WNOHANG"
+)
+@pytest.mark.timeout(20)
+def test_cancelled_close_kills_term_ignoring_child(monkeypatch, tmp_path):
+    """Cancelled close() still SIGKILLs a SIGTERM-ignoring child (#5360)."""
+    import os
+
+    import gptme.server.acp_session_runtime as mod
+
+    waiting = threading.Event()
+
+    class _TermIgnoringClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self._process: Any = None
+
+        async def __aenter__(self):
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                (
+                    "import signal, sys, time; "
+                    "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                    "print('ready', flush=True); time.sleep(30)"
+                ),
+                stdout=asyncio.subprocess.PIPE,
+            )
+            assert proc.stdout is not None
+            await proc.stdout.readline()
+            self._process = proc
+            self.started = True
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if self._process is not None and self._process.returncode is None:
+                self._process.terminate()
+                waiting.set()
+                await self._process.wait()
+            self.closed = True
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _TermIgnoringClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    pid = runtime.process_pid
+    loop_thread = runtime._loop_thread
+    assert isinstance(pid, int)
+    assert runtime.is_subprocess_alive()
+
+    result: list[BaseException] = []
+
+    async def _main() -> None:
+        task = asyncio.create_task(runtime.close())
+        await asyncio.get_running_loop().run_in_executor(None, waiting.wait, 5)
+        assert waiting.is_set(), "Graceful close never started waiting on the child"
+        task.cancel()
+        try:
+            await task
+        except BaseException as exc:
+            result.append(exc)
+
+    try:
+        asyncio.run(_main())
+
+        # Assert before the safety-net cleanup below, which would kill the
+        # child itself and hide a close() that never signalled it.
+        assert len(result) == 1
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert runtime._client is None
+        assert runtime.session_id is None
+        assert loop_thread is not None and not loop_thread.is_alive()
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+    finally:
+        runtime.terminate_subprocess_sync(graceful=False)
+
+
 def test_loop_calls_cancels_pending_futures_on_close():
     """Calls accepted but never started are cancelled when the loop closes."""
     import concurrent.futures
