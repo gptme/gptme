@@ -683,7 +683,7 @@
 <p>The CLI also supports a variety of options that can be used to override both configuration values.</p>
 <section id="global-config">
 <span id="id1"></span><h2>Global config<a class="headerlink" href="#global-config" title="Link to this heading">#</a></h2>
-<p>The file is located at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>.</p>
+<p>The file is located at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code> (or <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/gptme/config.toml</span></code> if <code class="docutils literal notranslate"><span class="pre">XDG_CONFIG_HOME</span></code> is set).</p>
 <p>Here is an example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[user]</span>
 <span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Erik"</span>
@@ -909,7 +909,7 @@ the <code class="docutils literal notranslate"><span class="pre">local/</span></
 </section>
 <section id="local-overrides-config-local-toml">
 <span id="global-config-local"></span><h3>Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)<a class="headerlink" href="#local-overrides-config-local-toml" title="Link to this heading">#</a></h3>
-<p>You can create a <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> in the same directory (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code>) to override or extend values from <code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. This is useful for keeping secrets (API keys, MCP server credentials) separate from preferences you might commit to your dotfiles.</p>
+<p>You can create a <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> in the same directory (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code>, or <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/gptme/</span></code> if <code class="docutils literal notranslate"><span class="pre">XDG_CONFIG_HOME</span></code> is set) to override or extend values from <code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. This is useful for keeping secrets (API keys, MCP server credentials) separate from preferences you might commit to your dotfiles.</p>
 <p>Example <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
 <span class="n">OPENAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"sk-..."</span>
@@ -1140,8 +1140,10 @@ CLI/TUI sessions ignore this setting. Resolution order: the
 <span id="agent-instruction-files"></span><h3>Agent instruction files (<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>)<a class="headerlink" href="#agent-instruction-files-agents-md" title="Link to this heading">#</a></h3>
 <p>At startup, gptme loads agent instruction files (<code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
 <code class="docutils literal notranslate"><span class="pre">COPILOT.md</span></code>, <code class="docutils literal notranslate"><span class="pre">GEMINI.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.github/copilot-instructions.md</span></code>,
-<code class="docutils literal notranslate"><span class="pre">.cursorrules</span></code>, <code class="docutils literal notranslate"><span class="pre">.windsurfrules</span></code>) from <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code> and from every
-directory between your home directory and the workspace, most general first.</p>
+<code class="docutils literal notranslate"><span class="pre">.cursorrules</span></code>, <code class="docutils literal notranslate"><span class="pre">.windsurfrules</span></code>) from the gptme config directory
+(<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code>, or <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/gptme/</span></code> if <code class="docutils literal notranslate"><span class="pre">XDG_CONFIG_HOME</span></code> is
+set) and from every directory between your home directory and the workspace,
+most general first.</p>
 <p>During a session, instructions follow you: when the working directory changes
 (for example after a <code class="docutils literal notranslate"><span class="pre">cd</span></code> in the shell tool), or a file tool reads or writes a
 path in another directory, gptme loads any instruction files for that directory
