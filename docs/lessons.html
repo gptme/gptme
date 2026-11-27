@@ -1097,7 +1097,7 @@ with an authorized provider/model):</p>
 <p>The command is a JSON argv array, executed without a shell. The executable and its
 arguments must be trusted configuration. Selector settings are read only from
 a snapshot of the process environment captured when gptme is first imported,
-before workspace <code class="docutils literal notranslate"><span class="pre">.env</span></code> loading. Later process-environment changes and repository
+before any <code class="docutils literal notranslate"><span class="pre">.env</span></code> loading. Later process-environment changes and repository
 or conversation <code class="docutils literal notranslate"><span class="pre">[env]</span></code> cannot authorize service execution or provider spending.
 A nonempty explicit guard list, model and positive call limit are required;
 otherwise matching stays deterministic.

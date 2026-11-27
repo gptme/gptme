@@ -652,7 +652,10 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-sensible-middle-ground">A sensible middle ground</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-configuration-trust">Project Configuration Trust</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-configuration-trust">Project Configuration Trust</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-files">Environment files</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-specific-notes">Tool-specific notes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reporting-security-issues">Reporting Security Issues</a></li>
 </ul>
@@ -844,6 +847,18 @@ unwanted actions.</p>
 without looking first, review <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before running <code class="docutils literal notranslate"><span class="pre">gptme</span></code> in a new
 repository. In automated environments, set <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> explicitly to
 directories you control.</p>
+<section id="environment-files">
+<h3>Environment files<a class="headerlink" href="#environment-files" title="Link to this heading">#</a></h3>
+<p>gptme does not load a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file from the workspace or the working directory:
+such a file is repository content. It reads every existing <code class="docutils literal notranslate"><span class="pre">.env</span></code> from the
+gptme source checkout (when run from one), then <code class="docutils literal notranslate"><span class="pre">~/.env</span></code>, then
+<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/.env</span></code>. Earlier files win: <code class="docutils literal notranslate"><span class="pre">python-dotenv</span></code> does not override
+variables that are already set. Use those files, exported variables, or
+<code class="docutils literal notranslate"><span class="pre">[env]</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> (which needs approval) for keys. Workspace and cwd
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> files are never loaded.</p>
+<p><code class="docutils literal notranslate"><span class="pre">GPTME_TRUST_PROJECT_SHELL</span></code> is read only from the environment gptme was
+launched with.</p>
+</section>
 </section>
 <section id="tool-specific-notes">
 <h2>Tool-specific notes<a class="headerlink" href="#tool-specific-notes" title="Link to this heading">#</a></h2>
@@ -929,7 +944,10 @@ for details.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-sensible-middle-ground">A sensible middle ground</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-configuration-trust">Project Configuration Trust</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#project-configuration-trust">Project Configuration Trust</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-files">Environment files</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-specific-notes">Tool-specific notes</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reporting-security-issues">Reporting Security Issues</a></li>
 </ul>

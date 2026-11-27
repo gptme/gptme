@@ -8807,6 +8807,20 @@ without looking first, review ``gptme.toml`` before running ``gptme`` in a new
 repository. In automated environments, set ``--workspace`` explicitly to
 directories you control.
 
+Environment files
+~~~~~~~~~~~~~~~~~
+
+gptme does not load a ``.env`` file from the workspace or the working directory:
+such a file is repository content. It reads every existing ``.env`` from the
+gptme source checkout (when run from one), then ``~/.env``, then
+``~/.config/gptme/.env``. Earlier files win: ``python-dotenv`` does not override
+variables that are already set. Use those files, exported variables, or
+``[env]`` in ``gptme.toml`` (which needs approval) for keys. Workspace and cwd
+``.env`` files are never loaded.
+
+``GPTME_TRUST_PROJECT_SHELL`` is read only from the environment gptme was
+launched with.
+
 Tool-specific notes
 -------------------
 
@@ -11962,7 +11976,7 @@ with an authorized provider/model):
 The command is a JSON argv array, executed without a shell. The executable and its
 arguments must be trusted configuration. Selector settings are read only from
 a snapshot of the process environment captured when gptme is first imported,
-before workspace ``.env`` loading. Later process-environment changes and repository
+before any ``.env`` loading. Later process-environment changes and repository
 or conversation ``[env]`` cannot authorize service execution or provider spending.
 A nonempty explicit guard list, model and positive call limit are required;
 otherwise matching stays deterministic.
@@ -21465,6 +21479,7 @@ Unreleased
 - Auto-discovery of local Ollama and LM Studio providers
 - Offline file format conversion tool
 - Trust-on-first-use gate for project-level shell execution
+- Approvals from older versions keep shell commands only; re-approve to enable MCP/env/plugins.
 
 2026
 ----
