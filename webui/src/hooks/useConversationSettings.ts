@@ -30,6 +30,7 @@ export const chatConfigToFormValues = (config: ChatConfig | null | undefined): F
     auto_start: config?.mcp?.auto_start ?? false,
     servers:
       config?.mcp?.servers?.map((server) => ({
+        ...server,
         name: server.name || '',
         enabled: server.enabled ?? false,
         command: server.command || '',
@@ -37,6 +38,8 @@ export const chatConfigToFormValues = (config: ChatConfig | null | undefined): F
         // Carry the original argv with the form row so renames, reorders and
         // removals cannot make an unchanged field resolve to another server.
         originalArgs: server.args ?? [],
+        // Keep unedited transport settings with their row across renames/reorders.
+        originalServer: { ...server },
         env: server.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : [],
       })) || [],
   },
@@ -86,6 +89,9 @@ export const formValuesToChatConfig = (
     ) || {};
 
   const newMcpServers = values.mcp?.servers?.map((server) => ({
+    ...server.originalServer,
+    ...(server.url !== undefined ? { url: server.url } : {}),
+    ...(server.headers !== undefined ? { headers: server.headers } : {}),
     name: server.name,
     enabled: server.enabled,
     command: server.command,

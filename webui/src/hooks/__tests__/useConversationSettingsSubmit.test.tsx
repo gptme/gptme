@@ -53,6 +53,74 @@ describe('useConversationSettings submit', () => {
     } as never);
   });
 
+  it('preserves remote MCP settings through a mounted form on an unrelated save', async () => {
+    const config = makeConfig();
+    const remoteServer = {
+      ...config.mcp.servers[0],
+      command: '',
+      url: 'https://mcp.example.com/events',
+      headers: { Authorization: 'Bearer test-token' },
+      transport: 'sse',
+    };
+    config.mcp.servers = [remoteServer];
+    conversations$.set(
+      new Map([
+        ['c1', observable({ id: 'c1', data: { id: 'c1', log: [] }, chatConfig: config })],
+      ]) as never
+    );
+
+    const { result } = renderHook(() => useConversationSettings('c1'));
+    await waitFor(() => expect(result.current.chatConfig).toBeTruthy());
+
+    act(() => {
+      result.current.form.setValue('chat.name', 'renamed');
+    });
+
+    const onValid = jest.fn(result.current.onSubmit);
+    await act(async () => {
+      await result.current.form.handleSubmit(onValid)();
+    });
+
+    expect(onValid).toHaveBeenCalledTimes(1);
+    expect(updateChatConfig).toHaveBeenCalledTimes(1);
+    const submitted = updateChatConfig.mock.calls[0][1] as ChatConfig;
+    expect(submitted.chat.name).toBe('renamed');
+    expect(submitted.mcp.servers).toEqual([remoteServer]);
+  });
+
+  it('submits explicitly cleared remote fields from a mounted form', async () => {
+    const config = makeConfig();
+    const remoteServer = {
+      ...config.mcp.servers[0],
+      url: 'https://mcp.example.com/events',
+      headers: { Authorization: 'Bearer test-token' },
+    };
+    config.mcp.servers = [remoteServer];
+    conversations$.set(
+      new Map([
+        ['c1', observable({ id: 'c1', data: { id: 'c1', log: [] }, chatConfig: config })],
+      ]) as never
+    );
+    const { result } = renderHook(() => useConversationSettings('c1'));
+    await waitFor(() => expect(result.current.chatConfig).toBeTruthy());
+
+    act(() => {
+      result.current.form.setValue('mcp.servers.0.url', '');
+      result.current.form.setValue('mcp.servers.0.headers', {});
+    });
+    await act(async () => {
+      await result.current.form.handleSubmit(result.current.onSubmit)();
+    });
+
+    expect(updateChatConfig).toHaveBeenCalledTimes(1);
+    const submitted = updateChatConfig.mock.calls[0][1] as ChatConfig;
+    expect(submitted.mcp.servers[0]).toEqual({
+      ...config.mcp.servers[0],
+      url: '',
+      headers: {},
+    });
+  });
+
   it('submits unchanged MCP argv and null tool format from a mounted form', async () => {
     const config = makeConfig();
     conversations$.set(
@@ -66,6 +134,8 @@ describe('useConversationSettings submit', () => {
 
     act(() => {
       result.current.form.setValue('chat.name', 'renamed');
+      result.current.form.setValue('mcp.servers.0.command', '');
+      result.current.form.setValue('mcp.servers.0.url', 'https://mcp.example.com/events');
       result.current.form.setValue('mcp.servers.0.headers', { Authorization: 'test-token' });
     });
 
@@ -82,6 +152,11 @@ describe('useConversationSettings submit', () => {
     const submitted = updateChatConfig.mock.calls[0][1] as ChatConfig;
     expect(submitted.chat.name).toBe('renamed');
     expect(submitted.chat.tool_format).toBeNull();
+    expect(submitted.mcp.servers[0]).toMatchObject({
+      command: '',
+      url: 'https://mcp.example.com/events',
+      headers: { Authorization: 'test-token' },
+    });
     expect(submitted.mcp.servers[0].args).toEqual([
       'server.js',
       '--config={"a":1,"b":2}',
