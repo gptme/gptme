@@ -1066,6 +1066,22 @@ class TestFileToolSecretPaths:
         # The tool will run in ``workspace``; the process cwd is elsewhere.
         assert guardrail_hook(use, workspace=workspace) is not None
 
+    def test_deleted_cwd_does_not_break_the_guard(self, tmp_path, monkeypatch):
+        """A removed process cwd must not raise out of the hook."""
+        from gptme.hooks.guardrails import guardrail_hook
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        doomed = tmp_path / "doomed"
+        doomed.mkdir()
+        monkeypatch.chdir(doomed)
+        doomed.rmdir()
+        # Relative target, no explicit workspace: the anchor lookup fails and
+        # the check must fall through rather than raise FileNotFoundError.
+        assert guardrail_hook(ToolUse("save", ["notes.txt"], "x\n")) is None
+        # An absolute secret is still caught with no usable cwd.
+        absolute = tmp_path / ".env"
+        assert guardrail_hook(ToolUse("save", [str(absolute)], "x\n")) is not None
+
     def test_ordinary_save_allowed(self, tmp_path, monkeypatch):
         target = tmp_path / "notes.txt"
         self._execute(monkeypatch, ToolUse("save", [str(target)], "hi\n"))

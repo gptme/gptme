@@ -306,7 +306,6 @@ def _read_secret_path_reason(
     from ..tools.read import _configured_read_root
     from ..util.workspace import current_workspace
 
-    base = workspace or current_workspace()
     for path_arg in path_candidates:
         # read expands ~, not shell variables or substitutions. Check its
         # literal spelling too: work$/../.ssh/config still reaches ~/.ssh.
@@ -314,7 +313,9 @@ def _read_secret_path_reason(
         try:
             if not os.path.isabs(literal):
                 read_root, _ = _configured_read_root()
-                literal = os.path.join(read_root or base, literal)
+                literal = os.path.join(
+                    read_root or workspace or current_workspace(), literal
+                )
             # Keep symlink/.. ordering: collapsing .. before realpath can
             # check a different file than read's Path.resolve() opens.
         except (OSError, ValueError, RuntimeError):
@@ -396,12 +397,11 @@ def _file_tool_secret_path_reason(
     """
     from ..util.workspace import current_workspace
 
-    base = workspace or current_workspace()
     for path_arg in _file_tool_paths(tool_use):
         literal = os.path.expanduser(path_arg)
         try:
             if not os.path.isabs(literal):
-                literal = os.path.join(base, literal)
+                literal = os.path.join(workspace or current_workspace(), literal)
             # Do not abspath/normpath here: realpath must follow symlinks
             # before interpreting .., just like resolve_in_workspace().
         except (OSError, ValueError, RuntimeError):
