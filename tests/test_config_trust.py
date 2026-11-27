@@ -860,3 +860,18 @@ def test_config_writers_keep_unapproved_settings(tmp_path, monkeypatch):
         assert [s["name"] for s in data["mcp"]["servers"]] == ["helper"]
         assert data["plugins"]["paths"] == ["./plugins"]
         assert data["rag"]["enabled"] is True
+
+
+def test_server_startup_never_prompts_for_the_project(tmp_path, monkeypatch, fake_tty):
+    from gptme.config import Config, set_config
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    ws = tmp_path / "repo"
+    _write_project(ws)
+    set_config(Config(project=_load(ws)))
+
+    def fail_prompt(*args, **kwargs):
+        raise AssertionError("server startup must not prompt on stdin")
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", fail_prompt)
+    assert trust_mod.approve_project_config(True, server=True) is False

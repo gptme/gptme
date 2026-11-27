@@ -441,6 +441,9 @@ def approve_project_config(
     """
     from .core import get_config
 
+    if server:
+        # init() runs before create_app(), and must not prompt either.
+        disable_prompts()
     config = get_config()
     approved = True
     if config.project is not None:
