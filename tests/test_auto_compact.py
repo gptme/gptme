@@ -311,6 +311,199 @@ def test_strip_reasoning_handles_multiple_blocks():
     assert tokens_saved > 0
 
 
+def test_strip_reasoning_leaves_fenced_code_intact():
+    """Reasoning-tag text and blank lines inside a code block are code, not reasoning."""
+    from gptme.context import strip_reasoning
+
+    code = (
+        "```python\n"
+        "PATTERN = r'<think>.*?</think>'\n"
+        "\n"
+        "\n"
+        "\n"
+        "def f():\n"
+        "    return PATTERN\n"
+        "```"
+    )
+    content = "<think>let me plan</think>\nHere is the code:\n" + code
+    stripped, tokens_saved = strip_reasoning(content, "gpt-4")
+
+    assert "let me plan" not in stripped
+    assert code in stripped
+    assert tokens_saved > 0
+
+
+def test_strip_reasoning_unclosed_fence_inside_think_does_not_hide_close():
+    """A fence left open inside reasoning ends with the reasoning block."""
+    from gptme.context import strip_reasoning
+
+    code = "```py\na = 1\n\n\n\nb = 2\n```"
+    content = "<think>plan:\n```python\nx = 1\n</think>\nAnswer:\n" + code
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "Answer:\n" + code
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "```py\r\n<think>kept</think>\r\n```\r\n",  # CRLF closer
+        "```\n<think>kept</think>\n`````\n",  # longer closer
+        "````\n```\n<think>kept</think>\n````\n",  # shorter run is not a closer
+        "~~~\n<think>kept</think>\n~~~\n",
+    ],
+)
+def test_strip_reasoning_fence_closers(fence: str):
+    """Fence closers follow the opener's character and length, with any line ending."""
+    from gptme.context import strip_reasoning
+
+    stripped, _ = strip_reasoning(fence + "after<think>gone</think> done", "gpt-4")
+
+    assert stripped == fence + "after done"
+
+
+@pytest.mark.parametrize("ticks", ["`", "``", "```", "````"])
+def test_strip_reasoning_inline_code_is_not_a_fence(ticks: str) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    content = f"{ticks}inline{ticks}\n<think>private</think>Answer"
+    assert remove_reasoning(content) == f"{ticks}inline{ticks}\nAnswer"
+    assert (
+        remove_reasoning(content, drop_unclosed=True) == f"{ticks}inline{ticks}\nAnswer"
+    )
+
+
+@pytest.mark.parametrize("slashes", [1, 2, 3, 4])
+def test_strip_reasoning_escaped_backtick_opener(slashes: int) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    prefix = "Example " + "\\" * slashes + "`"
+    content = prefix + "<think>private</think>` done"
+    expected = prefix + "` done"
+    assert remove_reasoning(content) == expected
+    assert remove_reasoning(content, drop_unclosed=True) == expected
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Use `<think>example</think>` in XML.",
+        "Use `<think>\nexample</think>` in XML.",
+        "Use `the\n<think>` tag.\nAnswer",
+        "Use `~~~<think>` in XML.\nAnswer",
+        "The `<think>` tag is closed by </think> in output.",
+        "Use `<think>` tags.<think>private</think>",
+        "Use `the\n<think> tag` here.\n<think>private</think>",
+        "Use `the\n<think> tag` here.\nVisible.\n```xml\n</think>\n```",
+    ],
+)
+def test_inline_tags_keep_existing_regex_behaviour(content: str) -> None:
+    """Inline protection is out of scope; never infer reasoning from backticks."""
+    import re
+
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    # The pre-PR compaction and replay rules, applied to the same input.
+    expected = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+    expected = re.sub(r"<thinking>.*?</thinking>", "", expected, flags=re.DOTALL)
+    expected = re.sub(r"\n\n\n+", "\n\n", expected).strip()
+    assert remove_reasoning(content) == expected
+    replay = re.sub(r"<think(?:ing)?>.*", "", expected, flags=re.DOTALL).rstrip()
+    assert _prose(content) == replay
+
+
+@pytest.mark.parametrize("fence", ["```xml", "~~~xml"])
+def test_inline_code_cannot_cross_fenced_block(fence: str) -> None:
+    from gptme.context.compress import remove_reasoning
+
+    prefix = f"An unmatched ` marker.\n{fence}\n<think>example</think>\n{fence[:3]}\n"
+    content = prefix + "<think>private ` detail</think>\nAnswer"
+    assert remove_reasoning(content) == prefix + "\nAnswer"
+    assert remove_reasoning(content, drop_unclosed=True) == prefix + "\nAnswer"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_inline_code_cannot_cross_streamed_reasoning_marker(tag: str) -> None:
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"An unmatched ` marker.\n<{tag}>\nprivate `variable`\n</{tag}>\nAnswer"
+    expected = "An unmatched ` marker.\n\nAnswer"
+    assert remove_reasoning(content) == expected
+    assert _prose(content) == expected
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_stray_backtick_cannot_split_reasoning_block(tag: str, newline: str) -> None:
+    """A span may not hold a line-start opener while its closer stays outside."""
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = (
+        f"Note: use ` for code.{newline}<{tag}>secret ` thing</{tag}>{newline}Answer"
+    )
+    expected = f"Note: use ` for code.{newline}{newline}Answer"
+    assert remove_reasoning(content) == expected
+    assert _prose(content) == expected
+
+
+@pytest.mark.parametrize("opener", ["<think>", "<think>\n"])
+def test_stray_backtick_cannot_split_mid_line_block(opener: str) -> None:
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = f"Use ` carefully.{opener}plan ` x</think>Done"
+    assert remove_reasoning(content) == "Use ` carefully.Done"
+    assert _prose(content) == "Use ` carefully.Done"
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("fence", ["```", "```python", "~~~"])
+def test_stray_backtick_does_not_hide_reasoning_close(tag: str, fence: str) -> None:
+    """A later answer fence cannot hide a reasoning closer (P1 42ea737d9dfaf227)."""
+    from gptme.context.compress import remove_reasoning
+    from gptme.llm.responses_phase import _prose
+
+    content = (
+        f"Use ` here.<{tag}>plan ` x\n{fence}\nsecret\n</{tag}>\nAnswer\n"
+        "```\ncode\n```\n"
+    )
+    expected = "Use ` here.\nAnswer\n```\ncode\n```\n"
+    assert remove_reasoning(content) == expected
+    assert remove_reasoning(content, drop_unclosed=True) == expected
+    assert _prose(content) == expected
+
+
+def test_stray_backtick_block_may_contain_fenced_code() -> None:
+    from gptme.context.compress import remove_reasoning
+
+    content = "Use ` here.<think>plan ` x\n```sh\nls\n```\n</think>Done"
+    assert remove_reasoning(content) == "Use ` here.Done"
+
+
+def test_strip_reasoning_marker_shaped_text_is_literal():
+    """Text that looks like an internal placeholder is never rewritten."""
+    from gptme.context import strip_reasoning
+
+    code = "```\n<think>code</think>\n```"
+    content = "literal \x00FENCE0\x00\n<think>r</think>\n" + code
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "literal \x00FENCE0\x00\n\n" + code
+
+
+def test_strip_reasoning_removes_think_block_containing_code():
+    """A code block inside a reasoning block goes with it."""
+    from gptme.context import strip_reasoning
+
+    content = "<think>try:\n```sh\nls\n```\n</think>Answer"
+    stripped, _ = strip_reasoning(content, "gpt-4")
+
+    assert stripped == "Answer"
+
+
 def test_strip_reasoning_preserves_content_without_tags():
     """Test that strip_reasoning preserves content without reasoning tags."""
     from gptme.context import strip_reasoning

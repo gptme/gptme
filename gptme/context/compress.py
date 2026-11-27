@@ -240,12 +240,150 @@ def analyze_incremental_compression(
     return trajectory
 
 
+_FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
+_FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
+_REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
+
+
+def _line_end(content: str, pos: int) -> int:
+    end = content.find("\n", pos)
+    return len(content) if end == -1 else end + 1
+
+
+def _fence_end(content: str, pos: int, fence: str) -> int | None:
+    """Return the end of the fenced block whose body starts at ``pos``.
+
+    A closer uses the opener's character, at least as many of them, and
+    nothing but whitespace (including a CRLF ending). Returns ``None`` for an
+    unclosed fence.
+    """
+    while pos < len(content):
+        end = _line_end(content, pos)
+        m = _FENCE_CLOSE_RE.fullmatch(content[pos:end].rstrip("\r\n"))
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            return end
+        pos = end
+    return None
+
+
+def _reasoning_segments(
+    content: str, drop_unclosed: bool = False
+) -> list[tuple[str, str]]:
+    """Split content into ``("text" | "code" | "reasoning", text)`` segments.
+
+    Fences are only recognised outside reasoning, so a fence opened inside
+    ``<think>`` and never closed cannot hide the ``</think>`` after it.
+    Reasoning tags inside a fence outside reasoning are code, not reasoning.
+    Inline backticks do not mask tags: keep the existing stripping behaviour
+    outside fences rather than guessing whether a backtick belongs to reasoning.
+    """
+    segments: list[tuple[str, str]] = []
+    pos = 0
+    line_start = True
+
+    while pos < len(content):
+        if line_start:
+            fence = _FENCE_OPEN_RE.match(content, pos)
+            if fence:
+                body = _line_end(content, pos)
+                # An unclosed fence runs to the end of the content.
+                end = _fence_end(content, body, fence.group(1)) or len(content)
+                segments.append(("code", content[pos:end]))
+                pos = end
+                continue
+        line_end = _line_end(content, pos)
+        opener = _REASONING_OPEN_RE.search(content, pos, line_end)
+        if not opener:
+            segments.append(("text", content[pos:line_end]))
+            pos, line_start = line_end, True
+            continue
+        segments.append(("text", content[pos : opener.start()]))
+        close = f"</{opener.group(1)}>"
+        close_at = content.find(close, opener.end())
+        if close_at == -1:
+            if drop_unclosed:
+                segments.append(("reasoning", content[opener.start() :]))
+                break
+            segments.append(("text", opener.group(0)))
+            pos, line_start = opener.end(), False
+            continue
+        end = close_at + len(close)
+        segments.append(("reasoning", content[opener.start() : end]))
+        pos = end
+        line_start = content[pos - 1] == "\n"
+    return segments
+
+
+def remove_reasoning(
+    content: str, drop_unclosed: bool = False, preserve_edges: bool = False
+) -> str:
+    """Remove reasoning blocks, leaving fenced code byte-for-byte intact.
+
+    Blank-line runs are collapsed and edges stripped outside fences only.
+    With ``drop_unclosed``, an opener without a closer drops the rest of the
+    content (an interrupted reasoning block). ``preserve_edges`` retains the
+    original outside whitespace for replay without adding it to code twice.
+    """
+    return _render_reasoning_segments(
+        _reasoning_segments(content, drop_unclosed), preserve_edges
+    )
+
+
+def _render_reasoning_segments(
+    segments: list[tuple[str, str]], preserve_edges: bool = False
+) -> str:
+    """Render the original scan once; removing tags must not create new fences."""
+    leading = trailing = ""
+    if preserve_edges:
+        edge: list[str] = []
+        for kind, text in segments:
+            if kind != "text":
+                break
+            edge.append(text)
+        text = "".join(edge)
+        leading = text[: len(text) - len(text.lstrip())]
+        edge = []
+        for kind, text in reversed(segments):
+            if kind != "text":
+                break
+            edge.append(text)
+        text = "".join(reversed(edge))
+        trailing = text[len(text.rstrip()) :]
+        if all(kind == "text" and not text.strip() for kind, text in segments):
+            trailing = ""  # The same whitespace is already in leading.
+    chunks: list[tuple[bool, list[str]]] = []  # (is_code, pieces)
+    for kind, text in segments:
+        if kind == "reasoning" or not text:
+            continue
+        is_code = kind == "code"
+        if chunks and not is_code and not chunks[-1][0]:
+            chunks[-1][1].append(text)
+        else:
+            chunks.append((is_code, [text]))
+    joined = [(is_code, "".join(pieces)) for is_code, pieces in chunks]
+    for i, (is_code, text) in enumerate(joined):
+        if is_code:
+            continue
+        if i == 0:
+            text = text.lstrip()
+        if i == len(joined) - 1:
+            text = text.rstrip()
+        joined[i] = (
+            False,
+            (leading if i == 0 else "")
+            + re.sub(r"\n\n\n+", "\n\n", text)
+            + (trailing if i == len(joined) - 1 else ""),
+        )
+    return "".join(text for _, text in joined)
+
+
 def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
     """
     Strip reasoning tags from message content.
 
     Removes <think>...</think> and <thinking>...</thinking> blocks
-    while preserving the rest of the content.
+    while preserving the rest of the content. Fenced code outside reasoning
+    is left intact, including tag-like text and blank lines inside it.
 
     Args:
         content: Message content potentially containing reasoning tags
@@ -255,16 +393,6 @@ def strip_reasoning(content: str, model: str = "gpt-4") -> tuple[str, int]:
         Tuple of (stripped_content, tokens_saved)
     """
     original_tokens = len_tokens(content, model)
-
-    # Remove <think>...</think> blocks (including newlines inside)
-    stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-
-    # Remove <thinking>...</thinking> blocks (including newlines inside)
-    stripped = re.sub(r"<thinking>.*?</thinking>", "", stripped, flags=re.DOTALL)
-
-    # Clean up extra whitespace left by removals
-    stripped = re.sub(r"\n\n\n+", "\n\n", stripped)  # Multiple blank lines -> two
-    stripped = stripped.strip()
-
+    stripped = remove_reasoning(content)
     tokens_saved = original_tokens - len_tokens(stripped, model)
     return stripped, tokens_saved

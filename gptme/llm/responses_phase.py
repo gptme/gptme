@@ -30,16 +30,11 @@ if TYPE_CHECKING:
 def _prose(content: str) -> str:
     """Normalize only prose; never apply reasoning regexes to native JSON."""
     if re.search(r"<think(?:ing)?>", content):
-        from ..context import strip_reasoning
+        from ..context.compress import remove_reasoning
 
-        # The shared utility strips edges too. Retain separators around native
-        # calls so removing reasoning cannot glue prose to an @call header.
-        leading = content[: len(content) - len(content.lstrip())]
-        trailing = content[len(content.rstrip()) :]
-        content, _ = strip_reasoning(content)
-        # An interrupted reasoning block is not replayable visible text either.
-        content = re.sub(r"<think(?:ing)?>.*$", "", content, flags=re.DOTALL)
-        content = leading + content + trailing
+        # Retain separators around native calls without duplicating whitespace
+        # already preserved inside code. Interrupted reasoning is not replayable.
+        content = remove_reasoning(content, drop_unclosed=True, preserve_edges=True)
     return _strip_think_sig(content)
 
 
@@ -220,13 +215,15 @@ class ResponsesPhaseCapture:
         }
         # Allow a prose-only reasoning-strip edit, never a transform of argument
         # strings. Every native span is copied byte-for-byte into this anchor.
-        normalized = [_prose(text) for text in prose]
-        if normalized != prose:
-            stripped = "".join(
-                text + (raw_calls[i] if i < len(raw_calls) else "")
-                for i, text in enumerate(normalized)
-            ).strip()
-            output["reasoning_stripped_digest"] = _digest(stripped)
+        if any(re.search(r"<think(?:ing)?>", text) for text in prose):
+            from ..context.compress import remove_reasoning
+
+            # Hash exactly what autocompact produces from the whole message,
+            # and only if every native span survives it byte-for-byte.
+            stripped = remove_reasoning(content)
+            stripped_parts = _native_parts(stripped)
+            if stripped_parts is not None and stripped_parts[2] == raw_calls:
+                output["reasoning_stripped_digest"] = _digest(stripped)
         if replay_responses_output(content, output) is None:
             return metadata
         return {**(metadata or {}), "responses_output": output}
