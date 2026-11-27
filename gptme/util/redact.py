@@ -78,6 +78,33 @@ _ENV_ASSIGN_RE = re.compile(
     re.MULTILINE,
 )
 
+# The two patterns above anchor on the line start, which misses assignments
+# that appear later in a line: a request header copied out of a log
+# (``-H "X-Api-Key: sk-..."``), a JSON headers dict
+# (``{"X-Api-Key": "sk-..."}``) or a ``[debug] token=...`` line. This pattern
+# requires a boundary character before the name and stops at the first value
+# terminator, so the surrounding context is preserved. Because a mid-line
+# ``token:`` is just as likely to be prose or source code, callers gate it on
+# the value being secret-shaped (see ``_redact_midline``).
+_MIDLINE_SECRET_RE = re.compile(
+    r"""(?ix)
+    (?<=[\s"'`{(,\[])                # boundary before the name
+    (["']?)                          # optional quote opening the name
+    (?P<name>[A-Za-z0-9_\-]{1,40})   # name, classified separately below
+    (["']?)                          # optional quote closing the name
+    (\s*[:=]\s*)                     # separator
+    (["']?)                          # optional quote opening the value
+    ([^\s"'`,;)}\]]+)                # the value token
+    """
+)
+
+# Credentials embedded in a URL's userinfo component
+# (``https://user:password@host/...``). The scheme is required so a plain
+# ``user@host`` or ``git@github.com:org/repo`` is not mistaken for a password.
+_URL_USERINFO_RE = re.compile(
+    r"""(?i)\b([a-z][a-z0-9+.\-]*://)([^\s:/@]+):([^\s/@]+)@"""
+)
+
 _REDACTED = "[REDACTED]"
 
 # Path context (filenames, diff headers) differs from line context: a segment
@@ -208,6 +235,49 @@ def redact_secrets_from_text(content: str) -> str:
     return "".join(_redact_line(line) for line in content.splitlines(keepends=True))
 
 
+def _redact_midline(line: str) -> str:
+    """Redact mid-line secret assignments whose value looks like a credential.
+
+    A ``token:`` or ``X-Api-Key:`` later in a line is often prose or code, so
+    the value must be secret-shaped for this to fire. That keeps
+    ``{"max_tokens": 1024}`` readable while still catching a real header copy.
+    """
+    # Cheap reject first: without a secret keyword anywhere in the line there
+    # is nothing to classify, and the scan below stays off long token runs.
+    if not _EMBEDDED_SECRET_NAME_RE.search(line):
+        return line
+
+    def repl(match: re.Match[str]) -> str:
+        if not _EMBEDDED_SECRET_NAME_RE.search(match.group("name")):
+            return match.group(0)
+        value = match.group(6)
+        if not _is_credential_literal(value):
+            return match.group(0)
+        return (
+            f"{match.group(1)}{match.group(2)}{match.group(3)}"
+            f"{match.group(4)}{match.group(5)}{_REDACTED}"
+        )
+
+    return _MIDLINE_SECRET_RE.sub(repl, line)
+
+
+def _redact_url_userinfo(line: str) -> str:
+    """Replace the password in ``scheme://user:password@host`` with a marker."""
+    # Cheap reject: without both a scheme and an ``@`` there is no userinfo.
+    # Skipping also keeps the scheme match off long hyphen/underscore runs,
+    # where its greedy body would backtrack per start position.
+    if "://" not in line or "@" not in line:
+        return line
+
+    def repl(match: re.Match[str]) -> str:
+        password = match.group(3)
+        if password == _REDACTED:
+            return match.group(0)
+        return f"{match.group(1)}{match.group(2)}:{_REDACTED}@"
+
+    return _URL_USERINFO_RE.sub(repl, line)
+
+
 def _redact_line(line: str) -> str:
     """Redact a single line if it contains a secret assignment."""
     # Preserve original line ending (last line of a file may have no trailing newline)
@@ -231,7 +301,9 @@ def _redact_line(line: str) -> str:
         trailing = match.group(7)
         return f"{indent}{name}{sep}{_REDACTED}{trailing}{ending}"
 
-    return line
+    # No line-leading assignment: catch a mid-line header/assignment and a
+    # credential in a URL's userinfo, both of which the anchored patterns miss.
+    return _redact_url_userinfo(_redact_midline(line))
 
 
 def _looks_like_output_secret(value: str) -> bool:
@@ -325,6 +397,12 @@ def _redact_embedded_secrets(line: str) -> tuple[str, bool]:
 
     line = _EMBEDDED_PAIR_RE.sub(_pair, line)
     line = _EMBEDDED_VENDOR_LITERAL_RE.sub(_literal, line)
+    # Unquoted mid-line assignments (``-H "X-Api-Key: sk-..."``) and URL
+    # userinfo passwords are neither quoted pairs nor vendor literals.
+    cleaned = _redact_url_userinfo(_redact_midline(line))
+    if cleaned != line:
+        changed = True
+        line = cleaned
     return line, changed
 
 
