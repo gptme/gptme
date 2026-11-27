@@ -1482,6 +1482,69 @@ def test_write_jsonl_rewrites_when_concurrent_writer_diverges(tmp_path: Path):
     ]
 
 
+@pytest.mark.parametrize("replacement", ["invalid json\n", ""])
+def test_write_jsonl_rewrites_unreadable_concurrent_file(
+    tmp_path: Path, replacement: str
+):
+    """A corrupt or missing destination cannot supply a valid foreign tail."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    if replacement:
+        # Make the corrupt file larger than the persisted snapshot so reading
+        # it, rather than the size check, rejects the purported append.
+        jsonl_file.write_text(replacement * jsonl_file.stat().st_size)
+    else:
+        jsonl_file.unlink()
+
+    stale.append(Message("assistant", "reply")).write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+
+@pytest.mark.parametrize("with_tail", [False, True])
+def test_write_jsonl_rewrites_grown_non_append_history(tmp_path: Path, with_tail: bool):
+    """File growth alone does not make a replacement history a concurrent tail."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    replacement = Log([Message("user", "a much longer replacement prompt")])
+    if with_tail:
+        replacement = replacement.append(Message("user", "foreign tail"))
+    replacement.write_jsonl(jsonl_file)
+    assert stale.persisted_size is not None
+    assert jsonl_file.stat().st_size > stale.persisted_size
+
+    stale.append(Message("assistant", "reply")).write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+
+def test_write_jsonl_without_size_cursor_rewrites(tmp_path: Path):
+    """An unknown persisted size must not be treated as a validated snapshot."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale = stale.replace(persisted_size=None).append(Message("assistant", "reply"))
+    stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+
+def test_append_event_without_explicit_message_uses_last_or_skips_empty(tmp_path: Path):
+    """Legacy event callers can omit the message, including for an empty log."""
+    from gptme.logmanager.eventlog import EVENT_MESSAGE_APPEND, recover_messages
+
+    manager = LogManager(logdir=tmp_path, lock=False)
+    manager._write_event_log(EVENT_MESSAGE_APPEND)
+    assert recover_messages(tmp_path) is None
+
+    manager.append(Message("user", "prompt"))
+    manager._write_event_log(EVENT_MESSAGE_APPEND)
+    assert _recovered_contents(tmp_path) == ["prompt", "prompt"]
+
+
 def test_write_jsonl_merge_keeps_in_place_edits(tmp_path: Path):
     """Merging a concurrent tail must not resurrect pre-edit history."""
     jsonl_file = tmp_path / "conversation.jsonl"
