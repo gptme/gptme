@@ -127,3 +127,32 @@ def test_failed_write_keeps_previous_login(tmp_path, monkeypatch, mod, make, fna
 
     assert json.loads(path.read_text())["refresh_token"] == "refresh-old"
     assert sorted(p.name for p in _token_dir(tmp_path).iterdir()) == [fname]
+
+
+def test_write_private_text_closes_fd_and_leaves_no_temp_on_fdopen_failure(
+    tmp_path, monkeypatch
+):
+    """If os.fdopen fails, the raw fd is closed and no temp file is left behind."""
+    from gptme.util import file_write
+
+    target = tmp_path / "secret.json"
+    real_fdopen = os.fdopen
+    opened: list[int] = []
+
+    def failing_fdopen(fd, *a, **k):
+        opened.append(fd)
+        raise RuntimeError("fdopen failed")
+
+    monkeypatch.setattr(os, "fdopen", failing_fdopen)
+    try:
+        with pytest.raises(RuntimeError, match="fdopen failed"):
+            file_write.write_private_text(target, "{}")
+    finally:
+        monkeypatch.setattr(os, "fdopen", real_fdopen)
+
+    assert opened, "os.fdopen was never reached"
+    # The descriptor handed to fdopen must have been closed, not leaked.
+    with pytest.raises(OSError, match="Bad file descriptor"):
+        os.fstat(opened[0])
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []
