@@ -48,11 +48,11 @@ dependencies = [
 
     # tools
     "ipython>=8.39.0,<10",
-    "tree-sitter>=0.25,<0.27",
+    "tree-sitter>=0.25,<0.28",
     "tree-sitter-bash>=0.25.1,<0.26",
 
     # evals
-    "multiprocessing-logging>=0.3.4,<0.4",
+    "multiprocessing-logging>=0.3.4,<0.5",
 
     # datascience essentials
     "pillow",  # non-optional, needed for image scaling in vision
@@ -70,7 +70,7 @@ server = [
     "prometheus-client>=0.26.0",
 ]
 browser = [
-    "playwright==1.65.1",  # version constrained due to annoying to have to run `playwright install` on every update
+    "playwright==1.65.2",  # version constrained due to annoying to have to run `playwright install` on every update
 ]
 docs = [  # enhanced HTML/XML parsing + PDF extraction; not required for basic use
     "lxml",  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
@@ -127,7 +127,7 @@ all = [
     "pydantic>=2.13.4,<3",
     "agent-client-protocol>=0.11.0,<2; python_version >= '3.10' and python_version < '3.15'",
     "textual>=8,<9",
-    "playwright==1.65.1",
+    "playwright==1.65.2",
     "lxml",
     "pypdf>=6.21.4",
     "matplotlib",
