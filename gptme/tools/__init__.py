@@ -90,6 +90,15 @@ _READ_ONLY_DENIED_FUNCTIONS: dict[str, frozenset[str]] = {
     "chats": frozenset({"send_peer_message"}),
 }
 
+# Tools whose whole purpose is writing or executing arbitrary code. A read-only
+# profile must not load them: ``shell`` and ``ipython`` can write any file the
+# user can (including a parent session's ``prompt-queue.jsonl``), which defeats
+# the profile's stated contract even when the profile's own allowlist names
+# them. Per-function denials for otherwise-safe tools live above.
+_READ_ONLY_DENIED_TOOLS: frozenset[str] = frozenset(
+    {"save", "patch", "append", "shell", "ipython", "computer"}
+)
+
 # Note: Tools must be initialized in each context that needs them.
 # This is particularly important for server environments where request handling
 # happens in different contexts than where tools were initially loaded.
@@ -183,13 +192,19 @@ FUNCTION_CALL_TOOL = "ipython"
 
 
 def restrict_tools_for_read_only(tools: list[ToolSpec]) -> list[ToolSpec]:
-    """Drop functions a read-only agent profile must not reach.
+    """Drop tools and functions a read-only agent profile must not reach.
+
+    Write-capable tools are dropped whole (``_READ_ONLY_DENIED_TOOLS``); tools
+    that are safe apart from a few functions keep the rest
+    (``_READ_ONLY_DENIED_FUNCTIONS``).
 
     Apply before ``with_direct_function_calls``: the direct-call handler
     captures the tool's function list when it is built.
     """
     restricted: list[ToolSpec] = []
     for tool in tools:
+        if tool.name in _READ_ONLY_DENIED_TOOLS:
+            continue
         denied = _READ_ONLY_DENIED_FUNCTIONS.get(tool.name)
         if denied and tool.functions:
             tool = dataclasses.replace(

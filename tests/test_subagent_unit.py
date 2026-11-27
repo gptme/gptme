@@ -8145,6 +8145,29 @@ class TestProfileToolResolution:
         assert "send_peer_message" in out
         assert "Called send_peer_message" not in out
 
+    def test_read_only_profile_cannot_write(self):
+        """A read-only profile must not load write-capable tools.
+
+        ``shell`` and ``ipython`` can write any file the user can, including a
+        parent session's ``prompt-queue.jsonl``, so a profile that lists them
+        must still not receive them when ``read_only`` is set.
+        """
+        from gptme.tools.subagent.execution import (
+            _ensure_subagent_signal_tools_loaded,
+            _resolve_profile_tools,
+        )
+
+        self._setup_base_tools()
+        _ensure_subagent_signal_tools_loaded()
+        tools = _resolve_profile_tools(
+            ["read", "chats", "save", "patch", "append", "shell", "ipython"],
+            "verifier",
+            read_only=True,
+        )
+        names = {t.name for t in tools}
+        assert names & {"save", "patch", "append", "shell", "ipython"} == set()
+        assert {"read", "chats"} <= names
+
     def test_non_read_only_profile_keeps_peer_messaging(self):
         from gptme.tools.subagent.execution import (
             _ensure_subagent_signal_tools_loaded,

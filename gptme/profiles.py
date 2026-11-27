@@ -9,9 +9,11 @@ Profiles combine:
 Tool restrictions are hard-enforced in subagent thread mode: only allowed
 tools are loaded into the execution context, so the LLM cannot call
 restricted tools even if it tries. CLI mode (--agent-profile) also
-hard-enforces via the tool allowlist. Behavior rules (read_only, no_network)
-are mostly prompting-based; read_only additionally removes peer messaging,
-which would let the agent steer a peer that holds more tools.
+hard-enforces via the tool allowlist. ``read_only`` additionally drops the
+write-capable tools (save, patch, append, shell, ipython, computer) and peer
+messaging, which would let the agent write files — including a parent
+session's prompt queue — or steer a peer that holds more tools. ``no_network``
+remains prompting-based.
 
 This enables creating specialized agents like "explorer" (read-only),
 "researcher" (web access), or "developer" (full capabilities).
@@ -163,7 +165,9 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- No file modifications\n"
             "- Analyze and report only\n"
         ),
-        tools=["read", "ipython"],
+        # No shell/ipython: either one can write files (and so append to the
+        # parent's prompt queue), which contradicts the profile's contract.
+        tools=["read"],
         behavior=ProfileBehavior(read_only=True, no_network=True),
     ),
     "computer-use": Profile(
@@ -259,7 +263,10 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- NOT access the network or external resources\n"
             "- Use `complete` tool to return your verification report\n"
         ),
-        tools=["read", "ipython", "shell", "chats"],
+        # No shell/ipython: either one can write files (and so append to the
+        # parent's prompt queue), which contradicts the read-only contract.
+        # Verification reads code and recorded output instead of re-running it.
+        tools=["read", "chats"],
         behavior=ProfileBehavior(read_only=True, no_network=True),
     ),
 }

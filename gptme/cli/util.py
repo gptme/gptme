@@ -2179,7 +2179,8 @@ def profile_show(name: str):
 
     console.print(
         "\n[dim]Note: Tool restrictions are hard-enforced in subagent and CLI mode. "
-        "Behavior rules (read_only, no_network) remain soft/prompting-based.[/dim]"
+        "read_only also drops write-capable tools (save, patch, append, shell, "
+        "ipython, computer); no_network remains soft/prompting-based.[/dim]"
     )
 
 
