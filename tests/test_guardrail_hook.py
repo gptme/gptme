@@ -1043,6 +1043,29 @@ class TestFileToolSecretPaths:
         assert "synthetic-private-config" not in out
         assert secret.read_text() == "synthetic-private-config\n"
 
+    @pytest.mark.parametrize("tool", ["read", "save", "morph"])
+    def test_explicit_workspace_anchors_relative_target(
+        self, tmp_path, monkeypatch, tool
+    ):
+        """TOOL_CONFIRM's workspace wins over the process-global one."""
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.tools import load_tool
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        secret = workspace / ".env"
+        secret.write_text("old\n")
+        (workspace / "notes.txt").symlink_to(secret)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        if tool == "read":
+            load_tool("read")
+        use = ToolUse(tool, ["notes.txt"], None if tool == "read" else "new\n")
+        # The tool will run in ``workspace``; the process cwd is elsewhere.
+        assert guardrail_hook(use, workspace=workspace) is not None
+
     def test_ordinary_save_allowed(self, tmp_path, monkeypatch):
         target = tmp_path / "notes.txt"
         self._execute(monkeypatch, ToolUse("save", [str(target)], "hi\n"))

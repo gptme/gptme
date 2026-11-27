@@ -286,7 +286,9 @@ def _read_paths_from_tool_use(tool_use: "ToolUse") -> list[str]:
 
 
 def _read_secret_path_reason(
-    tool_use: "ToolUse", preview: str | None = None
+    tool_use: "ToolUse",
+    preview: str | None = None,
+    workspace: Path | None = None,
 ) -> str | None:
     """Return the block reason if a ``read`` call references a secret path.
 
@@ -304,6 +306,7 @@ def _read_secret_path_reason(
     from ..tools.read import _configured_read_root
     from ..util.workspace import current_workspace
 
+    base = workspace or current_workspace()
     for path_arg in path_candidates:
         # read expands ~, not shell variables or substitutions. Check its
         # literal spelling too: work$/../.ssh/config still reaches ~/.ssh.
@@ -311,14 +314,14 @@ def _read_secret_path_reason(
         try:
             if not os.path.isabs(literal):
                 read_root, _ = _configured_read_root()
-                literal = os.path.join(read_root or current_workspace(), literal)
+                literal = os.path.join(read_root or base, literal)
             # Keep symlink/.. ordering: collapsing .. before realpath can
             # check a different file than read's Path.resolve() opens.
         except (OSError, ValueError, RuntimeError):
             # A bad relative operand must not hide a later absolute secret
             # in a batch (e.g. when the process cwd has been deleted).
             pass
-        if _is_secret_path(path_arg) or _is_secret_target(literal):
+        if _is_secret_path(path_arg, workspace) or _is_secret_target(literal):
             return (
                 f"Secret path access blocked: read tool references {path_arg!r}. "
                 "Use a dedicated secrets manager or explicit user approval."
@@ -378,24 +381,32 @@ def _file_tool_paths(tool_use: "ToolUse") -> list[str]:
     return [c for c in candidates if c.strip()]
 
 
-def _file_tool_secret_path_reason(tool_use: "ToolUse") -> str | None:
+def _file_tool_secret_path_reason(
+    tool_use: "ToolUse", workspace: Path | None = None
+) -> str | None:
     """Return the block reason if a file tool targets a secret path.
 
     Checked before the tool runs: ``patch`` reads the file and ``morph``
     uploads it before any confirmation, so a later check would be too late.
+
+    ``workspace`` is the directory the tool will run in. TOOL_CONFIRM passes
+    the caller's workspace, which can differ from the process-global one in
+    server sessions; relative targets are anchored to it so the check sees the
+    same file the tool opens.
     """
     from ..util.workspace import current_workspace
 
+    base = workspace or current_workspace()
     for path_arg in _file_tool_paths(tool_use):
         literal = os.path.expanduser(path_arg)
         try:
             if not os.path.isabs(literal):
-                literal = os.path.join(current_workspace(), literal)
+                literal = os.path.join(base, literal)
             # Do not abspath/normpath here: realpath must follow symlinks
             # before interpreting .., just like resolve_in_workspace().
         except (OSError, ValueError, RuntimeError):
             pass
-        if _is_secret_path(path_arg) or _is_secret_target(literal):
+        if _is_secret_path(path_arg, workspace) or _is_secret_target(literal):
             return (
                 f"Secret path access blocked: {tool_use.tool} targets {path_arg!r}. "
                 "Use a dedicated secrets manager or explicit user approval."
@@ -530,7 +541,7 @@ def guardrail_hook(
         # the TOOL_EXECUTE_PRE seam, but direct executors (the in-process MCP
         # server) call tool.execute() themselves and dispatch TOOL_CONFIRM.
         # Dropping this branch would silently reopen that MCP gap.
-        block_reason = _read_secret_path_reason(tool_use, preview)
+        block_reason = _read_secret_path_reason(tool_use, preview, workspace)
 
     elif tool_use.tool == "patch_many":
         block_reason = _patch_many_secret_path_reason(tool_use, preview)
@@ -539,7 +550,7 @@ def guardrail_hook(
         block_reason = _tmux_block_reason(tool_use)
 
     elif tool_use.tool in _FILE_PATH_TOOLS:
-        block_reason = _file_tool_secret_path_reason(tool_use)
+        block_reason = _file_tool_secret_path_reason(tool_use, workspace)
 
     if block_reason is None:
         return None  # Allow — fall through to next hook
@@ -591,9 +602,9 @@ def guardrail_pre_hook(
         return
 
     if tool_use.tool == "read":
-        block_reason = _read_secret_path_reason(tool_use)
+        block_reason = _read_secret_path_reason(tool_use, workspace=data.workspace)
     elif tool_use.tool in _FILE_PATH_TOOLS:
-        block_reason = _file_tool_secret_path_reason(tool_use)
+        block_reason = _file_tool_secret_path_reason(tool_use, data.workspace)
     elif tool_use.tool == "patch_many":
         block_reason = _patch_many_secret_path_reason(tool_use)
     else:
