@@ -688,9 +688,11 @@ profile files.</p>
 <p>Tool restrictions are hard-enforced in subagent thread mode: only allowed
 tools are loaded into the execution context, so the LLM cannot call
 restricted tools even if it tries. CLI mode (–agent-profile) also
-hard-enforces via the tool allowlist. Behavior rules (read_only, no_network)
-are mostly prompting-based; read_only additionally removes peer messaging,
-which would let the agent steer a peer that holds more tools.</p>
+hard-enforces via the tool allowlist. <code class="docutils literal notranslate"><span class="pre">read_only</span></code> additionally drops the
+write-capable tools (save, patch, append, shell, ipython, computer) and peer
+messaging, which would let the agent write files — including a parent
+session’s prompt queue — or steer a peer that holds more tools. <code class="docutils literal notranslate"><span class="pre">no_network</span></code>
+remains prompting-based.</p>
 <p>This enables creating specialized agents like “explorer” (read-only),
 “researcher” (web access), or “developer” (full capabilities).</p>
 <p>User profiles can be defined in ~/.config/gptme/profiles/ as either:</p>

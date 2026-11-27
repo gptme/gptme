@@ -724,12 +724,12 @@ they’re expressed in the system prompt, not enforced at the tool level.</p>
 <td><p>Web research without modifying local files</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">verifier</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">read</span></code>, <code class="docutils literal notranslate"><span class="pre">ipython</span></code>, <code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">chats</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">read</span></code>, <code class="docutils literal notranslate"><span class="pre">chats</span></code></p></td>
 <td><p>Read-only, no network</p></td>
-<td><p>Review, test, and verify work done by other agents</p></td>
+<td><p>Review and verify other agents’ work from code and recorded output</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">isolated</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">read</span></code>, <code class="docutils literal notranslate"><span class="pre">ipython</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">read</span></code></p></td>
 <td><p>Read-only, no network</p></td>
 <td><p>Processing potentially untrusted content</p></td>
 </tr>
@@ -768,8 +768,11 @@ they’re expressed in the system prompt, not enforced at the tool level.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">role=&quot;verify&quot;</span></code> also sets <code class="docutils literal notranslate"><span class="pre">use_subprocess=True</span></code> and <code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> by default,
 so the verifier can’t accidentally modify the parent workspace; explicit
-<code class="docutils literal notranslate"><span class="pre">use_subprocess</span></code> and <code class="docutils literal notranslate"><span class="pre">isolated</span></code> arguments override these defaults. The
-verifier’s <code class="docutils literal notranslate"><span class="pre">read_only</span></code> rule remains a soft, prompt-level rule.</p>
+<code class="docutils literal notranslate"><span class="pre">use_subprocess</span></code> and <code class="docutils literal notranslate"><span class="pre">isolated</span></code> arguments override these defaults. A
+<code class="docutils literal notranslate"><span class="pre">read_only</span></code> profile also has the write-capable tools dropped at spawn time
+(<code class="docutils literal notranslate"><span class="pre">save</span></code>, <code class="docutils literal notranslate"><span class="pre">patch</span></code>, <code class="docutils literal notranslate"><span class="pre">append</span></code>, <code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">ipython</span></code>, <code class="docutils literal notranslate"><span class="pre">computer</span></code>), so it
+cannot write files even if its own allowlist names them. <code class="docutils literal notranslate"><span class="pre">no_network</span></code> remains
+prompt-level.</p>
 </section>
 <section id="custom-profiles">
 <h2>Custom profiles<a class="headerlink" href="#custom-profiles" title="Link to this heading">#</a></h2>
