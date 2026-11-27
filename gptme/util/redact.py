@@ -101,8 +101,13 @@ _MIDLINE_SECRET_RE = re.compile(
 # Credentials embedded in a URL's userinfo component
 # (``https://user:password@host/...``). The scheme is required so a plain
 # ``user@host`` or ``git@github.com:org/repo`` is not mistaken for a password.
+# Consume a complete scheme-character run even when it is not a URL, rather
+# than retrying its overlapping suffixes after every hyphen/dot/plus. The
+# fallback preserves the original word-boundary semantics for real URLs.
 _URL_USERINFO_RE = re.compile(
-    r"""(?i)\b([a-z][a-z0-9+.\-]*://)([^\s:/@]+):([^\s/@]+)@"""
+    r"""(?i)\b([a-z][a-z0-9+.\-]*://)([^\s:/@]*):([^\s/@]+)@"""
+    r"|\b[a-z][a-z0-9+.\-]*",
+    re.IGNORECASE,
 )
 
 _REDACTED = "[REDACTED]"
@@ -264,14 +269,14 @@ def _redact_midline(line: str) -> str:
 def _redact_url_userinfo(line: str) -> str:
     """Replace the password in ``scheme://user:password@host`` with a marker."""
     # Cheap reject: without both a scheme and an ``@`` there is no userinfo.
-    # Skipping also keeps the scheme match off long hyphen/underscore runs,
-    # where its greedy body would backtrack per start position.
+    # The regex also rejects overlapping scheme starts when these substrings
+    # are present elsewhere in a long non-URL line.
     if "://" not in line or "@" not in line:
         return line
 
     def repl(match: re.Match[str]) -> str:
         password = match.group(3)
-        if password == _REDACTED:
+        if password is None or password == _REDACTED:
             return match.group(0)
         return f"{match.group(1)}{match.group(2)}:{_REDACTED}@"
 

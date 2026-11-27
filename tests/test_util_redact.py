@@ -41,6 +41,7 @@ def test_midline_secret_assignment_is_redacted(line):
     [
         f"curl https://user:{URL_PASSWORD}@example.com/api",
         f"DATABASE_URL: postgres://admin:{URL_PASSWORD}@db:5432/app",
+        f"REDIS_URL=redis://:{URL_PASSWORD}@db:6379/0",
         f"git clone https://x-access-token:{URL_PASSWORD}@github.com/o/r",
     ],
 )
@@ -74,12 +75,37 @@ def test_output_redactor_catches_midline_header():
     assert VENDOR_KEY not in out
 
 
-def test_output_redactor_catches_url_password():
-    out, n = redact_secret_values_from_output(
-        f"GET https://user:{URL_PASSWORD}@example.com/v1\n"
-    )
+@pytest.mark.parametrize("username", ["user", ""])
+def test_output_redactor_catches_url_password(username):
+    line = f"GET redis://{username}:{URL_PASSWORD}@example.com/0\n"
+    out, n = redact_secret_values_from_output(line)
     assert n == 1
-    assert URL_PASSWORD not in out
+    assert out == line.replace(URL_PASSWORD, "[REDACTED]")
+
+
+@pytest.mark.parametrize(
+    "redactor", ["redact_secrets_from_text", "redact_secret_values_from_output"]
+)
+@pytest.mark.parametrize("scheme_run", ["a-", "a.", "a+"])
+def test_url_scan_does_not_retry_overlapping_schemes(redactor, scheme_run):
+    """Bound pathological URL scans without leaving a stuck pytest process."""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                f"from gptme.util.redact import {redactor} as redact; "
+                f"line = {scheme_run!r} * 100000 + ' :// @'; "
+                "result = redact(line); "
+                "assert (result[0] if isinstance(result, tuple) else result) == line"
+            ),
+        ],
+        check=True,
+        timeout=10,
+    )
 
 
 def test_output_redactor_keeps_source_code():
