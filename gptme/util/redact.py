@@ -88,15 +88,15 @@ _ENV_ASSIGN_RE = re.compile(
 # the value being secret-shaped (see ``_redact_midline``).
 _MIDLINE_SECRET_RE = re.compile(
     r"""(?ix)
-    (?<=[\s"'`{(,\[?&])              # boundary before the name
+    (?<=[\s"'`{(,\[?&=:])            # boundary before the name
     (["']?)                          # optional quote opening the name
     (?P<name>[A-Za-z0-9_\-]{1,40})   # name, classified separately below
     (["']?)                          # optional quote closing the name
     (\s*[:=]\s*)                     # separator
     (["']?)                          # optional quote opening the value
-    ([^\s"'`,;)}\]?&#]+)             # the value token
     """
 )
+_MIDLINE_VALUE_RE = re.compile(r"""[^\s"'`,;)}\]?&#]+""")
 
 # Credentials embedded in a URL's userinfo component
 # (``https://user:password@host/...``). The scheme is required so a plain
@@ -105,7 +105,7 @@ _MIDLINE_SECRET_RE = re.compile(
 # than retrying its overlapping suffixes after every hyphen/dot/plus. The
 # fallback preserves the original word-boundary semantics for real URLs.
 _URL_USERINFO_RE = re.compile(
-    r"""\b([a-z][a-z0-9+.\-]*://)([^\s:/?#]*):([^\s/?#]+)@"""
+    r"""\b([a-z][a-z0-9+.\-]*://)([^\s:/?#"'`<>]*):([^\s/?#"'`<>]+)@"""
     r"|\b[a-z][a-z0-9+.\-]*",
     re.IGNORECASE,
 )
@@ -252,18 +252,24 @@ def _redact_midline(line: str) -> str:
     if not _EMBEDDED_SECRET_NAME_RE.search(line):
         return line
 
-    def repl(match: re.Match[str]) -> str:
-        if not _EMBEDDED_SECRET_NAME_RE.search(match.group("name")):
-            return match.group(0)
-        value = match.group(6)
-        if not _is_credential_literal(value):
-            return match.group(0)
-        return (
-            f"{match.group(1)}{match.group(2)}{match.group(3)}"
-            f"{match.group(4)}{match.group(5)}{_REDACTED}"
-        )
-
-    return _MIDLINE_SECRET_RE.sub(repl, line)
+    # Scan assignment prefixes without consuming their values. A non-secret
+    # label such as ``params: api_key=...`` must not hide the inner assignment.
+    # Classify the name before scanning the value, retaining '=' padding in
+    # credentials instead of treating every assignment separator as a terminator.
+    parts: list[str] = []
+    previous = 0
+    for match in _MIDLINE_SECRET_RE.finditer(line):
+        if match.start() < previous or not _EMBEDDED_SECRET_NAME_RE.search(
+            match.group("name")
+        ):
+            continue
+        value = _MIDLINE_VALUE_RE.match(line, match.end())
+        if value is None or not _is_credential_literal(value.group()):
+            continue
+        parts.extend((line[previous : value.start()], _REDACTED))
+        previous = value.end()
+    parts.append(line[previous:])
+    return "".join(parts)
 
 
 def _redact_url_userinfo(line: str) -> str:

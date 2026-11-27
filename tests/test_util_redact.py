@@ -81,6 +81,33 @@ def test_output_redactor_catches_midline_header(value):
     assert value not in out
 
 
+@pytest.mark.parametrize("value", [VENDOR_KEY, OPAQUE, OPAQUE + "=="])
+@pytest.mark.parametrize(
+    "prefix", ["INFO params: ", "[debug] data=", "INFO params: nested: "]
+)
+def test_midline_secret_after_nonsecret_assignment(prefix, value):
+    line = f"{prefix}api_key={value}"
+    expected = f"{prefix}api_key=[REDACTED]"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize("quote", ['"', "'", "`"])
+@pytest.mark.parametrize("password", [URL_PASSWORD, URL_PASSWORD + "@tail"])
+def test_url_redaction_preserves_adjacent_fields(quote, password):
+    line = f"{{{quote}url{quote}:{quote}redis://user:{password}@db:6379{quote},email=dev@example.com}}"
+    expected = line.replace(password, "[REDACTED]")
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize("quote", ['"', "'", "`"])
+def test_nonsecret_url_preserves_adjacent_fields(quote):
+    line = f"{{{quote}url{quote}:{quote}https://host:8443{quote},email=a@b.com}}"
+    assert redact_secrets_from_text(line) == line
+    assert redact_secret_values_from_output(line) == (line, 0)
+
+
 @pytest.mark.parametrize("suffix", ["", "&format=json"])
 def test_midline_query_secret_is_redacted(suffix):
     line = f"curl https://example.com/v1?api_key={OPAQUE}{suffix}"
