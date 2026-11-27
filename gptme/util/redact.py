@@ -88,13 +88,13 @@ _ENV_ASSIGN_RE = re.compile(
 # the value being secret-shaped (see ``_redact_midline``).
 _MIDLINE_SECRET_RE = re.compile(
     r"""(?ix)
-    (?<=[\s"'`{(,\[])                # boundary before the name
+    (?<=[\s"'`{(,\[?&])              # boundary before the name
     (["']?)                          # optional quote opening the name
     (?P<name>[A-Za-z0-9_\-]{1,40})   # name, classified separately below
     (["']?)                          # optional quote closing the name
     (\s*[:=]\s*)                     # separator
     (["']?)                          # optional quote opening the value
-    ([^\s"'`,;)}\]]+)                # the value token
+    ([^\s"'`,;)}\]?&#]+)             # the value token
     """
 )
 
@@ -105,7 +105,7 @@ _MIDLINE_SECRET_RE = re.compile(
 # than retrying its overlapping suffixes after every hyphen/dot/plus. The
 # fallback preserves the original word-boundary semantics for real URLs.
 _URL_USERINFO_RE = re.compile(
-    r"""(?i)\b([a-z][a-z0-9+.\-]*://)([^\s:/@]*):([^\s/@]+)@"""
+    r"""\b([a-z][a-z0-9+.\-]*://)([^\s:/?#]*):([^\s/?#]+)@"""
     r"|\b[a-z][a-z0-9+.\-]*",
     re.IGNORECASE,
 )

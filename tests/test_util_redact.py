@@ -43,6 +43,8 @@ def test_midline_secret_assignment_is_redacted(line):
         f"DATABASE_URL: postgres://admin:{URL_PASSWORD}@db:5432/app",
         f"REDIS_URL=redis://:{URL_PASSWORD}@db:6379/0",
         f"git clone https://x-access-token:{URL_PASSWORD}@github.com/o/r",
+        f"GET https://john@corp.com:{URL_PASSWORD}@example.com/v1",
+        f"GET postgres://admin:{URL_PASSWORD}@tail@db/app",
     ],
 )
 def test_url_userinfo_password_is_redacted(line):
@@ -62,25 +64,39 @@ def test_url_userinfo_password_is_redacted(line):
         "the token: rotate it monthly",
         "https://example.com:8080/path",
         "git@github.com:org/repo.git",
+        "https://host:8443?u=a@b.com",
+        "https://host:8443#u=a@b.com",
     ],
 )
 def test_non_secret_midline_shapes_are_kept(line):
     """A mid-line ``token:`` in code or prose must not corrupt the value."""
     assert redact_secrets_from_text(line) == line
+    assert redact_secret_values_from_output(line) == (line, 0)
 
 
-def test_output_redactor_catches_midline_header():
-    out, n = redact_secret_values_from_output(f'curl -H "X-Api-Key: {VENDOR_KEY}"\n')
+@pytest.mark.parametrize("value", [VENDOR_KEY, OPAQUE])
+def test_output_redactor_catches_midline_header(value):
+    out, n = redact_secret_values_from_output(f'curl -H "X-Api-Key: {value}"\n')
     assert n == 1
-    assert VENDOR_KEY not in out
+    assert value not in out
 
 
-@pytest.mark.parametrize("username", ["user", ""])
-def test_output_redactor_catches_url_password(username):
-    line = f"GET redis://{username}:{URL_PASSWORD}@example.com/0\n"
+@pytest.mark.parametrize("suffix", ["", "&format=json"])
+def test_midline_query_secret_is_redacted(suffix):
+    line = f"curl https://example.com/v1?api_key={OPAQUE}{suffix}"
+    expected = line.replace(OPAQUE, "[REDACTED]")
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize("username", ["user", "", "john@corp.com"])
+@pytest.mark.parametrize("password_tail", ["", "@tail"])
+def test_output_redactor_catches_url_password(username, password_tail):
+    password = URL_PASSWORD + password_tail
+    line = f"GET redis://{username}:{password}@example.com/0\n"
     out, n = redact_secret_values_from_output(line)
     assert n == 1
-    assert out == line.replace(URL_PASSWORD, "[REDACTED]")
+    assert out == line.replace(password, "[REDACTED]")
 
 
 @pytest.mark.parametrize(
