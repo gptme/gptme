@@ -421,30 +421,47 @@ _ALWAYS_RECURSIVE = frozenset({"find", "rg", "ag", "du", "tree"})
 
 
 def _is_recursive_reader(name: str, args: list[str]) -> bool:
-    """Whether this allowlisted command recurses into its directory operands."""
+    """Whether this allowlisted command recurses into its directory operands.
+
+    GNU tools accept unambiguous abbreviations of long options and of the
+    ``grep --directories`` action, so prefixes count as the full spelling.
+    """
     if name in _ALWAYS_RECURSIVE:
         return True
     if name not in ("grep", "ls"):
         return False
-    long_flags = (
-        {"--recursive", "--dereference-recursive", "--directories=recurse"}
-        if name == "grep"
-        else {"--recursive"}
-    )
+    # (full spelling, shortest prefix that selects it)
+    long_flags = [("--recursive", "--rec")]
+    if name == "grep":
+        long_flags.append(("--dereference-recursive", "--der"))
     letters = "rR" if name == "grep" else "R"
     for i, arg in enumerate(args):
         if arg == "--":
             break
-        if arg in long_flags:
-            return True
-        if arg.startswith("-") and not arg.startswith("--"):
-            if any(char in letters for char in arg[1:]):
-                return True
-            if name == "grep" and (
-                arg == "-drecurse"
-                or (arg == "-d" and i + 1 < len(args) and args[i + 1] == "recurse")
+        following = args[i + 1] if i + 1 < len(args) else ""
+        action = ""
+        if arg.startswith("--"):
+            option, sep, value = arg.partition("=")
+            if any(
+                full.startswith(option) and option.startswith(short)
+                for full, short in long_flags
             ):
                 return True
+            if (
+                name == "grep"
+                and option.startswith("--di")
+                and "--directories".startswith(option)
+            ):
+                action = value if sep else following
+        elif arg.startswith("-"):
+            if any(char in letters for char in arg[1:]):
+                return True
+            # ``-d ACTION``, alone or ending a bundle (``-id recurse``).
+            _, sep, value = arg[1:].partition("d")
+            if name == "grep" and sep:
+                action = value or following
+        if action and "recurse".startswith(action):
+            return True
     return False
 
 
