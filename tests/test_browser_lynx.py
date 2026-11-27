@@ -148,7 +148,7 @@ def test_read_url_rejects_cookie_line_injection(cookies):
         read_url("https://example.com", cookies=cookies)
 
 
-def test_read_url_cookie_file_is_private():
+def test_read_url_cookie_file_is_private(mock_probe_via_run):
     observed_modes: list[int] = []
     paths: list[str] = []
 
@@ -167,13 +167,13 @@ def test_read_url_cookie_file_is_private():
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
         read_url("https://example.com", cookies={"CONSENT": "YES"})
 
-    assert len(paths) == 2
+    assert len(paths) == 4
     assert not any(os.path.exists(path) for path in paths)
     # The config name must not be derivable from the jar name: another user
     # could otherwise create it first and control what lynx loads.
     assert not paths[1].startswith(paths[0])
     if sys.platform != "win32":
-        assert observed_modes == [0o600, 0o600]
+        assert observed_modes == [0o600, 0o600, 0o600, 0o600]
 
 
 def test_read_url_closes_cookie_descriptor_when_chmod_fails():
@@ -304,7 +304,7 @@ def test_search():
     assert "erik.bjareholt.com" in result
 
 
-def test_read_url_cookie_file():
+def test_read_url_cookie_file(mock_probe_via_run):
     """Test that cookies are passed to lynx via a temporary cookie file."""
     cookies = {"CONSENT": "YES+42"}
     captured_cmd = None
@@ -340,7 +340,7 @@ def test_read_url_cookie_file():
         assert captured_cmd is not None
 
 
-def test_search_google_consent_cookies():
+def test_search_google_consent_cookies(mock_probe_via_run):
     """Test that Google search passes correct consent cookies."""
     captured_cmd = None
     captured_cookies = None
@@ -367,8 +367,7 @@ def test_search_google_consent_cookies():
         assert result == "search results"
         assert captured_cmd is not None
         # Verify URL includes gl=us to avoid consent redirects
-        assert "gl=us" in captured_cmd[2]
-        assert "hl=en" in captured_cmd[2]
+        assert any("gl=us" in arg and "hl=en" in arg for arg in captured_cmd)
         # Verify SOCS cookie (newer Google consent format)
         assert captured_cookies is not None
         assert "SOCS" in captured_cookies
@@ -522,8 +521,8 @@ def test_read_url_cookies_stay_scoped_to_requested_host(mock_probe_via_run):
         set_session_allow_hosts(None)
 
     assert len(cookie_contents) == 1
-    assert "start.example.com\tFALSE\t/" in cookie_contents[0]
-    assert "other.example.org" not in cookie_contents[0]
+    assert "SID" not in cookie_contents[0]
+    assert "start.example.com" not in cookie_contents[0]
 
 
 def test_read_url_redirect_chain_shares_one_deadline(mock_probe_via_run):
@@ -789,7 +788,61 @@ def test_cookie_fetch_keeps_lynx_site_config(monkeypatch, tmp_path, real_config_
         server.server_close()
 
     assert "VIA PROXY" in output
-    assert cookie_headers == ["sid=abc123"]
+    assert cookie_headers == ["sid=abc123", "sid=abc123"]
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+@pytest.mark.parametrize("allowlist", [False, True])
+def test_host_only_caller_cookie_does_not_reach_redirect_subdomain(
+    monkeypatch, allowlist
+):
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    seen = []
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, self.headers.get("Cookie", "")))
+            if self.path.endswith("/start"):
+                self.send_response(302)
+                self.send_header("Location", "http://a.example.com/delete")
+                self.send_header("Set-Cookie", "server=yes; Domain=example.com; Path=/")
+            elif self.path.endswith("/delete"):
+                self.send_response(302)
+                self.send_header("Location", "http://example.com/final")
+                self.send_header(
+                    "Set-Cookie", "sid=; Domain=example.com; Path=/; Max-Age=0"
+                )
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<p>DONE</p>")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    for name in ("http_proxy", "HTTP_PROXY"):
+        monkeypatch.setenv(name, f"http://127.0.0.1:{server.server_port}")
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.setenv(name, "")
+    try:
+        set_session_allow_hosts(["example.com", "a.example.com"] if allowlist else None)
+        assert "DONE" in read_url("http://example.com/start", cookies={"sid": "keep"})
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
+
+    assert "sid=keep" in seen[0][1]
+    assert "sid=keep" not in seen[1][1]
+    assert "server=yes" in seen[1][1]
+    assert all("sid=keep" in cookie for url, cookie in seen if url.endswith("/final"))
 
 
 @pytest.mark.skipif(not lynx_available, reason="lynx not installed")

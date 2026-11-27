@@ -139,8 +139,8 @@ class _CookieJar:
                 continue
             (domain, path, name), entry = parsed
             # A host replaces (or deletes) its own cookie in both the host-only
-            # and the tail-matching form. Another
-            # host only touches the scope it named.
+            # and the tail-matching form. Another host only touches the scope
+            # it named.
             own = domain.lstrip(".") == host
             for variant in {host, f".{host}"} if own else {domain}:
                 if self.entries.pop((variant, path, name), None) is not None:
@@ -151,11 +151,19 @@ class _CookieJar:
         if changed:
             self.flush()
 
-    def flush(self) -> None:
+    def flush(self, url: str | None = None) -> None:
+        # Lynx 2.9 ignores the Netscape tail-match flag for host-only rows.
+        # Keep the complete store in memory, but expose only this hop's domains.
+        host = (urlparse(url).hostname or "").lower() if url else None
         rows = ["# Netscape HTTP Cookie File\n"]
         for (domain, path, name), (value, expires, secure) in sorted(
             self.entries.items()
         ):
+            if host is not None and not (
+                host == domain.lstrip(".")
+                or (domain.startswith(".") and host.endswith(domain))
+            ):
+                continue
             tail_match = "TRUE" if domain.startswith(".") else "FALSE"
             rows.append(
                 f"{domain}\t{tail_match}\t{path}\t"
@@ -358,6 +366,8 @@ def _resolve_allowlisted_redirects(
         deadline = time.monotonic() + _FETCH_TIMEOUT
     extra = cookie_args or []
     for _ in range(_MAX_REDIRECT_HOPS):
+        if jar is not None:
+            jar.flush(url)
         dump = _probe_headers(
             ["lynx", "-mime_header", "-source", "-noredir", *extra, url],
             env,
@@ -414,10 +424,13 @@ def read_url(url: str, cookies: dict | None = None) -> str:
     )
 
     try:
-        if allow_hosts is not None:
-            # Only the first URL was checked above; lynx would otherwise follow a
-            # redirect to any host and return its content.
+        if allow_hosts is not None or jar is not None:
+            # Check the allowlist and cookie scope before each hop. Cookie-bearing
+            # fetches also use probes without an allowlist: lynx ignores host-only
+            # jar flags and would otherwise leak caller cookies on redirects.
             url = _resolve_allowlisted_redirects(url, env, deadline, cookie_args, jar)
+            if jar is not None:
+                jar.flush(url)
             cmd = ["lynx", "--dump", "-noredir", url, "--display_charset=utf-8"]
         else:
             cmd = ["lynx", "--dump", url, "--display_charset=utf-8"]
