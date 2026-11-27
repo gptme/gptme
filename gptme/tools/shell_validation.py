@@ -253,7 +253,7 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     n = len(cmd)
     while i < n:
         c = cmd[i]
-        if c.isspace() or c in ";&|>)":
+        if c.isspace() or c in ";&|<>)\n":
             break
         if c == "`":
             return None

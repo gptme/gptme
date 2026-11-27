@@ -36,7 +36,9 @@ import shutil
 import subprocess
 import time
 from collections.abc import Generator
-from functools import lru_cache
+from pathlib import Path
+
+import yaml
 
 from ..message import Message
 from ..util.gh import (
@@ -710,51 +712,48 @@ _GH_BUILTIN_COMMANDS = frozenset(
 )
 
 
-@lru_cache(maxsize=1)
-def _gh_alias_values() -> dict[str, str]:
-    """Alias name -> definition, from ``gh alias list`` (empty on failure).
+def _gh_config_dir() -> Path:
+    if configured := os.environ.get("GH_CONFIG_DIR"):
+        return Path(configured)
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "gh"
 
-    Cached for the process: an alias defined mid-session through the shell tool
-    is rare, and this is a guard against accidental local execution rather than
-    a security boundary.
+
+def _gh_data_dir() -> Path:
+    if configured := os.environ.get("GH_DATA_DIR"):
+        return Path(configured)
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / "gh"
+
+
+def _gh_alias_values() -> dict[str, str]:
+    """Alias name -> definition from gh's config file (empty when unreadable).
+
+    Read on every call instead of cached: an alias defined through the shell
+    tool mid-session must not stay invisible to this guard, and a missing or
+    corrupt config must not stall the pass-through on a subprocess timeout.
     """
     try:
-        proc = subprocess.run(
-            ["gh", "alias", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+        config = yaml.safe_load((_gh_config_dir() / "config.yml").read_text())
+    except (OSError, yaml.YAMLError):
         return {}
-    aliases: dict[str, str] = {}
-    for line in (proc.stdout or "").splitlines():
-        name, sep, value = line.partition(":")
-        if sep and name.strip() and value.strip():
-            aliases[name.strip()] = value.strip()
-    return aliases
+    aliases = config.get("aliases") if isinstance(config, dict) else None
+    if not isinstance(aliases, dict):
+        return {}
+    return {str(name): str(value) for name, value in aliases.items()}
 
 
-@lru_cache(maxsize=1)
 def _gh_extension_names() -> frozenset[str]:
-    """Installed extension names, from ``gh extension list`` (empty on failure)."""
+    """Names of installed gh extensions, from ``gh-<name>`` entries on disk."""
     try:
-        proc = subprocess.run(
-            ["gh", "extension", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+        entries = list((_gh_data_dir() / "extensions").iterdir())
+    except OSError:
         return frozenset()
-    names: set[str] = set()
-    for line in (proc.stdout or "").splitlines():
-        fields = line.split()
-        if fields and fields[0].startswith("gh-"):
-            names.add(fields[0].removeprefix("gh-"))
-    return frozenset(names)
+    return frozenset(
+        entry.name.removeprefix("gh-")
+        for entry in entries
+        if entry.name.startswith("gh-")
+    )
 
 
 def _local_exec_reason(

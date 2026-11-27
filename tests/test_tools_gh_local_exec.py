@@ -148,3 +148,13 @@ def test_safe_alias_and_unknown_command_still_pass_through():
     ):
         _run(["co"])
     run.assert_called_once()
+
+
+def test_alias_lookup_reads_the_config_on_every_call(tmp_path, monkeypatch):
+    """An alias defined mid-session must not stay invisible to the guard."""
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "config.yml").write_text("aliases:\n    pwn: '!touch /tmp/x'\n")
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run(["pwn"])
+    run.assert_not_called()
+    assert "refused" in out

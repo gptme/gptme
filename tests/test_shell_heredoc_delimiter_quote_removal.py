@@ -184,3 +184,10 @@ def test_escaped_newline_does_not_start_the_body():
     denied, _reason, _match = is_denylisted(payload)
     assert denied
     assert is_allowlisted(payload) is False
+
+
+def test_redirection_metacharacter_ends_the_delimiter_word():
+    """`<` ends the delimiter word, so `<<E<F` is delimiter `E` plus `<F`."""
+    payload = "cat <<E<F\nE\nsh -c 'echo PWNED'\nE<F\n"
+    assert _find_heredoc_regions(payload) == [(10, 11)]
+    assert is_allowlisted(payload) is False
