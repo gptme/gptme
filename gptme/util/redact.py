@@ -574,7 +574,9 @@ def redact_secret_values_from_output(
     ``API_KEY = os.environ["X"]`` must stay intact for later edits. A line is
     redacted only when its name marks a secret *and* its value has the shape of
     a credential literal (including JWTs and opaque URL-safe tokens), which is what an
-    accidental ``env`` or ``cat .env`` dump prints. Exact values of the
+    accidental ``env`` or ``cat .env`` dump prints. An assignment that exactly
+    matches its named environment value is also redacted, even when the value
+    is too short or non-opaque for global matching. Exact values of the
     process's own secret-named environment variables are redacted in any
     shape, since no name or prefix rule can recognise an unprefixed value
     printed under an unrelated key.
@@ -595,14 +597,22 @@ def redact_secret_values_from_output(
         body = line.rstrip("\r\n")
         ending = line[len(body) :]
         match = _ENV_ASSIGN_RE.search(body) or _COLON_ASSIGN_RE.search(body)
-        # A dotenv comment is not part of the credential literal. Remove the
-        # comment only for classification; redaction still covers the full RHS.
-        value = (
-            re.split(r"\s+#", match.group(5), maxsplit=1)[0].rstrip("\"'")
-            if match
-            else ""
+        opening = match.group(4) if match else ""
+        inner = match.group(5) if match else ""
+        closing = match.group(6) if match else ""
+        # Matching outer quotes are the delimiter, not the password. Otherwise
+        # keep group 4+5+6 so a password that ends in a quote is not stripped.
+        raw_value = (
+            inner if opening and opening == closing else f"{opening}{inner}{closing}"
         )
-        if match and _looks_like_output_secret(value):
+        # A dotenv comment is not part of the credential literal. Strip it from
+        # group 5 for classification; redaction still covers the full RHS.
+        # Group 5 is required here: a trailing comment that blocked group 6
+        # (`'hunter2' # local`) still yields the inner password after rstrip.
+        value = re.split(r"\s+#", inner, maxsplit=1)[0].rstrip("\"'") if match else ""
+        env_value = os.environ.get(match.group(2)) if match else None
+        known_assignment = bool(match and env_value and env_value in (raw_value, value))
+        if match and (_looks_like_output_secret(value) or known_assignment):
             # Discover live matches before the assignment replacement erases
             # any part of a credential crossing the separator.
             if literals:
