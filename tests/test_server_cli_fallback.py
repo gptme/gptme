@@ -244,8 +244,18 @@ def test_dotenv_model_never_falls_back_to_another_provider(
     monkeypatch.setattr(server_cli, "shutdown_telemetry", lambda: None)
     monkeypatch.setattr("gptme.server.app.create_app", lambda **kwargs: _App())
     monkeypatch.setattr(
-        server_cli, "_pick_fallback_model", lambda: "openai/gpt-4o-mini"
+        server_cli,
+        "_pick_fallback_model",
+        lambda: PROVIDER_FALLBACK_MODELS["openai"],
     )
+    # These three run for real otherwise, and none of them is undone by
+    # monkeypatch: init_logging reconfigures root logging, the SIGTERM handler
+    # replaces the process-wide disposition (a second SIGTERM is then silently
+    # ignored), and set_config_from_workspace swaps the global config for this
+    # checkout. Leaking that state makes later tests order-dependent.
+    monkeypatch.setattr(server_cli, "init_logging", lambda *a, **k: None)
+    monkeypatch.setattr(server_cli, "_install_sigterm_handler", lambda: None)
+    monkeypatch.setattr(server_cli, "set_config_from_workspace", lambda *a, **k: None)
 
     result = CliRunner().invoke(server_cli.serve, ["--port", "0", "--tools", "none"])
 
