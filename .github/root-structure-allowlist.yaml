@@ -22,6 +22,8 @@ allowed_entries:
   - mypy.ini
   - uv.lock
   - pyproject.toml
+  # file-size-ratchet hook ceilings (ErikBjare/bob#1615).
+  - file-size-baseline.json
 
   # Directories
   - docs
