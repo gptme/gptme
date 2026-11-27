@@ -330,7 +330,8 @@ def test_extra_result_for_one_replayed_call_stays_as_text() -> None:
     assert texts[0]["content"] == f"Tool result:\n{second}"
 
 
-def test_result_pairs_only_with_a_call_from_its_own_turn() -> None:
+@pytest.mark.parametrize("first_answered", [True, False])
+def test_result_pairs_only_with_a_call_from_its_own_turn(first_answered: bool) -> None:
     """A reused call_id in a later text-only turn must not steal an earlier call."""
     from gptme.llm.llm_openai import _prepare_messages_for_responses_api
     from gptme.llm.responses_phase import _digest
@@ -346,21 +347,28 @@ def test_result_pairs_only_with_a_call_from_its_own_turn() -> None:
             ],
         }
     }
-    _, items, _ = _prepare_messages_for_responses_api(
-        [
-            Message("system", "You are gptme."),
-            Message("user", "run it"),
-            Message("assistant", first_content, metadata=metadata),
-            Message("system", "first result", call_id="call_x"),
-            Message("assistant", second_content),
-            Message("system", "SECOND-RESULT-42", call_id="call_x"),
-            Message("user", "Summarize."),
-        ],
-        "openai/gpt-5",
-        [],
-    )
+    messages = [
+        Message("system", "You are gptme."),
+        Message("user", "run it"),
+        Message("assistant", first_content, metadata=metadata),
+        *(
+            [Message("system", "first result", call_id="call_x")]
+            if first_answered
+            else []
+        ),
+        Message("assistant", second_content),
+        Message("system", "SECOND-RESULT-42", call_id="call_x"),
+        Message("user", "Summarize."),
+    ]
+    original_messages = copy.deepcopy(messages)
+    _, items, _ = _prepare_messages_for_responses_api(messages, "openai/gpt-5", [])
+    assert messages == original_messages
     outputs = [i for i in items if i.get("type") == "function_call_output"]
-    assert [i["output"] for i in outputs] == ["first result"]
+    assert [i["call_id"] for i in outputs] == ["call_x"]
+    if first_answered:
+        assert outputs[0]["output"] == "first result"
+    else:
+        assert "No tool result was recorded" in outputs[0]["output"]
     second = [i for i in items if "SECOND-RESULT-42" in str(i.get("content"))]
     assert len(second) == 1, items
     assert second[0]["role"] == "user"
