@@ -90,7 +90,7 @@ _MIDLINE_SECRET_RE = re.compile(
     r"""(?ix)
     (?<=[\s"'`{(,\[?&=:])            # boundary before the name
     (["']?)                          # optional quote opening the name
-    (?P<name>[A-Za-z0-9_\-]{1,40})   # name, classified separately below
+    (?P<name>[A-Za-z0-9_\-]{1,128})  # env-sized names; cap bounds a missing separator
     (["']?)                          # optional quote closing the name
     (\s*[:=]\s*)                     # separator
     (["']?)                          # optional quote opening the value
@@ -245,23 +245,32 @@ def redact_secrets_from_text(content: str) -> str:
     return "".join(_redact_line(line) for line in content.splitlines(keepends=True))
 
 
-def _redact_midline(line: str) -> str:
-    """Redact mid-line secret assignments whose value looks like a credential.
+def _replace_spans(line: str, spans: list[tuple[int, int]]) -> str:
+    """Replace each ``[start, end)`` span with the redaction marker."""
+    if not spans:
+        return line
+    parts: list[str] = []
+    previous = 0
+    for start, end in spans:
+        parts.extend((line[previous:start], _REDACTED))
+        previous = end
+    parts.append(line[previous:])
+    return "".join(parts)
 
-    A ``token:`` or ``X-Api-Key:`` later in a line is often prose or code, so
-    the value must be secret-shaped for this to fire. That keeps
-    ``{"max_tokens": 1024}`` readable while still catching a real header copy.
+
+def _iter_midline_secret_value_spans(line: str) -> list[tuple[int, int]]:
+    """Credential-shaped mid-line assignment value spans, in order.
+
+    Scan assignment prefixes without consuming their values. A non-secret
+    label such as ``params: api_key=...`` must not hide the inner assignment.
+    Classify the name before scanning the value, retaining '=' padding in
+    credentials instead of treating every assignment separator as a terminator.
     """
     # Cheap reject first: without a secret keyword anywhere in the line there
     # is nothing to classify, and the scan below stays off long token runs.
     if not _EMBEDDED_SECRET_NAME_RE.search(line):
-        return line
-
-    # Scan assignment prefixes without consuming their values. A non-secret
-    # label such as ``params: api_key=...`` must not hide the inner assignment.
-    # Classify the name before scanning the value, retaining '=' padding in
-    # credentials instead of treating every assignment separator as a terminator.
-    parts: list[str] = []
+        return []
+    spans: list[tuple[int, int]] = []
     previous = 0
     for match in _MIDLINE_SECRET_RE.finditer(line):
         if match.start() < previous or not _EMBEDDED_SECRET_NAME_RE.search(
@@ -271,21 +280,19 @@ def _redact_midline(line: str) -> str:
         value = _MIDLINE_VALUE_RE.match(line, match.end())
         if value is None or not _is_credential_literal(value.group()):
             continue
-        parts.extend((line[previous : value.start()], _REDACTED))
+        spans.append((value.start(), value.end()))
         previous = value.end()
-    parts.append(line[previous:])
-    return "".join(parts)
+    return spans
 
 
-def _redact_url_userinfo(line: str) -> str:
-    """Replace the password in ``scheme://user:password@host`` with a marker."""
+def _iter_url_password_spans(line: str) -> list[tuple[int, int]]:
+    """Password spans in ``scheme://user:password@host``, in order."""
     # Cheap reject: without both a scheme and an ``@`` there is no userinfo.
     # The regex also rejects overlapping scheme starts when these substrings
     # are present elsewhere in a long non-URL line.
     if "://" not in line or "@" not in line:
-        return line
-
-    parts: list[str] = []
+        return []
+    spans: list[tuple[int, int]] = []
     previous = 0
     for match in _URL_SCHEME_RE.finditer(line):
         if match.group(1) is None or match.start() < previous:
@@ -303,10 +310,24 @@ def _redact_url_userinfo(line: str) -> str:
             continue
         end = authority.start() + len(userinfo)
         start = end - len(password)
-        parts.extend((line[previous:start], _REDACTED))
+        spans.append((start, end))
         previous = end
-    parts.append(line[previous:])
-    return "".join(parts)
+    return spans
+
+
+def _redact_midline(line: str) -> str:
+    """Redact mid-line secret assignments whose value looks like a credential.
+
+    A ``token:`` or ``X-Api-Key:`` later in a line is often prose or code, so
+    the value must be secret-shaped for this to fire. That keeps
+    ``{"max_tokens": 1024}`` readable while still catching a real header copy.
+    """
+    return _replace_spans(line, _iter_midline_secret_value_spans(line))
+
+
+def _redact_url_userinfo(line: str) -> str:
+    """Replace the password in ``scheme://user:password@host`` with a marker."""
+    return _replace_spans(line, _iter_url_password_spans(line))
 
 
 def _redact_line(line: str) -> str:
@@ -524,6 +545,8 @@ def _redact_live_literals(
             *(literal_spans(literal) for literal in literals),
             vendor_spans,
             pair_spans,
+            _iter_midline_secret_value_spans(line),
+            _iter_url_password_spans(line),
             [assignment_span] if assignment_span else [],
         )
     )

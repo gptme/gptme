@@ -193,3 +193,40 @@ def test_output_redactor_keeps_source_code():
     out, n = redact_secret_values_from_output(line)
     assert n == 0
     assert out == line
+
+
+def test_midline_long_secret_name_is_redacted():
+    """Names longer than the old 40-character mid-line cap still redact."""
+    name = "MY_SERVICE_PRODUCTION_DATABASE_ACCESS_TOKEN"
+    assert len(name) > 40
+    line = f"INFO {name}={OPAQUE}"
+    expected = f"INFO {name}=[REDACTED]"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+def test_live_literal_does_not_leave_midline_credential_remainder():
+    """A known substring must not hide the rest of a mid-line credential."""
+    full = OPAQUE + "XYZ9"
+    line = f"INFO token={full}"
+    out, n = redact_secret_values_from_output(line, live_literals=[OPAQUE])
+    assert n == 1
+    assert full not in out
+    assert "XYZ9" not in out
+    assert out == "INFO token=[REDACTED]"
+    assert redact_secret_values_from_output(line) == ("INFO token=[REDACTED]", 1)
+
+
+def test_live_literal_does_not_leave_url_password_remainder():
+    """A known substring must not hide the rest of a URL userinfo password."""
+    full = OPAQUE + "XYZ9"
+    line = f"GET postgres://admin:{full}@db/app"
+    out, n = redact_secret_values_from_output(line, live_literals=[OPAQUE])
+    assert n == 1
+    assert full not in out
+    assert "XYZ9" not in out
+    assert out == "GET postgres://admin:[REDACTED]@db/app"
+    assert redact_secret_values_from_output(line) == (
+        "GET postgres://admin:[REDACTED]@db/app",
+        1,
+    )
