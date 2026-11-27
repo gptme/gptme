@@ -297,10 +297,10 @@ class AcpSessionRuntime:
             self._loop_thread = None
             self._loop_calls = None
         if calls is not None:
-            # Reject new work from here on; pending calls are cancelled once
-            # the loop thread finishes.
-            with calls.lock:
-                calls.closed = True
+            # Reject new work and release accepted callers now, even if a
+            # blocked callback prevents the loop thread from finishing. This
+            # shares the submission lock, so no future can miss cancellation.
+            calls.close_and_cancel()
         if loop is None or loop.is_closed():
             if calls is not None:
                 calls.close_and_cancel()

@@ -1337,6 +1337,62 @@ def test_call_on_stopped_loop_raises_instead_of_hanging(tmp_path):
         _run(asyncio.wait_for(runtime._run_on_loop(work), 5))
 
 
+@pytest.mark.timeout(20)
+def test_stop_loop_releases_queued_call_before_loop_thread_exits(monkeypatch, tmp_path):
+    """A blocked transport callback must not keep a queued caller waiting."""
+    import gptme.server.acp_session_runtime as mod
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    loop = runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    blocked = threading.Event()
+    release = threading.Event()
+    submitted = threading.Event()
+    completed = threading.Event()
+    ran = threading.Event()
+    errors: list[BaseException] = []
+    submit = asyncio.run_coroutine_threadsafe
+
+    def block_loop() -> None:
+        blocked.set()
+        release.wait(15)
+
+    def track_submit(coro, target_loop):
+        future = submit(coro, target_loop)
+        submitted.set()
+        return future
+
+    async def work() -> None:
+        ran.set()
+
+    def caller() -> None:
+        try:
+            _run(runtime._run_on_loop(work))
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    loop.call_soon_threadsafe(block_loop)
+    thread = threading.Thread(target=caller, daemon=True)
+    try:
+        assert blocked.wait(5)
+        monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", track_submit)
+        thread.start()
+        assert submitted.wait(5)
+        runtime._stop_loop(join_timeout=0)
+        assert completed.wait(2), "Caller waits for the blocked runtime thread to exit"
+        assert loop_thread is not None and loop_thread.is_alive()
+        assert len(errors) == 1 and isinstance(errors[0], ConnectionError)
+        assert not ran.is_set()
+    finally:
+        release.set()
+        thread.join(5)
+        if loop_thread is not None:
+            loop_thread.join(5)
+        runtime._stop_loop()
+
+
 def test_runtime_call_from_own_loop(monkeypatch, tmp_path):
     """A callback already on the transport loop can await another runtime call."""
     import gptme.server.acp_session_runtime as mod
@@ -1350,6 +1406,49 @@ def test_runtime_call_from_own_loop(monkeypatch, tmp_path):
     text, _ = _run(asyncio.wait_for(runtime._run_on_loop(nested_prompt), 5))
     assert text == "hello world"
     _run(runtime.close())
+
+
+@pytest.mark.timeout(15)
+def test_failed_close_on_runtime_loop_does_not_join_itself(monkeypatch, tmp_path):
+    """The own-loop close fallback signals the child without a self-join."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingExitClient(_DummyClient):
+        _process = object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise OSError("broken transport")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingExitClient)
+    signalled: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: signalled.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    loop = runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    completed = threading.Event()
+    errors: list[BaseException] = []
+
+    async def close_from_runtime() -> None:
+        try:
+            await runtime.close()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    asyncio.run_coroutine_threadsafe(close_from_runtime(), loop)
+    assert completed.wait(5)
+    assert loop_thread is not None
+    loop_thread.join(5)
+    assert not loop_thread.is_alive()
+    assert errors == []
+    assert signalled == [_FailingExitClient._process]
+    assert runtime._client is None
 
 
 def test_runtime_rejected_submission_closes_coroutine(monkeypatch, tmp_path):
