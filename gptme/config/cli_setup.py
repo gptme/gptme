@@ -127,6 +127,11 @@ def setup_config_from_cli(
     set_config_from_workspace(workspace)
     config = get_config()
 
+    # Approval must precede model/default resolution and any early tool loading.
+    from .trust import approve_project_config
+
+    approve_project_config(interactive, workspace=workspace)
+
     # Check if we're resuming an existing conversation
     existing_chat_config = None
     if logdir.exists() and (logdir / "config.toml").exists():

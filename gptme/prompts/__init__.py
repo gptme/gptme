@@ -396,18 +396,10 @@ def _build_prompt_sections(
                 continue
             ws_project = get_project_config(ws)
             if ws_project and ws_project.context_cmd:
-                from ..config.trust import (
-                    check_project_shell_trust,
-                    commands_from_project,
-                )
+                from ..config.trust import check_project_trust
 
-                ctx, hook_commands = commands_from_project(ws_project)
-                if not check_project_shell_trust(
-                    ctx,
-                    hook_commands,
-                    ws,
-                    interactive=interactive,
-                ):
+                # Same hash as init(): one approval covers the whole config.
+                if not check_project_trust(ws_project, ws, interactive=interactive):
                     continue
             if (
                 ws_project

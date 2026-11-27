@@ -418,7 +418,7 @@ with an authorized provider/model):
 The command is a JSON argv array, executed without a shell. The executable and its
 arguments must be trusted configuration. Selector settings are read only from
 a snapshot of the process environment captured when gptme is first imported,
-before workspace ``.env`` loading. Later process-environment changes and repository
+before any ``.env`` loading. Later process-environment changes and repository
 or conversation ``[env]`` cannot authorize service execution or provider spending.
 A nonempty explicit guard list, model and positive call limit are required;
 otherwise matching stays deterministic.

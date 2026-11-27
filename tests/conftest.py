@@ -441,9 +441,15 @@ def trust_project_shell_in_tests(monkeypatch):
 
     ``get_prompt()`` defaults to ``interactive=True``, which would otherwise
     call ``input()`` (pytest OSError) or skip ``context_cmd`` (false denials).
-    Gate-unit tests in ``test_config_trust.py`` unset this env var.
+    Gate-unit tests in ``test_config_trust.py`` turn this off again.
+    The env var covers subprocesses; this process already read it at import.
     """
+    from gptme.config import trust
+
     monkeypatch.setenv("GPTME_TRUST_PROJECT_SHELL", "1")
+    monkeypatch.setattr(trust, "_launcher_trusts_all", True)
+    # Server tests call create_app(), which disables prompts process-wide.
+    monkeypatch.setattr(trust, "_prompts_disabled", False)
 
 
 @pytest.fixture(autouse=True)

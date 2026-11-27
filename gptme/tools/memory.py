@@ -4,7 +4,6 @@ Use explicit user scope for cross-project preferences; project and CC scopes
 remain workspace-local. Startup loading depends on the harness configuration.
 """
 
-import os
 import re
 import shlex
 from collections.abc import Generator
@@ -124,17 +123,8 @@ def prepare_pending_memory(call: ToolUse, workspace: Path | None = None) -> Tool
         name, _content, scope, _args = _parse_memory_call(
             call.content, call.args, call.kwargs, call._format == "xml"
         )
-        from dotenv import dotenv_values
-
         workspace = (workspace or get_workspace()).resolve()
-        # Match the worker's dotenv precedence without loading another
-        # conversation's settings into the server's process environment.
-        env = dict(os.environ)
-        settings = dotenv_values(workspace / ".env")
-        for key in ("GPTME_MEMORY_DIRS", "GPTME_AGENT_WORKSPACE"):
-            if key not in env and settings.get(key) is not None:
-                env[key] = settings[key] or ""
-        selected = MemoryStore.from_workspace(workspace, env=env).root(scope)
+        selected = MemoryStore.from_workspace(workspace).root(scope)
         root = MemoryRoot(selected.scope, selected.path.resolve())
         target = root.path / f"{slugify(name)}.md"
     except (KeyError, OSError, ValueError):

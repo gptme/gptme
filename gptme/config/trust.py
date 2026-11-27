@@ -1,8 +1,12 @@
-"""Trust-on-first-use guard for project-level shell execution.
+"""Trust-on-first-use guard for project-level code execution and credentials.
 
 Project ``gptme.toml`` files can configure ``context_cmd`` and
 ``[[hooks.scripts]]`` which both execute arbitrary shell commands with the user's
-permissions.  This is safe when the user wrote the config themselves, but unsafe
+permissions. They can also spawn MCP stdio servers (``[mcp]``), load plugin
+code (``[plugins] paths``), override environment such as provider base URLs
+(``[env]``) and enable RAG (``[rag]``). A repository's
+``.pre-commit-config.yaml`` likewise runs its hooks after every edit when
+pre-commit checks auto-enable.  This is safe when the user wrote the config themselves, but unsafe
 when they ``git clone`` a repository containing a pre-crafted ``gptme.toml`` —
 the same class of risk as a malicious ``package.json`` ``postinstall`` script.
 
@@ -15,13 +19,18 @@ This module implements a **trust-on-first-use** (TOFU) gate:
 * In non-interactive environments the gate defaults to **deny**.
 * User-global config (``~/.config/gptme/gptme.toml``) is implicitly trusted —
   the guard only applies to project configs found in workspace directories.
+* Until approved, the non-shell surfaces are withheld from the loaded project
+  config (see :func:`withhold_untrusted`), so no consumer can reach them.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
+import os
+import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -34,6 +43,17 @@ logger = logging.getLogger(__name__)
 
 # env var that bypasses the prompt (useful for CI / ``--no-confirm`` equivalents)
 _ENV_TRUST_ALL = "GPTME_TRUST_PROJECT_SHELL"
+# Read once, when gptme is first imported: only the launcher may set this. Values
+# added to ``os.environ`` later must not be able to switch the gate off.
+_launcher_trusts_all = os.environ.get(_ENV_TRUST_ALL, "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+# Set in server processes: a request handler or worker thread must never block on,
+# or take an approval from, the console the server was started in.
+_prompts_disabled = False
 
 # In-process decisions so init() and prompt construction share one answer.
 _session_decisions: dict[tuple[str, str], bool] = {}
@@ -54,11 +74,126 @@ def _shell_content(context_cmd: str | None, hook_commands: list[str]) -> dict:
     return {"context_cmd": context_cmd, "hooks": sorted(hook_commands)}
 
 
-def compute_shell_hash(context_cmd: str | None, hook_commands: list[str]) -> str:
-    """Return ``sha256:<hex>`` for the canonical shell content of a project config."""
-    canonical = json.dumps(_shell_content(context_cmd, hook_commands), sort_keys=True)
+def _hash_content(content: dict) -> str:
+    canonical = json.dumps(content, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode()).hexdigest()
     return f"sha256:{digest}"
+
+
+def compute_shell_hash(context_cmd: str | None, hook_commands: list[str]) -> str:
+    """Return ``sha256:<hex>`` for the canonical shell content of a project config."""
+    return _hash_content(_shell_content(context_cmd, hook_commands))
+
+
+# Zero-width and bidi controls are invisible but reorder or hide what follows.
+_CONTROL_CHARS = re.compile(
+    "[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]"
+)
+
+
+def sanitize_for_prompt(text: str, *, allow_newlines: bool = False) -> str:
+    """Make attacker-controlled text safe to show in a confirmation prompt.
+
+    Control characters (ANSI escapes, carriage returns, bidi overrides) could
+    redraw or hide part of the prompt, so the user would approve something other
+    than what runs. Each one is replaced by a visible escape. ``allow_newlines``
+    keeps ``\\n`` for multi-line text whose line structure the caller composed.
+    """
+
+    def _escape(match: re.Match[str]) -> str:
+        code = ord(match.group())
+        if allow_newlines and code == 0x0A:
+            return "\n"
+        return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
+
+    return _CONTROL_CHARS.sub(_escape, text)
+
+
+def _sensitive_extras(project: ProjectConfig) -> dict:
+    """Non-shell project settings that can run code or redirect credentials.
+
+    Only non-empty surfaces are included, so a shell-only config keeps the hash
+    it had before these surfaces were covered (existing approvals stay valid).
+    """
+    extras: dict = {}
+    if project.mcp is not None:
+        mcp = project.mcp.to_dict()
+        if mcp["servers"] or project.mcp.enabled or project.mcp.auto_start:
+            extras["mcp"] = mcp
+    if project.env:
+        extras["env"] = dict(project.env)
+    if project.plugins.paths:
+        extras["plugin_paths"] = list(project.plugins.paths)
+    if project.plugins.enabled:
+        # The user allowlist and the project allowlist are unioned, so a project
+        # list can widen what the user opted into.
+        extras["plugin_enabled"] = list(project.plugins.enabled)
+    if project.rag.enabled:
+        extras["rag"] = dataclasses.asdict(project.rag)
+    return extras
+
+
+def trust_source(project: ProjectConfig) -> ProjectConfig:
+    """Return the full project config, even if its sensitive parts are withheld."""
+    return project._untrusted_original or project
+
+
+def project_trust_content(project: ProjectConfig) -> dict:
+    """Canonical content a trust approval covers for *project*."""
+    project = trust_source(project)
+    content = _shell_content(*commands_from_project(project))
+    content.update(_sensitive_extras(project))
+    return content
+
+
+def compute_project_hash(project: ProjectConfig) -> str:
+    """Return ``sha256:<hex>`` over every trust-gated surface of *project*."""
+    return _hash_content(project_trust_content(project))
+
+
+def _needs_trust(content: dict) -> bool:
+    return any(v for v in content.values())
+
+
+def _project_lines(content: dict) -> list[str]:
+    lines = []
+    if content.get("context_cmd"):
+        lines.append(f"  context_cmd: {content['context_cmd']}")
+    lines.extend(f"  hook: {cmd}" for cmd in content.get("hooks", []))
+    for server in content.get("mcp", {}).get("servers", []):
+        if server.get("command"):
+            import shlex
+
+            argv = shlex.join([server["command"], *map(str, server.get("args", []))])
+            lines.append(f"  mcp server {server.get('name')!r} runs: {argv}")
+        else:
+            lines.append(
+                f"  mcp server {server.get('name')!r} connects to: {server.get('url')}"
+            )
+        for key, value in server.items():
+            if key not in {"name", "command", "args", "url"}:
+                if isinstance(value, dict):
+                    lines.extend(f"    {key}: {k}={v}" for k, v in value.items())
+                else:
+                    lines.append(f"    {key}: {value}")
+    if mcp := content.get("mcp"):
+        flags = {k: mcp[k] for k in ("enabled", "auto_start") if k in mcp}
+        if flags:
+            lines.append(f"  mcp settings: {flags}")
+    lines.extend(
+        f"  plugin path (loads code): {path}"
+        for path in content.get("plugin_paths", [])
+    )
+    lines.extend(
+        f"  plugin enabled (widens the allowlist): {name}"
+        for name in content.get("plugin_enabled", [])
+    )
+    lines.extend(
+        f"  env: {key}={value}" for key, value in content.get("env", {}).items()
+    )
+    for key, value in content.get("rag", {}).items():
+        lines.append(f"  rag {key}: {value}")
+    return [sanitize_for_prompt(line) for line in lines]
 
 
 def commands_from_project(project: ProjectConfig) -> tuple[str | None, list[str]]:
@@ -122,11 +257,13 @@ def _record(shell_hash: str, approved: bool, workspace: Path | None) -> None:
 
 
 def _prompt_user(
-    context_cmd: str | None,
-    hook_commands: list[str],
+    lines: list[str],
     workspace: Path | None,
+    *,
+    title: str = "Project wants to run shell commands",
+    subtitle: str = "These come from a project-level gptme.toml",
 ) -> bool:
-    """Show commands and ask the user whether to trust them.
+    """Show what the project wants to run and ask the user whether to trust it.
 
     Returns True if approved, False if denied.
     """
@@ -137,20 +274,24 @@ def _prompt_user(
 
     console = Console(stderr=True)
 
-    lines = []
-    if context_cmd:
-        lines.append(f"  context_cmd: {context_cmd}")
-    lines.extend(f"  hook: {cmd}" for cmd in hook_commands)
+    # Plain Text: project-controlled strings must not be parsed as Rich markup,
+    # and control characters must not redraw the prompt.
+    body = Text(
+        "\n".join(sanitize_for_prompt(line) for line in lines)
+        if lines
+        else "(no commands)"
+    )
 
-    # Plain Text: project-controlled strings must not be parsed as Rich markup.
-    body = Text("\n".join(lines) if lines else "(no commands)")
-
-    ws_str = f" in [bold]{escape(str(workspace))}[/bold]" if workspace else ""
+    ws_str = (
+        f" in [bold]{escape(sanitize_for_prompt(str(workspace)))}[/bold]"
+        if workspace
+        else ""
+    )
     console.print(
         Panel(
             body,
-            title=f"[yellow]⚠ Project wants to run shell commands{ws_str}[/yellow]",
-            subtitle="[dim]These come from a project-level gptme.toml[/dim]",
+            title=f"[yellow]⚠ {title}{ws_str}[/yellow]",
+            subtitle=f"[dim]{subtitle}[/dim]",
             border_style="yellow",
         )
     )
@@ -169,6 +310,103 @@ def _prompt_user(
     return answer in {"y", "yes"}
 
 
+def disable_prompts() -> None:
+    """Never prompt for trust in this process; only existing approvals count."""
+    global _prompts_disabled
+    _prompts_disabled = True
+
+
+def _can_prompt(interactive: bool | None) -> bool:
+    """True only when this process can actually ask the user."""
+    if interactive is None:
+        interactive = sys.stdin.isatty()
+    return bool(interactive) and not _prompts_disabled and sys.stdin.isatty()
+
+
+def _legacy_shell_approved(project: ProjectConfig, workspace: Path | None) -> bool:
+    """True if a pre-upgrade shell-only hash is already approved for *workspace*."""
+    context_cmd, hook_commands = commands_from_project(project)
+    if not context_cmd and not hook_commands:
+        return False
+    return is_trusted(compute_shell_hash(context_cmd, hook_commands), workspace)
+
+
+def _is_denied(trust_hash: str, workspace: Path | None) -> bool:
+    """True if this session or the db holds ``approved=False`` for *trust_hash*.
+
+    A missing entry is not a denial. ``is_trusted`` only reports approvals, so
+    a stored ``no`` would otherwise be indistinguishable from "never asked".
+    """
+    cache_key = (_workspace_key(workspace), trust_hash)
+    if cache_key in _session_decisions:
+        return _session_decisions[cache_key] is False
+    db = _load_db()
+    entry = db.get("workspaces", {}).get(_workspace_key(workspace), {}).get(trust_hash)
+    if not isinstance(entry, dict):
+        return False
+    return entry.get("approved") is False
+
+
+def _is_approved(trust_hash: str, workspace: Path | None) -> bool:
+    """Non-prompting check: env override, this session's decision, or the db."""
+    if _launcher_trusts_all:
+        return True
+    cache_key = (_workspace_key(workspace), trust_hash)
+    if cache_key in _session_decisions:
+        return _session_decisions[cache_key]
+    if is_trusted(trust_hash, workspace):
+        # Only approvals are cached here: a miss must not pre-empt the prompt.
+        _session_decisions[cache_key] = True
+        return True
+    return False
+
+
+def _check_trust(
+    trust_hash: str,
+    lines: list[str],
+    workspace: Path | None,
+    *,
+    interactive: bool | None,
+    what: str,
+    **prompt_kwargs,
+) -> bool:
+    if _launcher_trusts_all:
+        logger.debug("Project trust bypassed via %s", _ENV_TRUST_ALL)
+        return True
+
+    cache_key = (_workspace_key(workspace), trust_hash)
+    if cache_key in _session_decisions:
+        return _session_decisions[cache_key]
+    if _is_approved(trust_hash, workspace):
+        return True
+
+    # Determine interactivity. ``interactive=True`` is not enough on its own:
+    # get_prompt() defaults to True, pytest captures stdin, and piped
+    # invocations cannot actually prompt. Require a real TTY before calling
+    # input().
+    can_prompt = _can_prompt(interactive)
+
+    if not can_prompt:
+        logger.warning(
+            "%s in %s has not been approved. Skipping it in non-interactive mode. "
+            "Run gptme interactively once to approve, or set %s=1 to trust all.",
+            what,
+            workspace or "unknown workspace",
+            _ENV_TRUST_ALL,
+        )
+        # Do not cache a miss: a later interactive approval (or one written by
+        # another process) must still be visible in this long-lived process.
+        return False
+
+    approved = _prompt_user(lines, workspace, **prompt_kwargs)
+    _record(trust_hash, approved, workspace)
+    _session_decisions[cache_key] = approved
+
+    if not approved:
+        logger.info("%s denied by user; it will not be used this session.", what)
+    return approved
+
+
 def check_project_shell_trust(
     context_cmd: str | None,
     hook_commands: list[str],
@@ -178,60 +416,265 @@ def check_project_shell_trust(
 ) -> bool:
     """Gate project-level shell execution behind a TOFU trust check.
 
-    Args:
-        context_cmd: The ``context_cmd`` string from the project config, or None.
-        hook_commands: List of shell command strings from ``hooks.scripts``.
-        workspace: Path to the project workspace (used as the trust scope).
-        interactive: Whether we are in an interactive session.  If None, auto-
-            detected from ``sys.stdin.isatty()``.
+    Prefer ``check_project_trust()``, which also covers the non-shell
+    surfaces. This covers only ``context_cmd`` and hook commands.
 
     Returns:
         True if the commands should be executed, False if they should be skipped.
     """
-    import os
-
     if not context_cmd and not hook_commands:
         return True  # nothing to check
+    content = _shell_content(context_cmd, hook_commands)
+    return _check_trust(
+        _hash_content(content),
+        _project_lines(content),
+        workspace,
+        interactive=interactive,
+        what="Project gptme.toml shell commands (context_cmd / hooks.scripts)",
+    )
 
-    # Trust-all env override (non-interactive CI, ``--no-confirm`` equivalents)
-    if os.environ.get(_ENV_TRUST_ALL, "").lower() in {"1", "true", "yes"}:
-        logger.debug("Project shell trust bypassed via %s", _ENV_TRUST_ALL)
+
+def check_project_trust(
+    project: ProjectConfig,
+    workspace: Path | None,
+    *,
+    interactive: bool | None = None,
+) -> bool:
+    """Gate every code-execution and credential surface of a project config.
+
+    Covers ``context_cmd``, hook commands, MCP servers, plugin paths, ``[env]``
+    and RAG enablement under one approval. May prompt.
+    """
+    content = project_trust_content(project)
+    if not _needs_trust(content):
         return True
-
-    shell_hash = compute_shell_hash(context_cmd, hook_commands)
-    cache_key = (_workspace_key(workspace), shell_hash)
-    if cache_key in _session_decisions:
-        return _session_decisions[cache_key]
-
-    # Already approved for this workspace?
-    if is_trusted(shell_hash, workspace):
+    if not _can_prompt(interactive) and _legacy_shell_approved(project, workspace):
+        # An explicit full-config "no" wins over a pre-upgrade shell approval.
+        # Otherwise every later unattended run would execute context_cmd/hooks
+        # the user just refused. Interactive re-prompt of a stored "no" is
+        # unchanged: only this unattended fallback is skipped.
+        if _is_denied(_hash_content(content), workspace):
+            return False
+        if _sensitive_extras(project):
+            logger.warning(
+                "Project gptme.toml in %s has a stored shell approval, but MCP, "
+                "plugins, [env] or RAG have not been approved yet. Keeping "
+                "context_cmd/hooks and withholding the new surfaces until you "
+                "run gptme interactively once.",
+                workspace or "unknown workspace",
+            )
         return True
+    return _check_trust(
+        _hash_content(content),
+        _project_lines(content),
+        workspace,
+        interactive=interactive,
+        what="Project gptme.toml (shell commands, MCP servers, plugins, env, rag)",
+        title="Project wants to run code or change settings",
+    )
 
-    # Determine interactivity. ``interactive=True`` is not enough on its own:
-    # get_prompt() defaults to True, pytest captures stdin, and piped
-    # invocations cannot actually prompt. Require a real TTY before calling
-    # input().
-    if interactive is None:
-        interactive = sys.stdin.isatty()
-    can_prompt = bool(interactive) and sys.stdin.isatty()
 
-    if not can_prompt:
-        logger.warning(
-            "Project gptme.toml in %s contains shell commands (context_cmd / hooks.scripts) "
-            "that have not been approved. Skipping them in non-interactive mode. "
-            "Run gptme interactively once to approve, or set %s=1 to trust all.",
-            workspace or "unknown workspace",
-            _ENV_TRUST_ALL,
+def approve_project_config(
+    interactive: bool,
+    *,
+    server: bool = False,
+    workspace: Path | None = None,
+) -> bool:
+    """Restore approved settings before CLI defaults, plugins or tools read them.
+
+    Also takes the one startup decision on the repository's pre-commit config;
+    the automatic post-edit hook only reads it and never prompts.
+    """
+    from .core import get_config
+
+    if server:
+        # init() runs before create_app(), and must not prompt either.
+        disable_prompts()
+    config = get_config()
+    approved = True
+    if config.project is not None:
+        project = trust_source(config.project)
+        project_workspace = project._workspace or (
+            config.chat.workspace if config.chat is not None else None
         )
-        _session_decisions[cache_key] = False
+        approved = check_project_trust(
+            project, project_workspace, interactive=interactive
+        )
+        # Restore extras only on a full-hash approval. A legacy shell-only
+        # approval keeps hooks/context_cmd (approved=True) but must not
+        # re-introduce MCP, plugins, [env] or RAG.
+        if approved and is_project_trusted(project, project_workspace):
+            config.project = project
+    # After the project decision, so an approved ``[env] GPTME_CHECK`` applies.
+    approve_precommit_config(
+        interactive=interactive, server=server, workspace=workspace
+    )
+    return approved
+
+
+def is_project_trusted(project: ProjectConfig, workspace: Path | None) -> bool:
+    """Non-prompting form of :func:`check_project_trust`."""
+    content = project_trust_content(project)
+    if not _needs_trust(content):
+        return True
+    return _is_approved(_hash_content(content), workspace)
+
+
+def withhold_untrusted(project: ProjectConfig) -> ProjectConfig:
+    """Return *project* with untrusted non-shell surfaces removed.
+
+    ``context_cmd`` and hooks stay visible because their call sites run their
+    own check (they also need the prompt). MCP servers, plugin paths, ``[env]``
+    and RAG enablement are dropped until the project is approved, so readers of
+    the loaded config (tool init, ``get_env``, lessons, ``/plugins``) never see
+    them. The full config stays reachable via :func:`trust_source` for the prompt.
+    """
+    if not _sensitive_extras(project):
+        return project
+    if is_project_trusted(project, project._workspace):
+        return project
+    mcp = project.mcp
+    if mcp is not None and mcp.enabled is False and mcp.enabled_declared:
+        # Keep an explicit enabled=false so it still overrides the user's
+        # global MCP. Drop servers and auto-start; those are the extras.
+        mcp = dataclasses.replace(mcp, servers=[], auto_start=False)
+    else:
+        # An untrusted enablement or server list must not leak. mcp=None
+        # means this layer does not override the user's MCP config.
+        mcp = None
+    return dataclasses.replace(
+        project,
+        env={},
+        mcp=mcp,
+        plugins=dataclasses.replace(project.plugins, paths=[], enabled=[]),
+        rag=dataclasses.replace(project.rag, enabled=False),
+        _untrusted_original=project,
+    )
+
+
+def precommit_trust_hash(config_path: Path) -> str:
+    """Hash of a pre-commit config, keyed on its location and content."""
+    try:
+        data = config_path.read_bytes()
+    except OSError:
+        data = b""
+    return _hash_content(
+        {
+            "precommit_config": str(config_path.resolve()),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    )
+
+
+def find_precommit_config(workspace: Path | None) -> Path | None:
+    """Nearest pre-commit runner config at or above *workspace*, within the repo.
+
+    Mirrors the runner preference in ``gptme.tools.precommit``: ``prek`` reads
+    ``prek.toml`` first, the reference implementation reads
+    ``.pre-commit-config.yaml``. Stops at the repository root so a config above
+    the checkout is not approved for a repo that would never use it.
+    """
+    if workspace is None:
+        return None
+    import shutil
+
+    runner = next((r for r in ("pre-commit", "prek") if shutil.which(r)), None)
+    # ``which`` returns an absolute path, so compare the binary name.
+    names = (
+        ("prek.toml", ".pre-commit-config.yaml")
+        if runner and os.path.basename(runner).lower() in ("prek", "prek.exe")
+        else (".pre-commit-config.yaml",)
+    )
+    parents = (workspace, *workspace.parents)
+    git_root = next((p for p in parents if (p / ".git").exists()), None)
+    if git_root is None:
+        # No repo: do not walk to /. Match runtime ``_resolve_check_config``.
+        return None
+    for parent in parents:
+        for name in names:
+            candidate = parent / name
+            if candidate.is_file():
+                return candidate
+        if parent == git_root:
+            break
+    return None
+
+
+def approve_precommit_config(
+    *,
+    interactive: bool,
+    server: bool = False,
+    workspace: Path | None = None,
+) -> bool:
+    """Ask once, at interactive startup, to auto-run the repo's pre-commit hooks.
+
+    Automatic post-edit checks never prompt (they call
+    :func:`check_precommit_trust` with ``prompt=False``). In non-interactive or
+    server mode this only reports an existing approval and logs why the hooks
+    stay disabled, so startup can never block on stdin even if one is attached.
+    An explicit ``GPTME_CHECK`` already settles the question, so nothing is asked.
+    """
+    from .core import get_config
+
+    flag = (get_config().get_env("GPTME_CHECK", "") or "").lower()
+    if flag in {"0", "false", "no"}:
+        return False
+    if flag in {"1", "true", "yes"}:
+        return True
+
+    if workspace is None:
+        config = get_config()
+        if config.project is not None:
+            workspace = config.project._workspace
+        if workspace is None and config.chat is not None:
+            workspace = config.chat.workspace
+    config_path = find_precommit_config(workspace)
+    if config_path is None:
         return False
 
-    approved = _prompt_user(context_cmd, hook_commands, workspace)
-    _record(shell_hash, approved, workspace)
-    _session_decisions[cache_key] = approved
+    # Key on the config's own directory: the post-edit hook may run from a
+    # nested or symlinked cwd, and a different workspace key would miss the
+    # approval recorded here.
+    trust_workspace = config_path.parent
+    can_prompt = bool(interactive) and not server and sys.stdin.isatty()
+    if not can_prompt:
+        approved = check_precommit_trust(config_path, trust_workspace, prompt=False)
+        if not approved:
+            logger.warning(
+                "Repository pre-commit hooks in %s are not approved; skipping them "
+                "in %s mode. Run gptme interactively once to approve them, or set "
+                "GPTME_CHECK=false to silence this.",
+                config_path,
+                "server" if server else "non-interactive",
+            )
+        return approved
+    return check_precommit_trust(
+        config_path, trust_workspace, interactive=True, prompt=True
+    )
 
-    if not approved:
-        logger.info(
-            "Project shell commands denied by user; they will not run this session."
-        )
-    return approved
+
+def check_precommit_trust(
+    config_path: Path,
+    workspace: Path | None,
+    *,
+    interactive: bool | None = None,
+    prompt: bool = True,
+) -> bool:
+    """Gate automatic pre-commit runs on a repository's hook config.
+
+    Auto-enabled checks run every hook in *config_path* after file edits, so the
+    config is approved like a project ``gptme.toml``: per workspace and per
+    content hash. With ``prompt=False`` this only reports an existing approval.
+    """
+    trust_hash = precommit_trust_hash(config_path)
+    if not prompt:
+        return _is_approved(trust_hash, workspace)
+    return _check_trust(
+        trust_hash,
+        [f"  pre-commit hooks from: {config_path}"],
+        workspace,
+        interactive=interactive,
+        what=f"Pre-commit config {config_path}",
+        title="Repository pre-commit hooks would run after every edit",
+        subtitle="Approve to auto-run them; set GPTME_CHECK=false to never run them",
+    )

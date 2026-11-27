@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from datetime import datetime
 
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -33,6 +32,7 @@ from .llm.models import (
 from .message import is_output_json
 from .tools import ToolFormat, init_tools, set_tool_format
 from .util import console
+from .util.env_file import load_user_dotenv
 
 logger = logging.getLogger(__name__)
 _init_done = False
@@ -70,7 +70,9 @@ def init(
         set_tool_format(tool_format)
         return
 
-    load_dotenv()
+    load_user_dotenv()
+    # Before plugins, model and tools: each reads trust-gated project settings.
+    project_trusted = _check_project_trust(interactive, server)
     _init_plugins()
     try:
         init_model(model, interactive)
@@ -98,17 +100,8 @@ def init(
     user_hooks = list(config.user.hooks.scripts)
     project_hooks = list(config.project.hooks.scripts) if config.project else []
 
-    if config.project:
-        from .config.trust import check_project_shell_trust, commands_from_project
-
-        context_cmd, hook_commands = commands_from_project(config.project)
-        if (context_cmd or hook_commands) and not check_project_shell_trust(
-            context_cmd,
-            hook_commands,
-            workspace,
-            interactive=interactive,
-        ):
-            project_hooks = []  # denied — skip project-level shell hooks
+    if not project_trusted:
+        project_hooks = []  # denied — skip project-level shell hooks
 
     all_hooks = user_hooks + project_hooks
     if all_hooks:
@@ -125,6 +118,19 @@ def init(
     # Mark initialization done at the end so callers can retry init()
     # after a failure earlier in this function.
     _init_done = True
+
+
+def _check_project_trust(interactive: bool, server: bool = False) -> bool:
+    """Approve (or deny) the project config before anything consumes it.
+
+    One approval covers shell commands, MCP servers, plugin paths, ``[env]``,
+    RAG enablement and the repository's pre-commit config. On approval the
+    withheld surfaces are restored to the active config; on denial they stay
+    withheld (see ``withhold_untrusted``).
+    """
+    from .config.trust import approve_project_config
+
+    return approve_project_config(interactive, server=server)
 
 
 def _register_core_compaction_hook() -> None:

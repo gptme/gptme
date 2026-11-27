@@ -436,7 +436,7 @@ with patch('gptme.executor.Config.from_workspace', return_value=config), \\
      patch('gptme.executor.init_hooks'), \\
      patch('gptme.executor._register_core_compaction_hook'):
     prepare_execution_environment(workspace)
-assert os.environ.get('GPTME_LESSONS_SELECTOR_COMMAND')
+assert 'GPTME_LESSONS_SELECTOR_COMMAND' not in os.environ
 catalog = [Lesson(workspace / (name + '.md'), LessonMetadata(keywords=['commit']),
                   name, name, 'test', name) for name in ('guard', 'advisory')]
 manager = SimpleNamespace(logdir=workspace, log=SimpleNamespace(messages=[Message('user', 'commit')]))
@@ -446,7 +446,7 @@ with patch.object(lessons, '_get_lesson_index', return_value=SimpleNamespace(les
 assert len(emitted) == 1
 assert '## guard' in emitted[0].content and '## advisory' in emitted[0].content
 assert not (workspace / 'requests.jsonl').exists()
-assert os.environ.get('GPTME_LESSONS_ITEM_RECEIPTS_DIR')
+assert 'GPTME_LESSONS_ITEM_RECEIPTS_DIR' not in os.environ
 assert not (workspace / 'private-items').exists()
 """
     env = {

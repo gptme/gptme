@@ -219,7 +219,7 @@ def test_pending_memory_malformed_native_call_does_not_abort(kwargs):
     assert any("error" in message.content.lower() for message in messages)
 
 
-def test_pending_memory_reads_workspace_dotenv_without_mutating_environment(
+def test_pending_memory_ignores_workspace_dotenv_without_mutating_environment(
     tmp_path, monkeypatch
 ):
     import os
@@ -233,16 +233,11 @@ def test_pending_memory_reads_workspace_dotenv_without_mutating_environment(
     monkeypatch.chdir(tmp_path)
     call = ToolUse("memory", None, None, kwargs={"name": "fact", "content": CONTENT})
     pending = prepare_pending_memory(call, workspace=workspace)
-    target = workspace / "configured-memory/fact.md"
-    assert pending._memory_root == ("explicit", target.parent)
-    assert str(target) in (pending.confirmation_header or "")
+    configured = workspace / "configured-memory"
+    assert pending._memory_root is None or pending._memory_root[1] != configured
+    assert "configured-memory" not in (pending.confirmation_header or "")
     assert "GPTME_MEMORY_DIRS" not in os.environ
-    assert not target.parent.exists()
-    register_hook(
-        "approve", HookType.TOOL_CONFIRM, lambda *_: ConfirmationResult.confirm()
-    )
-    messages = list(pending.execute(workspace=workspace))
-    assert target.exists(), [m.content for m in messages]
+    assert not configured.exists()
 
 
 @pytest.mark.parametrize("server_has_agent", [False, True])
