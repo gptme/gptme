@@ -1,6 +1,7 @@
 """Offline output -> persistence -> next-request phase regressions (#4616)."""
 
 import base64
+import hashlib
 import json
 from collections.abc import Generator, Iterator
 from pathlib import Path
@@ -653,6 +654,65 @@ def test_nonstream_fence_closer_uses_display_separator(
         assert replay[3 if with_call else 2]["content"] == "Done"
         if with_call:
             assert replay[1]["arguments"] == arguments
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+def test_unmatched_tag_in_early_item_keeps_final_answer(
+    monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    first = "I'll grep for the `<think>` tag.\n"
+    last = "Final answer: 42."
+    arguments = '{"command": "ls"}'
+    items = [
+        _message(first, "commentary"),
+        {
+            "type": "function_call",
+            "name": "shell",
+            "call_id": "call_1",
+            "arguments": arguments,
+        },
+        _message(last, "final_answer", 2),
+    ]
+    msg = _reload(_generate(monkeypatch, provider, items, "terminal"), "toml")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider)
+        prose = "".join(
+            item["content"] for item in replay if item.get("role") == "assistant"
+        )
+        assert first.strip() in prose
+        assert last in prose
+        call = next(item for item in replay if item.get("type") == "function_call")
+        assert json.loads(call["arguments"]) == {"command": "ls"}
+
+
+def test_replay_rejects_preexisting_truncated_multi_item_anchor() -> None:
+    from gptme.llm.responses_phase import replay_responses_output
+
+    content = "Mention the `<think>` tag.\nThe final answer is 42."
+    old_anchor = {
+        "content_digest": hashlib.sha256(content.encode()).hexdigest(),
+        "items": [
+            {"type": "message", "text": "Mention the `", "phase": "commentary"},
+            {"type": "message", "text": "", "phase": "final_answer"},
+        ],
+    }
+    assert replay_responses_output(content, old_anchor) is None
+
+
+def test_opt_in_compaction_keeps_unmatched_tag_and_following_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    text = "Use the `<think>` tag for reasoning. Then run the tests."
+    msg = _generate(
+        monkeypatch, "sdk_nonstream", [_message(text, "final_answer")], "terminal"
+    )
+    assert (msg.metadata or {}).get("responses_output") is not None
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    assert compacted.content == text
 
 
 def test_rejected_call_not_reinstated_and_no_opaque_data() -> None:

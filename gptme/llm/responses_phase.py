@@ -29,12 +29,12 @@ if TYPE_CHECKING:
 _THINK_SIG = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
 
-def _reasoning_spans(content: str) -> Iterator[tuple[int, int]]:
+def _reasoning_spans(content: str, *, drop_unclosed: bool) -> Iterator[tuple[int, int]]:
     """Use the shared fence scan while retaining offsets for item replay."""
     from ..context.compress import _reasoning_segments
 
     offset = text_start = 0
-    for kind, segment in _reasoning_segments(content, drop_unclosed=True):
+    for kind, segment in _reasoning_segments(content, drop_unclosed=drop_unclosed):
         if kind != "text":
             for sig in _THINK_SIG.finditer(content, text_start, offset):
                 yield sig.span()
@@ -46,10 +46,12 @@ def _reasoning_spans(content: str) -> Iterator[tuple[int, int]]:
         yield sig.span()
 
 
-def _normalize_prose(parts: list[str], separator: str = "") -> Iterator[str]:
+def _normalize_prose(
+    parts: list[str], separator: str = "", *, drop_unclosed: bool = False
+) -> Iterator[str]:
     """Scan rendered prose but return text using only the original item spans."""
     content = separator.join(parts)
-    spans = _reasoning_spans(content)
+    spans = _reasoning_spans(content, drop_unclosed=drop_unclosed)
     span = next(spans, None)
     start = 0
     for part in parts:
@@ -76,7 +78,7 @@ def _prose(content: str) -> str:
 
     if re.search(r"<think(?:ing)?>", content) and not _THINK_SIG.search(content):
         return remove_reasoning(content, drop_unclosed=True, preserve_edges=True)
-    return next(_normalize_prose([content]))
+    return next(_normalize_prose([content], drop_unclosed=True))
 
 
 def _native_parts(content: str) -> tuple[list[str], list[ToolUse], list[str]] | None:
@@ -208,7 +210,15 @@ def replay_responses_output(
     # after removing their spans, so literal tags/signatures in JSON survive.
     # Comparison only: normalize the same blank-line runs as each item below.
     # Replay text, current native kwargs and the exact edit digest stay untouched.
-    remaining = _comparison_text("".join(_normalize_prose(text_parts)))
+    # Keep single-item replay's established treatment of interrupted thinking.
+    # With multiple message items an unmatched literal opener cannot consume a
+    # later answer. This also rejects older stored anchors missing that text.
+    message_count = sum(
+        isinstance(item, dict) and item.get("type") == "message" for item in captured
+    )
+    remaining = _comparison_text(
+        "".join(_normalize_prose(text_parts, drop_unclosed=message_count == 1))
+    )
     items: list[dict[str, Any]] = []
     call_index = 0
     for item in captured:
