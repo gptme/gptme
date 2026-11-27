@@ -207,6 +207,20 @@ def test_extension_lookup_covers_the_windows_data_dir(tmp_path, monkeypatch):
     assert "refused" in out
 
 
+def test_undecodable_config_does_not_crash_the_guard(tmp_path, monkeypatch):
+    """A ``config.yml`` that cannot be decoded must be skipped, not raised.
+
+    ``read_text`` decodes with the locale encoding, so invalid bytes raise
+    ``UnicodeDecodeError`` (a ``ValueError``). Letting it escape crashed the
+    whole gh pass-through instead of returning a refusal or the gh output.
+    """
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "config.yml").write_bytes(b"aliases:\n  pwn: \xff\xfe\n")
+    with patch("gptme.tools.gh.subprocess.run"):
+        out = _run(["pwn"])
+    assert "Traceback" not in out
+
+
 @pytest.mark.skipif(shutil.which("gh") is None, reason="needs gh CLI")
 def test_preexisting_shell_alias_does_not_execute(tmp_path, monkeypatch):
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))

@@ -245,8 +245,10 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     would let the region run past bash's terminator and hide real commands.
 
     Returns None for a word this does not model exactly (``$'...'``,
-    ``$"..."``, backquotes, newlines, unterminated quotes). The caller then
-    finds no region, so a misparse can only make validation stricter.
+    ``$"..."``, backquotes, newlines, unterminated quotes). The caller must
+    then stop modelling further openers: this opener's body is scanned as
+    ordinary shell text, and a ``<<`` inside that body has to stay visible too.
+    Recording such an inner opener as a region would hide lines bash executes.
     """
     out: list[str] = []
     i = start
@@ -299,6 +301,26 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     return "".join(out), i
 
 
+def _has_closing_bracket(cmd: str, start: int, end: int) -> bool:
+    """Return True when a ``]`` closes a subscript before the word ends.
+
+    Bash reads ``a[`` as a literal word, so an unclosed ``[`` must not be
+    pushed onto the nesting stack: it would leave the stack non-empty and
+    suppress a later heredoc that bash does run. A real subscript
+    (``arr[0]``, ``arr[$i]``, ``$[1 << 2]``) has its closing ``]`` before any
+    word boundary.
+    """
+    i = start
+    while i < end:
+        char = cmd[i]
+        if char == "]":
+            return True
+        if char.isspace() or char in ";&|<>()'\"`":
+            return False
+        i += 1
+    return False
+
+
 def _scan_nesting(
     cmd: str,
     start: int,
@@ -323,6 +345,13 @@ def _scan_nesting(
             newline = cmd.find("\n", i)
             i = newline + 1 if newline != -1 else end
             continue
+        if cmd.startswith("$[", i):
+            # ``$[...]`` is arithmetic, and its ``]`` may be on a later line.
+            # Track it explicitly so a bare ``[`` can require a same-line
+            # closing bracket without losing this form.
+            stack.append("$[")
+            i += 2
+            continue
         if cmd.startswith("${", i):
             stack.append("${")
             i += 2
@@ -336,9 +365,12 @@ def _scan_nesting(
         elif c == "[":
             # ``[`` is an ordinary word character in bash unless it opens an
             # array subscript or ``$[...]`` arithmetic. Pushing it for
-            # ``echo [`` would leave it open and hide every later heredoc.
+            # ``echo [`` or ``echo a[`` would leave it open and hide every
+            # later heredoc, including one bash actually runs.
             prev = cmd[i - 1] if i else ""
-            if prev.isalnum() or prev in "_]$":
+            if (prev.isalnum() or prev in "_]$") and _has_closing_bracket(
+                cmd, i + 1, end
+            ):
                 stack.append(c)
         elif c == ")" and stack and stack[-1] == "(":
             stack.pop()
@@ -348,7 +380,7 @@ def _scan_nesting(
             del stack[-2:]
             i += 2
             continue
-        elif c == "]" and stack and stack[-1] == "[":
+        elif c == "]" and stack and stack[-1] in ("[", "$["):
             stack.pop()
         elif c == "}" and stack and stack[-1] == "${":
             stack.pop()
@@ -471,7 +503,13 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 
         word = _heredoc_delimiter(cmd, match.end())
         if word is None:
-            continue
+            # The opener is real but its delimiter is not modelled, so the
+            # lines after it are scanned as ordinary shell text. A ``<<`` in
+            # that body is data to bash; accepting it as a new opener would
+            # blank the lines up to a later fake terminator, including commands
+            # bash actually runs. Stop modelling openers from here on: every
+            # remaining line stays visible to validation.
+            break
         delimiter, search_start = word
         strip_tabs = cmd.startswith("<<-", match.start())
 

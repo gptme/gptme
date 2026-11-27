@@ -754,7 +754,11 @@ def _gh_alias_values() -> dict[str, str]:
     for directory in _gh_config_dirs():
         try:
             config = yaml.safe_load((directory / "config.yml").read_text())
-        except (OSError, yaml.YAMLError):
+        except (OSError, ValueError, yaml.YAMLError):
+            # ``read_text`` decodes with the locale encoding, so bytes that are
+            # invalid there raise ``UnicodeDecodeError`` (a ``ValueError``) and
+            # a corrupt file must not crash the pass-through. Skipping the
+            # directory can only make the guard stricter than gh itself.
             continue
         found = config.get("aliases") if isinstance(config, dict) else None
         if isinstance(found, dict):
