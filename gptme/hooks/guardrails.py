@@ -195,16 +195,19 @@ def _is_secret_spelling(expanded: str, exempt_under: str | None = None) -> bool:
         normalized = _normalize_path_token(prefix)
         if not _path_has_prefix(expanded, normalized):
             continue
-        # ``exempt_under`` is the workspace the tool operates in. A broad
-        # system prefix that merely *contains* that workspace (``/root/`` for a
-        # container running as root, or ``~/.config/gptme`` as a workspace)
-        # must not turn every file in it into a secret: otherwise enforce mode
-        # blocks all writes. The enumerated credential directories above still
-        # apply, and secrets outside the workspace keep matching.
+        # ``exempt_under`` is the workspace the tool operates in. Only the
+        # user's own home directory is exempt: a container running as root has
+        # HOME=/root, so its workspace lives under the broad ``/root/`` prefix
+        # and would otherwise have every file blocked. Do NOT exempt other
+        # system prefixes (``/proc``, ``/sys``, ``/etc/ssh``, ``/boot``): the
+        # agent controls its cwd, so ``cd /proc`` would otherwise make
+        # ``/proc/self/environ`` readable in enforce mode. The enumerated
+        # credential directories above still apply either way.
+        home = _normalize_path_token("~")
         if (
             exempt_under
             and _path_has_prefix(expanded, exempt_under)
-            and _path_has_prefix(exempt_under, normalized)
+            and normalized.rstrip("/").casefold() == home.rstrip("/").casefold()
         ):
             continue
         return True

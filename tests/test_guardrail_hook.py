@@ -1087,7 +1087,9 @@ class TestFileToolSecretPaths:
         from gptme.util.workspace import workspace_scope
 
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
-        # Stands in for ``/root/`` in the container-as-root case.
+        # Stands in for ``/root/`` in the container-as-root case: HOME and the
+        # workspace both live under the broad prefix.
+        monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(guardrails, "_SECRET_ABS_PREFIXES", (str(tmp_path) + "/",))
         workspace = tmp_path / "project"
         workspace.mkdir()
@@ -1095,6 +1097,19 @@ class TestFileToolSecretPaths:
             assert guardrail_hook(ToolUse("save", ["notes.txt"], "x\n")) is None
             outside = tmp_path / "other" / "notes.txt"
             assert guardrail_hook(ToolUse("save", [str(outside)], "x\n")) is not None
+
+    def test_workspace_exception_does_not_exempt_system_prefixes(self):
+        """``cd /proc`` must not make ``/proc`` readable in enforce mode.
+
+        Only the user's home directory is exempt from a broad prefix; the
+        agent controls its cwd, so any other prefix must stay absolute.
+        """
+        from pathlib import Path
+
+        from gptme.hooks.guardrails import _is_secret_path
+
+        assert _is_secret_path("/proc/self/environ", Path("/proc"))
+        assert _is_secret_path("/etc/ssh/sshd_config", Path("/etc/ssh"))
 
     def test_deleted_cwd_does_not_break_the_guard(self, tmp_path, monkeypatch):
         """A removed process cwd must not raise out of the hook."""
