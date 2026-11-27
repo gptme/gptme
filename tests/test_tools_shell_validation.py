@@ -1012,6 +1012,16 @@ class TestSensitiveArgs:
 
         assert _has_sensitive_args("cat etc-link/shadow", cwd=workspace)
 
+    @pytest.mark.parametrize(
+        "spelling", ["/root/app/token.txt", "~/token.txt", "$HOME/token.txt"]
+    )
+    def test_home_inside_system_location_requires_confirmation(
+        self, monkeypatch, spelling
+    ):
+        """Home normalization must not hide a protected system ancestor."""
+        monkeypatch.setenv("HOME", "/root/app")
+        assert _has_sensitive_args(f"cat {spelling}")
+
     def test_ordinary_workspace_file_still_allowlisted(self, tmp_path, monkeypatch):
         """Resolution must not make ordinary relative reads sensitive."""
         home = tmp_path / "home"

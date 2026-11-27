@@ -933,26 +933,22 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
 
 
 def _resolve_symlinks(normalized: str, home: str) -> str:
-    """Return ``normalized`` with symlinks resolved, still home-relative.
+    """Return the absolute symlink target of a normalized path.
 
     ``os.path.realpath`` resolves the components that exist, so a symlinked
-    directory is followed even when the leaf does not exist yet.
+    directory is followed even when the leaf does not exist yet. Keep the
+    absolute spelling: mapping back to ~ would hide system ancestors when
+    home is nested inside a protected directory (e.g. /root/app).
     """
     if normalized == "~":
-        return normalized
-    if normalized.startswith("~/"):
+        absolute = home
+    elif normalized.startswith("~/"):
         absolute = os.path.join(home, normalized[2:])
     elif normalized.startswith("/"):
         absolute = normalized
     else:
         return normalized
-    resolved = os.path.realpath(absolute)
-    real_home = os.path.realpath(home)
-    if resolved == real_home:
-        return "~"
-    if resolved.startswith(real_home + "/"):
-        return "~" + resolved[len(real_home) :]
-    return resolved
+    return os.path.realpath(absolute)
 
 
 def _has_command_substitution(cmd: str) -> bool:
