@@ -92,6 +92,28 @@ def test_midline_secret_after_nonsecret_assignment(prefix, value):
     assert redact_secret_values_from_output(line) == (expected, 1)
 
 
+@pytest.mark.parametrize("value", [VENDOR_KEY, OPAQUE, OPAQUE + "=="])
+@pytest.mark.parametrize("suffix", [": rejected", ":next", ":"])
+def test_midline_secret_followed_by_colon(value: str, suffix: str) -> None:
+    line = f"ERROR invalid token={value}{suffix}"
+    expected = f"ERROR invalid token=[REDACTED]{suffix}"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line, live_literals=[]) == (expected, 1)
+    assert redact_secret_values_from_output(line, live_literals=[value[:20]]) == (
+        expected,
+        1,
+    )
+
+
+@pytest.mark.parametrize("password", ["8443,a", "8443;user=a"])
+def test_url_userinfo_subdelimiters_are_redacted(password: str) -> None:
+    """Commas and semicolons can belong to passwords, not adjacent fields."""
+    line = f"https://h:{password}@b.com"
+    expected = "https://h:[REDACTED]@b.com"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line, live_literals=[]) == (expected, 1)
+
+
 @pytest.mark.parametrize("quote", ['"', "'", "`"])
 @pytest.mark.parametrize("password", [URL_PASSWORD, URL_PASSWORD + "@tail"])
 def test_url_redaction_preserves_adjacent_fields(quote, password):
