@@ -3631,6 +3631,9 @@ def test_shell_shift_and_comment_do_not_open_heredoc(
     "command",
     [
         "cat <<$'END'\nhello\nEND",
+        'cat <<$"END"\nhello\nEND',
+        'cat <<E$"N"D\nhello\nEND',
+        r'cat <<\$"END"' + "\nhello\n$END",
         r"cat <<E$'\x4e'D" + "\nhello\nEND",
         r"cat <<$'IT\'S'" + "\nhello\nIT'S",
         r"cat <<$'caf\xc3\xa9'" + "\nhello\ncafé",

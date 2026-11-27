@@ -120,10 +120,10 @@ class Codeblock:
 
 _SHELL_OPERATORS = ";&|()<>"
 _HEREDOC_WORD = re.compile(
-    r"""(?:\$'(?:[^'\\]|\\.)*'|[^ \t;&|()<>'"\\$]+|\$(?!')|'[^']*'|"(?:[^"\\]|\\.)*"|\\.)+"""
+    r"""(?:\$'(?:[^'\\]|\\.)*'|[^ \t;&|()<>'"\\$]+|\$(?!['"])|'[^']*'|\$?"(?:[^"\\]|\\.)*"|\\.)+"""
 )
 _HEREDOC_WORD_PART = re.compile(
-    r"""\$'((?:[^'\\]|\\.)*)'|'([^']*)'|"((?:[^"\\]|\\.)*)"|\\(.)|."""
+    r"""\$'((?:[^'\\]|\\.)*)'|'([^']*)'|\$?"((?:[^"\\]|\\.)*)"|\\(.)|."""
 )
 _DOUBLE_QUOTE_ESCAPE = re.compile(r'\\([$\x60"\\])')
 _ANSI_C_ESCAPE = re.compile(
@@ -277,6 +277,7 @@ class _ShellFenceState:
             elif single is not None:
                 parts.append(single)
             elif double is not None:
+                # Parse locale quotes like Bash without a message catalog.
                 parts.append(_DOUBLE_QUOTE_ESCAPE.sub(r"\1", double))
             else:
                 parts.append(escaped if escaped is not None else part.group())
