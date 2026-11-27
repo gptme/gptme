@@ -597,8 +597,6 @@ def redact_secret_values_from_output(
         body = line.rstrip("\r\n")
         ending = line[len(body) :]
         match = _ENV_ASSIGN_RE.search(body) or _COLON_ASSIGN_RE.search(body)
-        # A dotenv comment is not part of the credential literal. Remove the
-        # comment only for classification; redaction still covers the full RHS.
         opening = match.group(4) if match else ""
         inner = match.group(5) if match else ""
         closing = match.group(6) if match else ""
@@ -607,9 +605,11 @@ def redact_secret_values_from_output(
         raw_value = (
             inner if opening and opening == closing else f"{opening}{inner}{closing}"
         )
-        value = (
-            re.split(r"\s+#", raw_value, maxsplit=1)[0].rstrip("\"'") if match else ""
-        )
+        # A dotenv comment is not part of the credential literal. Strip it from
+        # group 5 for classification; redaction still covers the full RHS.
+        # Group 5 is required here: a trailing comment that blocked group 6
+        # (`'hunter2' # local`) still yields the inner password after rstrip.
+        value = re.split(r"\s+#", inner, maxsplit=1)[0].rstrip("\"'") if match else ""
         env_value = os.environ.get(match.group(2)) if match else None
         known_assignment = bool(match and env_value and env_value in (raw_value, value))
         if match and (_looks_like_output_secret(value) or known_assignment):

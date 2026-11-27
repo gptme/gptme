@@ -781,6 +781,18 @@ def test_known_password_ending_in_quote_is_redacted(
     assert "DATABASE_PASSWORD=[REDACTED]" in out
 
 
+def test_known_password_quoted_with_trailing_comment_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "hunter2")
+    out, changed = redact_secret_values_from_output(
+        "export DATABASE_PASSWORD='hunter2' # local\n"
+    )
+    assert changed == 1
+    assert "hunter2" not in out
+    assert "DATABASE_PASSWORD=[REDACTED]" in out
+
+
 def test_shell_tool_redacts_known_short_password(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
