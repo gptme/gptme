@@ -1389,6 +1389,35 @@ class TestBackgroundJobSandbox:
             start_background_job("true")
         popen.assert_not_called()
 
+    def test_bind_root_does_not_follow_cd(self, monkeypatch, tmp_path):
+        """`cd` to a parent must not widen the sandbox bind.
+
+        Binding the live cwd turned ``cd /home`` into ``--bind /home /home``,
+        which mounts the host's real /home read-write inside the sandbox.
+        """
+        from gptme.util.workspace import pin_sandbox_root
+
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        monkeypatch.setenv("GPTME_SANDBOX", "bwrap")
+        pin_sandbox_root(workspace)
+        seen: list = []
+
+        def _record(cfg, cmd):
+            seen.append(cfg.workspace)
+            return cmd
+
+        with (
+            patch(
+                "gptme.sandbox.SandboxConfig.check_available",
+                return_value=(True, "ok"),
+            ),
+            patch("gptme.sandbox.wrap_shell_cmd", side_effect=_record),
+        ):
+            monkeypatch.chdir(tmp_path)  # simulate `cd ..` out of the workspace
+            start_background_job("true").process.wait(timeout=10)
+        assert seen == [workspace.resolve()]
+
     @pytest.mark.skipif(
         sys.platform != "linux" or not shutil.which("bwrap"),
         reason="needs bubblewrap",

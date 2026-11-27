@@ -112,6 +112,9 @@ from ..util.workspace import (
     get_workspace_cwd as get_workspace_cwd,
 )
 from ..util.workspace import (
+    pin_sandbox_root as pin_sandbox_root,
+)
+from ..util.workspace import (
     set_workspace_cwd as set_workspace_cwd,
 )
 from .base import (
@@ -661,6 +664,10 @@ class ShellSession:
 
     def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
+        # Pin the sandbox bind root to this session's initial workspace. Set
+        # once per context, so a restart/promotion at the live cwd cannot widen
+        # the sandbox to wherever the agent cd'd.
+        pin_sandbox_root(cwd or Path.cwd())
         self._memory_limit = _get_memory_limit()
         self._restart_notice = None
         self._restarting = False
@@ -731,10 +738,9 @@ class ShellSession:
             if self._memory_limit is not None:
                 shell_cmd = apply_memory_limit(shell_cmd, self._memory_limit)
 
-        # Apply sandbox wrapper if GPTME_SANDBOX is set (env None → inherit)
-        shell_cmd, sandbox_env = sandbox_shell_cmd(
-            shell_cmd, Path(self._cwd) if self._cwd else None
-        )
+        # Apply sandbox wrapper if GPTME_SANDBOX is set (env None → inherit).
+        # The bind root is the pinned session workspace, never the live cwd.
+        shell_cmd, sandbox_env = sandbox_shell_cmd(shell_cmd)
 
         with self._lifecycle_lock:
             if self._closed:
@@ -3828,7 +3834,8 @@ def execute_shell(
         if background:
             try:
                 job = start_background_job(command, memory_limit=_get_memory_limit())
-            except OSError as exc:
+            except (OSError, RuntimeError) as exc:
+                # RuntimeError: the configured sandbox backend is unavailable.
                 yield Message("system", f"Error: Failed to start background job: {exc}")
                 return
             yield Message(

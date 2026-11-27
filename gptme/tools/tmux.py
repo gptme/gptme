@@ -20,7 +20,7 @@ from time import sleep
 from ..constants import DECLINED_CONTENT
 from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
-from ..sandbox import SandboxConfig
+from ..sandbox import sandbox_enabled_from_env
 from ..util.context import md_codeblock
 from ..util.output_storage import save_large_output
 from ..util.workspace import current_workspace
@@ -164,7 +164,7 @@ def _truncate_output(
 
 def _require_unsandboxed() -> None:
     """Host tmux sessions and their server environment are not sandboxed."""
-    if SandboxConfig.from_env().enabled:
+    if sandbox_enabled_from_env():
         raise RuntimeError(
             "tmux is disabled while GPTME_SANDBOX is enabled; use the shell tool instead."
         )
@@ -1041,7 +1041,7 @@ tool = ToolSpec(
     execute=execute_tmux,
     block_types=["tmux"],
     available=lambda: (
-        shutil.which("tmux") is not None and not SandboxConfig.from_env().enabled
+        shutil.which("tmux") is not None and not sandbox_enabled_from_env()
     ),
     available_hint="tmux requires tmux installed and GPTME_SANDBOX disabled.",
     parameters=[

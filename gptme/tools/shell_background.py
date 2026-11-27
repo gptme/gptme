@@ -1918,8 +1918,10 @@ def start_background_job(
     # foreground shell's ``cd``), not the host process cwd. CLI sessions have no
     # session workspace and keep inheriting the process cwd.
     cwd = get_workspace_cwd()
-    # Same sandbox and scrubbed env as the foreground shell.
-    shell_cmd, env = sandbox_shell_cmd(shell_cmd, Path(cwd) if cwd else None)
+    # Same sandbox and scrubbed env as the foreground shell. The bind root is
+    # the pinned session workspace, never ``cwd``: binding the live cwd lets
+    # ``cd /home`` widen the sandbox to the host's real /home.
+    shell_cmd, env = sandbox_shell_cmd(shell_cmd)
     process = subprocess.Popen(
         shell_cmd,
         stdout=subprocess.PIPE,
@@ -2361,7 +2363,9 @@ def execute_bg_command(
 
     try:
         job = start_background_job(command, memory_limit=memory_limit)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
+        # RuntimeError: the configured sandbox backend is unavailable. Report it
+        # like any other spawn failure instead of letting it escape the tool.
         yield Message("system", f"Error: Failed to start background job: {exc}")
         return
     yield Message(

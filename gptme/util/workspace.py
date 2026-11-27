@@ -30,11 +30,38 @@ _workspace_override: ContextVar[str | None] = ContextVar(
 _promoted_next_cwd: ContextVar[str | None] = ContextVar(
     "promoted_next_cwd", default=None
 )
+# Filesystem root a sandbox may bind read-write. Pinned once per session context
+# to the *initial* workspace: it must never follow the shell's ``cd``, or
+# ``cd /home`` turns into ``--bind /home /home`` and exposes host credentials.
+_sandbox_root: ContextVar[str | None] = ContextVar("sandbox_root", default=None)
 
 
 def set_workspace_cwd(cwd: str) -> None:
     """Set the initial session workspace before creating its shell."""
     _workspace_cwd.set(cwd)
+    pin_sandbox_root(cwd)
+
+
+def pin_sandbox_root(path: Path | str) -> None:
+    """Pin the sandbox root for this session context; later calls are ignored.
+
+    Set-once so a shell restart or promotion (which re-creates the shell at the
+    live cwd) cannot widen the sandbox to whatever directory the agent cd'd into.
+    """
+    if _sandbox_root.get() is None:
+        _sandbox_root.set(str(Path(path).resolve()))
+
+
+def get_sandbox_root() -> Path:
+    """The directory a sandbox may bind read-write.
+
+    The session's initial workspace, never the shell's live cwd. Falls back to
+    the initial workspace var, then the process cwd for CLI sessions.
+    """
+    if root := _sandbox_root.get():
+        return Path(root)
+    workspace = _workspace_cwd.get()
+    return Path(workspace).resolve() if workspace else Path.cwd().resolve()
 
 
 def get_workspace_cwd() -> str | None:
