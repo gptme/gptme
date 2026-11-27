@@ -37,9 +37,14 @@ _sandbox_root: ContextVar[str | None] = ContextVar("sandbox_root", default=None)
 
 
 def set_workspace_cwd(cwd: str) -> None:
-    """Set the initial session workspace before creating its shell."""
+    """Bind a conversation to its initial workspace before using its tools.
+
+    A child conversation may inherit its parent's context. Replace that copied
+    sandbox root with the child's workspace here; shell restarts/promotions use
+    ``pin_sandbox_root`` instead and cannot widen an existing root.
+    """
     _workspace_cwd.set(cwd)
-    pin_sandbox_root(cwd)
+    _sandbox_root.set(str(Path(cwd).resolve()))
 
 
 def pin_sandbox_root(path: Path | str) -> None:

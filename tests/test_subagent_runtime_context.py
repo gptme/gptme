@@ -13,6 +13,7 @@ from gptme.tools import shell
 from gptme.tools.base import current_workspace
 from gptme.tools.save import execute_save_impl
 from gptme.tools.subagent import execution
+from gptme.util.workspace import get_sandbox_root
 
 
 @pytest.fixture
@@ -77,6 +78,7 @@ def test_child_runtime_isolated_and_cleaned(
         assert current_conversation_id.get() == logdir.name
         assert current_session_id.get() is None
         assert current_workspace() == workspace
+        assert get_sandbox_root() == workspace.resolve()
         child_shell = shell.get_shell()
         seen.append(child_shell)
         assert child_shell is not parent_shell
@@ -101,6 +103,7 @@ def test_child_runtime_isolated_and_cleaned(
     assert parent.run(current_conversation_id.get) == "parent"
     assert parent.run(current_session_id.get) == "parent-request"
     assert parent.run(current_workspace) == parent_workspace
+    assert parent.run(get_sandbox_root) == parent_workspace.resolve()
     assert parent.run(shell.get_shell) is parent_shell
     assert parent_shell.process.poll() is None
     assert seen[0].process.poll() is not None
@@ -124,6 +127,7 @@ def test_concurrent_children_use_distinct_runtimes(
         ready.wait(timeout=10)
         assert current_conversation_id.get() == logdir.name
         assert current_workspace() == workspace
+        assert get_sandbox_root() == workspace.resolve()
         assert child_shell is not parent_shell
         list(execute_save_impl(workspace.name, Path("answer.txt")))
         assert child_shell.get_cwd() == workspace

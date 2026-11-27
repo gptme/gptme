@@ -108,6 +108,7 @@ from ..util.workspace import (
 from ..util.workspace import (
     _workspace_cwd as _workspace_cwd,
 )
+from ..util.workspace import get_sandbox_root
 from ..util.workspace import (
     get_workspace_cwd as get_workspace_cwd,
 )
@@ -667,7 +668,7 @@ class ShellSession:
         # Pin the sandbox bind root to this session's initial workspace. Set
         # once per context, so a restart/promotion at the live cwd cannot widen
         # the sandbox to wherever the agent cd'd.
-        pin_sandbox_root(cwd or Path.cwd())
+        pin_sandbox_root(cwd or get_sandbox_root())
         self._memory_limit = _get_memory_limit()
         self._restart_notice = None
         self._restarting = False
