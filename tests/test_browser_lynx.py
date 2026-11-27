@@ -991,6 +991,52 @@ def test_http_cannot_replace_secure_cookie(tmp_path, header):
     }
 
 
+@pytest.mark.parametrize(
+    ("saved_domain", "saved_path", "url", "attributes", "blocked"),
+    [
+        ("example.com", "/", "http://example.com/", "Path=/account", True),
+        (".example.com", "/", "http://a.example.com/", "Path=/account", True),
+        ("a.example.com", "/", "http://example.com/", "Domain=example.com", True),
+        ("example.com", "/account", "http://example.com/", "Path=/account/x", True),
+        ("example.com", "/account/", "http://example.com/", "Path=/account/x", True),
+        ("example.com", "/account", "http://example.com/", "Path=/accounting", False),
+        ("example.com", "/account", "http://example.com/", "Path=/", False),
+        ("other.example", "/", "http://example.com/", "Path=/account", False),
+        ("example.com", "/", "http://evilexample.com/", "Path=/account", False),
+        ("example.com", "/", "https://example.com/", "Path=/account", False),
+    ],
+)
+def test_http_secure_cookie_overlay_scopes(
+    tmp_path, saved_domain, saved_path, url, attributes, blocked
+):
+    seed = {(saved_domain, saved_path, "sid"): ("secret", 2**33, True)}
+    stored = _absorb([f"sid=attacker; {attributes}"], url, tmp_path, seed)
+
+    assert ("attacker" not in stored.values()) == blocked
+    assert stored[(saved_domain, saved_path, "sid")] == "secret"
+
+
+@pytest.mark.parametrize("lifetime", ["", "; Max-Age=0"])
+def test_http_cannot_set_secure_cookie(tmp_path, lifetime):
+    assert (
+        _absorb(
+            [f"sid=attacker; Secure; Path=/{lifetime}"],
+            "http://example.com/",
+            tmp_path,
+        )
+        == {}
+    )
+
+
+def test_expired_secure_cookie_does_not_block_http_replacement(tmp_path, monkeypatch):
+    monkeypatch.setattr("gptme.tools._browser_lynx.time.time", lambda: 100)
+    seed = {("example.com", "/", "sid"): ("expired", 100, True)}
+    assert _absorb(["sid=fresh; Path=/"], "http://example.com/", tmp_path, seed) == {
+        ("example.com", "/", "sid"): "fresh"
+    }
+    assert "expired" not in (tmp_path / "jar.txt").read_text()
+
+
 def test_empty_cookie_with_future_expiry_is_preserved(tmp_path):
     assert _absorb(
         ["consent=; Path=/; Max-Age=3600"], "https://example.com/", tmp_path

@@ -132,7 +132,10 @@ class _CookieJar:
         """Store the response's cookies so later requests send them."""
         now = int(time.time())
         host = (urlparse(url).hostname or "").lower()
-        changed = False
+        expired = [key for key, entry in self.entries.items() if entry[1] <= now]
+        for key in expired:
+            del self.entries[key]
+        changed = bool(expired)
         for header in _set_cookie_headers(head_dump):
             parsed = _parse_set_cookie(header, url, now)
             if parsed is None:
@@ -144,8 +147,20 @@ class _CookieJar:
             own = domain.lstrip(".") == host
             variants = {host, f".{host}"} if own else {domain}
             if urlparse(url).scheme.lower() != "https" and any(
-                self.entries.get((variant, path, name), ("", 0, False))[2]
-                for variant in variants
+                saved_secure
+                and saved_name == name
+                and _cookie_domains_overlap(domain, saved_domain)
+                and (
+                    path == saved_path
+                    or path.startswith(
+                        saved_path if saved_path.endswith("/") else saved_path + "/"
+                    )
+                )
+                for (saved_domain, saved_path, saved_name), (
+                    _,
+                    _,
+                    saved_secure,
+                ) in self.entries.items()
             ):
                 continue
             for variant in variants:
@@ -217,6 +232,14 @@ def _cookie_domain(attribute: str, host: str) -> str | None:
     return f".{domain}"
 
 
+def _cookie_domains_overlap(domain: str, other: str) -> bool:
+    """RFC secure-overlay guard: either domain matches the other."""
+    domain, other = domain.lstrip("."), other.lstrip(".")
+    return (
+        domain == other or domain.endswith(f".{other}") or other.endswith(f".{domain}")
+    )
+
+
 def _cookie_expiry(value: str) -> int | None:
     """Timestamp of an ``Expires`` attribute, or None if it is unreadable."""
     try:
@@ -264,6 +287,10 @@ def _parse_set_cookie(
                 expires_at = parsed
         elif attribute_name == "secure":
             secure = True
+    # Insecure responses cannot plant Secure cookies (nor delete one by using
+    # Secure together with an expired lifetime).
+    if secure and urlparse(url).scheme.lower() != "https":
+        return None
     if any(char in name + value + path for char in "\r\n\t"):
         return None
     domain = _cookie_domain(domain_attribute, host) if domain_attribute else host
