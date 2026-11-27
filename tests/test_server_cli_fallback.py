@@ -82,8 +82,11 @@ def _assert_setup_api_serves(
     port: int,
     cli_args: list[str],
     extra_env: dict[str, str] | None = None,
-) -> None:
-    """Start the server in a clean HOME and assert the setup API is reachable."""
+) -> str:
+    """Start the server in a clean HOME and assert the setup API is reachable.
+
+    Returns the captured server log so callers can assert on what was resolved.
+    """
     repo = Path(__file__).resolve().parents[1]
     env = {
         name: os.environ[name] for name in ("PATH", "SYSTEMROOT") if name in os.environ
@@ -145,6 +148,8 @@ def _assert_setup_api_serves(
                 process.kill()
                 process.wait(timeout=5)
 
+    return (tmp_path / "server.log").read_text()
+
 
 @pytest.mark.parametrize(
     "model",
@@ -155,6 +160,44 @@ def test_configured_model_without_key_still_serves_setup(
 ) -> None:
     """Missing credentials must leave the setup API reachable, not crash startup."""
     _assert_setup_api_serves(tmp_path, unused_tcp_port, ["--model", model])
+
+
+@pytest.mark.parametrize(
+    ("cli_args", "extra_env"),
+    [
+        # --model flag, another provider's key present
+        (
+            ["--model", "openrouter/deepseek/deepseek-v4.1-flash"],
+            {"OPENAI_API_KEY": "placeholder-not-a-real-key"},
+        ),
+        # MODEL environment variable, another provider's key present
+        (
+            [],
+            {
+                "MODEL": "openrouter/deepseek/deepseek-v4.1-flash",
+                "OPENAI_API_KEY": "placeholder-not-a-real-key",
+            },
+        ),
+    ],
+)
+def test_explicit_model_never_falls_back_to_another_provider(
+    cli_args: list[str],
+    extra_env: dict[str, str],
+    tmp_path: Path,
+    unused_tcp_port: int,
+) -> None:
+    """A pinned model must never be replaced by a different provider.
+
+    With only OPENAI_API_KEY set, startup used to pick openai/gpt-4o-mini and
+    silently run every conversation there (gptme/gptme#5353). It must instead
+    start in setup mode and say which model/key is missing.
+    """
+    log = _assert_setup_api_serves(
+        tmp_path, unused_tcp_port, cli_args, extra_env=extra_env
+    )
+    assert "Using fallback" not in log
+    assert "openai/gpt-4o-mini" not in log
+    assert "openrouter/deepseek/deepseek-v4.1-flash" in log
 
 
 def test_nvidia_key_without_model_still_serves_setup(
