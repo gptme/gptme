@@ -4,8 +4,11 @@ import {
   getActiveServer,
   setActiveServer,
   updateServer,
+  sameOriginServer$,
+  getBundledLoopbackOrigin,
 } from '@/stores/servers';
 import { isViteDev } from '@/utils/viteEnv';
+import { isTauriEnvironment } from '@/utils/tauri';
 
 const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 const DEFAULT_CLOUD_APP_BASE_URL = 'https://gptme.ai';
@@ -250,8 +253,13 @@ export function getConnectionConfigFromSources(hash?: string): ConnectionConfig 
   const params = new URLSearchParams(hash || '');
 
   // Get values from fragment (legacy direct token flow)
-  const fragmentBaseUrl = params.get('baseUrl');
   const fragmentUserToken = params.get('userToken');
+  // Only a discovered API (or the existing bundled-loopback contract) makes
+  // token-only links origin-bound. Failed discovery cannot distinguish a LAN
+  // server from a custom static frontend; retain selected-server routing there.
+  const pageOrigin = !isTauriEnvironment() ? getBundledLoopbackOrigin() : null;
+  const fragmentBaseUrl =
+    params.get('baseUrl') || (fragmentUserToken ? (sameOriginServer$.peek() ?? pageOrigin) : null);
 
   // Register fragment values as a server in the registry
   if (fragmentBaseUrl) {

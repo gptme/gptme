@@ -1,11 +1,130 @@
 import { beforeEach, describe, expect, it } from '@jest/globals';
-import { addServer, getActiveServer, serverRegistry$ } from '@/stores/servers';
+import {
+  addServer,
+  adoptSameOriginServer,
+  getActiveServer,
+  serverRegistry$,
+  sameOriginServer$,
+  setActiveServer,
+} from '@/stores/servers';
+import { setLocation } from '@/test-utils/location';
+import * as tauri from '@/utils/tauri';
+import * as viteEnv from '@/utils/viteEnv';
 import { getConnectionConfigFromSources } from '../connectionConfig';
 
 // Uses the real server registry: the bug lives in how the two modules interact.
 describe('getConnectionConfigFromSources #baseUrl= fragment (#5223)', () => {
   beforeEach(() => {
     serverRegistry$.set({ servers: [], activeServerId: '', connectedServerIds: [] });
+    sameOriginServer$.set(null);
+  });
+
+  it('preserves a known preset credential when discovery precedes an explicit baseUrl link', () => {
+    setLocation('http://myhost:5700/#baseUrl=http://127.0.0.1:5700');
+    const local = addServer({
+      name: 'Local',
+      baseUrl: 'http://127.0.0.1:5700',
+      authToken: 'saved-local-token',
+      useAuthToken: true,
+      isPreset: true,
+    });
+    setActiveServer(local.id);
+    const hash = 'baseUrl=http://127.0.0.1:5700';
+    const registry = structuredClone(serverRegistry$.peek());
+    adoptSameOriginServer(registry, window.location.origin);
+    serverRegistry$.set(registry);
+    sameOriginServer$.set(window.location.origin);
+
+    expect(getConnectionConfigFromSources(hash)).toMatchObject({
+      baseUrl: 'http://127.0.0.1:5700',
+      authToken: 'saved-local-token',
+      useAuthToken: true,
+    });
+    expect(getActiveServer()?.id).toBe(local.id);
+    expect(
+      registry.servers.find((s) => s.baseUrl === window.location.origin)?.authToken
+    ).toBeNull();
+  });
+
+  it('preserves selected-server token links on a custom static frontend after failed discovery', () => {
+    setLocation('https://serving.example/');
+    const remote = addServer({
+      name: 'Remote',
+      baseUrl: 'https://remote.example',
+      authToken: 'remote-token',
+      useAuthToken: true,
+    });
+    setActiveServer(remote.id);
+    const config = getConnectionConfigFromSources('userToken=serving-secret');
+    expect(config).toMatchObject({
+      baseUrl: 'https://remote.example',
+      authToken: 'serving-secret',
+    });
+    expect(serverRegistry$.peek().servers).toHaveLength(1);
+    expect(getActiveServer()?.id).toBe(remote.id);
+  });
+
+  it.each([
+    'https://chat.gptme.org/',
+    'http://localhost:5173/',
+    'http://127.0.0.1:4173/',
+    'http://localhost:5701/',
+  ])('keeps token-only links on the selected API server for static frontend %s', (origin) => {
+    setLocation(origin);
+    const server = addServer({
+      name: 'Selected API',
+      baseUrl: 'https://api.example',
+      authToken: null,
+      useAuthToken: false,
+    });
+    setActiveServer(server.id);
+
+    expect(getConnectionConfigFromSources('userToken=api-token')).toMatchObject({
+      baseUrl: 'https://api.example',
+      authToken: 'api-token',
+    });
+    expect(serverRegistry$.peek().servers).toHaveLength(1);
+    expect(getActiveServer()?.id).toBe(server.id);
+  });
+
+  it('keeps a non-loopback Vite dev client on its selected API server', () => {
+    setLocation('http://dev.example:5173/');
+    const dev = jest.replaceProperty(viteEnv, 'isViteDev', true);
+    try {
+      const server = addServer({
+        name: 'Selected API',
+        baseUrl: 'https://api.example',
+        authToken: null,
+        useAuthToken: false,
+      });
+      setActiveServer(server.id);
+      expect(getConnectionConfigFromSources('userToken=dev-token')).toMatchObject({
+        baseUrl: 'https://api.example',
+        authToken: 'dev-token',
+      });
+    } finally {
+      dev.restore();
+    }
+  });
+
+  it('keeps native token-only links on the API server, not the HTTP Tauri asset origin', () => {
+    setLocation('http://tauri.localhost/');
+    const native = jest.spyOn(tauri, 'isTauriEnvironment').mockReturnValue(true);
+    try {
+      const server = addServer({
+        name: 'Local',
+        baseUrl: 'http://127.0.0.1:5700',
+        authToken: null,
+        useAuthToken: false,
+      });
+      setActiveServer(server.id);
+      expect(getConnectionConfigFromSources('userToken=native-token')).toMatchObject({
+        baseUrl: 'http://127.0.0.1:5700',
+        authToken: 'native-token',
+      });
+    } finally {
+      native.mockRestore();
+    }
   });
 
   it('keeps the stored token of a known server when the link has no userToken', () => {

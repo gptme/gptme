@@ -1,10 +1,11 @@
 import './polyfills';
 import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
+
 import './index.css';
 import { isDemoMode } from './utils/connectionConfig';
 import { setupLogging } from './utils/logging';
 import { isTauriEnvironment } from './utils/tauri';
+import { initializeSameOriginServer } from './stores/servers';
 
 // Initialize logging as early as possible
 setupLogging()
@@ -46,4 +47,16 @@ setupLogging()
   tryConnect();
 })();
 
-createRoot(document.getElementById('root')!).render(<App />);
+// Decide the default before mounting clients or the setup wizard. In particular,
+// do not briefly probe the viewer's loopback server when this page serves an API.
+async function mountApp() {
+  if (!isTauriEnvironment() && !isDemoMode()) {
+    await initializeSameOriginServer();
+  }
+  // ApiContext consumes #userToken at module initialization. Load it only
+  // after discovery so the token applies to this origin, not the old preset.
+  const { default: App } = await import('./App.tsx');
+  createRoot(document.getElementById('root')!).render(<App />);
+}
+
+void mountApp();
