@@ -2873,7 +2873,8 @@ def test_acp_step_retries_gap_before_answered_prompt(
 def test_acp_step_interrupted_reply_is_not_saved_or_followed_by_next_prompt(
     monkeypatch, client: FlaskClient, tmp_path
 ):
-    """A revoked prompt result cannot mark its turn answered or start another."""
+    """A revoked prompt result is not saved and starts nothing, and the next step
+    does not run the interrupted prompt a second time."""
     import gptme.server.session_step as sessions_mod
     from gptme.logmanager import LogManager
 
@@ -2906,9 +2907,43 @@ def test_acp_step_interrupted_reply_is_not_saved_or_followed_by_next_prompt(
             for e in session.events
         )
         assert session.acp_runtime._on_update is None
-        # A subsequent owner still sees both prompts pending.
+        # A subsequent owner runs only the prompt that was never sent.
         monkeypatch.setattr(_DummyClient, "prompt", original_prompt)
         _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
-        assert _questions_prompted(created, {"q0", "q1"}) == ["q0", "q0", "q1"]
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0", "q1"]
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_acp_step_clears_sent_mark_unless_interrupted(
+    monkeypatch, client: FlaskClient, tmp_path, fails
+):
+    """The sent mark must not outlive a saved reply (deleting it regenerates) or a
+    failed prompt (it is retried)."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = f"sid-sent-mark-{fails}"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, [("user", "q0", None)]
+    )
+    original_prompt = _DummyClient.prompt
+
+    async def prompt(self, session_id, message, max_tokens=None):
+        sent = LogManager.load(conversation_id, lock=False).log.messages
+        assert any((m.metadata or {}).get("acp_prompt_sent") for m in sent)
+        response = await original_prompt(self, session_id, message, max_tokens)
+        if fails:
+            raise RuntimeError("agent failed")
+        return response
+
+    monkeypatch.setattr(_DummyClient, "prompt", prompt)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        messages = LogManager.load(conversation_id, lock=False).log.messages
+        assert not any((m.metadata or {}).get("acp_prompt_sent") for m in messages)
+        assert (sessions_mod._acp_answered_cursor(messages) == -1) is fails
+        assert _questions_prompted(created, {"q0"}) == ["q0"]
     finally:
         _drop_acp_session(conversation_id, sid)

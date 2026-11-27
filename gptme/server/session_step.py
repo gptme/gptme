@@ -693,7 +693,7 @@ def _acp_prompt_ids(prompts: list[Message], taken: Iterable[str] = ()) -> list[s
     before a reply is tagged with it, so editing the prompt text afterwards
     leaves the reply's tag resolvable. Prompts still lacking a stored ID get
     the same deterministic timestamp+content+ordinal value, which is then
-    persisted by ``_ensure_acp_prompt_ids``. Unlike a list position, the ID
+    persisted by ``_assign_acp_prompt_ids``. Unlike a list position, the ID
     survives deleting an older prompt, including one with the same timestamp
     but different content.
     """
@@ -754,12 +754,29 @@ def _assign_acp_prompt_ids(messages: list[Message]) -> tuple[list[Message], bool
     return updated, changed
 
 
+def _set_acp_prompt_sent(manager: LogManager, prompt_id: str, sent: bool) -> None:
+    """Set or remove the ``acp_prompt_sent`` mark on one prompt (caller writes)."""
+    messages = list(manager.log.messages)
+    for i, m in enumerate(messages):
+        if m.role != "user" or (m.metadata or {}).get("acp_prompt_id") != prompt_id:
+            continue
+        metadata = (m.metadata or {}).copy()
+        if sent:
+            metadata["acp_prompt_sent"] = True
+        else:
+            metadata.pop("acp_prompt_sent", None)
+        messages[i] = replace(m, metadata=metadata)
+    manager.log = manager.log.replace(messages=messages)
+
+
 def _acp_answered_indices(messages: list[Message]) -> set[int]:
     """Prompt positions answered according to the log, including non-prefixes.
 
     ACP replies record the ID (see ``_acp_prompt_ids``) of the prompt they
     answer. An untagged assistant reply (a normal step, or an ACP reply from an
     older log) answers every prompt before it. Voice-call replies answer none.
+    A prompt still marked ``acp_prompt_sent`` was interrupted mid-run and counts
+    as done: the agent may already have executed it.
     """
     position = {
         prompt_id: i
@@ -773,6 +790,8 @@ def _acp_answered_indices(messages: list[Message]) -> set[int]:
         if _is_voice_call_turn(m):
             continue
         if m.role == "user":
+            if (m.metadata or {}).get("acp_prompt_sent"):
+                answered.add(prompts_seen)
             prompts_seen += 1
         elif m.role == "assistant" and not m.ui_only:
             # A ui_only status message is display-only, not a reply.
@@ -1014,12 +1033,35 @@ async def _acp_step(
             prompt_ids = _acp_prompt_ids(user_messages)
 
             for absolute_index, user_msg in pending_user_messages:
-                with session.step_lock:
+                prompt_id = prompt_ids[absolute_index]
+                # Mark the prompt as sent before the agent can act on it. An
+                # interrupt can start a replacement step while prompt() is still
+                # awaiting, so marking afterwards would be too late.
+                with (
+                    SessionManager.conversation_lock(conversation_id),
+                    session.step_lock,
+                ):
                     if session.step_seq != my_step_seq:
                         return
-                text, _raw = await acp_runtime.prompt(
-                    user_msg.content, max_tokens=effective_max_tokens
-                )
+                    manager = LogManager.load(conversation_id, lock=False)
+                    _set_acp_prompt_sent(manager, prompt_id, True)
+                    manager.write()
+                try:
+                    text, _raw = await acp_runtime.prompt(
+                        user_msg.content, max_tokens=effective_max_tokens
+                    )
+                except Exception:
+                    # A prompt that failed on its own is retried by a later step;
+                    # one whose step was interrupted keeps the mark.
+                    with (
+                        SessionManager.conversation_lock(conversation_id),
+                        session.step_lock,
+                    ):
+                        if session.step_seq == my_step_seq:
+                            manager = LogManager.load(conversation_id, lock=False)
+                            _set_acp_prompt_sent(manager, prompt_id, False)
+                            manager.write()
+                    raise
                 # Commit only while this epoch still owns the step. Interrupts
                 # take these locks too, so revocation cannot slip between the
                 # ownership check and the durable answered marker. Reload to
@@ -1033,10 +1075,12 @@ async def _acp_step(
                     manager = LogManager.load(conversation_id, lock=False)
                     final_text = "".join(stream_tokens) if stream_tokens else text
                     stream_tokens.clear()
+                    # The tagged reply now records that this prompt is done.
+                    _set_acp_prompt_sent(manager, prompt_id, False)
                     msg = Message(
                         "assistant",
                         final_text,
-                        metadata={"acp_answered_user_id": prompt_ids[absolute_index]},
+                        metadata={"acp_answered_user_id": prompt_id},
                     )
                     _append_and_notify(manager, session, msg)
                     manager.write()

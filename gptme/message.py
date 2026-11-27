@@ -301,6 +301,10 @@ class MessageMetadata(TypedDict, total=False):
     # fresh or stale session knows which prompts are done from the log itself.
     # Not a position: deleting an older message must not shift it.
     acp_answered_user_id: str
+    # Set on a user prompt while ACP is running it, and removed when its reply is
+    # saved or the prompt fails. It stays after an interrupt (or a crash), so a
+    # command the agent may already have executed is not sent again.
+    acp_prompt_sent: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.
