@@ -574,7 +574,9 @@ def redact_secret_values_from_output(
     ``API_KEY = os.environ["X"]`` must stay intact for later edits. A line is
     redacted only when its name marks a secret *and* its value has the shape of
     a credential literal (including JWTs and opaque URL-safe tokens), which is what an
-    accidental ``env`` or ``cat .env`` dump prints. Exact values of the
+    accidental ``env`` or ``cat .env`` dump prints. An assignment that exactly
+    matches its named environment value is also redacted, even when the value
+    is too short or non-opaque for global matching. Exact values of the
     process's own secret-named environment variables are redacted in any
     shape, since no name or prefix rule can recognise an unprefixed value
     printed under an unrelated key.
@@ -602,7 +604,10 @@ def redact_secret_values_from_output(
             if match
             else ""
         )
-        if match and _looks_like_output_secret(value):
+        known_assignment = bool(
+            match and value and os.environ.get(match.group(2)) == value
+        )
+        if match and (_looks_like_output_secret(value) or known_assignment):
             # Discover live matches before the assignment replacement erases
             # any part of a credential crossing the separator.
             if literals:
