@@ -203,3 +203,18 @@ def test_comment_brackets_do_not_hide_real_heredoc(prefix: str):
 def test_space_prefixed_delimiter_stays_body_data(operator: str):
     payload = f"cat {operator}EOF\n  EOF\nrm -rf /\nEOF\n"
     assert not is_denylisted(payload)[0]
+
+
+def test_comment_backslash_does_not_continue_heredoc_header():
+    payload = "cat <<echo # \\\necho\necho echo PROOF | sh\necho\n"
+    assert not is_allowlisted(payload)
+    assert is_denylisted(payload)[0]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+def test_bash_runs_pipeline_after_comment_backslash():
+    payload = "cat <<echo # \\\necho\necho echo PROOF | sh\necho\n"
+    result = subprocess.run(
+        ["bash", "-c", payload], check=False, capture_output=True, text=True
+    )
+    assert "PROOF" in result.stdout

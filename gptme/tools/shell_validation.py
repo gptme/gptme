@@ -355,6 +355,40 @@ def _scan_nesting(
         i += 1
 
 
+def _position_in_shell_comment(cmd: str, pos: int) -> bool:
+    """Return True when ``pos`` lies inside an unquoted shell comment.
+
+    Comments run to the end of the line, so a backslash there is data: bash
+    does not treat the newline as a continuation. Mirrors the lexical rules in
+    ``_blank_shell_comments``.
+    """
+    in_single = in_double = in_comment = False
+    i = 0
+    while i < pos:
+        char = cmd[i]
+        if in_comment:
+            if char == "\n":
+                in_comment = False
+            i += 1
+            continue
+        if char == "\\" and not in_single:
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+        ):
+            in_comment = True
+        i += 1
+    return in_comment
+
+
 def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     """Find all heredoc regions in a command string.
 
@@ -441,6 +475,12 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
                 backslashes += 1
                 pos -= 1
             if backslashes % 2 == 0:
+                break
+            # A backslash inside a shell comment is data, not a line
+            # continuation: bash ends the command line there. Treating it as a
+            # continuation would push the body start past real command lines
+            # and hide them as heredoc data.
+            if _position_in_shell_comment(cmd, newline_idx - 1):
                 break
             newline_idx += 1
         if newline_idx == -1:
