@@ -119,9 +119,55 @@ class Codeblock:
 
 
 _SHELL_OPERATORS = ";&|()<>"
-_HEREDOC_WORD = re.compile(r"""(?:[^ \t;&|()<>'"\\]+|'[^']*'|"(?:[^"\\]|\\.)*"|\\.)+""")
-_HEREDOC_WORD_PART = re.compile(r"""'([^']*)'|"((?:[^"\\]|\\.)*)"|\\(.)|.""")
+_HEREDOC_WORD = re.compile(
+    r"""(?:\$'(?:[^'\\]|\\.)*'|[^ \t;&|()<>'"\\$]+|\$(?!')|'[^']*'|"(?:[^"\\]|\\.)*"|\\.)+"""
+)
+_HEREDOC_WORD_PART = re.compile(
+    r"""\$'((?:[^'\\]|\\.)*)'|'([^']*)'|"((?:[^"\\]|\\.)*)"|\\(.)|."""
+)
 _DOUBLE_QUOTE_ESCAPE = re.compile(r'\\([$\x60"\\])')
+_ANSI_C_ESCAPE = re.compile(
+    r"""\\([0-7]{1,3}|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|U[0-9a-fA-F]{1,8}|c[\x20-\x7e]|.)"""
+)
+_ANSI_C_SIMPLE = dict(zip(r"""abefnrtvE\'"?""", "\a\b\x1b\f\n\r\t\v\x1b\\'\"?"))
+_ARITHMETIC_KEYWORD = re.compile(
+    r"(?:^|[ \t;&|()])(?:if|elif|while|until|for|then|do|else)\Z"
+)
+
+
+def _decode_ansi_c_quote(value: str) -> str:
+    """Decode Bash's $'...' word part without executing a shell."""
+    raw = bytearray()
+    pos = 0
+    for match in _ANSI_C_ESCAPE.finditer(value):
+        raw.extend(value[pos : match.start()].encode())
+        escape = match[1]
+        if escape in _ANSI_C_SIMPLE:
+            raw.extend(_ANSI_C_SIMPLE[escape].encode())
+        elif escape[0] in "01234567":
+            raw.append(int(escape, 8) & 0xFF)
+        elif escape.startswith("x") and len(escape) > 1:
+            raw.append(int(escape[1:], 16))
+        elif escape.startswith(("u", "U")) and len(escape) > 1:
+            point = int(escape[1:], 16)
+            if point <= 0x10FFFF and not 0xD800 <= point <= 0xDFFF:
+                raw.extend(chr(point).encode())
+            else:
+                raw.extend(match[0].encode())
+        elif escape.startswith("c") and len(escape) == 2:
+            raw.append(127 if escape[1] == "?" else ord(escape[1]) & 31)
+        else:
+            raw.extend(match[0].encode())
+        pos = match.end()
+    raw.extend(value[pos:].encode())
+    return raw.partition(b"\0")[0].decode(errors="surrogateescape")
+
+
+@dataclass(frozen=True)
+class _Heredoc:
+    delimiter: str
+    strip_tabs: bool
+    quoted: bool
 
 
 @dataclass
@@ -131,24 +177,29 @@ class _ShellFenceState:
     quote: str = ""
     arithmetic_depth: int = 0
     in_word: bool = False
-    command_start: bool = True
-    in_let: bool = False
     continued: bool = False
-    heredocs: deque[tuple[str, bool]] = field(default_factory=deque)
+    heredocs: deque[_Heredoc] = field(default_factory=deque)
+    heredoc_fragments: list[str] = field(default_factory=list)
 
     def consume_heredoc_line(self, line: str) -> bool:
         """Consume one body line, including the terminator itself."""
         if not self.heredocs or self.quote or self.arithmetic_depth or self.continued:
             return False
-        terminator, strip_tabs = self.heredocs[0]
-        if (line.lstrip("\t") if strip_tabs else line) == terminator:
+        heredoc = self.heredocs[0]
+        if not heredoc.quoted and _line_ends_with_continuation(line):
+            self.heredoc_fragments.append(line[:-1])
+            return True
+        if self.heredoc_fragments:
+            self.heredoc_fragments.append(line)
+            line = "".join(self.heredoc_fragments)
+            self.heredoc_fragments.clear()
+        if (line.lstrip("\t") if heredoc.strip_tabs else line) == heredoc.delimiter:
             self.heredocs.popleft()
         return True
 
     def scan(self, line: str, *, allow_heredoc: bool) -> None:
         if not self.continued and not self.quote and not self.arithmetic_depth:
-            self.in_word = self.in_let = False
-            self.command_start = True
+            self.in_word = False
         self.continued = False
         i = 0
         while i < len(line):
@@ -158,7 +209,6 @@ class _ShellFenceState:
                     self.continued = True
                 else:
                     self.in_word = True
-                    self.command_start = False
                 i += 2
                 continue
             if self.quote:
@@ -171,7 +221,6 @@ class _ShellFenceState:
             if line.startswith("$'", i):
                 self.quote = "$'"
                 self.in_word = True
-                self.command_start = False
                 i += 2
                 continue
             if char in "'\"":
@@ -182,11 +231,11 @@ class _ShellFenceState:
                 elif char == ")":
                     self.arithmetic_depth -= 1
             elif line.startswith("$((", i) or (
-                not self.in_word and line.startswith("((", i)
+                line.startswith("((", i)
+                and (not self.in_word or _ARITHMETIC_KEYWORD.search(line, 0, i))
             ):
                 self.arithmetic_depth = 2
                 self.in_word = True
-                self.command_start = False
                 i += 3 if char == "$" else 2
                 continue
             elif line.startswith("<<<", i):
@@ -194,32 +243,16 @@ class _ShellFenceState:
                 i += 3
                 continue
             elif line.startswith("<<", i):
-                # Models also emit compact, unquoted shift expressions for
-                # the let builtin. Spaced redirections still take a delimiter.
-                operand = line[i + 2 : i + 3]
-                if (
-                    self.in_let
-                    and self.in_word
-                    and (operand.isalnum() or operand == "_")
-                ):
-                    i += 2
-                    continue
                 i += 2
                 if allow_heredoc:
                     i = self._read_heredoc(line, i)
                 self.in_word = False
                 continue
             elif char in " \t" or char in _SHELL_OPERATORS:
-                if char in ";&|()":
-                    self.command_start = True
-                    self.in_let = False
                 self.in_word = False
                 i += 1
                 continue
-            elif self.command_start and line.startswith(("let ", "let\t"), i):
-                self.in_let = True
             self.in_word = True
-            self.command_start = False
             i += 1
 
     def _read_heredoc(self, line: str, start: int) -> int:
@@ -236,15 +269,19 @@ class _ShellFenceState:
             return start
 
         parts = []
+        quoted = False
         for part in _HEREDOC_WORD_PART.finditer(word.group()):
-            single, double, escaped = part.groups()
-            if single is not None:
+            ansi, single, double, escaped = part.groups()
+            if ansi is not None:
+                parts.append(_decode_ansi_c_quote(ansi))
+            elif single is not None:
                 parts.append(single)
             elif double is not None:
                 parts.append(_DOUBLE_QUOTE_ESCAPE.sub(r"\1", double))
             else:
                 parts.append(escaped if escaped is not None else part.group())
-        self.heredocs.append(("".join(parts), strip_tabs))
+            quoted |= any(value is not None for value in part.groups())
+        self.heredocs.append(_Heredoc("".join(parts), strip_tabs, quoted))
         return word.end()
 
 

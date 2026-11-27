@@ -3600,7 +3600,9 @@ def test_long_shell_heredoc_preserves_fences_and_thinking_text(streaming: bool) 
 @pytest.mark.parametrize(
     ("command", "standalone"),
     [
-        ("let mask=1<<shift", "shift"),
+        (r"let 'mask=1<<shift'", "shift"),
+        ("if((1<<2)); then echo ok; fi", "2"),
+        ("for((i=1<<2;i<5;i++)); do echo ok; done", "2"),
         ("(( m = 1 << shift ))", "shift"),
         ("((\nmask = 1 << SHIFT\n))", "SHIFT"),
         ("mask=$((\n1 << SHIFT\n))", "SHIFT"),
@@ -3622,3 +3624,31 @@ def test_shell_shift_and_comment_do_not_open_heredoc(
             prefix
         )
     assert Codeblock.iter_from_markdown("".join(lines)) == expected
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<$'END'\nhello\nEND",
+        r"cat <<E$'\x4e'D" + "\nhello\nEND",
+        r"cat <<$'IT\'S'" + "\nhello\nIT'S",
+        r"cat <<$'caf\xc3\xa9'" + "\nhello\ncafé",
+        "cat <<END\nE\\\nN\\\nD",
+        "cat <<-END\n\tEN\\\nD",
+        "cat <<'END'\nEN\\\nD\n```\nEND",
+        "cat <<END\nnot the delimiter\\\nEND\n```\nEND",
+        "cat <<END\nbody\\\\\nEND",
+        "let mask=1<<END\n```\nliteral\n```\nEND",
+    ],
+)
+def test_shell_heredoc_delimiter_quote_and_continuation(
+    command: str, streaming: bool
+) -> None:
+    shell = command + "\necho done"
+    first = f"```shell\n{shell}\n```\n"
+    markdown = first + "\n```shell\necho next\n```\n"
+    assert Codeblock.iter_from_markdown(markdown, streaming=streaming) == [
+        Codeblock("shell", shell),
+        Codeblock("shell", "echo next"),
+    ]
