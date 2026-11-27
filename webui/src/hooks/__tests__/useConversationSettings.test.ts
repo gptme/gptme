@@ -81,6 +81,44 @@ describe('conversation settings round trip', () => {
     });
   });
 
+  it('does not invent blank remote fields when loading a stdio server', () => {
+    const original = makeConfig();
+    const values = chatConfigToFormValues(original);
+    const server = values.mcp.servers![0];
+
+    expect(server).not.toHaveProperty('url');
+    expect(server).not.toHaveProperty('headers');
+    expect(formValuesToChatConfig(formSchema.parse(values), original).mcp.servers).toEqual(
+      original.mcp.servers
+    );
+  });
+
+  it('retains the original remote fields when optional row fields are absent', () => {
+    const original = makeRemoteConfig();
+    const values = chatConfigToFormValues(original);
+    delete values.mcp.servers![0].url;
+    delete values.mcp.servers![0].headers;
+
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.mcp.servers).toEqual(original.mcp.servers);
+  });
+
+  it('persists explicitly cleared URL and headers instead of restoring the snapshot', () => {
+    const original = makeRemoteConfig();
+    const values = chatConfigToFormValues(original);
+    values.mcp.servers![0].url = '';
+    values.mcp.servers![0].headers = {};
+
+    const config = formValuesToChatConfig(formSchema.parse(values), original);
+
+    expect(config.mcp.servers[0]).toEqual({
+      ...original.mcp.servers[0],
+      url: '',
+      headers: {},
+    });
+  });
+
   it.each([
     '',
     'not-a-url',

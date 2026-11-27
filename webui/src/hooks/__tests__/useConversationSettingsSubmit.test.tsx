@@ -88,6 +88,39 @@ describe('useConversationSettings submit', () => {
     expect(submitted.mcp.servers).toEqual([remoteServer]);
   });
 
+  it('submits explicitly cleared remote fields from a mounted form', async () => {
+    const config = makeConfig();
+    const remoteServer = {
+      ...config.mcp.servers[0],
+      url: 'https://mcp.example.com/events',
+      headers: { Authorization: 'Bearer test-token' },
+    };
+    config.mcp.servers = [remoteServer];
+    conversations$.set(
+      new Map([
+        ['c1', observable({ id: 'c1', data: { id: 'c1', log: [] }, chatConfig: config })],
+      ]) as never
+    );
+    const { result } = renderHook(() => useConversationSettings('c1'));
+    await waitFor(() => expect(result.current.chatConfig).toBeTruthy());
+
+    act(() => {
+      result.current.form.setValue('mcp.servers.0.url', '');
+      result.current.form.setValue('mcp.servers.0.headers', {});
+    });
+    await act(async () => {
+      await result.current.form.handleSubmit(result.current.onSubmit)();
+    });
+
+    expect(updateChatConfig).toHaveBeenCalledTimes(1);
+    const submitted = updateChatConfig.mock.calls[0][1] as ChatConfig;
+    expect(submitted.mcp.servers[0]).toEqual({
+      ...config.mcp.servers[0],
+      url: '',
+      headers: {},
+    });
+  });
+
   it('submits unchanged MCP argv and null tool format from a mounted form', async () => {
     const config = makeConfig();
     conversations$.set(
