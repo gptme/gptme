@@ -290,6 +290,51 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     return "".join(out), i
 
 
+def _scan_nesting(
+    cmd: str,
+    start: int,
+    end: int,
+    stack: list[str],
+    skip: list[tuple[int, int]],
+) -> None:
+    """Update ``stack`` with the brackets opened and closed in ``cmd[start:end]``.
+
+    Entries are ``[``, ``${``, ``((`` (arithmetic) and ``(`` (any other paren).
+    """
+    i = start
+    while i < end:
+        if _is_in_quoted_region(i, skip):
+            i += 1
+            continue
+        c = cmd[i]
+        if c == "\\":
+            i += 2
+            continue
+        if cmd.startswith("${", i):
+            stack.append("${")
+            i += 2
+            continue
+        if cmd.startswith("((", i):
+            stack.extend(["((", "(("])
+            i += 2
+            continue
+        if c in "([":
+            stack.append(c)
+        elif c == ")" and stack and stack[-1] == "(":
+            stack.pop()
+        elif cmd.startswith("))", i) and stack and stack[-1] == "((":
+            # Only ``))`` ends arithmetic: a lone ``)`` (a ``case`` pattern
+            # in a substitution) must not.
+            del stack[-2:]
+            i += 2
+            continue
+        elif c == "]" and stack and stack[-1] == "[":
+            stack.pop()
+        elif c == "}" and stack and stack[-1] == "${":
+            stack.pop()
+        i += 1
+
+
 def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     """Find all heredoc regions in a command string.
 
@@ -310,6 +355,13 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 
     quoted_regions = _find_quotes(cmd)
 
+    # Inside ``$((...))``, ``((...))``, ``$[...]``, ``${...}`` and array
+    # subscripts ``<<`` is a shift or literal text, not a redirection. Treating
+    # it as an opener would hide the following commands. Skipping a real opener
+    # only makes validation stricter.
+    nesting: list[str] = []
+    scanned = 0
+
     for match in heredoc_pattern.finditer(cmd):
         # ``<<`` text inside an earlier heredoc body is data. Treating it as an
         # opener would start a region that runs past that body's terminator.
@@ -318,6 +370,12 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         # Quoted or escaped ``<<`` text is inert to the shell and must not hide
         # later lines from command validation.
         if _is_in_quoted_region(match.start(), quoted_regions):
+            continue
+        _scan_nesting(
+            cmd, scanned, match.start(), nesting, quoted_regions + heredoc_regions
+        )
+        scanned = match.start()
+        if any(entry != "(" for entry in nesting):
             continue
         backslashes = 0
         pos = match.start() - 1

@@ -662,38 +662,37 @@ def _failure_stream_preview(
 # local code execution outside the shell tool's confirmation and guardrails.
 _LOCAL_PROGRAM_CONFIG_KEYS = frozenset({"browser", "editor", "pager"})
 _SAFE_EXTENSION_ACTIONS = frozenset({"list", "ls", "search"})
-_GITFLAG_COMMANDS = frozenset({("repo", "clone"), ("repo", "fork"), ("gist", "clone")})
+_EXTENSION_RUN_ACTIONS = frozenset({"browse", "create", "exec", "install", "upgrade"})
 
 
 def _local_exec_reason(gh_args: list[str]) -> str | None:
-    """Return why ``gh <gh_args>`` would run a local program, or None."""
+    """Return why ``gh <gh_args>`` would run a local program, or None.
+
+    gh accepts flags between a command group and its subcommand, so the
+    dangerous subcommands are matched among all positionals of their group.
+    """
     positionals = [a for a in gh_args if not a.startswith("-")]
     if not positionals:
         return None
+    if gh_args[0].startswith("-"):
+        return "flags before the subcommand hide which command runs"
     sub, action = positionals[0], positionals[1] if len(positionals) > 1 else None
-    if sub == "alias" and action == "import":
-        return "`gh alias import` can define shell aliases"
-    if sub == "alias" and action == "set":
-        shell_flag = any(
-            a == "--shell"
-            or a.startswith("--shell=")
-            or (re.fullmatch(r"-[a-zA-Z]+", a) is not None and "s" in a)
-            for a in gh_args
-        )
-        # `!expansion` is a shell alias; `-` reads the expansion from stdin.
-        expansion = gh_args[gh_args.index("set") + 1 :]
-        if shell_flag or any(a.startswith("!") or a == "-" for a in expansion):
-            return "a shell alias runs its expansion through a local shell"
+    rest = set(positionals[1:])
+    # Any alias can later reach a refused command under another name.
+    if sub == "alias" and rest & {"set", "import"}:
+        return "an alias can run local programs or rename a refused command"
     if sub in ("extension", "extensions", "ext") and action is not None:
-        if action not in _SAFE_EXTENSION_ACTIONS:
+        if action not in _SAFE_EXTENSION_ACTIONS or rest & _EXTENSION_RUN_ACTIONS:
             return f"`gh {sub} {action}` installs or runs extension programs"
-    if sub == "config" and action == "set":
-        if _LOCAL_PROGRAM_CONFIG_KEYS & set(positionals[2:]):
-            return "the browser, editor and pager settings are commands gh executes"
-    if (sub, action) in _GITFLAG_COMMANDS and "--" in gh_args[:-1]:
-        # ``-- <gitflags>`` reaches ``git clone``, where ``-c core.sshCommand=``
-        # (and similar settings) names a program git runs locally.
-        return f"`gh {sub} {action} -- <gitflags>` passes options to git"
+    if sub == "config" and "set" in rest and _LOCAL_PROGRAM_CONFIG_KEYS & rest:
+        return "the browser, editor and pager settings are commands gh executes"
+    if "--" in gh_args[:-1]:
+        # ``-- <flags>`` reaches git or ssh, where ``-c core.sshCommand=`` or
+        # ``-oProxyCommand=`` names a program that runs locally.
+        if sub in ("repo", "gist") and rest & {"clone", "fork"}:
+            return f"`gh {sub}` with `-- <gitflags>` passes options to git"
+        if sub in ("codespace", "cs") and rest & {"ssh", "cp"}:
+            return f"`gh {sub}` with `--` passes options to ssh"
     return None
 
 
