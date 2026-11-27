@@ -5,6 +5,7 @@ remain workspace-local. Startup loading depends on the harness configuration.
 """
 
 import os
+import re
 import shlex
 from collections.abc import Generator
 from dataclasses import replace
@@ -54,6 +55,25 @@ def examples(tool_format):
 {call.to_output(tool_format)}
 > System: Memory 'prefer-short-answers' saved (scope: user).
 """.strip()
+
+
+# C0/C1 controls plus zero-width and bidi characters can redraw, reorder or
+# hide part of a confirmation prompt.
+_UNSAFE_DISPLAY_RE = re.compile(
+    "[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]"
+)
+
+
+def _printable(text: str) -> str:
+    """Show characters that could disguise displayed text as visible escapes."""
+    return _UNSAFE_DISPLAY_RE.sub(
+        lambda m: m.group().encode("unicode_escape").decode("ascii"), text
+    )
+
+
+def _save_prompt(name: str, scope: str, target: Path) -> str:
+    """Confirmation text for a save; the name comes from the model."""
+    return _printable(f"Save memory '{name}' (scope: {scope}) to `{target}`?")
 
 
 # Kept as module-level names for callers and tests; the implementation lives
@@ -121,7 +141,7 @@ def prepare_pending_memory(call: ToolUse, workspace: Path | None = None) -> Tool
         return call
     return replace(
         call,
-        confirmation_header=f"Save memory '{name}' (scope: {root.scope}) to `{target}`?",
+        confirmation_header=_save_prompt(name, root.scope, target),
         _memory_root=(root.scope, root.path),
     )
 
@@ -191,7 +211,7 @@ def execute_memory(
             root = MemoryRoot(selected.scope, selected.path.resolve())
         target_path = root.path / f"{slugify(name)}.md"
     except (KeyError, OSError, ValueError) as e:
-        yield Message("system", f"Error selecting memory scope: {e}")
+        yield Message("system", _printable(f"Error selecting memory scope: {e}"))
         return
 
     def _get_path(
@@ -203,9 +223,8 @@ def execute_memory(
 
     # Retain the destination in the transcript as well as confirmation metadata.
     # Native calls buffer this message, so it cannot substitute for preview_header.
-    yield Message(
-        "system", f"Save memory '{name}' (scope: {root.scope}) to `{target_path}`?"
-    )
+    prompt = _save_prompt(name, root.scope, target_path)
+    yield Message("system", prompt)
 
     def _do_save(
         save_content: str, path: Path | None
@@ -214,10 +233,12 @@ def execute_memory(
             file_path = _save_to_root(name, save_content, root)
             yield Message(
                 "system",
-                f"Memory '{name}' saved (scope: {root.scope}) to `{file_path}`.",
+                _printable(
+                    f"Memory '{name}' saved (scope: {root.scope}) to `{file_path}`."
+                ),
             )
         except (OSError, ValueError, MemoryParseError) as e:
-            yield Message("system", f"Error saving memory '{name}': {e}")
+            yield Message("system", _printable(f"Error saving memory '{name}': {e}"))
 
     yield from execute_with_confirmation(
         code,
@@ -225,7 +246,7 @@ def execute_memory(
         kwargs,
         execute_fn=_do_save,
         get_path_fn=_get_path,
-        preview_header=f"Save memory '{name}' (scope: {root.scope}) to `{target_path}`?",
+        preview_header=prompt,
         preview_lang="markdown",
     )
 
