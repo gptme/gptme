@@ -48,8 +48,9 @@ if threading.current_thread() is threading.main_thread() and not callable(
 
 import click
 from click_default_group import DefaultGroup
+from dotenv import load_dotenv
 
-from gptme.config import set_config_from_workspace
+from gptme.config import get_config, resolve_model_source, set_config_from_workspace
 
 from ..cli.completion import complete_model
 from ..init import init, init_logging
@@ -324,6 +325,23 @@ def serve(
     if exit_on_parent_death or watch_pid is not None:
         _start_parent_death_watcher(watch_pid=watch_pid)
 
+    # Load .env before resolving the configured model. init() loads it too, but
+    # that happens after this resolution, so a MODEL set only in .env would be
+    # missed here and the operator's provider choice silently dropped
+    # (gptme/gptme#5354). Loading twice is harmless: dotenv does not override
+    # variables that are already set.
+    load_dotenv()
+
+    # A model pinned by the operator (--model, MODEL/GPTME_MODEL in the
+    # environment, .env or config, [models].default) is a deliberate provider
+    # choice: never silently substitute a different provider when it cannot
+    # be initialized (gptme/gptme#5353). Only auto-detect a fallback when no
+    # model was configured at all.
+    configured_model: str | None = None
+    resolution = resolve_model_source(get_config(), cli_model=model)
+    if resolution is not None:
+        configured_model = resolution[0]
+
     # Try to initialize with provided/configured model
     # If init fails due to missing model/API keys, use fallback
     try:
@@ -348,25 +366,46 @@ def serve(
         if not is_config_error:
             raise
 
-        # Handle model configuration errors with fallback.
-        # Pick a fallback that matches an available provider so we don't try
-        # (and fail) to use Anthropic when the user only has e.g. OpenAI keys.
-        fallback_model = _pick_fallback_model()
-        logger.warning(
-            f"No default model configured. Using fallback: {fallback_model}. "
-            "Set MODEL environment variable or use --model flag for explicit configuration."
-        )
-        # require_llm=False: if the fallback provider also has no API key
-        # (e.g. first-run Tauri with no keys configured), start the server
-        # in degraded mode so the user can configure a provider via the UI.
-        init(
-            fallback_model,
-            interactive=False,
-            tool_allowlist=_parse_tools_allowlist(tools),
-            tool_format="markdown",
-            server=True,
-            require_llm=False,
-        )
+        if configured_model:
+            # Never switch providers on an explicit model: that would send
+            # conversations to a provider the operator did not choose.
+            # Start in the same degraded/setup mode as with no keys at all.
+            logger.error(
+                "Cannot initialize the configured model %s: %s. "
+                "Not falling back to another provider. Starting in setup mode — "
+                "configure this provider's API key (or pass a different --model) "
+                "and restart.",
+                configured_model,
+                error_msg.split("\n", 1)[0],
+            )
+            init(
+                configured_model,
+                interactive=False,
+                tool_allowlist=_parse_tools_allowlist(tools),
+                tool_format="markdown",
+                server=True,
+                require_llm=False,
+            )
+        else:
+            # No model configured (first-run desktop/Tauri): pick a fallback
+            # that matches an available provider so we don't try (and fail) to
+            # use Anthropic when the user only has e.g. OpenAI keys.
+            fallback_model = _pick_fallback_model()
+            logger.warning(
+                f"No default model configured. Using fallback: {fallback_model}. "
+                "Set MODEL environment variable or use --model flag for explicit configuration."
+            )
+            # require_llm=False: if the fallback provider also has no API key
+            # (e.g. first-run Tauri with no keys configured), start the server
+            # in degraded mode so the user can configure a provider via the UI.
+            init(
+                fallback_model,
+                interactive=False,
+                tool_allowlist=_parse_tools_allowlist(tools),
+                tool_format="markdown",
+                server=True,
+                require_llm=False,
+            )
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
     init_telemetry(
