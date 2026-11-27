@@ -35,7 +35,10 @@ If ``uv`` is not installed, you can install it using pip, pipx, or your system p
 
 .. note::
 
-   Windows is not directly supported, but you can run gptme using WSL or Docker.
+   To install the gptme desktop app on Windows, download and run the
+   ``gptme_<version>_x64-setup.exe`` installer from the
+   `latest GitHub release <https://github.com/gptme/gptme/releases/latest>`__.
+   For command-line use on Windows, you can run gptme in WSL or Docker.
 
 .. tip::
 
