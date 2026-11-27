@@ -1106,6 +1106,56 @@ class TestSensitiveArgs:
         assert not is_allowlisted("rg token", cwd=fake_home)
         assert not is_allowlisted("grep -r token .", cwd=fake_home)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -r MARKER < notes.txt",
+            "grep -r MARKER <notes.txt",
+            "grep -r MARKER 0<notes.txt",
+            "grep <notes.txt -r MARKER",
+            "grep -r <notes.txt -e MARKER",
+            "grep -r -e <notes.txt MARKER",
+            "grep -r MARKER -- <notes.txt",
+            "grep -r MARKER <'notes with spaces.txt'",
+            "grep -r MARKER <notes.txt <other.txt",
+            "<notes.txt grep -r MARKER",
+            "rg MARKER <notes.txt",
+        ],
+    )
+    def test_redirect_does_not_hide_implicit_search_root(self, fake_home, command):
+        assert _has_sensitive_args(command, cwd=fake_home)
+        assert not is_allowlisted(command, cwd=fake_home)
+        assert not _has_sensitive_args(command, cwd=fake_home / "project")
+        if not command.startswith("<"):
+            # Leading redirects already prompt in the command-name check.
+            assert is_allowlisted(command, cwd=fake_home / "project")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -r '<' project",
+            r"grep -r \< project",
+            "grep -r MARKER <notes.txt project",
+            "grep -r MARKER 0<notes.txt project",
+            "grep -r MARKER <no'tes'.txt project",
+        ],
+    )
+    def test_redirect_keeps_explicit_root_and_quoted_words(self, fake_home, command):
+        assert is_allowlisted(command, cwd=fake_home)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat <~/.ssh/id_rsa",
+            "<~/.ssh/id_rsa cat",
+            "grep -r MARKER <~/.ssh/id_rsa project",
+            "grep -r MARKER 0<~/.ssh/id_rsa project",
+        ],
+    )
+    def test_redirect_target_still_checked_for_secrets(self, fake_home, command):
+        assert _has_sensitive_args(command, cwd=fake_home)
+        assert not is_allowlisted(command, cwd=fake_home)
+
     def test_relative_cd_ignored_when_cdpath_set(self, fake_home: Path, monkeypatch):
         """CDPATH can send a relative ``cd`` anywhere, so it is unknown."""
         monkeypatch.setenv("CDPATH", str(fake_home))

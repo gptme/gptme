@@ -636,15 +636,58 @@ def _cd_destinations(
     return destinations
 
 
-def _command_segments(cmd: str) -> list[list[str]]:
+def _input_redirections(cmd: str) -> tuple[str, list[str]]:
+    """Separate input-redirection targets from the program's argument words.
+
+    Work on the quoted source so a literal ``'<'`` remains an argument. Keep
+    targets separately for sensitive-path checks, including redirects before
+    the command name or between an option and its value.
+    """
+    regions = _find_quotes(cmd)
+    targets: list[str] = []
+    chars = list(cmd)
+    # Shell words can concatenate quoted, escaped and unquoted fragments.
+    word = re.compile(r"""(?:[^\s<>;&|()'"\\]|\\.|'[^']*'|"(?:\\.|[^"\\])*")+""")
+    index = 0
+    while index < len(cmd):
+        if cmd[index] == "\\" and not _is_in_quoted_region(index, regions):
+            index += 2
+            continue
+        if cmd[index] != "<" or _is_in_quoted_region(index, regions):
+            index += 1
+            continue
+        start = index
+        # An immediately adjacent, unquoted number is a file descriptor, not
+        # an operand (``0<file``); a spaced number remains a real argument.
+        while start > 0 and cmd[start - 1].isdigit():
+            start -= 1
+        if start > 0 and not cmd[start - 1].isspace():
+            start = index
+        index += 1
+        while index < len(cmd) and cmd[index] == "<":
+            index += 1
+        while index < len(cmd) and cmd[index].isspace():
+            index += 1
+        match = word.match(cmd, index)
+        if match is None:
+            # Invalid/unsupported syntax must not hide an implicit cwd read.
+            chars[start:index] = " " * (index - start)
+            continue
+        index = match.end()
+        targets.extend(shlex.split(match.group()))
+        chars[start:index] = " " * (index - start)
+    return "".join(chars), targets
+
+
+def _command_segments(cmd: str) -> list[tuple[list[str], list[str]]]:
     """Split a command into simple-command token lists.
 
     Lines are split first (``shlex`` treats a newline as plain whitespace, so
     ``cd ~`` and ``cat .ssh/id_rsa`` on two lines would otherwise merge), then
-    each line on list and pipeline operators. Redirection operators stay in
-    the segment so the path that follows them is still scanned.
+    each line on list and pipeline operators. Input redirection targets are
+    returned separately: they are reads, but not program arguments.
     """
-    segments: list[list[str]] = []
+    segments: list[tuple[list[str], list[str]]] = []
     for line in _split_lines(strip_transparent_wrappers(cmd)):
         # Split before unquoting. shlex loses the distinction between a shell
         # operator and quoted/escaped data such as the filename '()'.
@@ -663,14 +706,16 @@ def _command_segments(cmd: str) -> list[list[str]]:
         pieces.append(line[start:])
         for piece in pieces:
             try:
+                piece, targets = _input_redirections(piece)
                 lexer = shlex.shlex(piece, posix=True, punctuation_chars="><")
                 lexer.whitespace_split = True
                 lexer.commenters = ""
                 tokens = list(lexer)
             except ValueError:
                 tokens = piece.split()
-            if tokens:
-                segments.append(tokens)
+                targets = []
+            if tokens or targets:
+                segments.append((tokens, targets))
     return segments
 
 
@@ -818,7 +863,13 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     # subshell, pipeline or failed ``cd`` leaves the old directory in effect,
     # so checking all of them never under-approximates.
     cwds: list[Path | None] = [cwd]
-    for index, segment in enumerate(segments):
+    for index, (segment, targets) in enumerate(segments):
+        if any(
+            _token_is_sensitive(target, base) for target in targets for base in cwds
+        ):
+            return True
+        if not segment:
+            continue
         name, args = segment[0], segment[1:]
         candidates: list[str] = []
         for arg_index, token in enumerate(args):
