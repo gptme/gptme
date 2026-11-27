@@ -109,7 +109,10 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb xdotool scrot xterm fluxbox imagemagick
+      run: |
+        # Unused here, and its intermittent 403s fail `apt-get update`.
+        grep -rlF packages.microsoft.com /etc/apt/sources.list.d/ | xargs -r sudo rm -f
+        sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb xdotool scrot xterm fluxbox imagemagick
 
     - name: Set up Xvfb
       run: |
@@ -187,7 +190,10 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
+      run: |
+        # Unused here, and its intermittent 403s fail `apt-get update`.
+        grep -rlF packages.microsoft.com /etc/apt/sources.list.d/ | xargs -r sudo rm -f
+        sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
 
     - name: Set up Xvfb
       run: |
@@ -239,7 +245,10 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
+      run: |
+        # Unused here, and its intermittent 403s fail `apt-get update`.
+        grep -rlF packages.microsoft.com /etc/apt/sources.list.d/ | xargs -r sudo rm -f
+        sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
 
     - name: Set up Xvfb
       run: |
@@ -377,7 +386,10 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install apt dependencies
-      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
+      run: |
+        # Unused here, and its intermittent 403s fail `apt-get update`.
+        grep -rlF packages.microsoft.com /etc/apt/sources.list.d/ | xargs -r sudo rm -f
+        sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
 
     - name: Set up Xvfb
       run: |
