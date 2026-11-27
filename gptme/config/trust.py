@@ -316,6 +316,21 @@ def disable_prompts() -> None:
     _prompts_disabled = True
 
 
+def _can_prompt(interactive: bool | None) -> bool:
+    """True only when this process can actually ask the user."""
+    if interactive is None:
+        interactive = sys.stdin.isatty()
+    return bool(interactive) and not _prompts_disabled and sys.stdin.isatty()
+
+
+def _legacy_shell_approved(project: ProjectConfig, workspace: Path | None) -> bool:
+    """True if a pre-upgrade shell-only hash is already approved for *workspace*."""
+    context_cmd, hook_commands = commands_from_project(project)
+    if not context_cmd and not hook_commands:
+        return False
+    return is_trusted(compute_shell_hash(context_cmd, hook_commands), workspace)
+
+
 def _is_approved(trust_hash: str, workspace: Path | None) -> bool:
     """Non-prompting check: env override, this session's decision, or the db."""
     if _launcher_trusts_all:
@@ -353,9 +368,7 @@ def _check_trust(
     # get_prompt() defaults to True, pytest captures stdin, and piped
     # invocations cannot actually prompt. Require a real TTY before calling
     # input().
-    if interactive is None:
-        interactive = sys.stdin.isatty()
-    can_prompt = bool(interactive) and not _prompts_disabled and sys.stdin.isatty()
+    can_prompt = _can_prompt(interactive)
 
     if not can_prompt:
         logger.warning(
@@ -365,7 +378,8 @@ def _check_trust(
             workspace or "unknown workspace",
             _ENV_TRUST_ALL,
         )
-        _session_decisions[cache_key] = False
+        # Do not cache a miss: a later interactive approval (or one written by
+        # another process) must still be visible in this long-lived process.
         return False
 
     approved = _prompt_user(lines, workspace, **prompt_kwargs)
@@ -418,6 +432,16 @@ def check_project_trust(
     content = project_trust_content(project)
     if not _needs_trust(content):
         return True
+    if not _can_prompt(interactive) and _legacy_shell_approved(project, workspace):
+        if _sensitive_extras(project):
+            logger.warning(
+                "Project gptme.toml in %s has a stored shell approval, but MCP, "
+                "plugins, [env] or RAG have not been approved yet. Keeping "
+                "context_cmd/hooks and withholding the new surfaces until you "
+                "run gptme interactively once.",
+                workspace or "unknown workspace",
+            )
+        return True
     return _check_trust(
         _hash_content(content),
         _project_lines(content),
@@ -454,7 +478,10 @@ def approve_project_config(
         approved = check_project_trust(
             project, project_workspace, interactive=interactive
         )
-        if approved:
+        # Restore extras only on a full-hash approval. A legacy shell-only
+        # approval keeps hooks/context_cmd (approved=True) but must not
+        # re-introduce MCP, plugins, [env] or RAG.
+        if approved and is_project_trusted(project, project_workspace):
             config.project = project
     # After the project decision, so an approved ``[env] GPTME_CHECK`` applies.
     approve_precommit_config(
@@ -484,10 +511,19 @@ def withhold_untrusted(project: ProjectConfig) -> ProjectConfig:
         return project
     if is_project_trusted(project, project._workspace):
         return project
+    mcp = project.mcp
+    if mcp is not None and mcp.enabled is False and mcp.enabled_declared:
+        # Keep an explicit enabled=false so it still overrides the user's
+        # global MCP. Drop servers and auto-start; those are the extras.
+        mcp = dataclasses.replace(mcp, servers=[], auto_start=False)
+    else:
+        # An untrusted enablement or server list must not leak. mcp=None
+        # means this layer does not override the user's MCP config.
+        mcp = None
     return dataclasses.replace(
         project,
         env={},
-        mcp=None,
+        mcp=mcp,
         plugins=dataclasses.replace(project.plugins, paths=[], enabled=[]),
         rag=dataclasses.replace(project.rag, enabled=False),
         _untrusted_original=project,

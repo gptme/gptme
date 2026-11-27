@@ -25,8 +25,9 @@ def _candidates() -> list[Path]:
 def load_user_dotenv() -> None:
     """Load the user's ``.env`` file, never one belonging to a workspace.
 
-    Consider the gptme source checkout, then ``~/.env``, then
-    ``~/.config/gptme/.env``. Do not replace this with a bare ``load_dotenv()``:
+    Load every existing file from the gptme source checkout, then ``~/.env``,
+    then ``~/.config/gptme/.env``. Earlier files win. Do not replace this with
+    a bare ``load_dotenv()``:
     that searches upwards from the working directory in frozen builds, REPLs and
     debuggers, and from a project virtualenv it reaches the project's own
     ``.env``. A repository must not set credentials, endpoints or trust settings
@@ -34,5 +35,5 @@ def load_user_dotenv() -> None:
     """
     for path in _candidates():
         if path.is_file() or path.is_fifo():
+            # Earlier files win: load_dotenv does not override set variables.
             load_dotenv(path)
-            return

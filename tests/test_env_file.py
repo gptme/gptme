@@ -104,3 +104,19 @@ def test_config_dotenv_is_loaded_when_home_dotenv_is_missing(
     env_file.load_user_dotenv()
 
     assert os.environ[MARKER] == "config"
+
+
+def test_later_dotenv_fills_keys_the_first_file_left_unset(tmp_path, monkeypatch, home):
+    """Each existing candidate is loaded; earlier files win on collisions."""
+    checkout = _repo_with_dotenv(tmp_path)
+    _install_at(monkeypatch, checkout)
+    (home / ".env").write_text(f"{MARKER}=home\nOTHER=home\n")
+    config_dir = home / ".config" / "gptme"
+    config_dir.mkdir(parents=True)
+    (config_dir / ".env").write_text("THIRD=config\n")
+
+    env_file.load_user_dotenv()
+
+    assert os.environ[MARKER] == "repo"
+    assert os.environ["OTHER"] == "home"
+    assert os.environ["THIRD"] == "config"
