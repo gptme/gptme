@@ -1,5 +1,6 @@
 """Tests for server CLI provider-aware fallback model selection."""
 
+import logging
 import os
 import subprocess
 import sys
@@ -202,6 +203,7 @@ def test_explicit_model_never_falls_back_to_another_provider(
 
 def test_dotenv_model_never_falls_back_to_another_provider(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A model pinned only in .env must not be replaced by another provider.
 
@@ -257,12 +259,15 @@ def test_dotenv_model_never_falls_back_to_another_provider(
     monkeypatch.setattr(server_cli, "_install_sigterm_handler", lambda: None)
     monkeypatch.setattr(server_cli, "set_config_from_workspace", lambda *a, **k: None)
 
+    caplog.set_level(logging.INFO, logger=server_cli.__name__)
     result = CliRunner().invoke(server_cli.serve, ["--port", "0", "--tools", "none"])
 
     assert result.exit_code == 0, result.output
     # The pinned model is used (in degraded mode), never the fallback.
     assert init_calls[-1] == (pinned, False)
-    assert "Using fallback" not in result.output
+    # Logging is captured by pytest, not CliRunner, with init_logging stubbed.
+    assert f"Cannot initialize the configured model {pinned}" in caplog.text
+    assert "Using fallback" not in caplog.text
 
 
 def test_nvidia_key_without_model_still_serves_setup(
