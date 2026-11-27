@@ -145,7 +145,9 @@ def _path_has_prefix(path: str, prefix: str) -> bool:
 
     ``~/.ssh-backup`` must not match ``~/.ssh``; ``~/.ssh/id_rsa`` must.
     """
-    prefix = prefix.rstrip("/")
+    # Case-folded: case-insensitive filesystems (macOS, Windows) map
+    # ``~/.SSH/config`` to ``~/.ssh/config``.
+    path, prefix = path.casefold(), prefix.rstrip("/").casefold()
     return path == prefix or path.startswith(prefix + "/")
 
 
@@ -172,19 +174,43 @@ def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
 
 
 def _is_secret_path(path: str, workspace: Path | None = None) -> bool:
-    """Return True if ``path`` looks like it leads to a secret/credential file."""
+    """Return True if ``path`` looks like it leads to a secret/credential file.
+
+    ``workspace`` is both the anchor for a relative ``path`` and the directory
+    exempted from broad system prefixes (see :func:`_is_secret_spelling`).
+    """
     expanded = _normalize_path_token(path)
-    return any(_is_secret_spelling(s) for s in _path_spellings(expanded, workspace))
+    exempt = str(workspace) if workspace is not None else None
+    return any(
+        _is_secret_spelling(s, exempt) for s in _path_spellings(expanded, workspace)
+    )
 
 
-def _is_secret_spelling(expanded: str) -> bool:
+def _is_secret_spelling(expanded: str, exempt_under: str | None = None) -> bool:
     for secret_dir in _SECRET_HOME_DIRS:
         if _path_has_prefix(expanded, _normalize_path_token(secret_dir)):
             return True
 
     for prefix in _SECRET_ABS_PREFIXES:
-        if _path_has_prefix(expanded, _normalize_path_token(prefix)):
-            return True
+        normalized = _normalize_path_token(prefix)
+        if not _path_has_prefix(expanded, normalized):
+            continue
+        # ``exempt_under`` is the workspace the tool operates in. Only the
+        # user's own home directory is exempt: a container running as root has
+        # HOME=/root, so its workspace lives under the broad ``/root/`` prefix
+        # and would otherwise have every file blocked. Do NOT exempt other
+        # system prefixes (``/proc``, ``/sys``, ``/etc/ssh``, ``/boot``): the
+        # agent controls its cwd, so ``cd /proc`` would otherwise make
+        # ``/proc/self/environ`` readable in enforce mode. The enumerated
+        # credential directories above still apply either way.
+        home = _normalize_path_token("~")
+        if (
+            exempt_under
+            and _path_has_prefix(expanded, exempt_under)
+            and normalized.rstrip("/").casefold() == home.rstrip("/").casefold()
+        ):
+            continue
+        return True
 
     # Check for secret file extensions (basename only to avoid false positives)
     basename = Path(expanded).name.lower()
@@ -197,6 +223,23 @@ def _is_secret_spelling(expanded: str) -> bool:
 
     # .env files but not .envrc or .env.example
     return basename == ".env" or basename.startswith(".env.local")
+
+
+def _is_secret_target(literal: str, exempt_under: str | None = None) -> bool:
+    """True if an absolute tool target, or the file it resolves to, is secret.
+
+    Unlike shell text, a file tool's target is one concrete path, so its
+    symlinks are resolved: an in-workspace link to ``~/.ssh/id_rsa`` is the key.
+    ``exempt_under`` is the tool's workspace, exempted from broad system
+    prefixes (see :func:`_is_secret_spelling`).
+    """
+    if _is_secret_spelling(literal, exempt_under):
+        return True
+    try:
+        resolved = os.path.realpath(literal)
+    except (OSError, ValueError):
+        return False
+    return resolved != literal and _is_secret_spelling(resolved, exempt_under)
 
 
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
@@ -269,13 +312,20 @@ def _read_paths_from_tool_use(tool_use: "ToolUse") -> list[str]:
 
 
 def _read_secret_path_reason(
-    tool_use: "ToolUse", preview: str | None = None
+    tool_use: "ToolUse",
+    preview: str | None = None,
 ) -> str | None:
     """Return the block reason if a ``read`` call references a secret path.
 
     Shared by the TOOL_CONFIRM hook (for callers that do route ``read``
     through the confirmation chain) and the TOOL_EXECUTE_PRE seam, so the two
     cannot drift apart.
+
+    A relative target is anchored exactly where ``read`` resolves it: the
+    configured read root if set, otherwise the live session workspace
+    (``resolve_in_workspace``), which follows a CLI ``cd``. The workspace a
+    caller passes to ``ToolUse.execute`` is the initial session workspace, not
+    the live one, so it is not used as the anchor.
     """
     path_candidates = _read_paths_from_tool_use(tool_use)
     if preview:
@@ -291,16 +341,20 @@ def _read_secret_path_reason(
         # read expands ~, not shell variables or substitutions. Check its
         # literal spelling too: work$/../.ssh/config still reaches ~/.ssh.
         literal = os.path.expanduser(path_arg)
+        base: Path | None = None
         try:
+            read_root, _ = _configured_read_root()
+            base = read_root if read_root is not None else current_workspace()
             if not os.path.isabs(literal):
-                read_root, _ = _configured_read_root()
-                literal = os.path.join(read_root or current_workspace(), literal)
-            literal = os.path.abspath(literal)
+                literal = os.path.join(base, literal)
+            # Keep symlink/.. ordering: collapsing .. before realpath can
+            # check a different file than read's Path.resolve() opens.
         except (OSError, ValueError, RuntimeError):
             # A bad relative operand must not hide a later absolute secret
             # in a batch (e.g. when the process cwd has been deleted).
-            pass
-        if _is_secret_path(path_arg) or _is_secret_spelling(literal):
+            base = None
+        exempt = str(base) if base is not None else None
+        if _is_secret_path(path_arg, base) or _is_secret_target(literal, exempt):
             return (
                 f"Secret path access blocked: read tool references {path_arg!r}. "
                 "Use a dedicated secrets manager or explicit user approval."
@@ -332,6 +386,64 @@ def _patch_many_secret_path_reason(
                     f"Secret path access blocked: patch_many writes {str(path)!r}. "
                     "Use a dedicated secrets manager or explicit user approval."
                 )
+    return None
+
+
+# Tools whose target is a single path argument (see ``tools.base.get_path``).
+_FILE_PATH_TOOLS: tuple[str, ...] = (
+    "save",
+    "append",
+    "patch",
+    "morph",
+    "hashline_edit",
+)
+
+
+def _file_tool_paths(tool_use: "ToolUse") -> list[str]:
+    """Every spelling of the target a save/append/patch/morph call may write."""
+    candidates: list[str] = []
+    kwargs = getattr(tool_use, "kwargs", None) or {}
+    if kwargs.get("path"):
+        candidates.append(str(kwargs["path"]))
+    args = getattr(tool_use, "args", None)
+    if args:
+        fn = " ".join(args)
+        if fn.startswith(("save ", "append ", "patch ")):
+            fn = fn.split(" ", 1)[1]
+        candidates.append(fn)
+    return [c for c in candidates if c.strip()]
+
+
+def _file_tool_secret_path_reason(tool_use: "ToolUse") -> str | None:
+    """Return the block reason if a file tool targets a secret path.
+
+    Checked before the tool runs: ``patch`` reads the file and ``morph``
+    uploads it before any confirmation, so a later check would be too late.
+
+    A relative target is anchored at the live session workspace, which is
+    exactly what these tools use (``resolve_in_workspace``) and which follows
+    a CLI ``cd``. The workspace a caller passes to ``ToolUse.execute`` is the
+    initial session workspace, not the live one, so it is not used here.
+    """
+    from ..util.workspace import current_workspace
+
+    for path_arg in _file_tool_paths(tool_use):
+        literal = os.path.expanduser(path_arg)
+        base: Path | None = None
+        try:
+            base = current_workspace()
+            if not os.path.isabs(literal):
+                literal = os.path.join(base, literal)
+            # Do not abspath/normpath here: realpath must follow symlinks
+            # before interpreting .., just like resolve_in_workspace().
+        except (OSError, ValueError, RuntimeError):
+            base = None
+        exempt = str(base) if base is not None else None
+        if _is_secret_path(path_arg, base) or _is_secret_target(literal, exempt):
+            return (
+                f"Secret path access blocked: {tool_use.tool} targets {path_arg!r}. "
+                "Use a dedicated secrets manager or explicit user approval."
+            )
     return None
 
 
@@ -470,6 +582,9 @@ def guardrail_hook(
     elif tool_use.tool == "tmux":
         block_reason = _tmux_block_reason(tool_use)
 
+    elif tool_use.tool in _FILE_PATH_TOOLS:
+        block_reason = _file_tool_secret_path_reason(tool_use)
+
     if block_reason is None:
         return None  # Allow — fall through to next hook
 
@@ -489,7 +604,7 @@ def guardrail_hook(
 def guardrail_pre_hook(
     data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
-    """TOOL_EXECUTE_PRE hook: deny secret-path ``read``/``patch_many`` and disallowed ``tmux`` shell text.
+    """TOOL_EXECUTE_PRE hook: deny secret-path file tool calls and disallowed ``tmux`` shell text.
 
     ``read`` is read-only and never calls ``execute_with_confirmation()``, so
     the confirmation chain cannot see it. Blocking here keeps that no-prompt
@@ -500,7 +615,9 @@ def guardrail_pre_hook(
     ``patch_many`` and ``tmux`` are checked here too, through their public
     structured-input accessors: one secret-path target denies the whole
     (atomic) ``patch_many`` call, and ``tmux`` ``new-session``/``send-keys``
-    text gets the same rules as the ``shell`` tool.
+    text gets the same rules as the ``shell`` tool. ``save``, ``append``,
+    ``patch`` and ``morph`` targets are checked here, before the tool can read
+    or upload the file.
 
     These are literal-input policies, not a sandbox for arbitrary programs.
     """
@@ -509,11 +626,18 @@ def guardrail_pre_hook(
         return
 
     tool_use = data.tool_use
-    if tool_use is None or tool_use.tool not in ("read", "patch_many", "tmux"):
+    if tool_use is None or tool_use.tool not in (
+        "read",
+        "patch_many",
+        "tmux",
+        *_FILE_PATH_TOOLS,
+    ):
         return
 
     if tool_use.tool == "read":
         block_reason = _read_secret_path_reason(tool_use)
+    elif tool_use.tool in _FILE_PATH_TOOLS:
+        block_reason = _file_tool_secret_path_reason(tool_use)
     elif tool_use.tool == "patch_many":
         block_reason = _patch_many_secret_path_reason(tool_use)
     else:

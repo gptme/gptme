@@ -853,3 +853,281 @@ class TestStructuredConfirmationGuardrails:
         assert secret.read_text() == "old\n"
         assert safe.read_text() == "old\n"
         assert any("Secret path access blocked" in m.content for m in messages)
+
+
+class TestFileToolSecretPaths:
+    """Every file tool is checked in enforce mode, before it runs."""
+
+    PATCH = "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED"
+
+    @staticmethod
+    def _execute(monkeypatch, use: ToolUse, mode: str = "enforce") -> str:
+        from gptme.hooks.guardrails import register
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+        register()
+        try:
+            msgs = list(use.execute())
+        finally:
+            unregister_hook("guardrails", HookType.TOOL_EXECUTE_PRE)
+            unregister_hook("guardrails", HookType.TOOL_CONFIRM)
+        return "\n".join(m.content for m in msgs)
+
+    def test_save_secret_path_denied(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        target = tmp_path / ".ssh" / "authorized_keys"
+        out = self._execute(monkeypatch, ToolUse("save", [str(target)], "key\n"))
+        assert "Secret path access blocked" in out
+        assert not target.exists()
+
+    def test_save_native_kwargs_denied(self, tmp_path, monkeypatch):
+        target = tmp_path / ".env"
+        use = ToolUse("save", None, None, {"path": str(target), "content": "x\n"})
+        out = self._execute(monkeypatch, use)
+        assert "Secret path access blocked" in out
+        assert not target.exists()
+
+    def test_append_secret_path_denied(self, tmp_path, monkeypatch):
+        target = tmp_path / ".env"
+        target.write_text("A=1\n")
+        out = self._execute(monkeypatch, ToolUse("append", [str(target)], "B=2\n"))
+        assert "Secret path access blocked" in out
+        assert target.read_text() == "A=1\n"
+
+    def test_patch_denied_before_reading(self, tmp_path, monkeypatch):
+        # Hit and miss must give the same answer, so the file is never read.
+        target = tmp_path / ".env"
+        target.write_text("old\n")
+        out = self._execute(monkeypatch, ToolUse("patch", [str(target)], self.PATCH))
+        assert "Secret path access blocked" in out
+        assert target.read_text() == "old\n"
+        missing = self._execute(
+            monkeypatch, ToolUse("patch", [str(tmp_path / "x.pem")], self.PATCH)
+        )
+        assert "Secret path access blocked" in missing
+
+    def test_morph_denied_before_running(self, tmp_path, monkeypatch):
+        ran: list[str] = []
+
+        def fake_execute(code, args, kwargs):
+            ran.append(code or "")
+            yield Message("system", "ran")
+
+        spec = ToolSpec(name="morph", desc="test", execute=fake_execute)
+        monkeypatch.setattr(
+            "gptme.tools.get_tool", lambda name: spec if name == "morph" else None
+        )
+        out = self._execute(
+            monkeypatch, ToolUse("morph", [str(tmp_path / ".env")], "edit")
+        )
+        assert not ran
+        assert "Secret path access blocked" in out
+
+    def test_case_variant_of_secret_dir_denied(self, tmp_path, monkeypatch):
+        # Case-insensitive filesystems (macOS, Windows) map .SSH to .ssh.
+        monkeypatch.setenv("HOME", str(tmp_path))
+        target = tmp_path / ".SSH" / "config"
+        out = self._execute(monkeypatch, ToolUse("save", [str(target)], "Host *\n"))
+        assert "Secret path access blocked" in out
+        assert not target.exists()
+
+    def test_read_through_symlink_denied(self, tmp_path, monkeypatch):
+        from gptme.tools import load_tool
+
+        load_tool("read")  # not in the default tool set
+        monkeypatch.setenv("HOME", str(tmp_path))
+        secret = tmp_path / ".ssh" / "id_rsa"
+        secret.parent.mkdir()
+        secret.write_text("PRIVATE KEY\n")
+        workspace = tmp_path / "work"
+        workspace.mkdir()
+        (workspace / "notes.txt").symlink_to(secret)
+        monkeypatch.chdir(workspace)
+        out = self._execute(
+            monkeypatch, ToolUse("read", [str(workspace / "notes.txt")], None)
+        )
+        assert "PRIVATE KEY" not in out
+        assert "Secret path access blocked" in out
+
+    def test_hashline_edit_secret_path_denied(self, tmp_path, monkeypatch):
+        from gptme.tools import load_tool
+
+        load_tool("hashline_edit")  # not in the default tool set
+        monkeypatch.setenv("HOME", str(tmp_path))
+        target = tmp_path / ".ssh" / "authorized_keys"
+        target.parent.mkdir()
+        target.write_text("old\n")
+        body = "[authorized_keys#DEADBEEF]\nCUT 1.=1\n"
+        out = self._execute(monkeypatch, ToolUse("hashline_edit", [str(target)], body))
+        assert "Secret path access blocked" in out
+        assert target.read_text() == "old\n"
+
+    @pytest.fixture
+    def optional_file_tools(self, monkeypatch):
+        """Expose optional tools without needing Morph credentials or an upload."""
+        from gptme.tools import get_tool
+
+        def unexpected_execute(code, args, kwargs):
+            pytest.fail("secret target reached the optional tool executor")
+
+        optional = {
+            name: ToolSpec(name=name, desc="test", execute=unexpected_execute)
+            for name in ("morph", "hashline_edit")
+        }
+        monkeypatch.setattr(
+            "gptme.tools.get_tool", lambda name: optional.get(name) or get_tool(name)
+        )
+
+    @pytest.mark.usefixtures("optional_file_tools")
+    @pytest.mark.parametrize(
+        "tool", ["save", "append", "patch", "morph", "hashline_edit"]
+    )
+    @pytest.mark.parametrize("native", [False, True])
+    def test_workspace_target_checked_when_process_cwd_differs(
+        self, tmp_path, monkeypatch, tool, native
+    ):
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.util.workspace import workspace_scope
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        secret = workspace / ".env"
+        secret.write_text("old\n")
+        (workspace / "notes.txt").symlink_to(secret)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        use = (
+            ToolUse(tool, None, None, {"path": "notes.txt", "content": "new\n"})
+            if native
+            else ToolUse(tool, ["notes.txt"], "new\n")
+        )
+        with workspace_scope(workspace):
+            assert guardrail_hook(use) is not None
+            out = self._execute(monkeypatch, use)
+        assert "Secret path access blocked" in out
+        assert secret.read_text() == "old\n"
+
+    @pytest.mark.usefixtures("optional_file_tools")
+    @pytest.mark.parametrize(
+        "tool", ["read", "save", "append", "patch", "morph", "hashline_edit"]
+    )
+    @pytest.mark.parametrize("relative", [False, True])
+    def test_symlink_parent_resolved_before_dotdot(
+        self, tmp_path, monkeypatch, tool, relative
+    ):
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.tools import load_tool
+        from gptme.util.workspace import workspace_scope
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        secret_dir = tmp_path / ".ssh"
+        (secret_dir / "subdir").mkdir(parents=True)
+        secret = secret_dir / "config"
+        secret.write_text("synthetic-private-config\n")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "link").symlink_to(secret_dir / "subdir", target_is_directory=True)
+        path = "link/../config"
+        if not relative:
+            path = str(workspace / path)
+        assert (workspace / path).resolve() == secret
+        monkeypatch.chdir(tmp_path)
+        if tool == "read":
+            load_tool("read")
+        use = ToolUse(tool, [path], "new\n" if tool != "read" else None)
+        with workspace_scope(workspace):
+            assert guardrail_hook(use) is not None
+            out = self._execute(monkeypatch, use)
+        assert "Secret path access blocked" in out
+        assert "synthetic-private-config" not in out
+        assert secret.read_text() == "synthetic-private-config\n"
+
+    @pytest.mark.parametrize("tool", ["read", "save", "morph"])
+    def test_live_workspace_anchors_relative_target_after_cd(
+        self, tmp_path, monkeypatch, tool
+    ):
+        """The live workspace wins over a stale caller workspace (after ``cd``).
+
+        The tools resolve relative targets with ``resolve_in_workspace()``, so
+        the guard must use the same base. The workspace a caller passes to
+        ``ToolUse.execute`` is the initial session workspace and does not
+        follow a CLI ``cd`` — anchoring there checks a different file.
+        """
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.tools import load_tool
+        from gptme.util.workspace import workspace_scope
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        initial = tmp_path / "work"
+        initial.mkdir()
+        sub = initial / "sub"
+        sub.mkdir()
+        secret = sub / ".env"
+        secret.write_text("old\n")
+        (sub / "notes.txt").symlink_to(secret)
+        if tool == "read":
+            load_tool("read")
+        use = ToolUse(tool, ["notes.txt"], None if tool == "read" else "new\n")
+        # ``cd sub`` happened; the caller still holds the initial workspace.
+        with workspace_scope(sub):
+            assert guardrail_hook(use, workspace=initial) is not None
+
+    def test_workspace_under_broad_system_prefix_is_not_all_secret(
+        self, tmp_path, monkeypatch
+    ):
+        """A workspace inside a broad prefix (``/root`` for root) is writable.
+
+        Otherwise enforce mode blocks every file write for the common
+        container-as-root setup, where HOME and the workspace are under
+        ``/root``. Secrets outside the workspace stay blocked.
+        """
+        from gptme.hooks import guardrails
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.util.workspace import workspace_scope
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        # Stands in for ``/root/`` in the container-as-root case: HOME and the
+        # workspace both live under the broad prefix.
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(guardrails, "_SECRET_ABS_PREFIXES", (str(tmp_path) + "/",))
+        workspace = tmp_path / "project"
+        workspace.mkdir()
+        with workspace_scope(workspace):
+            assert guardrail_hook(ToolUse("save", ["notes.txt"], "x\n")) is None
+            outside = tmp_path / "other" / "notes.txt"
+            assert guardrail_hook(ToolUse("save", [str(outside)], "x\n")) is not None
+
+    def test_workspace_exception_does_not_exempt_system_prefixes(self):
+        """``cd /proc`` must not make ``/proc`` readable in enforce mode.
+
+        Only the user's home directory is exempt from a broad prefix; the
+        agent controls its cwd, so any other prefix must stay absolute.
+        """
+        from pathlib import Path
+
+        from gptme.hooks.guardrails import _is_secret_path
+
+        assert _is_secret_path("/proc/self/environ", Path("/proc"))
+        assert _is_secret_path("/etc/ssh/sshd_config", Path("/etc/ssh"))
+
+    def test_deleted_cwd_does_not_break_the_guard(self, tmp_path, monkeypatch):
+        """A removed process cwd must not raise out of the hook."""
+        from gptme.hooks.guardrails import guardrail_hook
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        doomed = tmp_path / "doomed"
+        doomed.mkdir()
+        monkeypatch.chdir(doomed)
+        doomed.rmdir()
+        # Relative target, no explicit workspace: the anchor lookup fails and
+        # the check must fall through rather than raise FileNotFoundError.
+        assert guardrail_hook(ToolUse("save", ["notes.txt"], "x\n")) is None
+        # An absolute secret is still caught with no usable cwd.
+        absolute = tmp_path / ".env"
+        assert guardrail_hook(ToolUse("save", [str(absolute)], "x\n")) is not None
+
+    def test_ordinary_save_allowed(self, tmp_path, monkeypatch):
+        target = tmp_path / "notes.txt"
+        self._execute(monkeypatch, ToolUse("save", [str(target)], "hi\n"))
+        assert target.read_text() == "hi\n"
