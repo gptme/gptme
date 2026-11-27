@@ -241,56 +241,8 @@ def analyze_incremental_compression(
 
 
 _FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}(?![^\n]*`)|~{3,})")
-_INLINE_CODE_RE = re.compile(r"`+")
 _FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 _REASONING_OPEN_RE = re.compile(r"<(think|thinking)>")
-# A blank line, a fence opener, or a reasoning marker alone on its line (the
-# shape providers emit). A tag followed by other text may continue inline code.
-_INLINE_BOUNDARY_RE = re.compile(
-    r"\r?\n[ \t]*\r?\n"
-    r"|^[ \t]*(?:`{3,}(?![^\n]*`)|~{3,}|<think(?:ing)?>[ \t]*\r?$)",
-    re.MULTILINE,
-)
-
-
-def _quoted(content: str, tag: re.Match[str]) -> bool:
-    """Whether a tag is quoted on its own (`` `<think>` ``): a literal mention."""
-    return content.startswith("`", tag.end()) and content.endswith("`", 0, tag.start())
-
-
-def _next_tag(content: str, pos: int, name: str) -> re.Match[str] | None:
-    """Next unquoted ``name`` tag at or after ``pos``, skipping fenced blocks."""
-    marker = re.compile(rf"^{_FENCE_OPEN_RE.pattern}|</?{name}>", re.MULTILINE)
-    while found := marker.search(content, pos):
-        if found.group(1):
-            body = _line_end(content, found.start())
-            # An unclosed fence hides nothing: it may sit inside the block.
-            pos = _fence_end(content, body, found.group(1)) or body
-        elif _quoted(content, found):
-            pos = found.end()
-        else:
-            return found
-    return None
-
-
-def _splits_reasoning(content: str, start: int, end: int) -> bool:
-    """Whether the inline span body ``content[start:end]`` cuts a block in two.
-
-    True when it holds an opener without its closer, and the next tag of that
-    name past the span (outside later code examples) is a closer.
-    """
-    checked: set[str] = set()  # Search past the span once per tag name.
-    for opener in _REASONING_OPEN_RE.finditer(content, start, end):
-        name = opener.group(1)
-        if name in checked or _quoted(content, opener):
-            continue
-        if content.find(f"</{name}>", opener.end(), end) != -1:
-            continue
-        checked.add(name)
-        after = _next_tag(content, end, name)
-        if after and after.group().startswith("</"):
-            return True
-    return False
 
 
 def _line_end(content: str, pos: int) -> int:
@@ -322,11 +274,13 @@ def _reasoning_segments(
     Fences are only recognised outside reasoning, so a fence opened inside
     ``<think>`` and never closed cannot hide the ``</think>`` after it.
     Reasoning tags inside a fence outside reasoning are code, not reasoning.
+    Inline backticks do not mask tags: keep the existing stripping behaviour
+    outside fences rather than guessing whether a backtick belongs to reasoning.
     """
     segments: list[tuple[str, str]] = []
     pos = 0
     line_start = True
-    inline_limit = -1
+
     while pos < len(content):
         if line_start:
             fence = _FENCE_OPEN_RE.match(content, pos)
@@ -338,44 +292,7 @@ def _reasoning_segments(
                 pos = end
                 continue
         line_end = _line_end(content, pos)
-        # Matched inline code spans are literal too. An unmatched backtick
-        # must not hide a real reasoning block later on the line.
-        inline = _INLINE_CODE_RE.search(content, pos, line_end)
         opener = _REASONING_OPEN_RE.search(content, pos, line_end)
-        if inline and (not opener or inline.start() <= opener.start()):
-            start = inline.start()
-            escape_start = start
-            while escape_start > 0 and content[escape_start - 1] == "\\":
-                escape_start -= 1
-            # An escape consumes one backtick, not the entire delimiter run.
-            if (start - escape_start) % 2:
-                start += 1
-            delimiter = content[start : inline.end()]
-            # Search the original string so ^ means a real line start. Reuse
-            # the next boundary throughout the paragraph instead of rescanning
-            # the entire suffix for every inline span. A standalone reasoning
-            # marker also prevents stray prose backticks from hiding a block.
-            if inline_limit < inline.end():
-                boundary = _INLINE_BOUNDARY_RE.search(content, inline.end())
-                inline_limit = boundary.start() if boundary else len(content)
-            closing = (
-                re.compile(r"(?<!`)" + re.escape(delimiter) + r"(?!`)").search(
-                    content, inline.end(), inline_limit
-                )
-                if delimiter
-                else None
-            )
-            if closing and _splits_reasoning(content, inline.end(), closing.start()):
-                closing = None  # A stray backtick, not code around the block.
-            segments.append(("text", content[pos:start]))
-            if closing:
-                segments.append(("code", content[start : closing.end()]))
-                pos = closing.end()
-            else:
-                segments.append(("text", content[start : inline.end()]))
-                pos = inline.end()
-            line_start = False
-            continue
         if not opener:
             segments.append(("text", content[pos:line_end]))
             pos, line_start = line_end, True

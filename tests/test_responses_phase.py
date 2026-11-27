@@ -265,8 +265,12 @@ def test_prose_keeps_fenced_reasoning_example() -> None:
 @pytest.mark.parametrize(
     ("content", "expected"),
     [
-        ("Use `~~~<think>` in XML.\nAnswer", "Use `~~~<think>` in XML.\nAnswer"),
-        ("Use `the\n<think>` tag.\nAnswer", "Use `the\n<think>` tag.\nAnswer"),
+        ("Use `~~~<think>` in XML.\nAnswer", "Use `~~~"),
+        ("Use `the\n<think>` tag.\nAnswer", "Use `the"),
+        (
+            "Use ` here.<think>plan ` x\n```\nsecret\n</think>\nAnswer\n```\ncode\n```\n",
+            "Use ` here.\nAnswer\n```\ncode\n```\n",
+        ),
         (
             "An unmatched ` marker.\n<think>\nprivate `variable`\n</think>\nAnswer",
             "An unmatched ` marker.\n\nAnswer",
