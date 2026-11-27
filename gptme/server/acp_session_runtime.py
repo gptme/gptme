@@ -455,9 +455,14 @@ class AcpSessionRuntime:
                 # Leave self._client set so _release_unstarted can still find
                 # and kill the child. A context manager cannot be exited twice.
             else:
-                self._client = None
-                self._session_id = None
+                # An overlapping start may own the shared slot by now.
+                if self._client is client:
+                    self._client = None
+                    self._session_id = None
             raise
+        # Publish the pair together: an overlapping start may have replaced
+        # the early handle while this one was suspended.
+        self._client = client
         self._session_id = session_id
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",
