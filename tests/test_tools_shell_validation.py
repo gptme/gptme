@@ -1043,6 +1043,21 @@ class TestSensitiveArgs:
 
         assert _has_sensitive_args(f"cat {token}")
 
+    def test_distinct_case_variant_home_symlink_requires_confirmation(
+        self, tmp_path, monkeypatch
+    ):
+        """Case folding for comparison must not redirect filesystem resolution."""
+        home = tmp_path / "Home"
+        other = tmp_path / "home"
+        home.mkdir()
+        if other.exists():
+            pytest.skip("requires a case-sensitive filesystem")
+        other.mkdir()
+        (other / "link").symlink_to("/etc", target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        assert _has_sensitive_args(f"cat {other}/link/shadow", cwd=tmp_path)
+
     def test_ordinary_workspace_file_still_allowlisted(self, tmp_path, monkeypatch):
         """Resolution must not make ordinary relative reads sensitive."""
         home = tmp_path / "home"

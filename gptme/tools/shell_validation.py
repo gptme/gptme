@@ -826,11 +826,14 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
     }
     # Keep the lexical absolute spelling too, including expansion of ~/$HOME:
     # a home symlink can otherwise erase a protected ancestor such as /root.
+    # Resolve the original spelling independently: case-folded home matching
+    # must not redirect resolution to a different path on case-sensitive hosts.
     absolute = home + normalized[1:] if normalized.startswith("~") else normalized
     for candidate in (
         abs_token,
         normalized,
         absolute,
+        _resolve_symlinks(abs_token, home),
         _resolve_symlinks(normalized, home),
     ):
         folded = candidate.casefold()
