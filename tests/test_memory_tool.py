@@ -5,10 +5,12 @@ from pathlib import Path
 import pytest
 
 from gptme.dirs import get_cc_memory_dir, get_cc_memory_file
+from gptme.tools.base import ToolUse
 from gptme.tools.memory import (
     _slugify,
     _update_memory_index,
     execute_memory,
+    prepare_pending_memory,
     save_memory,
     tool,
 )
@@ -232,6 +234,26 @@ class TestExecuteMemory:
         messages = list(execute_memory(None, ["name"], None))
         assert len(messages) == 1
         assert "empty" in messages[0].content.lower()
+
+
+class TestConfirmationText:
+    @pytest.mark.parametrize(
+        "char", ["\x1b[2K", "\r", "\n", "\x9b", "\u202e", "\u200b"]
+    )
+    def test_save_prompt_escapes_disguising_characters(
+        self, tmp_path, monkeypatch, char
+    ):
+        import gptme.tools.memory as mem_module
+
+        monkeypatch.setattr(mem_module, "get_workspace", lambda: tmp_path)
+        name = f"note{char}(scope: user)"
+
+        prepared = prepare_pending_memory(ToolUse("memory", [name], "body"), tmp_path)
+        messages = list(execute_memory("body", [name]))
+
+        assert prepared.confirmation_header is not None
+        for text in [prepared.confirmation_header, *(m.content for m in messages)]:
+            assert not any(c in text for c in char if not c.isprintable())
 
 
 class TestToolSpec:

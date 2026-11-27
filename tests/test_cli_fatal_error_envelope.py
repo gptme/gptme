@@ -58,7 +58,7 @@ def _setup_cli_mocks(
     """Patch the minimal set of dependencies so the CLI reaches the chat() call."""
     config = _fake_config(tmp_path)
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: config)
-    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _, **kwargs: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
     monkeypatch.setattr("gptme.telemetry.shutdown_telemetry", lambda: None)
 

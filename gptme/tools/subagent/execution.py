@@ -35,6 +35,8 @@ from .. import (
     get_session_allowlist,
     get_tools,
     load_tool,
+    restrict_tools_for_read_only,
+    set_read_only_session,
     set_tools,
     with_direct_function_calls,
 )
@@ -151,7 +153,7 @@ def _ensure_subagent_signal_tools_loaded() -> None:
 
 
 def _resolve_profile_tools(
-    tool_allowlist: list[str], profile_name: str | None
+    tool_allowlist: list[str], profile_name: str | None, read_only: bool = False
 ) -> list[ToolSpec]:
     """Resolve the final toolset for a profile-restricted subagent.
 
@@ -222,6 +224,10 @@ def _resolve_profile_tools(
     for tool in loaded_tools:
         if tool.name in _SUBAGENT_SIGNAL_TOOLS and tool not in available_tools:
             available_tools.append(tool)
+    if read_only:
+        # Must run before with_direct_function_calls, which captures the
+        # function list: a read-only profile must not message (and steer) peers.
+        available_tools = restrict_tools_for_read_only(available_tools)
     # Read-only profiles (researcher, explorer) list function-only tools such as
     # browser and chats without ipython: give those a direct call path (#4964).
     return with_direct_function_calls(available_tools)
@@ -494,6 +500,9 @@ def _create_subagent_thread(
 
     prepare_execution_environment(workspace=workspace, tools=None)
     _ensure_subagent_signal_tools_loaded()
+    # Child threads have their own ContextVar context, so this does not leak
+    # into the parent; it guards calls the toolset filter below cannot see.
+    set_read_only_session(bool(profile and profile.behavior.read_only))
 
     # Register the control hook in this child thread's ContextVar context.
     # Hook registrations use a ContextVar — child threads start with an empty
@@ -508,7 +517,9 @@ def _create_subagent_thread(
         # Hard enforcement: replace loaded tools so execute_msg() only sees
         # allowed tools (plus the signal tools needed to end/ask cleanly).
         available_tools = _resolve_profile_tools(
-            tool_allowlist, profile.name if profile else None
+            tool_allowlist,
+            profile.name if profile else None,
+            read_only=bool(profile and profile.behavior.read_only),
         )
         set_tools(available_tools)
     else:

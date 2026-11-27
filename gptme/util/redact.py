@@ -499,12 +499,23 @@ def redact_secrets_from_messages(messages: list[Message]) -> list[Message]:
     Returns new Message objects with secret values replaced by ``[REDACTED]``.
     Roles and other message metadata are preserved.
 
+    The name-based pass alone misses credentials that are not on a
+    secret-named line: vendor-shaped tokens mid-line, and exact values of the
+    process's secret-named environment variables printed under any other key.
+    The output redactor covers both, so every message gets both passes.
+
     Args:
         messages: List of messages to sanitize.
 
     Returns:
         A new list of messages with secrets redacted.
     """
+    literals = _live_secret_literals()
     return [
-        msg.replace(content=redact_secrets_from_text(msg.content)) for msg in messages
+        msg.replace(
+            content=redact_secret_values_from_output(
+                redact_secrets_from_text(msg.content), live_literals=literals
+            )[0]
+        )
+        for msg in messages
     ]

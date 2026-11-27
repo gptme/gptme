@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import logging
 import pkgutil
@@ -76,6 +77,18 @@ _available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
 _session_allowlist_var: ContextVar[list[str] | None] = ContextVar(
     "session_allowlist", default=None
 )
+# Whether this context runs under a read-only agent profile. Reinitialization
+# and mid-conversation loads must preserve it until clear_tools() starts afresh.
+_read_only_session_var: ContextVar[bool] = ContextVar(
+    "read_only_session", default=False
+)
+
+# Functions that act on something other than the local workspace and must not
+# be reachable from a read-only profile. A peer message reaches a live agent
+# that may hold every tool, so a read-only subagent could steer it.
+_READ_ONLY_DENIED_FUNCTIONS: dict[str, frozenset[str]] = {
+    "chats": frozenset({"send_peer_message"}),
+}
 
 # Note: Tools must be initialized in each context that needs them.
 # This is particularly important for server environments where request handling
@@ -167,6 +180,34 @@ _warned_mcp_allowlists: set[tuple[str, ...]] = set()
 _warned_mcp_allowlists_lock = threading.Lock()
 # Tool through which function-only tools (``ToolSpec.is_function_only``) are called.
 FUNCTION_CALL_TOOL = "ipython"
+
+
+def restrict_tools_for_read_only(tools: list[ToolSpec]) -> list[ToolSpec]:
+    """Drop functions a read-only agent profile must not reach.
+
+    Apply before ``with_direct_function_calls``: the direct-call handler
+    captures the tool's function list when it is built.
+    """
+    restricted: list[ToolSpec] = []
+    for tool in tools:
+        denied = _READ_ONLY_DENIED_FUNCTIONS.get(tool.name)
+        if denied and tool.functions:
+            tool = dataclasses.replace(
+                tool,
+                functions=[f for f in tool.functions if f.fn.__name__ not in denied],
+            )
+        restricted.append(tool)
+    return restricted
+
+
+def is_read_only_session() -> bool:
+    """Whether the tools in this context run under a read-only agent profile."""
+    return _read_only_session_var.get()
+
+
+def set_read_only_session(read_only: bool) -> None:
+    """Mark this context's tools as running under a read-only agent profile."""
+    _read_only_session_var.set(read_only)
 
 
 def with_direct_function_calls(tools: list[ToolSpec]) -> list[ToolSpec]:
@@ -451,6 +492,7 @@ def init_tools(
     allowlist: list[str] | None = None,
     *,
     include_mcp: bool = True,
+    read_only: bool = False,
 ) -> list[ToolSpec]:
     """Initialize tools in a thread-safe manner.
 
@@ -466,6 +508,11 @@ def init_tools(
     ``include_mcp`` (default True) is passed through to discovery. Set False to
     skip connecting configured MCP servers — used by snapshot/export paths that
     must not mutate the environment as a side effect of listing tools.
+
+    ``read_only`` (set for a read-only agent profile) removes functions that
+    act outside the workspace, such as peer messaging; see
+    ``restrict_tools_for_read_only``. Once enabled, the restriction persists
+    across reinitialization until ``clear_tools()`` starts a fresh session.
     """
     from ..config import get_config  # fmt: skip
 
@@ -482,6 +529,8 @@ def init_tools(
 
         allowlist = expand_tool_allowlist_presets(allowlist)
         set_session_allowlist(allowlist)
+        if read_only:
+            _read_only_session_var.set(True)
 
         # Partition allowlist into file paths and tool names
         file_paths: list[str] = []
@@ -519,6 +568,8 @@ def init_tools(
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
+        if is_read_only_session():
+            loaded_tools[:] = restrict_tools_for_read_only(loaded_tools)
         loaded_tools[:] = with_direct_function_calls(loaded_tools)
 
         available_tools = get_available_tools(include_mcp=include_mcp)
@@ -1084,6 +1135,7 @@ def clear_tools():
     _loaded_tools_var.set([])
     _tools_initialized_var.set(False)
     _session_allowlist_var.set(None)
+    _read_only_session_var.set(False)
 
 
 def get_tools() -> list[ToolSpec]:
@@ -1235,6 +1287,10 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
                 requested = initialized_spec
 
         assert requested is not None
+        if _read_only_session_var.get():
+            initialized = restrict_tools_for_read_only(initialized)
+            requested_name = requested.name
+            requested = next(t for t in initialized if t.name == requested_name)
         if not has_tool(FUNCTION_CALL_TOOL):
             initialized = with_direct_function_calls(initialized)
             requested_name = requested.name
