@@ -353,7 +353,13 @@ def _patch_many_secret_path_reason(
 
 
 # Tools whose target is a single path argument (see ``tools.base.get_path``).
-_FILE_PATH_TOOLS: tuple[str, ...] = ("save", "append", "patch", "morph")
+_FILE_PATH_TOOLS: tuple[str, ...] = (
+    "save",
+    "append",
+    "patch",
+    "morph",
+    "hashline_edit",
+)
 
 
 def _file_tool_paths(tool_use: "ToolUse") -> list[str]:

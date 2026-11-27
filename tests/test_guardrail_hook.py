@@ -949,6 +949,19 @@ class TestFileToolSecretPaths:
         assert "PRIVATE KEY" not in out
         assert "Secret path access blocked" in out
 
+    def test_hashline_edit_secret_path_denied(self, tmp_path, monkeypatch):
+        from gptme.tools import load_tool
+
+        load_tool("hashline_edit")  # not in the default tool set
+        monkeypatch.setenv("HOME", str(tmp_path))
+        target = tmp_path / ".ssh" / "authorized_keys"
+        target.parent.mkdir()
+        target.write_text("old\n")
+        body = "[authorized_keys#DEADBEEF]\nCUT 1.=1\n"
+        out = self._execute(monkeypatch, ToolUse("hashline_edit", [str(target)], body))
+        assert "Secret path access blocked" in out
+        assert target.read_text() == "old\n"
+
     def test_ordinary_save_allowed(self, tmp_path, monkeypatch):
         target = tmp_path / "notes.txt"
         self._execute(monkeypatch, ToolUse("save", [str(target)], "hi\n"))
