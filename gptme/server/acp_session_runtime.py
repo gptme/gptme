@@ -384,9 +384,27 @@ class AcpSessionRuntime:
 
     # -- lifecycle ----------------------------------------------------------
 
+    def _release_unstarted(self) -> None:
+        """Stop the dedicated loop if start never produced a usable session.
+
+        ``start()`` starts the loop before client entry. A discarded runtime
+        whose entry failed would otherwise leak that daemon thread (and any
+        child that entry spawned before raising).
+        """
+        if self._session_id is not None:
+            return
+        if self._client is not None:
+            self.terminate_subprocess_sync(graceful=False)
+        else:
+            self._stop_loop()
+
     async def start(self) -> None:
         """Start ACP subprocess and create ACP session if not already started."""
-        await self._run_on_loop(self._start_impl)
+        try:
+            await self._run_on_loop(self._start_impl)
+        except BaseException:
+            self._release_unstarted()
+            raise
 
     async def _start_impl(self) -> None:
         if self._client is not None and self._session_id is not None:
@@ -400,32 +418,39 @@ class AcpSessionRuntime:
             auto_confirm=self.auto_confirm,
             on_update=self._on_update,
         )
-        await client.__aenter__()
         try:
+            await client.__aenter__()
             session_id = await client.new_session(cwd=self.workspace)
-        except Exception:
-            await client.__aexit__(None, None, None)
+            if self.model:
+                try:
+                    await client.set_session_model(
+                        session_id=session_id, model_id=self.model
+                    )
+                except NotImplementedError:
+                    logger.debug(
+                        "ACP client does not support set_session_model; "
+                        "falling back to ACP-side model resolution"
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to set ACP session model %s for session %s",
+                        self.model,
+                        session_id,
+                    )
+                    raise
+        except BaseException:
+            # Close a partially started client so a discarded runtime cannot
+            # leak a child that __aenter__ spawned before raising.
+            try:
+                await client.__aexit__(None, None, None)
+            except Exception:
+                logger.debug(
+                    "ACP client cleanup after failed start",
+                    exc_info=True,
+                )
             raise
         self._client = client
         self._session_id = session_id
-        if self.model:
-            try:
-                await client.set_session_model(
-                    session_id=session_id, model_id=self.model
-                )
-            except NotImplementedError:
-                logger.debug(
-                    "ACP client does not support set_session_model; "
-                    "falling back to ACP-side model resolution"
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to set ACP session model %s for session %s",
-                    self.model,
-                    session_id,
-                )
-                await client.__aexit__(None, None, None)
-                raise
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",
             self.command,
@@ -444,7 +469,13 @@ class AcpSessionRuntime:
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
-        return await self._run_on_loop(self._prompt_impl, message, max_tokens)
+        try:
+            return await self._run_on_loop(self._prompt_impl, message, max_tokens)
+        except BaseException:
+            # Lazy start goes through this path too; a failed entry must not
+            # leak the dedicated loop of a runtime that never became ready.
+            self._release_unstarted()
+            raise
 
     async def _prompt_impl(
         self, message: str, max_tokens: int | None
@@ -590,6 +621,17 @@ class AcpSessionRuntime:
         if self._client is not None:
             try:
                 await self._run_on_loop(self._close_impl)
+            except asyncio.CancelledError:
+                # Caller cancellation is a BaseException, so the Exception
+                # handler below would skip the process-signalling fallback
+                # while ``finally`` still stops the loop. A child that ignores
+                # SIGTERM can survive that interrupted graceful close.
+                logger.debug(
+                    "ACP close cancelled; terminating subprocess",
+                    exc_info=True,
+                )
+                self.terminate_subprocess_sync(graceful=False)
+                raise
             except Exception:
                 # The transport could not be closed cleanly (its loop is gone,
                 # or __aexit__ raised). Signal the subprocess synchronously so
