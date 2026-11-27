@@ -753,7 +753,7 @@ docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</spa
 under test as much as the model is. Docker gives process isolation; it does not
 by itself constrain which files the code can read, which hosts it can reach, or
 which credentials it can exfiltrate.</p>
-<p><a class="reference external" href="https://github.com/NVIDIA/OpenShell">NVIDIA OpenShell</a> is an optional
+<p><a class="reference external" href="https://github.com/ai-openshell/openshell">NVIDIA OpenShell</a> is an optional
 alternative runtime for that: agents run under kernel-enforced policy
 (Landlock for filesystem access, seccomp for network), network egress is
 mediated by a supervisor, and credentials are injected only for approved
@@ -774,8 +774,8 @@ environment. The Anthropic key is declared once as a provider profile and the
 supervisor injects it, as <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>, only for the endpoints that
 profile allows (<code class="docutils literal notranslate"><span class="pre">api.anthropic.com</span></code>).</p>
 <p>The profile is not part of this repository: OpenShell keeps a set of reviewable
-example profiles — <a class="reference external" href="https://github.com/NVIDIA/OpenShell/blob/main/providers/anthropic.yaml">providers/anthropic.yaml</a>
-among them — in <a class="reference external" href="https://github.com/NVIDIA/OpenShell/tree/main/providers">its repository</a>. These examples are
+example profiles — <a class="reference external" href="https://github.com/ai-openshell/openshell/blob/main/providers/anthropic.yaml">providers/anthropic.yaml</a>
+among them — in <a class="reference external" href="https://github.com/ai-openshell/openshell/tree/main/providers">its repository</a>. These examples are
 not compiled into the gateway: a gateway serves exactly the profiles an operator
 imported, so a new one starts with an empty catalog. A profile’s <code class="docutils literal notranslate"><span class="pre">binaries</span></code>
 list is the least-privilege control deciding which processes may reach its

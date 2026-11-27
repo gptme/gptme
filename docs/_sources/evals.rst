@@ -68,7 +68,7 @@ under test as much as the model is. Docker gives process isolation; it does not
 by itself constrain which files the code can read, which hosts it can reach, or
 which credentials it can exfiltrate.
 
-`NVIDIA OpenShell <https://github.com/NVIDIA/OpenShell>`_ is an optional
+`NVIDIA OpenShell <https://github.com/ai-openshell/openshell>`_ is an optional
 alternative runtime for that: agents run under kernel-enforced policy
 (Landlock for filesystem access, seccomp for network), network egress is
 mediated by a supervisor, and credentials are injected only for approved
@@ -93,9 +93,9 @@ profile allows (``api.anthropic.com``).
 
 The profile is not part of this repository: OpenShell keeps a set of reviewable
 example profiles — `providers/anthropic.yaml
-<https://github.com/NVIDIA/OpenShell/blob/main/providers/anthropic.yaml>`_
+<https://github.com/ai-openshell/openshell/blob/main/providers/anthropic.yaml>`_
 among them — in `its repository
-<https://github.com/NVIDIA/OpenShell/tree/main/providers>`_. These examples are
+<https://github.com/ai-openshell/openshell/tree/main/providers>`_. These examples are
 not compiled into the gateway: a gateway serves exactly the profiles an operator
 imported, so a new one starts with an empty catalog. A profile's ``binaries``
 list is the least-privilege control deciding which processes may reach its
