@@ -597,6 +597,15 @@ def init_tools(
                 continue
             matched_available = matching_allowlist_tools(tool_name, available_tools)
             if matched_available:
+                if is_read_only_session() and all(
+                    tool.name in _READ_ONLY_DENIED_TOOLS for tool in matched_available
+                ):
+                    # Deliberately dropped by restrict_tools_for_read_only, e.g. a
+                    # resumed conversation whose stored tools name ``append``.
+                    logger.info(
+                        "Tool '%s' is not loaded in a read-only session.", tool_name
+                    )
+                    continue
                 if any(tool.is_available for tool in matched_available):
                     raise ValueError(
                         f"Tool '{tool_name}' matched available tools that should "

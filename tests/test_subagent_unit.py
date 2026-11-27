@@ -8241,6 +8241,21 @@ class TestProfileToolResolution:
         chats = next(t for t in get_tools() if t.name == "chats")
         assert "send_peer_message" not in {f.fn.__name__ for f in chats.functions or []}
 
+    def test_init_tools_read_only_skips_denied_tools_in_allowlist(self):
+        """A stored allowlist naming write tools loads without them, not an error.
+
+        A resumed conversation persists its tool list, which can name ``append``
+        or ``shell``; the read-only restriction drops those on purpose.
+        """
+        from gptme.tools import clear_tools, init_tools
+
+        clear_tools()
+        tools = init_tools(["read", "append", "shell", "chats"], read_only=True)
+        names = {t.name for t in tools}
+        assert {"read", "chats"} <= names
+        assert not names & {"append", "shell"}
+        clear_tools()
+
     @pytest.mark.parametrize("explicit_false", [False, True])
     def test_read_only_survives_tool_reinitialization(
         self, explicit_false: bool, tmp_path: Path
