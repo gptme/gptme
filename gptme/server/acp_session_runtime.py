@@ -418,6 +418,10 @@ class AcpSessionRuntime:
             auto_confirm=self.auto_confirm,
             on_update=self._on_update,
         )
+        # Keep the handle reachable before entry finishes: __aenter__ can spawn
+        # then raise, and later setup (set_session_model) can fail after a live
+        # child exists. start()'s _release_unstarted() uses this to SIGKILL.
+        self._client = client
         try:
             await client.__aenter__()
             session_id = await client.new_session(cwd=self.workspace)
@@ -448,8 +452,12 @@ class AcpSessionRuntime:
                     "ACP client cleanup after failed start",
                     exc_info=True,
                 )
+                # Leave self._client set so _release_unstarted can still find
+                # and kill the child. A context manager cannot be exited twice.
+            else:
+                self._client = None
+                self._session_id = None
             raise
-        self._client = client
         self._session_id = session_id
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",

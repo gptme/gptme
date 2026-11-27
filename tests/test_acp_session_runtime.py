@@ -1586,6 +1586,41 @@ def test_start_entry_failure_stops_loop_and_leaves_no_child(monkeypatch, tmp_pat
     assert not loop_thread.is_alive()
 
 
+@pytest.mark.timeout(15)
+def test_failed_start_keeps_child_when_cleanup_raises(monkeypatch, tmp_path):
+    """A raising __aexit__ after failed setup must not drop the child handle."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingSetupClient(_DummyClient):
+        _process = object()
+
+        async def set_session_model(self, session_id: str, model_id: str) -> None:
+            raise RuntimeError("model rejected")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise OSError("broken transport")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingSetupClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, model="openai/gpt-4o-mini")
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+
+    with pytest.raises(RuntimeError, match="model rejected"):
+        _run(runtime.start())
+
+    assert fallback == [_FailingSetupClient._process]
+    assert runtime._client is None
+    assert runtime.session_id is None
+    assert runtime._loop_thread is None
+    assert loop_thread is not None and not loop_thread.is_alive()
+
+
 @pytest.mark.skipif(
     sys.platform == "win32", reason="needs POSIX signals and os.WNOHANG"
 )
