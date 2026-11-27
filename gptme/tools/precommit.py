@@ -136,7 +136,9 @@ def _checks_enabled(runner: str | None, config_path: Path | None) -> bool:
         # Never prompt here: this runs from an automatic post-edit hook, where a
         # stdin read would hang a server or non-interactive session. Startup
         # asks once (trust.approve_precommit_config).
-        enabled = check_precommit_trust(config_path, workspace, prompt=False)
+        # Key on the config's directory, the same key startup approval uses;
+        # ``current_workspace()`` can differ (nested cwd, symlink, subagent).
+        enabled = check_precommit_trust(config_path, config_path.parent, prompt=False)
         if not enabled:
             logger.info(
                 "Pre-commit config %s is not approved for %s; skipping automatic "

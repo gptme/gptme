@@ -153,7 +153,9 @@ class TestUseChecks:
         ):
             assert use_checks() is False
             trust._session_decisions.clear()
-            trust._record(trust.precommit_trust_hash(cfg), True, sub)
+            # Approval is keyed on the config's directory, not the cwd: the
+            # hook may run from a nested or symlinked workspace.
+            trust._record(trust.precommit_trust_hash(cfg), True, cfg.parent)
             assert use_checks() is True
             # Changing the hooks needs a fresh approval.
             cfg.write_text("repos: [{repo: local, hooks: [{id: x, entry: evil}]}]")

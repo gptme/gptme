@@ -687,3 +687,33 @@ def test_approve_precommit_config_prompts_once_at_startup(
     assert check_precommit_trust(cfg, ws, prompt=False) is True
     assert trust_mod.approve_precommit_config(interactive=True) is True
     assert len(prompts) == 1
+
+
+def test_precommit_approval_survives_a_nested_workspace_scope(
+    tmp_path, monkeypatch, fake_tty
+):
+    """The hook may run from a nested cwd; the approval is keyed on the config dir."""
+    ws = tmp_path / "repo"
+    _write_precommit_config(ws)
+    nested = ws / "pkg"
+    nested.mkdir()
+    _set_precommit_workspace(monkeypatch, tmp_path, ws)
+    monkeypatch.setattr(trust_mod, "_prompt_user", lambda *a, **k: True)
+    assert trust_mod.approve_precommit_config(interactive=True, workspace=ws) is True
+    cfg = ws / ".pre-commit-config.yaml"
+    assert check_precommit_trust(cfg, nested, prompt=False) is False
+    assert check_precommit_trust(cfg, cfg.parent, prompt=False) is True
+
+
+def test_merge_preserves_withheld_source_pointer(tmp_path, monkeypatch):
+    """``merge`` must not make a withheld config look like its own full config."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    ws = tmp_path / "repo"
+    _write_project(
+        ws, '[mcp]\nenabled = true\n\n[[mcp.servers]]\nname = "x"\ncommand = "sh"\n'
+    )
+    withheld = _load(ws)
+    assert withheld.mcp is None
+    merged = ProjectConfig().merge(withheld)
+    assert merged.mcp is None
+    assert trust_mod.trust_source(merged).mcp is not None

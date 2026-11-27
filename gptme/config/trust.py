@@ -542,9 +542,13 @@ def approve_precommit_config(
     if config_path is None:
         return False
 
+    # Key on the config's own directory: the post-edit hook may run from a
+    # nested or symlinked cwd, and a different workspace key would miss the
+    # approval recorded here.
+    trust_workspace = config_path.parent
     can_prompt = bool(interactive) and not server and sys.stdin.isatty()
     if not can_prompt:
-        approved = check_precommit_trust(config_path, workspace, prompt=False)
+        approved = check_precommit_trust(config_path, trust_workspace, prompt=False)
         if not approved:
             logger.warning(
                 "Repository pre-commit hooks in %s are not approved; skipping them "
@@ -554,7 +558,9 @@ def approve_precommit_config(
                 "server" if server else "non-interactive",
             )
         return approved
-    return check_precommit_trust(config_path, workspace, interactive=True, prompt=True)
+    return check_precommit_trust(
+        config_path, trust_workspace, interactive=True, prompt=True
+    )
 
 
 def check_precommit_trust(
