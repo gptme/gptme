@@ -4466,16 +4466,17 @@ def _subprocess_tools_value(tmp_path, **kwargs) -> str:
 
 
 def test_subprocess_profile_filtered_by_parent_allowlist(tmp_path):
-    """Subprocess --tools must not carry profile tools the parent excluded."""
+    """Subprocess --tools must honor both parent and read-only profile limits."""
     value = _subprocess_tools_value(
         tmp_path,
         profile="verifier",
-        parent_tool_allowlist=["ipython", "subagent", "complete"],
+        parent_tool_allowlist=["ipython", "chats", "subagent", "complete"],
     )
     tools = value.split(",")
     assert "shell" not in tools
     assert "read" not in tools
-    assert "ipython" in tools
+    assert "ipython" not in tools
+    assert "chats" in tools
     assert {"complete", "clarify", "progress", "yield"} <= set(tools)
 
 
