@@ -99,6 +99,20 @@ class _LoopCalls:
         with self.lock:
             self.futures.discard(fut)
 
+    async def run(
+        self,
+        func: Callable[..., Coroutine[Any, Any, _T]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        # Submission can precede shutdown while execution follows it. Check on
+        # the owning loop before constructing/starting the actual client call;
+        # cancelling its cross-thread future alone does not prevent execution.
+        with self.lock:
+            if self.closed:
+                raise ConnectionError("ACP runtime is shutting down")
+        return await func(*args, **kwargs)
+
 
 def _terminate_asyncio_process_sync(proc: Any, timeout: float) -> None:
     """SIGTERM then SIGKILL a process whose event loop is unavailable.
@@ -337,8 +351,8 @@ class AcpSessionRuntime:
         except RuntimeError:  # pragma: no cover - always called from a coroutine
             current = None
         if current is loop:
-            return await func(*args, **kwargs)
-        coro = func(*args, **kwargs)
+            return await calls.run(func, *args, **kwargs)
+        coro = calls.run(func, *args, **kwargs)
         with calls.lock:
             if calls.closed:
                 coro.close()
@@ -551,7 +565,7 @@ class AcpSessionRuntime:
             with calls.lock:
                 if calls.closed:
                     return False
-                coro = self._close_impl()
+                coro = calls.run(self._close_impl)
                 try:
                     fut = asyncio.run_coroutine_threadsafe(coro, loop)
                 except RuntimeError:

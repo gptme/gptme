@@ -1339,8 +1339,9 @@ def test_call_on_stopped_loop_raises_instead_of_hanging(tmp_path):
 
 @pytest.mark.timeout(20)
 @pytest.mark.parametrize("sync_close", [False, True])
+@pytest.mark.parametrize("resume_before_cancel", [False, True])
 def test_stop_loop_releases_queued_call_before_loop_thread_exits(
-    monkeypatch, tmp_path, sync_close
+    monkeypatch, tmp_path, sync_close, resume_before_cancel
 ):
     """A blocked transport callback must not keep a queued caller waiting."""
     import gptme.server.acp_session_runtime as mod
@@ -1355,6 +1356,7 @@ def test_stop_loop_releases_queued_call_before_loop_thread_exits(
     ran = threading.Event()
     errors: list[BaseException] = []
     submit = asyncio.run_coroutine_threadsafe
+    drained = threading.Event()
 
     def block_loop() -> None:
         blocked.set()
@@ -1362,11 +1364,25 @@ def test_stop_loop_releases_queued_call_before_loop_thread_exits(
 
     def track_submit(coro, target_loop):
         future = submit(coro, target_loop)
+        cancel = future.cancel
+
+        def cancel_after_loop_resumes():
+            # Force the loop to resume after admission closes but before the
+            # concurrent future's cancellation reaches its queued task.
+            release.set()
+            loop.call_soon_threadsafe(loop.call_soon, drained.set)
+            assert drained.wait(5)
+            return cancel()
+
+        if resume_before_cancel:
+            monkeypatch.setattr(future, "cancel", cancel_after_loop_resumes)
         submitted.set()
         return future
 
     async def work() -> None:
         ran.set()
+
+    monkeypatch.setattr(runtime, "_close_impl", work)
 
     def caller() -> None:
         try:
@@ -1389,7 +1405,8 @@ def test_stop_loop_releases_queued_call_before_loop_thread_exits(
         assert submitted.wait(5)
         runtime._stop_loop(join_timeout=0)
         assert completed.wait(2), "Caller waits for the blocked runtime thread to exit"
-        assert loop_thread is not None and loop_thread.is_alive()
+        if not resume_before_cancel:
+            assert loop_thread is not None and loop_thread.is_alive()
         assert len(errors) == 1 and isinstance(errors[0], ConnectionError)
         assert not ran.is_set()
     finally:
@@ -1398,6 +1415,8 @@ def test_stop_loop_releases_queued_call_before_loop_thread_exits(
         if loop_thread is not None:
             loop_thread.join(5)
         runtime._stop_loop()
+    assert loop_thread is not None and not loop_thread.is_alive()
+    assert not ran.is_set(), "Rejected work ran after the runtime loop resumed"
 
 
 def test_runtime_call_from_own_loop(monkeypatch, tmp_path):
