@@ -571,6 +571,9 @@ def cleanup_shell_after():
     This is critical for CI where orphaned bash processes can cause
     the test runner to hang during cleanup (Issue #910).
     """
+    from gptme.util.workspace import _sandbox_root
+
+    sandbox_token = _sandbox_root.set(None)
     yield
     # Close shell if it exists (using ContextVar API)
     shell = shell_module._shell_var.get()
@@ -588,6 +591,7 @@ def cleanup_shell_after():
     # synchronously in one thread/context, so a bare `ContextVar.set()` with
     # no matching `.reset()` persists past the test that made it.
     shell_module._workspace_cwd.set(None)
+    _sandbox_root.reset(sandbox_token)
 
 
 @pytest.fixture(autouse=True)

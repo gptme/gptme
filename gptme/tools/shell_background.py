@@ -30,7 +30,7 @@ from typing import Any, Literal, cast
 from ..hooks._policy_block import policy_block_message
 from ..hooks.types import StopPropagation
 from ..message import Message
-from ..sandbox import apply_memory_limit
+from ..sandbox import apply_memory_limit, sandbox_shell_cmd
 from ..util.context import md_codeblock
 from ..util.output_storage import (
     TOOL_OUTPUTS_DIRNAME,
@@ -1917,12 +1917,18 @@ def start_background_job(
     # A server conversation's job starts in its live session cwd (following the
     # foreground shell's ``cd``), not the host process cwd. CLI sessions have no
     # session workspace and keep inheriting the process cwd.
+    cwd = get_workspace_cwd()
+    # Same sandbox and scrubbed env as the foreground shell. The bind root is
+    # the pinned session workspace, never ``cwd``: binding the live cwd lets
+    # ``cd /home`` widen the sandbox to the host's real /home.
+    shell_cmd, env = sandbox_shell_cmd(shell_cmd)
     process = subprocess.Popen(
         shell_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
-        cwd=get_workspace_cwd(),
+        cwd=cwd,
+        env=env,
         **popen_kwargs,
     )
     # A subprocess subagent's parent records the group so it can force the
@@ -2357,7 +2363,9 @@ def execute_bg_command(
 
     try:
         job = start_background_job(command, memory_limit=memory_limit)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
+        # RuntimeError: the configured sandbox backend is unavailable. Report it
+        # like any other spawn failure instead of letting it escape the tool.
         yield Message("system", f"Error: Failed to start background job: {exc}")
         return
     yield Message(

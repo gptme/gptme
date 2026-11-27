@@ -44,6 +44,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .util.workspace import get_sandbox_root
+
 logger = logging.getLogger(__name__)
 
 # Environment variables that are safe to pass into the sandbox.
@@ -179,6 +181,59 @@ def wrap_shell_cmd(config: SandboxConfig, cmd: list[str]) -> list[str]:
     if config.backend == "bwrap":
         return _bwrap_cmd(config, cmd)
     return cmd
+
+
+def sandbox_enabled_from_env() -> bool:
+    """Whether ``GPTME_SANDBOX`` names an enabled backend.
+
+    Reads only that one variable: availability probes (``gptme --help``, the
+    tool listing) must not fail on unrelated settings, e.g. a malformed
+    ``GPTME_SANDBOX_TIMEOUT``.
+    """
+    return os.environ.get("GPTME_SANDBOX", "none").strip().lower() not in (
+        "",
+        "none",
+    )
+
+
+def sandbox_shell_cmd(
+    cmd: list[str], workspace: Path | None = None
+) -> tuple[list[str], dict[str, str] | None]:
+    """Apply GPTME_SANDBOX to a shell launch: return (argv, env) for Popen.
+
+    Every shell entry point (the persistent shell and background jobs) must
+    go through this so none of them escapes the configured sandbox.
+    Raises RuntimeError when the requested backend is unavailable.
+    ``env`` is None when the sandbox is off (inherit os.environ).
+
+    ``workspace`` defaults to :func:`gptme.util.workspace.get_sandbox_root` —
+    the session's initial workspace, *not* the caller's live cwd. Binding the
+    live cwd would let ``cd /home`` widen the bind to the host's real /home.
+    """
+    sandbox = SandboxConfig.from_env(
+        workspace=Path(workspace).resolve() if workspace else get_sandbox_root()
+    )
+    if sandbox.enabled:
+        available, msg = sandbox.check_available()
+        if not available:
+            raise RuntimeError(
+                f"GPTME_SANDBOX={sandbox.backend!r} was requested but the"
+                f" backend is not available: {msg}. Either install the"
+                f" sandbox tool or unset GPTME_SANDBOX."
+            )
+        if sandbox.backend in ("docker", "wasmtime"):
+            # These backends isolate the Python tool only; shell commands
+            # still run on the host, with just the environment scrubbed.
+            logger.warning(
+                "GPTME_SANDBOX=%s does not isolate shell commands: they run on"
+                " the host with a scrubbed environment. Use bwrap or firejail"
+                " to sandbox the shell.",
+                sandbox.backend,
+            )
+        else:
+            cmd = wrap_shell_cmd(sandbox, cmd)
+            logger.info("Sandboxed shell: %s", " ".join(cmd))
+    return cmd, build_env(sandbox)
 
 
 def _parse_size(value: str) -> int:
