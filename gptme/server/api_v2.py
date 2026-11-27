@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from base64 import b64encode
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 from dataclasses import asdict, replace
@@ -88,8 +89,12 @@ from ..util.content import is_message_command
 from ..util.uri import URI, FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
+    _MCP_SECRET_KEY_RE,
+    _REDACT_SENTINEL,
     _abs_to_rel_workspace,
     _default_conversation_tools,
+    _redact_conversation_config,
+    _redact_mcp_secret_values,
     _resolve_requested_tools,
     _tools_unset,
     _validate_branch,
@@ -523,9 +528,6 @@ def _validate_api_key_input(api_key: str) -> str:
     return trimmed
 
 
-# Sentinel substituted for secret values in GET /config-file responses.
-_REDACT_SENTINEL = "***"
-
 # Matches TOML section headers: [section] or [section.subsection]
 _SECTION_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]")
 
@@ -642,21 +644,13 @@ def _read_user_config_file_text() -> str:
     return config_file.read_text()
 
 
-# env/header keys whose values are secrets in the structured MCP endpoint.
-_MCP_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|secret|password|token|auth)")
-
 # Serialises atomic read-modify-write of the user config file.
 _config_write_lock = threading.Lock()
 
 
 def _mcp_config_response(mcp: MCPConfig) -> dict:
     """Serialize ``[mcp]`` for the API, redacting secret env/header values."""
-
-    def _redact(values: dict) -> dict:
-        return {
-            k: _REDACT_SENTINEL if _MCP_SECRET_KEY_RE.search(str(k)) else v
-            for k, v in values.items()
-        }
+    _redact = _redact_mcp_secret_values
 
     return {
         "enabled": mcp.enabled,
@@ -667,6 +661,184 @@ def _mcp_config_response(mcp: MCPConfig) -> dict:
         ],
         "path": get_user_config_runtime_info()["config_path"],
     }
+
+
+def _mcp_server_signature(server: dict | object) -> tuple:
+    """Content identity of an MCP server, ignoring enabled and secret values.
+
+    Secret key names are retained, but not their values. The enabled flag is
+    mutable without changing the credential destination, so it must not select
+    a different saved server. Otherwise-identical entries keep relative order.
+    """
+
+    def get(field_name: str, default):
+        if isinstance(server, dict):
+            return server.get(field_name, default)
+        return getattr(server, field_name, default)
+
+    def public_values(values) -> tuple:
+        if not isinstance(values, dict):
+            return ()
+        return tuple(
+            sorted(
+                (
+                    str(key),
+                    _REDACT_SENTINEL
+                    if _MCP_SECRET_KEY_RE.search(str(key))
+                    else str(value),
+                )
+                for key, value in values.items()
+            )
+        )
+
+    args = get("args", [])
+    return (
+        get("command", "") or "",
+        tuple(args) if isinstance(args, list) else (),
+        get("url", "") or "",
+        get("transport", "") or "",
+        public_values(get("env", {})),
+        public_values(get("headers", {})),
+    )
+
+
+def _has_redacted_mcp_secret(server: dict) -> bool:
+    """Whether a body server still relies on ``***`` values for secret keys."""
+
+    for field_name in ("env", "headers"):
+        values = server.get(field_name)
+        if not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            if value == _REDACT_SENTINEL and _MCP_SECRET_KEY_RE.search(str(key)):
+                return True
+    return False
+
+
+def _match_saved_mcp_server(
+    body_server: dict,
+    matches: list,
+    body_group: list[dict],
+    masked_ids: set[int],
+):
+    """Pair duplicate-name entries one-to-one using their public settings.
+
+    Only rows relying on ``***`` need a saved entry, and each public signature
+    must have exactly as many of those rows as saved entries. Rows sharing a
+    signature then keep their relative order, as in an unchanged redacted echo.
+    Anything else is ambiguous and rejected rather than guessed, including an
+    identical row that supplies its own secret: it may have rotated or replaced
+    any of the saved entries.
+    """
+    if len(matches) <= 1:
+        return matches[0] if matches else None
+    signature = _mcp_server_signature(body_server)
+    same = [srv for srv in matches if _mcp_server_signature(srv) == signature]
+    peers = [
+        srv
+        for srv in body_group
+        if id(srv) in masked_ids and _mcp_server_signature(srv) == signature
+    ]
+    if len(same) != len(peers):
+        raise ValueError(
+            f"{body_server.get('name', '')}: redacted secrets cannot be matched "
+            "unambiguously after editing duplicate-name MCP servers; send the real value"
+        )
+    for peer, saved in zip(peers, same):
+        if peer is body_server:
+            return saved
+    return None
+
+
+def _changes_mcp_secret(body_server: dict, saved) -> bool:
+    """Whether a body server sends a new value for any secret-looking key.
+
+    ``_mcp_server_signature`` ignores these values, but a key such as
+    ``AUTH_URL`` looks secret while configuring the destination.
+    """
+    for field_name in ("env", "headers"):
+        values = body_server.get(field_name)
+        if not isinstance(values, dict):
+            continue
+        original = getattr(saved, field_name) or {}
+        for key, value in values.items():
+            if _MCP_SECRET_KEY_RE.search(str(key)) and value not in (
+                _REDACT_SENTINEL,
+                original.get(key),
+            ):
+                return True
+    return False
+
+
+def _restore_conversation_mcp_secrets(
+    body: dict, load_stored: Callable[[], MCPConfig | None]
+) -> None:
+    """Swap redacted ``***`` MCP secrets in a config PATCH body for stored values.
+
+    Clients echo the redacted config back on save; writing the sentinel would
+    replace the real secret. A body server matches the saved server with the
+    same name; several saved servers sharing a name are paired as described in
+    ``_match_saved_mcp_server``. A secret is only kept when command, args, url,
+    transport, env/header keys and every other env/header value (secret-looking
+    ones included) are unchanged, since any of them can configure the
+    destination. Toggling enabled is allowed. ``load_stored`` is called at most
+    once, and only when a redacted value needs restoring. Raises ValueError when
+    a redacted secret has no unambiguous stored value to keep.
+    """
+    mcp = body.get("mcp")
+    if not isinstance(mcp, dict) or not isinstance(mcp.get("servers"), list):
+        return
+    body_servers = [srv for srv in mcp["servers"] if isinstance(srv, dict)]
+    # Snapshot before restoring, so already-restored rows still count as masked.
+    masked_ids = {id(srv) for srv in body_servers if _has_redacted_mcp_secret(srv)}
+    body_name_counts: dict[str, int] = {}
+    for srv in body_servers:
+        name = str(srv.get("name", ""))
+        body_name_counts[name] = body_name_counts.get(name, 0) + 1
+    stored_servers: list | None = None
+    for srv in body_servers:
+        name = str(srv.get("name", ""))
+        for field_name in ("env", "headers"):
+            values = srv.get(field_name)
+            if not isinstance(values, dict):
+                continue
+            for key, value in values.items():
+                if value != _REDACT_SENTINEL or not _MCP_SECRET_KEY_RE.search(str(key)):
+                    continue
+                if stored_servers is None:
+                    stored = load_stored()
+                    stored_servers = list(stored.servers) if stored else []
+                matches = [s for s in stored_servers if s.name == name]
+                if len(matches) > 1 and len(matches) != body_name_counts[name]:
+                    raise ValueError(
+                        f"{name}: {field_name}.{key} is redacted but several saved "
+                        "MCP servers share this name and the request changes how "
+                        "many there are; send the real value"
+                    )
+                args = srv.get("args", [])
+                if not isinstance(args, list) or not all(
+                    isinstance(a, str) for a in args
+                ):
+                    raise ValueError(f"{name}: args must be a list of strings")
+                body_group = [s for s in body_servers if str(s.get("name", "")) == name]
+                saved = _match_saved_mcp_server(srv, matches, body_group, masked_ids)
+                original = getattr(saved, field_name, None) if saved else None
+                if saved is None or not original or key not in original:
+                    raise ValueError(
+                        f"{name}: {field_name}.{key} is redacted but has no "
+                        "saved value to keep; send the real value"
+                    )
+                # Env/header settings can redirect a stdio server just as
+                # changing an HTTP URL can.
+                if _mcp_server_signature(srv) != _mcp_server_signature(
+                    saved
+                ) or _changes_mcp_secret(srv, saved):
+                    raise ValueError(
+                        f"{name}: {field_name}.{key} is redacted but the server's "
+                        "command, args, url, transport or env/headers (other "
+                        "secrets included) changed; send every real value"
+                    )
+                values[key] = original[key]
 
 
 def _parse_mcp_request(body: dict, current: MCPConfig) -> MCPConfig:
@@ -3022,7 +3194,11 @@ def api_commands():
 @require_auth
 @api_doc(
     summary="Get conversation config",
-    description="Return the stored chat config for a conversation.",
+    description=(
+        "Return the stored chat config for a conversation. Secret-looking MCP "
+        "env/header values are redacted as `***`; sending `***` back in a PATCH "
+        "keeps the stored value."
+    ),
     responses={200: ConversationConfigResponse, 404: ErrorResponse},
     tags=["conversations"],
 )
@@ -3036,7 +3212,7 @@ def api_conversation_config(conversation_id: str):
     chat_config_path = logdir / "config.toml"
     if chat_config_path.exists():
         chat_config = ChatConfig.from_logdir(logdir)
-        return flask.jsonify(chat_config.to_dict())
+        return flask.jsonify(_redact_conversation_config(chat_config.to_dict()))
     return (
         flask.jsonify({"error": f"Chat config not found: {conversation_id}"}),
         404,
@@ -3161,6 +3337,14 @@ def api_conversation_config_patch(conversation_id: str):
         # `elif _logdir and (_logdir / "workspace").exists()` branch).
         workspace_in_patch = isinstance(chat_patch, dict) and "workspace" in chat_patch
 
+        try:
+            _restore_conversation_mcp_secrets(
+                req_json,
+                lambda: ChatConfig.from_logdir(logdir, create_workspace=False).mcp,
+            )
+        except ValueError as exc:
+            return flask.jsonify({"error": str(exc)}), 400
+
         # Create and set config
         req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
         try:
@@ -3245,7 +3429,7 @@ def api_conversation_config_patch(conversation_id: str):
             {
                 "status": "ok",
                 "message": "Chat config updated",
-                "config": chat_config.to_dict(),
+                "config": _redact_conversation_config(chat_config.to_dict()),
                 "tools": [t.name for t in tools],
             }
         )

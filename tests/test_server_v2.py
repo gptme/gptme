@@ -6350,6 +6350,534 @@ def test_v2_config_patch_rebuild_uses_model_default_tool_format(
     assert prompt.call_args.kwargs["tool_format"] == "tool"
 
 
+_MCP_CONV_CONFIG_TOML = (
+    _MCP_CONFIG_TOML
+    + """
+[[mcp.servers]]
+name = "remote"
+enabled = true
+url = "https://mcp.example.com/mcp"
+headers = { Authorization = "Bearer hdr-real", X-Trace = "on" }
+"""
+)
+
+
+@pytest.fixture
+def mcp_conv_config_file(tmp_path, monkeypatch):
+    """User config with one stdio (env secret) and one HTTP (header secret) server."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(_MCP_CONV_CONFIG_TOML)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    return config_file
+
+
+def _assert_conv_mcp_redacted(config: dict) -> None:
+    servers = {srv["name"]: srv for srv in config["mcp"]["servers"]}
+    assert servers["search"]["env"] == {"SEARCH_API_KEY": "***", "REGION": "eu"}
+    assert servers["remote"]["headers"] == {"Authorization": "***", "X-Trace": "on"}
+    assert "sk-real" not in json.dumps(config)
+    assert "hdr-real" not in json.dumps(config)
+
+
+def test_v2_conversation_config_redacts_inherited_mcp_secrets(
+    client: FlaskClient, mcp_conv_config_file
+):
+    """Conversation config endpoints mask the MCP secrets the user endpoint masks.
+
+    A new conversation snapshots the user ``[mcp]`` servers into its own config.
+    GET and PATCH must not return those secrets (env or headers) in plaintext,
+    and echoing the redacted config back (as the webui does on save) must keep
+    the real values.
+    """
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    stored = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
+    assert stored.mcp is not None
+    assert stored.mcp.servers[0].env["SEARCH_API_KEY"] == "sk-real"
+    assert stored.mcp.servers[1].headers["Authorization"] == "Bearer hdr-real"
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}/config")
+    assert response.status_code == 200
+    data = response.get_json()
+    _assert_conv_mcp_redacted(data)
+
+    # Round-trip the redacted config with an unrelated change.
+    data["chat"]["name"] = "renamed"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    _assert_conv_mcp_redacted(response.get_json()["config"])
+    stored = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
+    assert stored.mcp is not None
+    assert stored.mcp.servers[0].env["SEARCH_API_KEY"] == "sk-real"
+    assert stored.mcp.servers[1].headers["Authorization"] == "Bearer hdr-real"
+
+
+@pytest.mark.parametrize(
+    ("server", "field", "value"),
+    [
+        ("remote", "url", "https://attacker.example.com/mcp"),
+        ("search", "command", "evil"),
+        ("search", "args", ["mcp-other"]),
+        (
+            "search",
+            "env",
+            {
+                "SEARCH_API_KEY": "***",
+                "REGION": "eu",
+                "OPENAI_BASE_URL": "https://attacker.example",
+            },
+        ),
+        ("search", "env", {"SEARCH_API_KEY": "***", "REGION": "us"}),
+        ("search", "env", {"SEARCH_API_KEY": "***"}),
+        (
+            "remote",
+            "headers",
+            {"Authorization": "***", "X-Trace": "changed"},
+        ),
+        ("remote", "transport", "sse"),
+    ],
+)
+def test_v2_conversation_config_patch_keeps_secret_only_for_same_destination(
+    client: FlaskClient, mcp_conv_config_file, server, field, value
+):
+    """A ``***`` secret is not restored onto a server whose endpoint changed."""
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    next(s for s in data["mcp"]["servers"] if s["name"] == server)[field] = value
+    before = ChatConfig.from_logdir(get_logs_dir() / conversation_id).mcp
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400
+    assert "changed" in response.get_json()["error"]
+    assert ChatConfig.from_logdir(get_logs_dir() / conversation_id).mcp == before
+
+
+def _save_duplicate_name_mcp_servers(conversation_id: str) -> Path:
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    logdir = get_logs_dir() / conversation_id
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(
+        enabled=True,
+        servers=[
+            MCPServerConfig(name="dup", command="uvx", env={"API_KEY": "first"}),
+            MCPServerConfig(name="dup", command="uvx", env={"API_KEY": "second"}),
+        ],
+    )
+    config.save()
+    return logdir
+
+
+def test_v2_conversation_config_patch_duplicate_server_names_keep_own_secrets(
+    client: FlaskClient,
+):
+    """Echoing a config with duplicate server names (a webui rename) keeps each
+    entry's own secret instead of swapping or rejecting.
+
+    Runtime lookups use the first server with a name, so restoring any other
+    entry's value onto it would swap the active credential.
+    """
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["chat"]["name"] = "renamed"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.name == "renamed"
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_v2_conversation_config_patch_rejects_mixed_identical_duplicates(
+    client: FlaskClient, reverse: bool
+):
+    """A ``***`` row next to an otherwise identical row with its own secret is
+    ambiguous: the new value may rotate the first entry in place, or replace it
+    while the second moves up. Reject rather than keep a secret by position.
+    """
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    servers[0]["env"]["API_KEY"] = "fresh"
+    if reverse:
+        # First entry removed, new row appended: the masked row is now first.
+        servers.reverse()
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400, response.get_json()
+    assert "unambiguously" in response.get_json()["error"]
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
+
+    # Sending every real value resolves the same edit.
+    for srv in servers:
+        if srv["env"]["API_KEY"] == "***":
+            srv["env"]["API_KEY"] = "second"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == (
+        ["second", "fresh"] if reverse else ["fresh", "second"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "routing_key"), [("env", "AUTH_URL"), ("headers", "X-Auth-Host")]
+)
+def test_v2_conversation_config_patch_keeps_secret_only_if_other_secrets_unchanged(
+    client: FlaskClient, field: str, routing_key: str
+):
+    """A secret-looking key can carry routing data (``AUTH_URL``): changing its
+    value must not keep the other masked secrets."""
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    original = {"API_KEY": "real-key", routing_key: "https://good.example"}
+    server = MCPServerConfig(name="routed", command="uvx")
+    setattr(server, field, dict(original))
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(enabled=True, servers=[server])
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    values = data["mcp"]["servers"][0][field]
+    assert values == {"API_KEY": "***", routing_key: "***"}
+    values[routing_key] = "https://attacker.example"
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400, response.get_json()
+    assert "changed" in response.get_json()["error"]
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert getattr(stored.mcp.servers[0], field) == original
+
+    # Re-sending a secret's stored value is not a change.
+    values[routing_key] = original[routing_key]
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert getattr(stored.mcp.servers[0], field) == original
+
+
+@pytest.mark.parametrize("toggle_both", [False, True])
+def test_v2_conversation_config_patch_toggle_duplicate_servers_keeps_secrets(
+    client: FlaskClient, toggle_both
+):
+    """Enabled flags must not select a different duplicate's credential."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+    config = ChatConfig.from_logdir(logdir)
+    assert config.mcp is not None
+    config.mcp.servers[1].enabled = False
+    config.save()
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    servers[1]["enabled"] = True
+    if toggle_both:
+        servers[0]["enabled"] = False
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [(s.enabled, s.env["API_KEY"]) for s in stored.mcp.servers] == [
+        (not toggle_both, "first"),
+        (True, "second"),
+    ]
+
+
+@pytest.mark.parametrize("credential_field", ["env", "headers"])
+@pytest.mark.parametrize("other_key", [None, "OTHER_TOKEN"])
+def test_v2_conversation_config_patch_duplicate_credential_keys_allow_rename(
+    client: FlaskClient, credential_field, other_key
+):
+    """Secret key names distinguish otherwise identical same-name servers."""
+    from gptme.config.models import MCPServerConfig
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+    config = ChatConfig.from_logdir(logdir)
+    assert config.mcp is not None
+    config.mcp.servers = [
+        MCPServerConfig(name="dup", command="uvx"),
+        MCPServerConfig(name="dup", command="uvx"),
+    ]
+    setattr(config.mcp.servers[0], credential_field, {"API_KEY": "first"})
+    setattr(
+        config.mcp.servers[1],
+        credential_field,
+        {other_key: "second"} if other_key else {},
+    )
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["chat"]["name"] = "renamed"
+    data["mcp"]["servers"].reverse()
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.name == "renamed"
+    assert stored.mcp is not None
+    assert [getattr(s, credential_field) for s in stored.mcp.servers] == [
+        {other_key: "second"} if other_key else {},
+        {"API_KEY": "first"},
+    ]
+
+
+def test_v2_conversation_config_patch_rejects_ambiguous_duplicate_server_names(
+    client: FlaskClient,
+):
+    """Dropping one of several same-name servers makes a ``***`` restore
+    ambiguous: reject it rather than guess which saved secret to keep."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = _save_duplicate_name_mcp_servers(conversation_id)
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    data["mcp"]["servers"] = data["mcp"]["servers"][1:]
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400
+    assert "share this name" in response.get_json()["error"]
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [s.env["API_KEY"] for s in stored.mcp.servers] == ["first", "second"]
+
+
+@pytest.mark.parametrize("changed_region", [None, "ca", "eu"])
+def test_v2_conversation_config_patch_reordered_duplicates_keep_own_secrets(
+    client: FlaskClient,
+    changed_region: str | None,
+):
+    """Reordering same-name servers pairs each secret with its own entry.
+
+    Two entries can share a name and destination yet differ in non-secret env
+    (here ``REGION``) and in their secret. Pairing by list position would hand
+    the runtime's first entry the other entry's credential when a client sends
+    them in a different order.
+    """
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(
+        enabled=True,
+        servers=[
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "eu", "API_KEY": "eu-key"},
+            ),
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "us", "API_KEY": "us-key"},
+            ),
+        ],
+    )
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    assert [s["env"]["REGION"] for s in servers] == ["eu", "us"]
+    assert all(s["env"]["API_KEY"] == "***" for s in servers)
+    servers.reverse()
+    if changed_region is not None:
+        servers[0]["env"]["REGION"] = changed_region
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    if changed_region is not None:
+        # Editing public settings can erase or collide with the only identity
+        # available in a redacted duplicate-name group. Never guess a secret.
+        assert response.status_code == 400, response.get_json()
+        stored = ChatConfig.from_logdir(logdir)
+        assert stored.mcp is not None
+        assert [(s.env["REGION"], s.env["API_KEY"]) for s in stored.mcp.servers] == [
+            ("eu", "eu-key"),
+            ("us", "us-key"),
+        ]
+        return
+    assert response.status_code == 200, response.get_json()
+
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [(s.env["REGION"], s.env["API_KEY"]) for s in stored.mcp.servers] == [
+        ("us", "us-key"),
+        ("eu", "eu-key"),
+    ]
+
+
+@pytest.mark.parametrize("args", [1, "mcp-search", [1]])
+def test_v2_conversation_config_patch_rejects_invalid_args_with_kept_secret(
+    client: FlaskClient, mcp_conv_config_file, args
+):
+    """Non-list ``args`` next to a kept secret is a 400, not a 500."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    next(s for s in data["mcp"]["servers"] if s["name"] == "search")["args"] = args
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 400
+    assert "args must be a list of strings" in response.get_json()["error"]
+
+
+def test_v2_conversation_config_patch_rejected_restore_creates_no_workspace(
+    client: FlaskClient,
+):
+    """Looking up stored secrets for a rejected PATCH must not create a workspace."""
+    import shutil
+
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    (logdir / "config.toml").unlink()
+    workspace = logdir / "workspace"
+    if workspace.is_symlink() or workspace.is_file():
+        workspace.unlink()
+    elif workspace.exists():
+        shutil.rmtree(workspace)
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={
+            "mcp": {
+                "enabled": True,
+                "servers": [{"name": "x", "command": "echo", "env": {"TOKEN": "***"}}],
+            }
+        },
+    )
+    assert response.status_code == 400
+    assert not workspace.exists()
+
+
+def test_v2_conversation_step_config_changed_event_redacts_mcp_secrets(
+    client: FlaskClient, mcp_conv_config_file
+):
+    """The model/effort ``config_changed`` event must not carry MCP secrets."""
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conv = create_conversation(client)
+    events: list[dict] = []
+    real_add_event = SessionManager.add_event
+
+    def capture(conversation_id, event):
+        events.append(event)
+        return real_add_event(conversation_id, event)
+
+    with (
+        unittest.mock.patch.object(SessionManager, "add_event", side_effect=capture),
+        # Report progress like a started worker so the route returns at once
+        # instead of waiting out its startup timeout.
+        unittest.mock.patch(
+            "gptme.server.api_v2_sessions._start_step_thread",
+            side_effect=lambda **kwargs: (
+                real_add_event(
+                    kwargs["conversation_id"],
+                    {"type": "generation_progress", "token": "test"},
+                )
+                or True
+            ),
+        ),
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": "openai/gpt-4o",
+                "stream": False,
+            },
+        )
+    assert response.status_code == 200, response.get_json()
+    [event] = [e for e in events if e["type"] == "config_changed"]
+    assert event["changed_fields"] == ["model"]
+    _assert_conv_mcp_redacted(event["config"])
+
+
+def test_auto_name_config_changed_event_redacts_mcp_secrets(
+    client: FlaskClient, mcp_conv_config_file
+):
+    """The auto-naming ``config_changed`` event must not carry MCP secrets."""
+    from gptme.dirs import get_logs_dir
+    from gptme.server import session_step
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    config = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
+    with (
+        unittest.mock.patch(
+            "gptme.util.auto_naming.try_auto_name", return_value="named"
+        ),
+        unittest.mock.patch.object(session_step.SessionManager, "add_event") as add,
+    ):
+        session_step._try_auto_name_and_notify(
+            config, [], "openai/gpt-4o", conversation_id
+        )
+    [(_, event), _kwargs] = add.call_args
+    assert event["type"] == "config_changed"
+    _assert_conv_mcp_redacted(event["config"])
+    # The live config object itself keeps the real secrets.
+    assert config.mcp is not None
+    assert config.mcp.servers[0].env["SEARCH_API_KEY"] == "sk-real"
+
+
+def test_v2_conversation_config_patch_rejects_redacted_secret_without_saved_value(
+    client: FlaskClient,
+):
+    """A ``***`` secret for a server with no saved value is rejected, not stored."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={
+            "mcp": {
+                "enabled": True,
+                "servers": [
+                    {"name": "new", "command": "echo", "env": {"NEW_TOKEN": "***"}}
+                ],
+            }
+        },
+    )
+    assert response.status_code == 400
+    assert "NEW_TOKEN is redacted" in response.get_json()["error"]
+
+
 def test_v2_chat_config_preserves_mcp_argv_and_null_tool_format(client: FlaskClient):
     """A config PATCH round-trips exact MCP argv and the absent tool format.
 
@@ -6427,3 +6955,58 @@ def test_v2_preparation_context_error_releases_session(
     assert not session.generating
     assert session.generating_since is None
     assert not session.checkpoint_needs_continuation
+
+
+def test_v2_conversation_config_patch_edit_colliding_duplicates_accepts_own_secret(
+    client: FlaskClient,
+):
+    """An edit that makes two duplicate-name servers look alike still succeeds
+    when the edited row supplies its own credential.
+
+    Only the unchanged row relies on a ``***`` placeholder, and the public
+    settings alone identify its saved entry, so rejecting the whole PATCH would
+    make a legitimate edit impossible.
+    """
+    from gptme.config.models import MCPServerConfig
+    from gptme.dirs import get_logs_dir
+
+    conversation_id = create_conversation(client)["conversation_id"]
+    logdir = get_logs_dir() / conversation_id
+    config = ChatConfig.from_logdir(logdir)
+    config.mcp = MCPConfig(
+        enabled=True,
+        servers=[
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "eu", "API_KEY": "eu-key"},
+            ),
+            MCPServerConfig(
+                name="dup",
+                command="uvx",
+                args=["mcp-search"],
+                env={"REGION": "us", "API_KEY": "us-key"},
+            ),
+        ],
+    )
+    config.save()
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    servers = data["mcp"]["servers"]
+    servers.reverse()
+    # The reordered US entry now collides with the EU entry's public settings,
+    # and the client supplies a fresh credential for it instead of a placeholder.
+    servers[0]["env"]["REGION"] = "eu"
+    servers[0]["env"]["API_KEY"] = "us-new"
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config", json=data
+    )
+    assert response.status_code == 200, response.get_json()
+    stored = ChatConfig.from_logdir(logdir)
+    assert stored.mcp is not None
+    assert [(s.env["REGION"], s.env["API_KEY"]) for s in stored.mcp.servers] == [
+        ("eu", "us-new"),
+        ("eu", "eu-key"),
+    ]

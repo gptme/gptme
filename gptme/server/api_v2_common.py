@@ -3,6 +3,7 @@ Common types and utilities for the gptme server API.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -17,6 +18,40 @@ _MAX_ID_LENGTH = 255  # Linux NAME_MAX: 255 UTF-8 bytes for a single path compon
 _BRANCH_SUFFIX_LEN = len(
     ".jsonl"
 )  # branches/{name}.jsonl on disk — suffix counts against NAME_MAX
+
+
+# Sentinel substituted for secret values in config API responses.
+_REDACT_SENTINEL = "***"
+
+# env/header keys whose values are secrets in MCP server configs.
+_MCP_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|secret|password|token|auth)")
+
+
+def _redact_mcp_secret_values(values: dict) -> dict:
+    """Replace secret-looking env/header values with the redaction sentinel."""
+    return {
+        k: _REDACT_SENTINEL if _MCP_SECRET_KEY_RE.search(str(k)) else v
+        for k, v in values.items()
+    }
+
+
+def _redact_conversation_config(config: dict) -> dict:
+    """Redact secret MCP env/header values in a ``ChatConfig.to_dict()`` result.
+
+    New conversations snapshot the user/project ``[mcp]`` servers into their
+    config, so without this the conversation config endpoints and
+    ``config_changed`` events would return the secrets that
+    ``GET /api/v2/user/config/mcp`` masks.
+    """
+    mcp = config.get("mcp")
+    if isinstance(mcp, dict):
+        for srv in mcp.get("servers") or []:
+            if not isinstance(srv, dict):
+                continue
+            for field_name in ("env", "headers"):
+                if isinstance(srv.get(field_name), dict):
+                    srv[field_name] = _redact_mcp_secret_values(srv[field_name])
+    return config
 
 
 def _validate_conversation_id(

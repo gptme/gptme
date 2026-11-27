@@ -25,7 +25,11 @@ from ..hooks.server_elicit import list_pending_events as list_pending_elicitatio
 from ..llm.models import get_default_model, get_model
 from ..logmanager import LogManager
 from ..message import Message
-from .api_v2_common import _validate_branch, _validate_conversation_id
+from .api_v2_common import (
+    _redact_conversation_config,
+    _validate_branch,
+    _validate_conversation_id,
+)
 
 # Log-safe rendering of client-controlled session ids: collapse anything
 # outside printable ASCII (control bytes, DEL, non-ASCII) and cap length so a
@@ -551,7 +555,7 @@ def api_conversation_step(conversation_id: str):
                 conversation_id,
                 {
                     "type": "config_changed",
-                    "config": chat_config.to_dict(),
+                    "config": _redact_conversation_config(chat_config.to_dict()),
                     "changed_fields": changed_fields,
                 },
             )
