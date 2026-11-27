@@ -83,20 +83,41 @@ _read_only_session_var: ContextVar[bool] = ContextVar(
     "read_only_session", default=False
 )
 
-# Functions that act on something other than the local workspace and must not
+# Functions that write caller-selected files or steer other agents must not
 # be reachable from a read-only profile. A peer message reaches a live agent
 # that may hold every tool, so a read-only subagent could steer it.
 _READ_ONLY_DENIED_FUNCTIONS: dict[str, frozenset[str]] = {
     "chats": frozenset({"send_peer_message"}),
+    "browser": frozenset({"save_browser_state", "screenshot_url", "pdf_to_images"}),
+    "rag": frozenset({"rag_index", "rag_index_conversations"}),
 }
 
-# Tools whose whole purpose is writing or executing arbitrary code. A read-only
-# profile must not load them: ``shell`` and ``ipython`` can write any file the
-# user can (including a parent session's ``prompt-queue.jsonl``), which defeats
+# Tools that write files, execute code, or delegate unrestricted capabilities.
+# Read-only profiles retain observation tools (including bounded screenshot
+# output), not a general OS sandbox against arbitrary custom/plugin code.
+# ``shell`` and ``ipython`` can write any file the user can (including a parent
+# session's ``prompt-queue.jsonl``), which defeats
 # the profile's stated contract even when the profile's own allowlist names
 # them. Per-function denials for otherwise-safe tools live above.
 _READ_ONLY_DENIED_TOOLS: frozenset[str] = frozenset(
-    {"save", "patch", "append", "shell", "ipython", "computer"}
+    {
+        "save",
+        "patch",
+        "append",
+        "shell",
+        "ipython",
+        "computer",
+        "tmux",
+        "hashline_edit",
+        "morph",
+        "patch_many",
+        "convert",
+        "memory",
+        "watch",
+        "subagent",
+        "gh",
+        "mcp",
+    }
 )
 
 # Note: Tools must be initialized in each context that needs them.
@@ -578,6 +599,8 @@ def init_tools(
         # (file_paths + no names = only file tools; file_paths + names = both)
         name_allowlist = tool_names if (tool_names or file_paths) else allowlist
         for tool in get_toolchain(name_allowlist, include_mcp=include_mcp):
+            if is_read_only_session() and tool.name in _READ_ONLY_DENIED_TOOLS:
+                continue
             if has_tool(tool.name):
                 continue
             tool = _init_single_tool(tool)
@@ -1271,9 +1294,13 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
     Thread-safe: uses _tools_init_lock to match init_tools() behavior.
 
     Raises:
-        ValueError: If tool not found or already loaded.
+        ValueError: If tool not found, already loaded, or denied by read-only policy.
     """
     with _tools_init_lock:
+        if is_read_only_session() and tool_name in _READ_ONLY_DENIED_TOOLS:
+            raise ValueError(
+                f"Tool '{tool_name}' is not allowed in a read-only session"
+            )
         if has_tool(tool_name):
             raise ValueError(f"Tool '{tool_name}' is already loaded")
 
@@ -1294,6 +1321,12 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             allowlist=allowlist,
             already_loaded={spec.name for spec in get_tools()},
         )
+        if is_read_only_session():
+            for spec in to_load:
+                if spec.name in _READ_ONLY_DENIED_TOOLS:
+                    raise ValueError(
+                        f"Tool '{spec.name}' is not allowed in a read-only session"
+                    )
         # Initialize the full closure before publishing any of it to the active
         # toolset.  A companion failure must not leave the requested tool loaded
         # without its dependency (or make a retry fail as "already loaded").
