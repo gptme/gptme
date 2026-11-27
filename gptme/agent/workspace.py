@@ -33,6 +33,7 @@ from gptme.config import (
 )
 from gptme.prompts import get_prompt
 
+from ..config.trust import trust_source
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
 from ..tools import get_toolchain
@@ -301,6 +302,16 @@ def create_workspace_structure(path: Path, agent_name: str) -> Path:
     return path
 
 
+def _config_for_rewrite(path: Path) -> ProjectConfig | None:
+    """The existing project config with nothing withheld, for writing it back.
+
+    ``get_project_config()`` strips unapproved settings; saving that copy would
+    delete them from the file. Do not use this to act on the settings.
+    """
+    config = get_project_config(path)
+    return trust_source(config) if config else None
+
+
 def write_agent_config(
     path: Path,
     agent_name: str,
@@ -324,7 +335,7 @@ def write_agent_config(
     config_path = path / "gptme.toml"
 
     # Get existing config or create new
-    existing_config = get_project_config(path)
+    existing_config = _config_for_rewrite(path)
 
     if project_config and existing_config:
         # Merge configs
@@ -590,7 +601,7 @@ def _merge_project_config(
             config_path.write_text(tomlkit.dumps(doc))
         return
 
-    existing_config = get_project_config(path)
+    existing_config = _config_for_rewrite(path)
 
     if not existing_config and not project_config:
         # No config exists, create default

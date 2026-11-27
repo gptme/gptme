@@ -137,7 +137,7 @@ class TestUseChecks:
         """A cloned repository's hooks must not auto-run without approval."""
         from gptme.config import trust
 
-        monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+        monkeypatch.setattr(trust, "_launcher_trusts_all", False)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
         monkeypatch.setattr(trust, "_session_decisions", {})
         repo = tmp_path / "repo"
@@ -1157,7 +1157,7 @@ def test_prek_edits_invalidate_approval_not_yaml(tmp_path, monkeypatch):
     from gptme.config import trust
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    monkeypatch.setattr(trust, "_launcher_trusts_all", False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     monkeypatch.setattr(trust, "_session_decisions", {})
     actual = tmp_path / "prek.toml"

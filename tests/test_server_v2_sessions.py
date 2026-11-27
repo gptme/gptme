@@ -3581,7 +3581,7 @@ def test_memory_step_initial_approval_has_destination(conv, tmp_path, monkeypatc
         session.pending_tools.clear()
 
 
-def test_memory_rerun_loads_conversation_workspace_dotenv(
+def test_memory_rerun_ignores_conversation_workspace_dotenv(
     conv, client, tmp_path, monkeypatch
 ):
     from gptme.config import ChatConfig
@@ -3609,10 +3609,10 @@ def test_memory_rerun_loads_conversation_workspace_dotenv(
     assert session is not None
     try:
         (pending,) = session.pending_tools.values()
-        assert pending.tooluse._memory_root == ("explicit", workspace / "memories")
+        assert pending.tooluse._memory_root != ("explicit", workspace / "memories")
         assert (
             str(workspace / "memories/fact.md")
-            in pending.to_pending_dict()["tooluse"]["confirmation_header"]
+            not in pending.to_pending_dict()["tooluse"]["confirmation_header"]
         )
         assert not (workspace / "memories").exists()
     finally:

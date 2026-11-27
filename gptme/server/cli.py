@@ -48,13 +48,13 @@ if threading.current_thread() is threading.main_thread() and not callable(
 
 import click
 from click_default_group import DefaultGroup
-from dotenv import load_dotenv
 
 from gptme.config import get_config, resolve_model_source, set_config_from_workspace
 
 from ..cli.completion import complete_model
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
+from ..util.env_file import load_user_dotenv
 from .constants import _pick_fallback_model
 from .token_file import read_token_file, remove_token_file, write_token_file
 
@@ -330,7 +330,7 @@ def serve(
     # missed here and the operator's provider choice silently dropped
     # (gptme/gptme#5354). Loading twice is harmless: dotenv does not override
     # variables that are already set.
-    load_dotenv()
+    load_user_dotenv()
 
     # A model pinned by the operator (--model, MODEL/GPTME_MODEL in the
     # environment, .env or config, [models].default) is a deliberate provider
@@ -448,7 +448,8 @@ def serve(
         # Written inside the try so a failed startup still removes it.
         if shared_token:
             write_token_file(shared_token)
-        app.run(debug=debug, host=host, port=port)
+        # Flask would otherwise load .env/.flaskenv from the working directory.
+        app.run(debug=debug, host=host, port=port, load_dotenv=False)
     finally:
         if shared_token:
             remove_token_file(shared_token)

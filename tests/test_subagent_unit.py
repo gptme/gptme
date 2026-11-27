@@ -8255,7 +8255,7 @@ class TestProfileToolResolution:
         init_tools(["read", "chats"], read_only=True)
         monkeypatch.setattr(gptme_init, "_init_done", False)
         for name in (
-            "load_dotenv",
+            "load_user_dotenv",
             "_init_plugins",
             "init_model",
             "_register_core_compaction_hook",

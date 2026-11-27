@@ -12,6 +12,8 @@ import flask
 from flask_compress import Compress
 from flask_cors import CORS
 
+from ..config.trust import disable_prompts
+
 logger = logging.getLogger(__name__)
 
 # Resolve static/media paths from the gptme package
@@ -137,6 +139,9 @@ def create_app(
             Docker container) where every session should use a specific
             backend-selection policy without requiring the client to set it.
     """
+    # Before any request: trust prompts must never reach the server's console.
+    disable_prompts()
+
     static_folder = _resolve_static_folder(webui_dir)
     app = flask.Flask(__name__, static_folder=static_folder)
     webui_available = static_folder is not None

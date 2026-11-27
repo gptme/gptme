@@ -187,6 +187,17 @@ without looking first, review ``gptme.toml`` before running ``gptme`` in a new
 repository. In automated environments, set ``--workspace`` explicitly to
 directories you control.
 
+Environment files
+~~~~~~~~~~~~~~~~~
+
+gptme does not load a ``.env`` file from the workspace or the working directory:
+such a file is repository content. It reads one ``.env`` from the gptme source
+checkout (when run from one) or from your home directory. Put per-project
+settings in ``[env]`` in ``gptme.toml``, which needs approval.
+
+``GPTME_TRUST_PROJECT_SHELL`` is read only from the environment gptme was
+launched with.
+
 Tool-specific notes
 -------------------
 

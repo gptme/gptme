@@ -5,7 +5,7 @@ Tests cover:
 - Config loading from workspace
 - Chat config assignment
 - Tool and hook initialization
-- .env file loading
+- The workspace .env staying unloaded
 """
 
 from pathlib import Path
@@ -53,21 +53,19 @@ class TestPrepareExecutionEnvironment:
     @patch("gptme.executor._register_core_compaction_hook")
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_basic_setup(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         mock_register_core_compaction_hook,
         tmp_workspace,
         mock_tools,
     ):
-        """Verify the function loads config, sets it, loads .env, and inits tools+hooks."""
+        """Verify the function loads config, sets it, and inits tools+hooks."""
         from gptme.executor import prepare_execution_environment
 
         mock_config_cls.from_workspace.return_value = MagicMock()
@@ -79,8 +77,6 @@ class TestPrepareExecutionEnvironment:
         mock_config_cls.from_workspace.assert_called_once_with(workspace=tmp_workspace)
         # Config set globally
         mock_set_config.assert_called_once_with(config)
-        # .env loaded from workspace
-        mock_load_dotenv.assert_called_once_with(dotenv_path=tmp_workspace / ".env")
         # Tools and hooks initialized
         mock_init_tools.assert_called_once_with(None)
         mock_init_hooks.assert_called_once()
@@ -90,14 +86,12 @@ class TestPrepareExecutionEnvironment:
 
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_with_tool_filter(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         tmp_workspace,
@@ -115,14 +109,12 @@ class TestPrepareExecutionEnvironment:
 
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_with_chat_config(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         tmp_workspace,
@@ -143,14 +135,12 @@ class TestPrepareExecutionEnvironment:
 
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_without_chat_config(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         tmp_workspace,
@@ -169,14 +159,12 @@ class TestPrepareExecutionEnvironment:
 
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_return_type(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         tmp_workspace,
@@ -197,14 +185,12 @@ class TestPrepareExecutionEnvironment:
 
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_call_order(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         tmp_workspace,
@@ -225,7 +211,6 @@ class TestPrepareExecutionEnvironment:
 
         mock_config_cls.from_workspace.side_effect = _from_workspace
         mock_set_config.side_effect = lambda c: call_order.append("set_config")
-        mock_load_dotenv.side_effect = lambda **kw: call_order.append("load_dotenv")
         mock_init_tools.side_effect = _init_tools
         mock_init_hooks.side_effect = lambda: call_order.append("init_hooks")
 
@@ -234,47 +219,18 @@ class TestPrepareExecutionEnvironment:
         assert call_order == [
             "from_workspace",
             "set_config",
-            "load_dotenv",
             "init_tools",
             "init_hooks",
         ]
 
     @patch("gptme.executor.init_hooks")
     @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
-    @patch("gptme.executor.set_config")
-    @patch("gptme.executor.Config")
-    def test_dotenv_path_construction(
-        self,
-        mock_config_cls,
-        mock_set_config,
-        mock_load_dotenv,
-        mock_init_tools,
-        mock_init_hooks,
-    ):
-        """Verify .env file path is constructed from workspace path."""
-        from gptme.executor import prepare_execution_environment
-
-        mock_config_cls.from_workspace.return_value = MagicMock()
-        mock_init_tools.return_value = []
-
-        workspace = Path("/some/workspace/path")
-        prepare_execution_environment(workspace)
-
-        mock_load_dotenv.assert_called_once_with(
-            dotenv_path=Path("/some/workspace/path/.env")
-        )
-
-    @patch("gptme.executor.init_hooks")
-    @patch("gptme.executor.init_tools")
-    @patch("gptme.executor.load_dotenv")
     @patch("gptme.executor.set_config")
     @patch("gptme.executor.Config")
     def test_tools_default_none(
         self,
         mock_config_cls,
         mock_set_config,
-        mock_load_dotenv,
         mock_init_tools,
         mock_init_hooks,
         tmp_workspace,
@@ -309,13 +265,11 @@ class TestPrepareExecutionEnvironment:
 @pytest.mark.parametrize("server", [True, False])
 @patch("gptme.executor.init_hooks")
 @patch("gptme.executor.init_tools", return_value=[])
-@patch("gptme.executor.load_dotenv")
 @patch("gptme.executor.set_config")
 @patch("gptme.executor.Config")
 def test_server_registers_elicit_hook_in_fresh_context(
     mock_config_cls,
     mock_set_config,
-    mock_load_dotenv,
     mock_init_tools,
     mock_init_hooks,
     tmp_workspace,

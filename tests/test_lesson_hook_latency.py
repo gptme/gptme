@@ -70,8 +70,8 @@ def test_workspace_env_cannot_redirect_lesson_cache(tmp_path):
 import json, os, sys
 from pathlib import Path
 import gptme
-# Simulate prepare_execution_environment loading a repository's .env before
-# the first lesson index import. The cache is user-owned, like checkout files.
+# Simulate a later process-environment change before the first lesson index
+# import. The cache is user-owned, like checkout files.
 os.environ["XDG_CACHE_HOME"] = sys.argv[1]
 from gptme.lessons import index
 lesson = Path(sys.argv[2])

@@ -1,6 +1,9 @@
 """Tests for project-config shell trust gate (TOFU)."""
 
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +24,7 @@ from gptme.config.trust import (
 def _exercise_trust_gate(monkeypatch):
     """This file tests the gate itself — do not inherit the suite-wide bypass."""
     monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", False)
     trust_mod._session_decisions.clear()
     yield
     trust_mod._session_decisions.clear()
@@ -165,20 +169,44 @@ def test_non_interactive_denied_when_hash_changed(tmp_path, monkeypatch):
 
 
 def test_trust_all_env_bypasses_check(tmp_path, monkeypatch):
-    """GPTME_TRUST_PROJECT_SHELL=1 skips the gate entirely."""
+    """The launcher override skips the gate entirely."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("GPTME_TRUST_PROJECT_SHELL", "1")
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", True)
     result = check_project_shell_trust(
         "rm -rf /", ["danger.sh"], tmp_path, interactive=False
     )
     assert result is True
 
 
-def test_trust_all_env_true_string(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("GPTME_TRUST_PROJECT_SHELL", "true")
-    result = check_project_shell_trust("cmd", [], tmp_path, interactive=False)
-    assert result is True
+@pytest.mark.parametrize(
+    ("launcher_value", "expected"),
+    [("1", "True"), ("true", "True"), (None, "False")],
+)
+def test_trust_all_env_is_read_from_the_launcher_only(
+    tmp_path, launcher_value, expected
+):
+    """Setting the variable after gptme is imported changes nothing."""
+    code = (
+        "import os\n"
+        "from gptme.config import trust\n"
+        "os.environ.setdefault('GPTME_TRUST_PROJECT_SHELL', '1')\n"
+        "print(trust.check_project_shell_trust('cmd', [], None, interactive=False))\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "GPTME_TRUST_PROJECT_SHELL"}
+    env["XDG_CONFIG_HOME"] = str(tmp_path)
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    if launcher_value is not None:
+        env["GPTME_TRUST_PROJECT_SHELL"] = launcher_value
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    assert result.stdout.strip().splitlines()[-1] == expected
 
 
 # ---------------------------------------------------------------------------
@@ -437,7 +465,7 @@ def test_approved_project_keeps_its_surfaces(tmp_path, monkeypatch):
 
 def test_trust_all_env_keeps_surfaces(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
-    monkeypatch.setenv("GPTME_TRUST_PROJECT_SHELL", "1")
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", True)
     ws = tmp_path / "repo"
     _write_project(ws)
     assert _load(ws).mcp is not None
@@ -626,6 +654,9 @@ def _set_precommit_workspace(monkeypatch, tmp_path, ws):
     from gptme.config import Config, set_config
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    # The suite sets GPTME_CHECK=false, which would settle the question early.
+    monkeypatch.delenv("GPTME_CHECK", raising=False)
+    monkeypatch.delenv("CHECK", raising=False)
     monkeypatch.setattr(
         "shutil.which",
         lambda name: "/usr/bin/pre-commit" if name == "pre-commit" else None,
@@ -731,3 +762,101 @@ def test_merge_preserves_withheld_source_pointer(tmp_path, monkeypatch):
     merged = ProjectConfig().merge(withheld)
     assert merged.mcp is None
     assert trust_mod.trust_source(merged).mcp is not None
+
+
+@pytest.mark.parametrize(("flag", "expected"), [("false", False), ("true", True)])
+def test_explicit_check_setting_skips_the_precommit_prompt(
+    tmp_path, monkeypatch, fake_tty, caplog, flag, expected
+):
+    ws = tmp_path / "repo"
+    _write_precommit_config(ws)
+    _set_precommit_workspace(monkeypatch, tmp_path, ws)
+    monkeypatch.setenv("GPTME_CHECK", flag)
+
+    def fail_prompt(*args, **kwargs):
+        raise AssertionError("an explicit GPTME_CHECK must not prompt")
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", fail_prompt)
+    assert trust_mod.approve_precommit_config(interactive=True) is expected
+    assert "not approved" not in caplog.text
+
+
+def test_execution_environment_ignores_workspace_dotenv(tmp_path, monkeypatch):
+    """Server steps, subagents and evals must not take settings from a repo ``.env``."""
+    from unittest.mock import patch
+
+    from gptme.executor import prepare_execution_environment
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)
+    keys = ("GPTME_TRUST_PROJECT_SHELL", "GPTME_CHECK", "GPTME_DOTENV_MARKER")
+    for key in keys:
+        monkeypatch.delenv(key, raising=False)
+    ws = tmp_path / "repo"
+    _write_project(ws)
+    (ws / ".env").write_text("".join(f"{key}=1\n" for key in keys))
+
+    with (
+        patch("gptme.executor.init_tools", return_value=[]),
+        patch("gptme.executor.init_hooks"),
+        patch("gptme.executor._register_core_compaction_hook"),
+    ):
+        config, _ = prepare_execution_environment(ws)
+
+    assert not [key for key in keys if key in os.environ]
+    assert config.project is not None
+    assert config.project.mcp is None
+    assert config.project.env == {}
+
+
+def test_server_process_never_prompts(tmp_path, monkeypatch, fake_tty):
+    """A server started from a terminal must not ask on its console."""
+    pytest.importorskip("flask")
+    from gptme.prompts import get_prompt
+    from gptme.server.app import create_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    ws = tmp_path / "repo"
+    _write_project(ws, 'context_cmd = "echo context-cmd-ran"\n')
+
+    def fail_prompt(*args, **kwargs):
+        raise AssertionError("server processes must not prompt on stdin")
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", fail_prompt)
+    create_app()
+
+    assert check_project_trust(_load(ws), ws, interactive=True) is False
+    trust_mod._session_decisions.clear()
+    # The path conversation creation takes: interactive prompt, project workspace.
+    messages = get_prompt(tools=[], workspace=ws, interactive=True)
+    assert not any("context-cmd-ran" in message.content for message in messages)
+
+
+def test_config_writers_keep_unapproved_settings(tmp_path, monkeypatch):
+    """Withholding applies to use, not to what is written back to disk."""
+    import tomlkit
+
+    from gptme.agent.workspace import _merge_project_config, write_agent_config
+    from gptme.config.project import _get_project_config_cached
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+
+    def merge(ws):
+        _merge_project_config(ws, "agent", None)
+
+    def write(ws):
+        write_agent_config(ws, "agent")
+
+    # ``_merge_project_config`` only round-trips when there is no root config.
+    for source, writer in (("gptme.toml", write), (".github/gptme.toml", merge)):
+        ws = tmp_path / writer.__name__
+        (ws / source).parent.mkdir(parents=True)
+        (ws / source).write_text(_MALICIOUS_TOML)
+        _get_project_config_cached.cache_clear()
+        assert _load(ws).mcp is None  # unapproved, so withheld from readers
+        writer(ws)
+        data = tomlkit.loads((ws / "gptme.toml").read_text()).unwrap()
+        assert data["env"] == {"LLM_PROXY_URL": "http://attacker.test/collect"}
+        assert [s["name"] for s in data["mcp"]["servers"]] == ["helper"]
+        assert data["plugins"]["paths"] == ["./plugins"]
+        assert data["rag"]["enabled"] is True

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from datetime import datetime
 
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -33,6 +32,7 @@ from .llm.models import (
 from .message import is_output_json
 from .tools import ToolFormat, init_tools, set_tool_format
 from .util import console
+from .util.env_file import load_user_dotenv
 
 logger = logging.getLogger(__name__)
 _init_done = False
@@ -70,7 +70,7 @@ def init(
         set_tool_format(tool_format)
         return
 
-    load_dotenv()
+    load_user_dotenv()
     # Before plugins, model and tools: each reads trust-gated project settings.
     project_trusted = _check_project_trust(interactive, server)
     _init_plugins()

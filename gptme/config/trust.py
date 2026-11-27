@@ -43,6 +43,17 @@ logger = logging.getLogger(__name__)
 
 # env var that bypasses the prompt (useful for CI / ``--no-confirm`` equivalents)
 _ENV_TRUST_ALL = "GPTME_TRUST_PROJECT_SHELL"
+# Read once, when gptme is first imported: only the launcher may set this. Values
+# added to ``os.environ`` later must not be able to switch the gate off.
+_launcher_trusts_all = os.environ.get(_ENV_TRUST_ALL, "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+# Set in server processes: a request handler or worker thread must never block on,
+# or take an approval from, the console the server was started in.
+_prompts_disabled = False
 
 # In-process decisions so init() and prompt construction share one answer.
 _session_decisions: dict[tuple[str, str], bool] = {}
@@ -299,13 +310,15 @@ def _prompt_user(
     return answer in {"y", "yes"}
 
 
-def _trust_all_env() -> bool:
-    return os.environ.get(_ENV_TRUST_ALL, "").lower() in {"1", "true", "yes"}
+def disable_prompts() -> None:
+    """Never prompt for trust in this process; only existing approvals count."""
+    global _prompts_disabled
+    _prompts_disabled = True
 
 
 def _is_approved(trust_hash: str, workspace: Path | None) -> bool:
     """Non-prompting check: env override, this session's decision, or the db."""
-    if _trust_all_env():
+    if _launcher_trusts_all:
         return True
     cache_key = (_workspace_key(workspace), trust_hash)
     if cache_key in _session_decisions:
@@ -326,7 +339,7 @@ def _check_trust(
     what: str,
     **prompt_kwargs,
 ) -> bool:
-    if _trust_all_env():
+    if _launcher_trusts_all:
         logger.debug("Project trust bypassed via %s", _ENV_TRUST_ALL)
         return True
 
@@ -342,7 +355,7 @@ def _check_trust(
     # input().
     if interactive is None:
         interactive = sys.stdin.isatty()
-    can_prompt = bool(interactive) and sys.stdin.isatty()
+    can_prompt = bool(interactive) and not _prompts_disabled and sys.stdin.isatty()
 
     if not can_prompt:
         logger.warning(
@@ -429,18 +442,21 @@ def approve_project_config(
     from .core import get_config
 
     config = get_config()
+    approved = True
+    if config.project is not None:
+        project = trust_source(config.project)
+        project_workspace = project._workspace or (
+            config.chat.workspace if config.chat is not None else None
+        )
+        approved = check_project_trust(
+            project, project_workspace, interactive=interactive
+        )
+        if approved:
+            config.project = project
+    # After the project decision, so an approved ``[env] GPTME_CHECK`` applies.
     approve_precommit_config(
         interactive=interactive, server=server, workspace=workspace
     )
-    if config.project is None:
-        return True
-    project = trust_source(config.project)
-    workspace = project._workspace or (
-        config.chat.workspace if config.chat is not None else None
-    )
-    approved = check_project_trust(project, workspace, interactive=interactive)
-    if approved:
-        config.project = project
     return approved
 
 
@@ -530,8 +546,15 @@ def approve_precommit_config(
     :func:`check_precommit_trust` with ``prompt=False``). In non-interactive or
     server mode this only reports an existing approval and logs why the hooks
     stay disabled, so startup can never block on stdin even if one is attached.
+    An explicit ``GPTME_CHECK`` already settles the question, so nothing is asked.
     """
     from .core import get_config
+
+    flag = (get_config().get_env("GPTME_CHECK", "") or "").lower()
+    if flag in {"0", "false", "no"}:
+        return False
+    if flag in {"1", "true", "yes"}:
+        return True
 
     if workspace is None:
         config = get_config()
