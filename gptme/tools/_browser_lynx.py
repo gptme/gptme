@@ -128,7 +128,7 @@ class _CookieJar:
                 continue
             (domain, path, name), entry = parsed
             # A host replaces (or deletes) its own cookie in both the host-only
-            # and the tail-matching form; caller cookies use the latter. Another
+            # and the tail-matching form. Another
             # host only touches the scope it named.
             own = domain.lstrip(".") == host
             for variant in {host, f".{host}"} if own else {domain}:
@@ -313,9 +313,8 @@ def _create_cookie_jar(
             handle.write("PERSISTENT_COOKIES:TRUE\n")
         expires = int(time.time()) + _SESSION_COOKIE_TTL
         for name, value in cookies.items():
-            # Tail-matching domain, as before: these are the caller's cookies
-            # for the requested host.
-            jar.entries[(f".{host}", "/", name)] = (value, expires, False)
+            # Caller cookies belong only to the requested host, not its children.
+            jar.entries[(host, "/", name)] = (value, expires, False)
         jar.flush()
     except Exception:
         if fd_open:

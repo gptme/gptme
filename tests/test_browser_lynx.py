@@ -321,7 +321,7 @@ def test_read_url_cookie_file():
         with open(cookie_path) as f:
             content = f.read()
         assert "# Netscape HTTP Cookie File" in content
-        assert ".example.com" in content
+        assert "example.com\tFALSE\t/" in content
         assert "CONSENT" in content
         assert "YES+42" in content
 
@@ -522,7 +522,7 @@ def test_read_url_cookies_stay_scoped_to_requested_host(mock_probe_via_run):
         set_session_allow_hosts(None)
 
     assert len(cookie_contents) == 1
-    assert ".start.example.com\t" in cookie_contents[0]
+    assert "start.example.com\tFALSE\t/" in cookie_contents[0]
     assert "other.example.org" not in cookie_contents[0]
 
 
@@ -868,6 +868,27 @@ def test_cookie_deletion_cannot_reach_unrelated_domain(tmp_path):
     )
 
     assert stored == {(".b.example", "/", "sid"): "keep"}
+
+
+def test_caller_cookie_is_host_only_and_survives_subdomain_deletion():
+    from pathlib import Path
+
+    from gptme.tools._browser_lynx import _create_cookie_jar
+
+    jar = _create_cookie_jar({"sid": "keep"}, "example.com", None)
+    try:
+        jar.absorb(
+            "HTTP/1.1 302 Found\r\n"
+            "Set-Cookie: sid=; Domain=example.com; Path=/; Max-Age=0\r\n\r\n",
+            "https://a.example.com/",
+        )
+        assert {key: entry[0] for key, entry in jar.entries.items()} == {
+            ("example.com", "/", "sid"): "keep"
+        }
+        assert "example.com\tFALSE\t/" in Path(jar.path).read_text()
+    finally:
+        Path(jar.path).unlink()
+        Path(jar.config_path).unlink()
 
 
 def test_subdomain_cannot_delete_parent_host_only_cookie(tmp_path):
