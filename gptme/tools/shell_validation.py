@@ -319,6 +319,10 @@ def _scan_nesting(
         if c == "\\":
             i += 2
             continue
+        if c == "#" and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|()"):
+            newline = cmd.find("\n", i)
+            i = newline + 1 if newline != -1 else end
+            continue
         if cmd.startswith("${", i):
             stack.append("${")
             i += 2
@@ -420,6 +424,7 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         if word is None:
             continue
         delimiter, search_start = word
+        strip_tabs = cmd.startswith("<<-", match.start())
 
         # Find where the content starts: after the newline that ends the
         # command line. A backslash-newline is removed by bash before
@@ -451,7 +456,8 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
                 # Check if remaining text is the delimiter. Include the
                 # delimiter itself in the safe region: it is shell syntax, not
                 # a command following the heredoc.
-                if cmd[pos:].strip() == delimiter:
+                last_line = cmd[pos:].lstrip("\t") if strip_tabs else cmd[pos:]
+                if last_line == delimiter:
                     heredoc_regions.append((content_start, len(cmd)))
                 break
 
@@ -459,7 +465,7 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             # Include the terminator line but preserve its newline, so a real
             # command on the following line remains independently visible.
             line = cmd[pos:newline_idx]
-            if line.strip() == delimiter:
+            if (line.lstrip("\t") if strip_tabs else line) == delimiter:
                 heredoc_regions.append((content_start, newline_idx))
                 break
 

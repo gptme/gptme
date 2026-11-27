@@ -764,11 +764,22 @@ def _local_exec_reason(
     gh accepts flags between a command group and its subcommand, so the
     dangerous subcommands are matched among all positionals of their group.
     """
+    if gh_args in (["--version"], ["--help"], ["-h"]):
+        return None
+    # Repository selection is an inherited flag accepted before the command.
+    # Skip only known forms, not arbitrary flags whose values could conceal
+    # which command gh resolves (including aliases and extensions).
+    while gh_args and gh_args[0].startswith("-"):
+        flag = gh_args[0]
+        if flag in ("-R", "--repo") and len(gh_args) > 1:
+            gh_args = gh_args[2:]
+        elif flag.startswith("--repo=") or (flag.startswith("-R") and len(flag) > 2):
+            gh_args = gh_args[1:]
+        else:
+            return "flags before the subcommand hide which command runs"
     positionals = [a for a in gh_args if not a.startswith("-")]
     if not positionals:
         return None
-    if gh_args[0].startswith("-"):
-        return "flags before the subcommand hide which command runs"
     sub, action = positionals[0], positionals[1] if len(positionals) > 1 else None
     rest = set(positionals[1:])
     # Any alias can later reach a refused command under another name.
@@ -801,7 +812,7 @@ def _local_exec_reason(
             expanded = shlex.split(alias_value)
         except ValueError:
             return f"`gh {sub}` is an alias with an unparsable definition"
-        if reason := _local_exec_reason(expanded, _seen | {sub}):
+        if reason := _local_exec_reason(expanded + gh_args[1:], _seen | {sub}):
             return f"`gh {sub}` is an alias for `gh {alias_value}`: {reason}"
     if sub in _gh_extension_names():
         return f"`gh {sub}` is an installed extension, which runs a local program"

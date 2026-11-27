@@ -191,3 +191,15 @@ def test_redirection_metacharacter_ends_the_delimiter_word():
     payload = "cat <<E<F\nE\nsh -c 'echo PWNED'\nE<F\n"
     assert _find_heredoc_regions(payload) == [(10, 11)]
     assert is_allowlisted(payload) is False
+
+
+@pytest.mark.parametrize("prefix", ["# a[", "echo ok # $((", "echo ok;# ${"])
+def test_comment_brackets_do_not_hide_real_heredoc(prefix: str):
+    payload = f"{prefix}\ncat <<EOF\nrm -rf /\nEOF\n"
+    assert not is_denylisted(payload)[0]
+
+
+@pytest.mark.parametrize("operator", ["<<", "<<-"])
+def test_space_prefixed_delimiter_stays_body_data(operator: str):
+    payload = f"cat {operator}EOF\n  EOF\nrm -rf /\nEOF\n"
+    assert not is_denylisted(payload)[0]

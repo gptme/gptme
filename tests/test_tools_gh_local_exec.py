@@ -158,3 +158,35 @@ def test_alias_lookup_reads_the_config_on_every_call(tmp_path, monkeypatch):
         out = _run(["pwn"])
     run.assert_not_called()
     assert "refused" in out
+
+
+@pytest.mark.parametrize("prefix", [["-R", "o/r"], ["--repo=o/r"], ["-Ro/r"]])
+def test_repo_prefix_preserves_safe_reads_and_local_exec_checks(prefix):
+    done = subprocess.CompletedProcess(["gh"], 0, stdout="ok", stderr="")
+    with patch("gptme.tools.gh.subprocess.run", return_value=done) as run:
+        _run([*prefix, "issue", "list"])
+    run.assert_called_once()
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run([*prefix, "alias", "set", "--shell", "pwn", "touch /tmp/x"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
+def test_alias_checks_include_invocation_arguments():
+    with (
+        patch("gptme.tools.gh._gh_alias_values", return_value={"cfg": "config"}),
+        patch("gptme.tools.gh.subprocess.run") as run,
+    ):
+        out = _run(["cfg", "set", "browser", "touch /tmp/x"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
+@pytest.mark.skipif(shutil.which("gh") is None, reason="needs gh CLI")
+def test_preexisting_shell_alias_does_not_execute(tmp_path, monkeypatch):
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
+    marker = tmp_path / "pwned"
+    (tmp_path / "config.yml").write_text(f"aliases:\n  pwn: '!touch {marker}'\n")
+    out = _run(["pwn"])
+    assert "refused" in out
+    assert not marker.exists()
