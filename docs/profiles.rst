@@ -63,11 +63,11 @@ Built-in profiles
      - Read-only
      - Web research without modifying local files
    * - ``verifier``
-     - ``read``, ``ipython``, ``shell``, ``chats``
+     - ``read``, ``chats``
      - Read-only, no network
-     - Review, test, and verify work done by other agents
+     - Review and verify other agents' work from code and recorded output
    * - ``isolated``
-     - ``read``, ``ipython``
+     - ``read``
      - Read-only, no network
      - Processing potentially untrusted content
    * - ``computer-use``
@@ -104,8 +104,11 @@ So naming a subagent after a profile is enough to apply it:
 
 ``role="verify"`` also sets ``use_subprocess=True`` and ``isolated=True`` by default,
 so the verifier can't accidentally modify the parent workspace; explicit
-``use_subprocess`` and ``isolated`` arguments override these defaults. The
-verifier's ``read_only`` rule remains a soft, prompt-level rule.
+``use_subprocess`` and ``isolated`` arguments override these defaults. A
+``read_only`` profile also has the write-capable tools dropped at spawn time
+(``save``, ``patch``, ``append``, ``shell``, ``ipython``, ``computer``), so it
+cannot write files even if its own allowlist names them. ``no_network`` remains
+prompt-level.
 
 Custom profiles
 ---------------
