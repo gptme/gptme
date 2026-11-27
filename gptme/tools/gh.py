@@ -36,6 +36,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Generator
+from functools import lru_cache
 
 from ..message import Message
 from ..util.gh import (
@@ -664,8 +665,101 @@ _LOCAL_PROGRAM_CONFIG_KEYS = frozenset({"browser", "editor", "pager"})
 _SAFE_EXTENSION_ACTIONS = frozenset({"list", "ls", "search"})
 _EXTENSION_RUN_ACTIONS = frozenset({"browse", "create", "exec", "install", "upgrade"})
 
+# Commands gh itself implements. Anything else is a user alias or an installed
+# extension, both of which run programs the CLI resolves at call time.
+_GH_BUILTIN_COMMANDS = frozenset(
+    {
+        "agent-task",
+        "alias",
+        "api",
+        "attestation",
+        "auth",
+        "browse",
+        "cache",
+        "codespace",
+        "completion",
+        "config",
+        "copilot",
+        "discussion",
+        "extension",
+        "gist",
+        "gpg-key",
+        "issue",
+        "label",
+        "licenses",
+        "org",
+        "pr",
+        "preview",
+        "project",
+        "release",
+        "repo",
+        "ruleset",
+        "run",
+        "search",
+        "secret",
+        "skill",
+        "ssh-key",
+        "status",
+        "variable",
+        "workflow",
+        # Command-group aliases gh ships with.
+        "cs",
+        "ext",
+        "extensions",
+    }
+)
 
-def _local_exec_reason(gh_args: list[str]) -> str | None:
+
+@lru_cache(maxsize=1)
+def _gh_alias_values() -> dict[str, str]:
+    """Alias name -> definition, from ``gh alias list`` (empty on failure).
+
+    Cached for the process: an alias defined mid-session through the shell tool
+    is rare, and this is a guard against accidental local execution rather than
+    a security boundary.
+    """
+    try:
+        proc = subprocess.run(
+            ["gh", "alias", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    aliases: dict[str, str] = {}
+    for line in (proc.stdout or "").splitlines():
+        name, sep, value = line.partition(":")
+        if sep and name.strip() and value.strip():
+            aliases[name.strip()] = value.strip()
+    return aliases
+
+
+@lru_cache(maxsize=1)
+def _gh_extension_names() -> frozenset[str]:
+    """Installed extension names, from ``gh extension list`` (empty on failure)."""
+    try:
+        proc = subprocess.run(
+            ["gh", "extension", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    names: set[str] = set()
+    for line in (proc.stdout or "").splitlines():
+        fields = line.split()
+        if fields and fields[0].startswith("gh-"):
+            names.add(fields[0].removeprefix("gh-"))
+    return frozenset(names)
+
+
+def _local_exec_reason(
+    gh_args: list[str], _seen: frozenset[str] = frozenset()
+) -> str | None:
     """Return why ``gh <gh_args>`` would run a local program, or None.
 
     gh accepts flags between a command group and its subcommand, so the
@@ -693,6 +787,25 @@ def _local_exec_reason(gh_args: list[str]) -> str | None:
             return f"`gh {sub}` with `-- <gitflags>` passes options to git"
         if sub in ("codespace", "cs") and rest & {"ssh", "cp"}:
             return f"`gh {sub}` with `--` passes options to ssh"
+    if sub in _GH_BUILTIN_COMMANDS:
+        return None
+    # An alias or an installed extension runs under a name none of the checks
+    # above recognize. Refuse rather than hand the model unconfirmed local
+    # execution; a plain alias that only expands to a safe gh command is fine.
+    if sub in _seen:
+        return "an alias cycle hides which command runs"
+    alias_value = _gh_alias_values().get(sub)
+    if alias_value is not None:
+        if alias_value.startswith("!"):
+            return f"`gh {sub}` is a shell alias, which runs local commands"
+        try:
+            expanded = shlex.split(alias_value)
+        except ValueError:
+            return f"`gh {sub}` is an alias with an unparsable definition"
+        if reason := _local_exec_reason(expanded, _seen | {sub}):
+            return f"`gh {sub}` is an alias for `gh {alias_value}`: {reason}"
+    if sub in _gh_extension_names():
+        return f"`gh {sub}` is an installed extension, which runs a local program"
     return None
 
 

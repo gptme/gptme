@@ -253,9 +253,18 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     n = len(cmd)
     while i < n:
         c = cmd[i]
-        if c.isspace() or c in ";&|<>()":
+        if c.isspace() or c in ";&|>)":
             break
-        if c == "`" or (c == "$" and cmd[i + 1 : i + 2] in ("'", '"')):
+        if c == "`":
+            return None
+        if c == "$":
+            # Bash keeps ``$(x)``, ``${x}`` and ``$[...]`` literal in a heredoc
+            # delimiter word, so stopping at the ``(`` would return ``$`` and
+            # then match a different terminator than bash. Do not model them.
+            return None
+        if c == "(":
+            # An unquoted ``(`` is a metacharacter that ends the word; the
+            # prefix is not the delimiter bash would match.
             return None
         if c == "\\":
             if i + 1 >= n or cmd[i + 1] == "\n":
@@ -318,8 +327,15 @@ def _scan_nesting(
             stack.extend(["((", "(("])
             i += 2
             continue
-        if c in "([":
+        if c == "(":
             stack.append(c)
+        elif c == "[":
+            # ``[`` is an ordinary word character in bash unless it opens an
+            # array subscript or ``$[...]`` arithmetic. Pushing it for
+            # ``echo [`` would leave it open and hide every later heredoc.
+            prev = cmd[i - 1] if i else ""
+            if prev.isalnum() or prev in "_]$":
+                stack.append(c)
         elif c == ")" and stack and stack[-1] == "(":
             stack.pop()
         elif cmd.startswith("))", i) and stack and stack[-1] == "((":
@@ -405,8 +421,23 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             continue
         delimiter, search_start = word
 
-        # Find where the content starts (after the first newline after the marker)
-        newline_idx = cmd.find("\n", search_start)
+        # Find where the content starts: after the newline that ends the
+        # command line. A backslash-newline is removed by bash before
+        # tokenizing, so it does not end the line and the heredoc body starts
+        # further down.
+        newline_idx = search_start
+        while True:
+            newline_idx = cmd.find("\n", newline_idx)
+            if newline_idx == -1:
+                break
+            backslashes = 0
+            pos = newline_idx - 1
+            while pos >= 0 and cmd[pos] == "\\":
+                backslashes += 1
+                pos -= 1
+            if backslashes % 2 == 0:
+                break
+            newline_idx += 1
         if newline_idx == -1:
             continue  # No content
 

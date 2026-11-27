@@ -96,3 +96,55 @@ def test_shell_alias_does_not_execute(tmp_path, monkeypatch):
     _run(["pwn"])
 
     assert not marker.exists()
+
+
+def test_existing_shell_alias_is_refused():
+    """Blocking alias *definitions* does not stop an alias the user already has."""
+    with (
+        patch(
+            "gptme.tools.gh._gh_alias_values",
+            return_value={"pwn": "!touch /tmp/x"},
+        ),
+        patch("gptme.tools.gh.subprocess.run") as run,
+    ):
+        out = _run(["pwn"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
+def test_alias_expanding_to_refused_command_is_refused():
+    with (
+        patch(
+            "gptme.tools.gh._gh_alias_values",
+            return_value={"cb": "config set browser"},
+        ),
+        patch("gptme.tools.gh.subprocess.run") as run,
+    ):
+        out = _run(["cb"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
+def test_installed_extension_is_refused():
+    with (
+        patch("gptme.tools.gh._gh_alias_values", return_value={}),
+        patch(
+            "gptme.tools.gh._gh_extension_names",
+            return_value=frozenset({"pwn"}),
+        ),
+        patch("gptme.tools.gh.subprocess.run") as run,
+    ):
+        out = _run(["pwn"])
+    run.assert_not_called()
+    assert "refused" in out
+
+
+def test_safe_alias_and_unknown_command_still_pass_through():
+    done = subprocess.CompletedProcess(["gh"], 0, stdout="ok", stderr="")
+    with (
+        patch("gptme.tools.gh._gh_alias_values", return_value={"co": "pr checkout"}),
+        patch("gptme.tools.gh._gh_extension_names", return_value=frozenset()),
+        patch("gptme.tools.gh.subprocess.run", return_value=done) as run,
+    ):
+        _run(["co"])
+    run.assert_called_once()
