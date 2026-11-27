@@ -771,15 +771,24 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
     abs_token = (
         os.path.normpath(re.sub(r"^/+", "/", token)) if token.startswith("/") else token
     )
-    if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
-        return True
+    home = os.path.expanduser("~")
+    # macOS filesystems are case-insensitive (``/ETC/shadow`` opens
+    # ``/etc/shadow``) and a symlink can make a harmless-looking path point at
+    # a protected one (``link -> /etc``; ``cat link/shadow``). Compare
+    # case-folded spellings, including the symlink-resolved form when the path
+    # exists.
+    for candidate in (abs_token, _resolve_symlinks(abs_token, home)):
+        folded = candidate.casefold()
+        if any(
+            folded.startswith(prefix.casefold()) for prefix in _SENSITIVE_PATH_PREFIXES
+        ):
+            return True
     # Sensitive home-relative credential directories.
     # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
     # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
     # Use a boundary check (exact match or followed by "/") to avoid
     # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
     normalized = token
-    home = os.path.expanduser("~")
     if token == home or token.startswith(home + "/"):
         normalized = "~" + token[len(home) :]
     else:
@@ -814,10 +823,17 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
     # ensures the prefix check below is also correct as belt-and-suspenders.
     if ".." in normalized:
         normalized = os.path.normpath(normalized)
-    return any(
-        normalized == prefix or normalized.startswith(prefix + "/")
-        for prefix in _SENSITIVE_HOME_DIRS
-    )
+    # Same two spellings as the absolute prefixes: case variants (macOS
+    # ``~/.SSH/id_rsa``) and workspace symlinks into a credential directory
+    # (``link -> ~/.ssh``; ``cat link/id_rsa``).
+    for candidate in (normalized, _resolve_symlinks(normalized, home)):
+        folded = candidate.casefold()
+        if any(
+            folded == prefix.casefold() or folded.startswith(prefix.casefold() + "/")
+            for prefix in _SENSITIVE_HOME_DIRS
+        ):
+            return True
+    return False
 
 
 def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
@@ -916,6 +932,29 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
                     return True
 
     return False
+
+
+def _resolve_symlinks(normalized: str, home: str) -> str:
+    """Return ``normalized`` with symlinks resolved, still home-relative.
+
+    ``os.path.realpath`` resolves the components that exist, so a symlinked
+    directory is followed even when the leaf does not exist yet.
+    """
+    if normalized == "~":
+        return normalized
+    if normalized.startswith("~/"):
+        absolute = os.path.join(home, normalized[2:])
+    elif normalized.startswith("/"):
+        absolute = normalized
+    else:
+        return normalized
+    resolved = os.path.realpath(absolute)
+    real_home = os.path.realpath(home)
+    if resolved == real_home:
+        return "~"
+    if resolved.startswith(real_home + "/"):
+        return "~" + resolved[len(real_home) :]
+    return resolved
 
 
 def _has_command_substitution(cmd: str) -> bool:

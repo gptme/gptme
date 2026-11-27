@@ -927,6 +927,53 @@ class TestSensitiveArgs:
         """`cd /tmp; ls` should still be auto-approved — /tmp is not sensitive."""
         assert is_allowlisted("cd /tmp; ls")
 
+    def test_case_variant_home_dir_not_allowlisted(self):
+        """macOS is case-insensitive: ``~/.SSH/id_rsa`` opens ``~/.ssh/id_rsa``."""
+        assert not is_allowlisted("cat ~/.SSH/id_rsa")
+        assert not is_allowlisted("cat ~/.Aws/credentials")
+
+    def test_case_variant_absolute_prefix_not_allowlisted(self):
+        """macOS resolves ``/ETC/shadow`` to ``/etc/shadow``."""
+        assert not is_allowlisted("cat /ETC/shadow")
+
+    def test_symlinked_workspace_dir_into_absolute_prefix_not_allowlisted(
+        self, tmp_path, monkeypatch
+    ):
+        """``cat etc-link/hostname`` where ``etc-link -> /etc`` reads ``/etc``."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "etc-link").symlink_to("/etc")
+        monkeypatch.chdir(workspace)
+
+        assert _has_sensitive_args("cat etc-link/hostname", cwd=workspace)
+
+    def test_symlinked_workspace_dir_into_home_not_allowlisted(
+        self, tmp_path, monkeypatch
+    ):
+        """``cat link/id_rsa`` where ``link -> ~/.ssh`` reads the protected file."""
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        (home / ".ssh" / "id_rsa").write_text("secret")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "link").symlink_to(home / ".ssh")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(workspace)
+
+        assert _has_sensitive_args("cat link/id_rsa", cwd=workspace)
+
+    def test_ordinary_workspace_file_still_allowlisted(self, tmp_path, monkeypatch):
+        """Resolution must not make ordinary relative reads sensitive."""
+        home = tmp_path / "home"
+        home.mkdir()
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "notes.md").write_text("hi")
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(workspace)
+
+        assert not _has_sensitive_args("cat notes.md", cwd=workspace)
+
     @pytest.mark.parametrize(
         "command",
         [
