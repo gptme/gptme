@@ -192,8 +192,9 @@ Environment files
 
 gptme does not load a ``.env`` file from the workspace or the working directory:
 such a file is repository content. It reads one ``.env`` from the gptme source
-checkout (when run from one) or from your home directory. Put per-project
-settings in ``[env]`` in ``gptme.toml``, which needs approval.
+checkout (when run from one), then ``~/.env``, then ``~/.config/gptme/.env``.
+Use ``~/.env``, exported variables, or ``[env]`` in ``gptme.toml`` (which needs
+approval) for keys. Workspace and cwd ``.env`` files are never loaded.
 
 ``GPTME_TRUST_PROJECT_SHELL`` is read only from the environment gptme was
 launched with.

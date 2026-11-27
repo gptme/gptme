@@ -86,6 +86,10 @@ def _resolve_check_config() -> tuple[str | None, Path | None, Path | None]:
         else (".pre-commit-config.yaml",)
     )
     workspace = current_workspace()
+    if root is None:
+        # No git repo: do not walk to /. An ancestor config such as
+        # ~/.pre-commit-config.yaml must not run against a non-git workspace.
+        return runner, None, None
     for parent in (workspace, *workspace.parents):
         for name in names:
             config = parent / name

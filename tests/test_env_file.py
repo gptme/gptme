@@ -76,3 +76,31 @@ def test_home_dotenv_is_loaded(monkeypatch, home, frozen):
     env_file.load_user_dotenv()
 
     assert os.environ[MARKER] == "home"
+
+
+@pytest.mark.parametrize("frozen", [True, False])
+def test_home_dotenv_is_loaded_for_system_install(tmp_path, monkeypatch, home, frozen):
+    (home / ".env").write_text(f"{MARKER}=home\n")
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    _install_at(
+        monkeypatch, tmp_path / "usr" / "local" / "lib" / "python" / "site-packages"
+    )
+
+    env_file.load_user_dotenv()
+
+    assert os.environ[MARKER] == "home"
+
+
+def test_config_dotenv_is_loaded_when_home_dotenv_is_missing(
+    tmp_path, monkeypatch, home
+):
+    config_dir = home / ".config" / "gptme"
+    config_dir.mkdir(parents=True)
+    (config_dir / ".env").write_text(f"{MARKER}=config\n")
+    _install_at(
+        monkeypatch, tmp_path / "usr" / "local" / "lib" / "python" / "site-packages"
+    )
+
+    env_file.load_user_dotenv()
+
+    assert os.environ[MARKER] == "config"

@@ -26,6 +26,7 @@ from gptme.tools.autocommit import tool as autocommit_tool
 from gptme.tools.precommit import (
     _get_modified_files,
     _get_repo_root,
+    _resolve_check_config,
     check_precommit_available,
     get_precommit_runner,
     handle_precommit_command,
@@ -117,14 +118,16 @@ class TestUseChecks:
         with _mock_config({"GPTME_CHECK": "no"}):
             assert use_checks() is False
 
-    def test_auto_detect_config_file(self, tmp_path: Path, monkeypatch):
+    def test_auto_detect_config_file(self, tmp_path: Path, monkeypatch, mock_repo_root):
         """Auto-enables when .pre-commit-config.yaml exists in cwd."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
         with _mock_config({"GPTME_CHECK": ""}), _mock_which():
             assert use_checks() is True
 
-    def test_auto_detect_config_in_parent(self, tmp_path: Path, monkeypatch):
+    def test_auto_detect_config_in_parent(
+        self, tmp_path: Path, monkeypatch, mock_repo_root
+    ):
         """Auto-enables when .pre-commit-config.yaml exists in parent dir."""
         sub = tmp_path / "subdir"
         sub.mkdir()
@@ -150,6 +153,7 @@ class TestUseChecks:
             _mock_config({"GPTME_CHECK": ""}),
             _mock_which(),
             patch("sys.stdin.isatty", return_value=False),
+            patch("gptme.tools.precommit._get_repo_root", return_value=repo),
         ):
             assert use_checks() is False
             trust._session_decisions.clear()
@@ -201,7 +205,7 @@ class TestUseChecks:
             assert use_checks() is True
         assert "GPTME_CHECK is enabled but no runner config" in caplog.text
 
-    def test_enabled_with_prek_only(self, tmp_path: Path, monkeypatch):
+    def test_enabled_with_prek_only(self, tmp_path: Path, monkeypatch, mock_repo_root):
         """prek satisfies the runner requirement when pre-commit is absent."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
@@ -306,6 +310,28 @@ class TestGetRepoRoot:
     def test_discovery_error(self, mock_run: MagicMock, error: Exception) -> None:
         mock_run.side_effect = error
         assert _get_repo_root() is None
+
+
+class TestResolveCheckConfig:
+    """Config search stays inside the repository; no repo means no ancestor walk."""
+
+    def test_no_repo_root_does_not_select_ancestor_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home_config = tmp_path / ".pre-commit-config.yaml"
+        home_config.write_text("repos: []")
+        workspace = tmp_path / "scratch"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        with (
+            _mock_which(),
+            patch("gptme.tools.precommit.current_workspace", return_value=workspace),
+            patch("gptme.tools.precommit._get_repo_root", return_value=None),
+        ):
+            runner, root, config = _resolve_check_config()
+        assert runner is not None
+        assert root is None
+        assert config is None
 
 
 @pytest.mark.usefixtures("mock_repo_root")
