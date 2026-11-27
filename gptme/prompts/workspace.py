@@ -339,11 +339,16 @@ def prompt_workspace(
     workspace: Path | None = None,
     title="Project Workspace",
     include_path: bool = False,
-    include_context_cmd: bool = True,
+    include_context_cmd: bool = False,
     include_user_context: bool = True,
     include_runtime_context: bool = True,
 ) -> Generator[Message, None, None]:
-    """Generate the workspace context prompt."""
+    """Generate the workspace context prompt.
+
+    ``include_context_cmd`` defaults to False. Production prompt construction
+    runs ``context_cmd`` separately after a trust check. Passing True still
+    requires an existing approval; this helper does not prompt.
+    """
     # TODO: update this prompt if the files change
     sections = []
 
@@ -741,13 +746,19 @@ def prompt_workspace(
         except Exception as e:
             logger.debug(f"Failed to load layered memory: {e}")
 
-    # Computed context last (changes most often, least cacheable)
-    if (
-        include_context_cmd
-        and project
-        and project.context_cmd
-        and (
+    # Computed context last (changes most often, least cacheable).
+    # Opt-in only: get_prompt() runs context_cmd after a TOFU check. Direct
+    # callers that pass True still need an existing approval (no prompt here).
+    if include_context_cmd and project and project.context_cmd:
+        from ..config.trust import check_project_shell_trust, commands_from_project
+
+        ctx, hook_commands = commands_from_project(project)
+        if check_project_shell_trust(
+            ctx,
+            hook_commands,
+            workspace,
+            interactive=False,
+        ) and (
             cmd_output := get_project_context_cmd_output(project.context_cmd, workspace)
-        )
-    ):
-        yield Message("system", "## Computed context\n\n" + cmd_output)
+        ):
+            yield Message("system", "## Computed context\n\n" + cmd_output)

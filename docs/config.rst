@@ -435,7 +435,8 @@ This file currently supports a few options:
 
      ``context_cmd`` and project ``hooks.scripts`` commands are executed with shell
      interpretation. Review ``gptme.toml`` before running gptme in untrusted
-     repositories. See :doc:`security` for details.
+     repositories. Trust-on-first-use approval hashes those command strings, not
+     the files they point at. See :doc:`security` for the trust model.
 
 - ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.
 - ``plugins``, a dictionary to configure plugins for this project. See :doc:`plugins` for more information. Example:

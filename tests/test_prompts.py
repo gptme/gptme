@@ -872,6 +872,71 @@ def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     )
 
 
+def test_prompt_workspace_skips_context_cmd_by_default(tmp_path):
+    """include_context_cmd defaults to False even when the project is trusted."""
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\ncontext_cmd = "echo TRUSTED_CONTEXT_CMD_RAN"\n'
+    )
+
+    msgs = list(
+        prompt_workspace(
+            workspace,
+            include_user_context=False,
+            include_runtime_context=False,
+        )
+    )
+    content = "\n".join(msg.content for msg in msgs)
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content
+    assert "Computed context" not in content
+
+    msgs_with = list(
+        prompt_workspace(
+            workspace,
+            include_context_cmd=True,
+            include_user_context=False,
+            include_runtime_context=False,
+        )
+    )
+    content_with = "\n".join(msg.content for msg in msgs_with)
+    assert "TRUSTED_CONTEXT_CMD_RAN" in content_with
+
+
+def test_prompt_workspace_skips_untrusted_context_cmd_even_when_requested(
+    tmp_path, monkeypatch
+):
+    """Passing include_context_cmd=True still requires an existing approval."""
+    import sys
+
+    from gptme.config import trust as trust_mod
+    from gptme.prompts import prompt_workspace
+
+    monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    trust_mod._session_decisions.clear()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\ncontext_cmd = "echo SHOULD_NOT_RUN"\n'
+    )
+
+    msgs = list(
+        prompt_workspace(
+            workspace,
+            include_context_cmd=True,
+            include_user_context=False,
+            include_runtime_context=False,
+        )
+    )
+    content = "\n".join(msg.content for msg in msgs)
+    assert "SHOULD_NOT_RUN" not in content
+
+
 def test_prompt_workspace_path_included_without_runtime_context(tmp_path):
     """Path must appear when include_path=True regardless of include_runtime_context."""
     from gptme.prompts import prompt_workspace
