@@ -1366,7 +1366,7 @@ class TestLoadPageNetworkIdle:
             "networkidle", timeout=bp.NETWORK_IDLE_TIMEOUT_MS
         )
         managed.close.assert_called_once_with()
-        return result, bp._last_logs["errors"]
+        return result, bp._last_logs[bp._conversation_key()]["errors"]
 
     def test_network_idle_timeout_is_ignored(self):
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -2133,3 +2133,120 @@ def test_interactive_operations_reject_another_session(operation, args, tmp_path
     assert page.mock_calls == []
     assert context.mock_calls == []
     assert not (tmp_path / "state.json").exists()
+
+
+# ── read_logs isolation ───────────────────────────────────────────────
+
+
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
+class TestPlaywrightReadLogsIsolation:
+    """read_logs must not leak a blocked redirect's or another conversation's logs."""
+
+    @staticmethod
+    def _fake_browser(final_url: str, console_text: str) -> MagicMock:
+        page = MagicMock()
+        page.url = final_url
+        handlers: dict = {}
+        page.on.side_effect = lambda event, fn: handlers.__setitem__(event, fn)
+
+        def goto(url):
+            msg = MagicMock()
+            msg.type = "log"
+            msg.text = console_text
+            msg.location = None
+            handlers["console"](msg)
+            resp = MagicMock()
+            resp.headers = {"content-type": "text/html"}
+            return resp
+
+        page.goto.side_effect = goto
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        return browser
+
+    def test_blocked_redirect_logs_are_not_stored(self, monkeypatch):
+        import gptme.tools._browser_playwright as pw
+
+        monkeypatch.setattr(pw, "_last_logs", {})
+
+        def validate(url: str) -> None:
+            if "internal" in url:
+                raise ValueError("blocked host")
+
+        monkeypatch.setattr(pw, "_validate_page_url", validate)
+        browser = self._fake_browser("http://internal.example/admin", "SECRET-TOKEN")
+        with pytest.raises(ValueError, match="blocked host"):
+            pw._load_page(browser, "https://allowed.example/")
+        assert "SECRET-TOKEN" not in pw.read_logs()
+        # Nothing from the blocked page is stored at all, not even its URL.
+        assert pw._last_logs.get(pw._conversation_key()) is None
+
+    def test_blocked_redirect_drops_the_previous_pages_logs(self, monkeypatch):
+        import gptme.tools._browser_playwright as pw
+        from gptme.hooks import current_conversation_id
+
+        monkeypatch.setattr(pw, "_last_logs", {})
+
+        def validate(url: str) -> None:
+            if "internal" in url:
+                raise ValueError("blocked host")
+
+        monkeypatch.setattr(pw, "_validate_page_url", validate)
+        monkeypatch.setattr(pw, "_extract_main_content", lambda page: "")
+        token = current_conversation_id.set("conv-a")
+        try:
+            pw._load_page(
+                self._fake_browser("https://allowed.example/", "FIRST-PAGE-LOG"),
+                "https://allowed.example/",
+            )
+            assert "FIRST-PAGE-LOG" in pw.read_logs()
+
+            # The caller reads logs to debug a load that was blocked; it must
+            # not get the previous page's logs back.
+            with pytest.raises(ValueError, match="blocked host"):
+                pw._load_page(
+                    self._fake_browser("http://internal.example/admin", "BLOCKED"),
+                    "http://internal.example/admin",
+                )
+            assert "FIRST-PAGE-LOG" not in pw.read_logs()
+            assert "BLOCKED" not in pw.read_logs()
+            assert pw.read_logs() == "No URL has been read yet."
+        finally:
+            current_conversation_id.reset(token)
+
+    def test_logs_are_scoped_to_the_reading_conversation(self, monkeypatch):
+        import gptme.tools._browser_playwright as pw
+        from gptme.hooks import current_conversation_id
+
+        monkeypatch.setattr(pw, "_last_logs", {})
+        monkeypatch.setattr(pw, "_validate_page_url", lambda url: None)
+        monkeypatch.setattr(pw, "_extract_main_content", lambda page: "")
+        browser = self._fake_browser("https://allowed.example/", "PRIVATE-LOG")
+        token = current_conversation_id.set("conv-a")
+        try:
+            pw._load_page(browser, "https://allowed.example/")
+            assert "PRIVATE-LOG" in pw.read_logs()
+        finally:
+            current_conversation_id.reset(token)
+        token = current_conversation_id.set("conv-b")
+        try:
+            assert "PRIVATE-LOG" not in pw.read_logs()
+        finally:
+            current_conversation_id.reset(token)
+        # conv-b reading its own page must not evict conv-a's logs.
+        token = current_conversation_id.set("conv-b")
+        try:
+            pw._load_page(
+                self._fake_browser("https://allowed.example/b", "CONV-B-LOG"),
+                "https://allowed.example/b",
+            )
+            assert "CONV-B-LOG" in pw.read_logs()
+        finally:
+            current_conversation_id.reset(token)
+        token = current_conversation_id.set("conv-a")
+        try:
+            assert "PRIVATE-LOG" in pw.read_logs()
+        finally:
+            current_conversation_id.reset(token)
