@@ -183,9 +183,15 @@ def test_use_checks_config_file(monkeypatch, tmp_path):
     monkeypatch.delenv("GPTME_CHECK", raising=False)
     assert not use_checks()
 
-    # No explicit setting, with config file
+    # A config outside a Git repository must not auto-enable checks.
     config_file = tmp_path / ".pre-commit-config.yaml"
     config_file.touch()
+    assert not use_checks()
+
+    # Auto-detection requires a repository, even for a trusted config.
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     assert use_checks()
 
     # Test config file in parent directory
