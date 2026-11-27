@@ -1044,27 +1044,57 @@ class TestFileToolSecretPaths:
         assert secret.read_text() == "synthetic-private-config\n"
 
     @pytest.mark.parametrize("tool", ["read", "save", "morph"])
-    def test_explicit_workspace_anchors_relative_target(
+    def test_live_workspace_anchors_relative_target_after_cd(
         self, tmp_path, monkeypatch, tool
     ):
-        """TOOL_CONFIRM's workspace wins over the process-global one."""
+        """The live workspace wins over a stale caller workspace (after ``cd``).
+
+        The tools resolve relative targets with ``resolve_in_workspace()``, so
+        the guard must use the same base. The workspace a caller passes to
+        ``ToolUse.execute`` is the initial session workspace and does not
+        follow a CLI ``cd`` — anchoring there checks a different file.
+        """
         from gptme.hooks.guardrails import guardrail_hook
         from gptme.tools import load_tool
+        from gptme.util.workspace import workspace_scope
 
         monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        secret = workspace / ".env"
+        initial = tmp_path / "work"
+        initial.mkdir()
+        sub = initial / "sub"
+        sub.mkdir()
+        secret = sub / ".env"
         secret.write_text("old\n")
-        (workspace / "notes.txt").symlink_to(secret)
-        elsewhere = tmp_path / "elsewhere"
-        elsewhere.mkdir()
-        monkeypatch.chdir(elsewhere)
+        (sub / "notes.txt").symlink_to(secret)
         if tool == "read":
             load_tool("read")
         use = ToolUse(tool, ["notes.txt"], None if tool == "read" else "new\n")
-        # The tool will run in ``workspace``; the process cwd is elsewhere.
-        assert guardrail_hook(use, workspace=workspace) is not None
+        # ``cd sub`` happened; the caller still holds the initial workspace.
+        with workspace_scope(sub):
+            assert guardrail_hook(use, workspace=initial) is not None
+
+    def test_workspace_under_broad_system_prefix_is_not_all_secret(
+        self, tmp_path, monkeypatch
+    ):
+        """A workspace inside a broad prefix (``/root`` for root) is writable.
+
+        Otherwise enforce mode blocks every file write for the common
+        container-as-root setup, where HOME and the workspace are under
+        ``/root``. Secrets outside the workspace stay blocked.
+        """
+        from gptme.hooks import guardrails
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.util.workspace import workspace_scope
+
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        # Stands in for ``/root/`` in the container-as-root case.
+        monkeypatch.setattr(guardrails, "_SECRET_ABS_PREFIXES", (str(tmp_path) + "/",))
+        workspace = tmp_path / "project"
+        workspace.mkdir()
+        with workspace_scope(workspace):
+            assert guardrail_hook(ToolUse("save", ["notes.txt"], "x\n")) is None
+            outside = tmp_path / "other" / "notes.txt"
+            assert guardrail_hook(ToolUse("save", [str(outside)], "x\n")) is not None
 
     def test_deleted_cwd_does_not_break_the_guard(self, tmp_path, monkeypatch):
         """A removed process cwd must not raise out of the hook."""
