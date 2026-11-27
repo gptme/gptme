@@ -15,6 +15,18 @@ from gptme.tools._browser_lynx import _validate_url_scheme, read_url, search
 lynx_available = shutil.which("lynx") is not None
 
 
+@pytest.fixture(autouse=True)
+def real_config_lookup(monkeypatch):
+    """Keep subprocess mocks to the fetch itself; yield the real config lookup."""
+    from gptme.tools import _browser_lynx
+
+    real = _browser_lynx._primary_lynx_config
+    monkeypatch.setattr(
+        _browser_lynx, "_primary_lynx_config", lambda env, deadline: None
+    )
+    return real
+
+
 def test_header_probe_bounds_bytes_before_decoding(monkeypatch):
     """A large raw body must not be captured or decoded in full."""
     import subprocess
@@ -136,16 +148,15 @@ def test_read_url_rejects_cookie_line_injection(cookies):
         read_url("https://example.com", cookies=cookies)
 
 
-def test_read_url_cookie_file_is_private():
-    observed_mode = None
-    cookie_path = None
+def test_read_url_cookie_file_is_private(mock_probe_via_run):
+    observed_modes: list[int] = []
+    paths: list[str] = []
 
     def mock_run(cmd, **kwargs):
-        nonlocal cookie_path, observed_mode
-        cookie_path = next(
-            arg.split("=", 1)[1] for arg in cmd if arg.startswith("-cookie_file=")
-        )
-        observed_mode = stat.S_IMODE(os.stat(cookie_path).st_mode)
+        for flag in ("-cookie_file=", "-cfg="):
+            path = next(a.split("=", 1)[1] for a in cmd if a.startswith(flag))
+            paths.append(path)
+            observed_modes.append(stat.S_IMODE(os.stat(path).st_mode))
 
         from unittest.mock import MagicMock
 
@@ -156,10 +167,13 @@ def test_read_url_cookie_file_is_private():
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
         read_url("https://example.com", cookies={"CONSENT": "YES"})
 
-    assert cookie_path is not None
-    assert not os.path.exists(cookie_path)
+    assert len(paths) == 4
+    assert not any(os.path.exists(path) for path in paths)
+    # The config name must not be derivable from the jar name: another user
+    # could otherwise create it first and control what lynx loads.
+    assert not paths[1].startswith(paths[0])
     if sys.platform != "win32":
-        assert observed_mode == 0o600
+        assert observed_modes == [0o600, 0o600, 0o600, 0o600]
 
 
 def test_read_url_closes_cookie_descriptor_when_chmod_fails():
@@ -290,7 +304,7 @@ def test_search():
     assert "erik.bjareholt.com" in result
 
 
-def test_read_url_cookie_file():
+def test_read_url_cookie_file(mock_probe_via_run):
     """Test that cookies are passed to lynx via a temporary cookie file."""
     cookies = {"CONSENT": "YES+42"}
     captured_cmd = None
@@ -307,7 +321,7 @@ def test_read_url_cookie_file():
         with open(cookie_path) as f:
             content = f.read()
         assert "# Netscape HTTP Cookie File" in content
-        assert ".example.com" in content
+        assert "example.com\tFALSE\t/" in content
         assert "CONSENT" in content
         assert "YES+42" in content
 
@@ -326,7 +340,7 @@ def test_read_url_cookie_file():
         assert captured_cmd is not None
 
 
-def test_search_google_consent_cookies():
+def test_search_google_consent_cookies(mock_probe_via_run):
     """Test that Google search passes correct consent cookies."""
     captured_cmd = None
     captured_cookies = None
@@ -353,8 +367,7 @@ def test_search_google_consent_cookies():
         assert result == "search results"
         assert captured_cmd is not None
         # Verify URL includes gl=us to avoid consent redirects
-        assert "gl=us" in captured_cmd[2]
-        assert "hl=en" in captured_cmd[2]
+        assert any("gl=us" in arg and "hl=en" in arg for arg in captured_cmd)
         # Verify SOCS cookie (newer Google consent format)
         assert captured_cookies is not None
         assert "SOCS" in captured_cookies
@@ -508,8 +521,8 @@ def test_read_url_cookies_stay_scoped_to_requested_host(mock_probe_via_run):
         set_session_allow_hosts(None)
 
     assert len(cookie_contents) == 1
-    assert ".start.example.com\t" in cookie_contents[0]
-    assert "other.example.org" not in cookie_contents[0]
+    assert "SID" not in cookie_contents[0]
+    assert "start.example.com" not in cookie_contents[0]
 
 
 def test_read_url_redirect_chain_shares_one_deadline(mock_probe_via_run):
@@ -668,3 +681,383 @@ def test_read_url_cookie_file_removed_when_redirect_probe_fails(mock_probe_via_r
 
     assert cookie_paths
     assert not any(os.path.exists(p) for p in cookie_paths)
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_allowlisted_redirect_hops_carry_session_cookie(
+    monkeypatch, real_config_lookup
+):
+    """A session cookie set on one hop must reach the next hop and the fetch.
+
+    With an allowlist every hop is its own lynx process, so the cookie only
+    survives if the harness writes it to the shared jar (gptme#5133 follow-up).
+    """
+    import http.server
+    import threading
+
+    from gptme.tools import _browser_lynx
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    # The installed lynx.cfg is included, so ours must still override it.
+    monkeypatch.setattr(_browser_lynx, "_primary_lynx_config", real_config_lookup)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/account/start":
+                self.send_response(302)
+                # No Path: defaults to /account, which must match /account.
+                self.send_header("Set-Cookie", "sid=abc123")
+                self.send_header("Location", "/account")
+                self.end_headers()
+            elif "sid=abc123" in self.headers.get("Cookie", ""):
+                body = b"<p>WELCOME</p>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                # No cookie: bounce back, like a login wall does.
+                self.send_response(302)
+                self.send_header("Location", "/account/start")
+                self.end_headers()
+
+        do_HEAD = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/account/start"
+    try:
+        # One lynx process follows the chain in-process, so cookies survive.
+        assert "WELCOME" in read_url(url)
+
+        # Per-hop probes under an allowlist only work if hops share a jar.
+        set_session_allow_hosts(["127.0.0.1"])
+        assert "WELCOME" in read_url(url)
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_cookie_fetch_keeps_lynx_site_config(monkeypatch, tmp_path, real_config_lookup):
+    """``-cfg`` replaces lynx.cfg, so the user's settings must be included."""
+    import http.server
+    import threading
+
+    from gptme.tools import _browser_lynx
+
+    cookie_headers: list[str] = []
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            cookie_headers.append(self.headers.get("Cookie", ""))
+            body = b"<p>VIA PROXY</p>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    site_config = tmp_path / "site lynx.cfg"
+    site_config.write_text(
+        f"http_proxy:http://127.0.0.1:{server.server_port}/\n"
+        # Distribution configs ship this, and ours has to win over it.
+        "PERSISTENT_COOKIES:FALSE\n",
+        encoding="utf-8",
+    )
+    for name in ("http_proxy", "HTTP_PROXY", "no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LYNX_CFG", str(site_config))
+    monkeypatch.setattr(_browser_lynx, "_primary_lynx_config", real_config_lookup)
+    try:
+        output = read_url("http://site.invalid/", cookies={"sid": "abc123"})
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert "VIA PROXY" in output
+    assert cookie_headers == ["sid=abc123", "sid=abc123"]
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+@pytest.mark.parametrize("allowlist", [False, True])
+def test_host_only_caller_cookie_does_not_reach_redirect_subdomain(
+    monkeypatch, allowlist
+):
+    import http.server
+    import threading
+
+    from gptme.tools._url_safety import set_session_allow_hosts
+
+    seen = []
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, self.headers.get("Cookie", "")))
+            if self.path.endswith("/start"):
+                self.send_response(302)
+                self.send_header("Location", "http://a.example.com/delete")
+                self.send_header("Set-Cookie", "server=yes; Domain=example.com; Path=/")
+            elif self.path.endswith("/delete"):
+                self.send_response(302)
+                self.send_header("Location", "http://example.com/final")
+                self.send_header(
+                    "Set-Cookie", "sid=; Domain=example.com; Path=/; Max-Age=0"
+                )
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<p>DONE</p>")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    for name in ("http_proxy", "HTTP_PROXY"):
+        monkeypatch.setenv(name, f"http://127.0.0.1:{server.server_port}")
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.setenv(name, "")
+    try:
+        set_session_allow_hosts(["example.com", "a.example.com"] if allowlist else None)
+        assert "DONE" in read_url("http://example.com/start", cookies={"sid": "keep"})
+    finally:
+        set_session_allow_hosts(None)
+        server.shutdown()
+        server.server_close()
+
+    assert "sid=keep" in seen[0][1]
+    assert "sid=keep" not in seen[1][1]
+    assert "server=yes" in seen[1][1]
+    assert all("sid=keep" in cookie for url, cookie in seen if url.endswith("/final"))
+
+
+@pytest.mark.skipif(not lynx_available, reason="lynx not installed")
+def test_primary_lynx_config_finds_the_default(monkeypatch, real_config_lookup):
+    import time
+
+    monkeypatch.delenv("LYNX_CFG", raising=False)
+    monkeypatch.delenv("lynx_cfg", raising=False)
+
+    path = real_config_lookup(os.environ.copy(), time.monotonic() + 10)
+
+    assert path is not None
+    assert os.path.isfile(path)
+
+
+def _absorb(headers: list[str], url: str, jar_dir, seed: dict | None = None):
+    """Feed Set-Cookie headers into a jar and return ``{(domain, path, name): value}``."""
+    from gptme.tools._browser_lynx import _CookieJar
+
+    jar = _CookieJar(str(jar_dir / "jar.txt"), str(jar_dir / "jar.cfg"))
+    jar.entries.update(seed or {})
+    head = "HTTP/1.1 302 Found\r\n" + "".join(f"Set-Cookie: {h}\r\n" for h in headers)
+    jar.absorb(head + "\r\n", url)
+    return {key: entry[0] for key, entry in jar.entries.items()}
+
+
+@pytest.mark.parametrize(
+    ("url", "domain", "expected"),
+    [
+        ("https://a.example.com/", "example.com", ".example.com"),
+        ("https://a.example.com/", ".Example.com", ".example.com"),
+        ("https://example.com/", "example.com", ".example.com"),
+        ("https://localhost/", "localhost", "localhost"),
+        ("https://127.0.0.1/", "127.0.0.1", "127.0.0.1"),
+        # Not the sender's own host or a parent of it.
+        ("https://a.example/", "b.example", None),
+        ("https://evilexample.com/", "example.com", None),
+        ("https://example.com/", "a.example.com", None),
+        # Suffixes shared between unrelated owners, and IP "parents".
+        ("https://a.example.com/", "com", None),
+        ("https://a.example.co.uk/", "co.uk", None),
+        ("https://evil.github.io/", "github.io", None),
+        ("https://evil.appspot.com/", "appspot.com", None),
+        ("https://evil.herokuapp.com/", "herokuapp.com", None),
+        # PSL wildcard rules and their exceptions must both be respected.
+        ("https://evil.foo.kawasaki.jp/", "foo.kawasaki.jp", None),
+        ("https://a.city.kawasaki.jp/", "city.kawasaki.jp", ".city.kawasaki.jp"),
+        ("https://github.io/", "github.io", "github.io"),
+        ("https://a.tenant.github.io/", "tenant.github.io", ".tenant.github.io"),
+        ("https://127.0.0.1/", "0.0.1", None),
+    ],
+)
+def test_cookie_domain_is_limited_to_sending_host(tmp_path, url, domain, expected):
+    stored = _absorb([f"sid=x; Domain={domain}; Path=/"], url, tmp_path)
+
+    assert stored == ({(expected, "/", "sid"): "x"} if expected else {})
+
+
+@pytest.mark.parametrize(
+    "deletion",
+    [
+        "sid=gone; Path=/; Max-Age=0",
+        "sid=; Path=/; Max-Age=0",
+        "sid=gone; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        "sid=gone; Path=/; Domain=example.com; Max-Age=-1",
+    ],
+)
+def test_cookie_deletion_removes_stored_cookie(tmp_path, deletion):
+    # The seed has the tail-matching form used for caller-supplied cookies.
+    seed = {(".example.com", "/", "sid"): ("old", 2**33, False)}
+
+    assert _absorb([deletion], "https://example.com/", tmp_path, seed) == {}
+    assert "old" not in (tmp_path / "jar.txt").read_text()
+
+
+def test_cookie_deletion_cannot_reach_unrelated_domain(tmp_path):
+    seed = {(".b.example", "/", "sid"): ("keep", 2**33, False)}
+
+    stored = _absorb(
+        ["sid=; Domain=b.example; Path=/; Max-Age=0"],
+        "https://a.example/",
+        tmp_path,
+        seed,
+    )
+
+    assert stored == {(".b.example", "/", "sid"): "keep"}
+
+
+def test_caller_cookie_is_host_only_and_survives_subdomain_deletion():
+    from pathlib import Path
+
+    from gptme.tools._browser_lynx import _create_cookie_jar
+
+    jar = _create_cookie_jar({"sid": "keep"}, "example.com", None)
+    try:
+        jar.absorb(
+            "HTTP/1.1 302 Found\r\n"
+            "Set-Cookie: sid=; Domain=example.com; Path=/; Max-Age=0\r\n\r\n",
+            "https://a.example.com/",
+        )
+        assert {key: entry[0] for key, entry in jar.entries.items()} == {
+            ("example.com", "/", "sid"): "keep"
+        }
+        assert "example.com\tFALSE\t/" in Path(jar.path).read_text()
+    finally:
+        Path(jar.path).unlink()
+        Path(jar.config_path).unlink()
+
+
+def test_subdomain_cannot_delete_parent_host_only_cookie(tmp_path):
+    seed = {("example.com", "/", "sid"): ("keep", 2**33, False)}
+
+    stored = _absorb(
+        ["sid=; Domain=example.com; Path=/; Max-Age=0"],
+        "https://a.example.com/",
+        tmp_path,
+        seed,
+    )
+
+    assert stored == {("example.com", "/", "sid"): "keep"}
+
+
+@pytest.mark.parametrize(
+    ("request_path", "cookie_path"),
+    [
+        ("", "/"),
+        ("/login", "/"),
+        ("/account/login", "/account"),
+        ("/account/", "/account"),
+    ],
+)
+def test_cookie_default_path(tmp_path, request_path, cookie_path):
+    url = f"https://example.com{request_path}"
+
+    assert _absorb(["sid=x"], url, tmp_path) == {
+        ("example.com", cookie_path, "sid"): "x"
+    }
+
+
+@pytest.mark.parametrize("header", ["sid=attacker; Path=/", "sid=; Path=/; Max-Age=0"])
+def test_http_cannot_replace_secure_cookie(tmp_path, header):
+    seed = {("example.com", "/", "sid"): ("secret", 2**33, True)}
+
+    assert _absorb([header], "http://example.com/", tmp_path, seed) == {
+        ("example.com", "/", "sid"): "secret"
+    }
+
+
+@pytest.mark.parametrize(
+    ("saved_domain", "saved_path", "url", "attributes", "blocked"),
+    [
+        ("example.com", "/", "http://example.com/", "Path=/account", True),
+        (".example.com", "/", "http://a.example.com/", "Path=/account", True),
+        ("a.example.com", "/", "http://example.com/", "Domain=example.com", True),
+        ("example.com", "/account", "http://example.com/", "Path=/account/x", True),
+        ("example.com", "/account/", "http://example.com/", "Path=/account/x", True),
+        ("example.com", "/account", "http://example.com/", "Path=/accounting", False),
+        ("example.com", "/account", "http://example.com/", "Path=/", False),
+        ("other.example", "/", "http://example.com/", "Path=/account", False),
+        ("example.com", "/", "http://evilexample.com/", "Path=/account", False),
+        ("example.com", "/", "https://example.com/", "Path=/account", False),
+    ],
+)
+def test_http_secure_cookie_overlay_scopes(
+    tmp_path, saved_domain, saved_path, url, attributes, blocked
+):
+    seed = {(saved_domain, saved_path, "sid"): ("secret", 2**33, True)}
+    stored = _absorb([f"sid=attacker; {attributes}"], url, tmp_path, seed)
+
+    assert ("attacker" not in stored.values()) == blocked
+    assert stored[(saved_domain, saved_path, "sid")] == "secret"
+
+
+@pytest.mark.parametrize("lifetime", ["", "; Max-Age=0"])
+def test_http_cannot_set_secure_cookie(tmp_path, lifetime):
+    assert (
+        _absorb(
+            [f"sid=attacker; Secure; Path=/{lifetime}"],
+            "http://example.com/",
+            tmp_path,
+        )
+        == {}
+    )
+
+
+def test_expired_secure_cookie_does_not_block_http_replacement(tmp_path, monkeypatch):
+    monkeypatch.setattr("gptme.tools._browser_lynx.time.time", lambda: 100)
+    seed = {("example.com", "/", "sid"): ("expired", 100, True)}
+    assert _absorb(["sid=fresh; Path=/"], "http://example.com/", tmp_path, seed) == {
+        ("example.com", "/", "sid"): "fresh"
+    }
+    assert "expired" not in (tmp_path / "jar.txt").read_text()
+
+
+def test_empty_cookie_with_future_expiry_is_preserved(tmp_path):
+    assert _absorb(
+        ["consent=; Path=/; Max-Age=3600"], "https://example.com/", tmp_path
+    ) == {("example.com", "/", "consent"): ""}
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        # Max-Age wins in either order.
+        "Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        "Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=3600",
+        # Unreadable attributes are ignored.
+        "Max-Age=--1",
+        "Max-Age=\u00b2",
+        "Max-Age=" + "9" * 5000,
+        "Expires=Thu, 01 Jan 99999999 00:00:00 GMT",
+        "Expires=not a date",
+    ],
+)
+def test_cookie_lifetime_attributes(tmp_path, attributes):
+    stored = _absorb([f"sid=x; {attributes}"], "https://example.com/", tmp_path)
+
+    assert stored == {("example.com", "/", "sid"): "x"}

@@ -26,31 +26,24 @@ if TYPE_CHECKING:
     )
 
 
-_PROSE_MARKERS = re.compile(
-    r"^ {0,3}(?P<fence>`{3,}(?!`)(?=[^`\n]*$)|~{3,})[^\n]*"
-    r"|<(?P<think>think(?:ing)?)>"
-    r"|<!--\s*think-sig:[\s\S]*?-->\s*",
-    re.MULTILINE,
-)
+_THINK_SIG = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
 
 def _reasoning_spans(content: str) -> Iterator[tuple[int, int]]:
-    """Find removable reasoning and signatures outside Markdown fences."""
-    cursor = 0
-    while match := _PROSE_MARKERS.search(content, cursor):
-        cursor = match.end()
-        if fence := match["fence"]:
-            closer = re.compile(
-                rf"^ {{0,3}}{fence[0]}{{{len(fence)},}}[ \t]*\r?$", re.MULTILINE
-            )
-            close = closer.search(content, cursor)
-            cursor = close.end() if close else len(content)
-            continue
-        if tag := match["think"]:
-            close_tag = f"</{tag}>"
-            close_start = content.find(close_tag, cursor)
-            cursor = close_start + len(close_tag) if close_start >= 0 else len(content)
-        yield match.start(), cursor
+    """Use the shared fence scan while retaining offsets for item replay."""
+    from ..context.compress import _reasoning_segments
+
+    offset = text_start = 0
+    for kind, segment in _reasoning_segments(content, drop_unclosed=True):
+        if kind != "text":
+            for sig in _THINK_SIG.finditer(content, text_start, offset):
+                yield sig.span()
+            if kind == "reasoning":
+                yield offset, offset + len(segment)
+            text_start = offset + len(segment)
+        offset += len(segment)
+    for sig in _THINK_SIG.finditer(content, text_start, offset):
+        yield sig.span()
 
 
 def _normalize_prose(parts: list[str], separator: str = "") -> Iterator[str]:
@@ -75,6 +68,15 @@ def _normalize_prose(parts: list[str], separator: str = "") -> Iterator[str]:
         kept.append(content[cursor:end])
         yield "".join(kept)
         start = end + len(separator)
+
+
+def _prose(content: str) -> str:
+    """Preserve the normal compactor's edge handling for a single item."""
+    from ..context.compress import remove_reasoning
+
+    if re.search(r"<think(?:ing)?>", content) and not _THINK_SIG.search(content):
+        return remove_reasoning(content, drop_unclosed=True, preserve_edges=True)
+    return next(_normalize_prose([content]))
 
 
 def _native_parts(content: str) -> tuple[list[str], list[ToolUse], list[str]] | None:
@@ -104,7 +106,7 @@ def _digest(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-def _stripped_content(prose: list[str], raw_calls: list[str]) -> str | None:
+def _strip_prose_around_calls(prose: list[str], raw_calls: list[str]) -> str | None:
     normalized = list(_normalize_prose(prose))
     if normalized == prose:
         return None
@@ -123,12 +125,36 @@ def _stripped_content(prose: list[str], raw_calls: list[str]) -> str | None:
     )
 
 
+def _stripped_content(
+    content: str, prose: list[str], raw_calls: list[str]
+) -> str | None:
+    """Choose one compaction result without changing or hiding any native call."""
+    from ..context.compress import remove_reasoning
+
+    # Prefer the normal compactor's output. Its whitespace cleanup must not
+    # change literal native arguments or make a call disappear from replay.
+    if any(re.search(r"<think(?:ing)?>", part) for part in prose):
+        stripped = remove_reasoning(content)
+        parts = _native_parts(stripped)
+        if stripped != content and parts is not None and parts[2] == raw_calls:
+            return stripped
+
+    # Literal tags in native JSON can make the whole-message strip unsafe.
+    # Strip only the original prose slices, keep the calls byte-for-byte, and
+    # check that they are still parsed as calls before authorizing the digest.
+    safe = _strip_prose_around_calls(prose, raw_calls)
+    if safe is not None:
+        parts = _native_parts(safe)
+        if parts is not None and parts[2] == raw_calls:
+            return safe
+    return None
+
+
 def strip_responses_reasoning(content: str) -> str:
     """Apply the same reasoning-only edit that phase replay can validate."""
-    parts = _native_parts(content)
-    if parts is not None:
+    if (parts := _native_parts(content)) is not None:
         prose, _, raw_calls = parts
-        if (stripped := _stripped_content(prose, raw_calls)) is not None:
+        if (stripped := _stripped_content(content, prose, raw_calls)) is not None:
             return stripped
     return content
 
@@ -292,9 +318,11 @@ class ResponsesPhaseCapture:
         prose, parsed_calls, raw_calls = parts
         calls = [call.call_id for call in parsed_calls]
         filtered: list[ResponsesTextItem | ResponsesCallItem] = []
-        normalized = _normalize_prose(
-            [item["text"] for item in ordered if item["type"] == "message"],
-            prose_separator,
+        text_items = [item["text"] for item in ordered if item["type"] == "message"]
+        normalized = (
+            iter([_prose(text_items[0])])
+            if len(text_items) == 1
+            else _normalize_prose(text_items, prose_separator)
         )
         for item in ordered:
             if item["type"] == "function_call":
@@ -310,7 +338,7 @@ class ResponsesPhaseCapture:
         }
         # Allow a prose-only reasoning-strip edit, never a transform of argument
         # strings. Every native span is copied byte-for-byte into this anchor.
-        if (stripped := _stripped_content(prose, raw_calls)) is not None:
+        if (stripped := _stripped_content(content, prose, raw_calls)) is not None:
             output["reasoning_stripped_digest"] = _digest(stripped)
         if replay_responses_output(content, output) is None:
             return metadata

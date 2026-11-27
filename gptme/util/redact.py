@@ -98,7 +98,7 @@ _MIDLINE_SECRET_RE = re.compile(
 )
 # Assignment separators terminate a candidate, except for trailing '=' padding.
 # Otherwise repeated ``token=`` prefixes each rescan the entire remaining line.
-_MIDLINE_VALUE_RE = re.compile(r"""[^\s"'`,;)}\]?&#=:]+=*(?![^\s"'`,;)}\]?&#])""")
+_MIDLINE_VALUE_RE = re.compile(r"""[^\s"'`,;)}\]?&#=:]+=*(?![^\s"'`,;:)}\]?&#])""")
 
 # Credentials embedded in a URL's userinfo component
 # (``https://user:password@host/...``). The scheme is required so a plain
