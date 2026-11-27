@@ -11,7 +11,6 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from ..message import _strip_think_sig
 from ..tools.base import ToolUse, find_json_end, toolcall_re
 from ..tools.native_names import native_tool_name
 from .openai_responses import _obj_get
@@ -27,20 +26,52 @@ if TYPE_CHECKING:
     )
 
 
-def _prose(content: str) -> str:
-    """Normalize only prose; never apply reasoning regexes to native JSON."""
-    if re.search(r"<think(?:ing)?>", content):
-        from ..context import strip_reasoning
+_PROSE_MARKERS = re.compile(
+    r"^ {0,3}(?P<fence>`{3,}(?!`)(?=[^`\n]*$)|~{3,})[^\n]*"
+    r"|<(?P<think>think(?:ing)?)>"
+    r"|<!--\s*think-sig:[\s\S]*?-->\s*",
+    re.MULTILINE,
+)
 
-        # The shared utility strips edges too. Retain separators around native
-        # calls so removing reasoning cannot glue prose to an @call header.
-        leading = content[: len(content) - len(content.lstrip())]
-        trailing = content[len(content.rstrip()) :]
-        content, _ = strip_reasoning(content)
-        # An interrupted reasoning block is not replayable visible text either.
-        content = re.sub(r"<think(?:ing)?>.*$", "", content, flags=re.DOTALL)
-        content = leading + content + trailing
-    return _strip_think_sig(content)
+
+def _reasoning_spans(content: str) -> Iterator[tuple[int, int]]:
+    """Find removable reasoning and signatures outside Markdown fences."""
+    cursor = 0
+    while match := _PROSE_MARKERS.search(content, cursor):
+        cursor = match.end()
+        if fence := match["fence"]:
+            closer = re.compile(
+                rf"^ {{0,3}}{fence[0]}{{{len(fence)},}}[ \t]*\r?$", re.MULTILINE
+            )
+            close = closer.search(content, cursor)
+            cursor = close.end() if close else len(content)
+            continue
+        if tag := match["think"]:
+            close_tag = f"</{tag}>"
+            close_start = content.find(close_tag, cursor)
+            cursor = close_start + len(close_tag) if close_start >= 0 else len(content)
+        yield match.start(), cursor
+
+
+def _normalize_prose(parts: list[str]) -> Iterator[str]:
+    """Scan one prose stream and keep the original item or native-call offsets."""
+    content = "".join(parts)
+    spans = _reasoning_spans(content)
+    span = next(spans, None)
+    start = 0
+    for part in parts:
+        end = start + len(part)
+        cursor = start
+        kept = []
+        while span is not None and span[0] < end:
+            kept.append(content[cursor : span[0]])
+            cursor = span[1]
+            if cursor > end:
+                break
+            span = next(spans, None)
+        kept.append(content[cursor:end])
+        yield "".join(kept)
+        start = end
 
 
 def _native_parts(content: str) -> tuple[list[str], list[ToolUse], list[str]] | None:
@@ -70,6 +101,55 @@ def _digest(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def _stripped_content(prose: list[str], raw_calls: list[str]) -> str | None:
+    normalized = list(_normalize_prose(prose))
+    if normalized == prose:
+        return None
+    leading = prose[0][: len(prose[0]) - len(prose[0].lstrip())]
+    trailing = prose[-1][len(prose[-1].rstrip()) :]
+    stripped = "".join(
+        text + (raw_calls[i] if i < len(raw_calls) else "")
+        for i, text in enumerate(normalized)
+    )
+    # Drop line breaks exposed at the edges by reasoning removal while
+    # retaining original edge whitespace and any indentation on visible text.
+    return (
+        leading
+        + stripped.removeprefix(leading).removesuffix(trailing).strip("\r\n")
+        + trailing
+    )
+
+
+def strip_responses_reasoning(content: str) -> str:
+    """Apply the same reasoning-only edit that phase replay can validate."""
+    parts = _native_parts(content)
+    if parts is not None:
+        prose, _, raw_calls = parts
+        if (stripped := _stripped_content(prose, raw_calls)) is not None:
+            return stripped
+    return content
+
+
+def _comparison_text(text: str) -> str:
+    # Streaming can normalize the spelling of thinking tags. The exact digest
+    # still guards edits, and replay uses the captured item's original spelling.
+    text = text.replace("<thinking>", "<think>").replace("</thinking>", "</think>")
+    return re.sub(r"\n\n\n+", "\n\n", text).strip()
+
+
+def _replay_arguments(call: ToolUse, raw_call: str) -> str:
+    match = toolcall_re.match(raw_call)
+    if match is not None:
+        arguments = match[3]
+        try:
+            json.loads(arguments)
+        except json.JSONDecodeError:
+            pass  # Keep supporting legacy arguments accepted by JSON repair.
+        else:
+            return arguments
+    return json.dumps(call.kwargs or {})
+
+
 def replay_responses_output(
     content: str, output: object
 ) -> list[dict[str, Any]] | None:
@@ -94,12 +174,12 @@ def replay_responses_output(
     parts = _native_parts(content)
     if parts is None:
         return None
-    text_parts, calls, _ = parts
+    text_parts, calls, raw_calls = parts
     # Calls and kwargs come from UNCHANGED current content. Strip reasoning only
     # after removing their spans, so literal tags/signatures in JSON survive.
     # Comparison only: normalize the same blank-line runs as each item below.
     # Replay text, current native kwargs and the exact edit digest stay untouched.
-    remaining = re.sub(r"\n\n\n+", "\n\n", _prose("".join(text_parts))).strip()
+    remaining = _comparison_text("".join(_normalize_prose(text_parts)))
     items: list[dict[str, Any]] = []
     call_index = 0
     for item in captured:
@@ -111,8 +191,7 @@ def replay_responses_output(
                 return None
             # Item whitespace is retained in replay, while display separators
             # and reasoning-strip whitespace are not item content.
-            text = _prose(text)
-            match = re.sub(r"\n\n\n+", "\n\n", text).strip()
+            match = _comparison_text(text)
             remaining = remaining.lstrip()
             if not remaining.startswith(match):
                 return None
@@ -129,15 +208,15 @@ def replay_responses_output(
             ):
                 return None
             call = calls[call_index]
-            call_index += 1
             items.append(
                 {
                     "type": "function_call",
                     "call_id": call.call_id,
                     "name": native_tool_name(call.tool),
-                    "arguments": json.dumps(call.kwargs or {}),
+                    "arguments": _replay_arguments(call, raw_calls[call_index]),
                 }
             )
+            call_index += 1
         else:
             return None
     return items if not remaining.strip() and call_index == len(calls) else None
@@ -206,13 +285,16 @@ class ResponsesPhaseCapture:
         prose, parsed_calls, raw_calls = parts
         calls = [call.call_id for call in parsed_calls]
         filtered: list[ResponsesTextItem | ResponsesCallItem] = []
+        normalized = _normalize_prose(
+            [item["text"] for item in ordered if item["type"] == "message"]
+        )
         for item in ordered:
             if item["type"] == "function_call":
                 if item["call_id"] not in calls:
                     continue
                 calls.remove(item["call_id"])
             else:
-                item = {**item, "text": _prose(item["text"])}
+                item = {**item, "text": next(normalized)}
             filtered.append(item)
         output: ResponsesOutput = {
             "content_digest": _digest(content),
@@ -220,12 +302,7 @@ class ResponsesPhaseCapture:
         }
         # Allow a prose-only reasoning-strip edit, never a transform of argument
         # strings. Every native span is copied byte-for-byte into this anchor.
-        normalized = [_prose(text) for text in prose]
-        if normalized != prose:
-            stripped = "".join(
-                text + (raw_calls[i] if i < len(raw_calls) else "")
-                for i, text in enumerate(normalized)
-            ).strip()
+        if (stripped := _stripped_content(prose, raw_calls)) is not None:
             output["reasoning_stripped_digest"] = _digest(stripped)
         if replay_responses_output(content, output) is None:
             return metadata

@@ -166,8 +166,12 @@ def _generate(
     )
 
 
-def _prepare(msg: Message, provider: str) -> list[dict[str, Any]]:
-    messages = [msg, Message("system", "ok", call_id="call_1")]
+def _prepare(
+    msg: Message, provider: str, *, with_call: bool = True
+) -> list[dict[str, Any]]:
+    messages = [msg]
+    if with_call:
+        messages.append(Message("system", "ok", call_id="call_1"))
     if provider == "subscription":
         return _messages_to_responses_input(messages)[1]
     shell = get_tool("shell")
@@ -343,6 +347,62 @@ def test_buffered_tool_output_keeps_original_item_order() -> None:
         "final_answer",
         "function_call_output",
     ]
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("source", ["terminal", "both"])
+@pytest.mark.parametrize("with_call", [False, True])
+def test_split_fence_roundtrip(
+    monkeypatch: pytest.MonkeyPatch, provider: str, source: str, with_call: bool
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    before = "```xml\n<think>literal example\n"
+    closer = "</think>\n<thinking>also literal</thinking>\n```\n"
+    after = closer + "<thinking>private plan</thinking>Done"
+    arguments = """{ "command": "printf '<think>literal argument</think>'" }"""
+    items = [_message(before, "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": arguments,
+            }
+        )
+    items.append(_message(after, "final_answer", 2))
+    msg = _reload(_generate(monkeypatch, provider, items, source), "toml")
+    assert (msg.metadata or {}).get("responses_output") is not None
+    assert "private plan" not in json.dumps(msg.metadata)
+
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    outside = (
+        "<think>private plan</think>"
+        if source == "both" and provider != "sdk_nonstream"
+        else "<thinking>private plan</thinking>"
+    )
+    assert compacted.content == msg.content.replace(outside, "")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider, with_call=with_call)
+        assert _prepare(compacted, replay_provider, with_call=with_call) == replay
+        assert [i.get("phase", i.get("type")) for i in replay] == (
+            ["commentary", "function_call", "final_answer", "function_call_output"]
+            if with_call
+            else ["commentary", "final_answer"]
+        )
+        assert replay[0]["content"] == before
+        assert replay[2 if with_call else 1]["content"] == closer + "Done"
+        if with_call:
+            assert replay[1]["arguments"] == arguments
+        for original in ("Done", "literal argument") if with_call else ("Done",):
+            edited = msg.replace(content=msg.content.replace(original, "edited"))
+            assert all(
+                "phase" not in i
+                for i in _prepare(edited, replay_provider, with_call=with_call)
+            )
 
 
 def test_rejected_call_not_reinstated_and_no_opaque_data() -> None:

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import httpx
 from typing_extensions import NotRequired
 
-from ..tools.base import truncate_tool_description
+from ..tools.base import _codeblock_char_ranges, truncate_tool_description
 from ..tools.native_names import canonical_tool_name, native_tool_name
 from .utils import extract_tool_uses_from_assistant_message, parameters2dict
 
@@ -608,6 +608,26 @@ def _completed_output_chunks(response_obj: Any) -> Generator[str, None, None]:
             yield f"\n@{canonical_tool_name(name)}({call_id}): {arguments}"
 
 
+def _keep_calls_outside_fences(
+    chunks: list[tuple[str, bool]], separator: str = ""
+) -> list[str]:
+    """Move native calls after prose when output-item order puts them in a fence."""
+    prose = [text for text, is_call in chunks if not is_call]
+    calls = [text for text, is_call in chunks if is_call]
+    if calls:
+        fences = _codeblock_char_ranges(separator.join(prose))
+        offset = 0
+        for text, is_call in chunks:
+            if is_call:
+                if any(start < offset < end for start, end in fences):
+                    # Keep the calls in order. Phase replay restores the provider's
+                    # item order from its separate anchors.
+                    return prose + calls
+            else:
+                offset += len(text) + len(separator)
+    return [text for text, _ in chunks]
+
+
 def _stream_responses_events(
     event_iter: Iterable[Any],
     *,
@@ -679,17 +699,17 @@ def _stream_responses_events(
         if not any(previous is call for previous in ordered_output)
     )
     # Render only after all snapshots: a later item can invalidate an earlier call.
-    recovered: list[str] = []
+    recovered: list[tuple[str, bool]] = []
     for part in ordered_output:
         chunk = part.chunk() if isinstance(part, _ResponseFunctionCall) else part
         if chunk:
-            recovered.append(chunk)
+            recovered.append((chunk, not isinstance(part, str)))
     if recovered:
         logger.debug(
             "Responses stream reconciled %d chunk(s) from function calls/terminal output",
             len(recovered),
         )
-        yield from recovered
+        yield from _keep_calls_outside_fences(recovered)
         return
     if event_types and not emitted:
         logger.warning(

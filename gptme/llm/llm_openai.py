@@ -53,6 +53,7 @@ from .openai_responses import (
     ToolCallFunction,
     _content_to_responses_input,  # noqa: F401
     _extract_usage_token_counts,
+    _keep_calls_outside_fences,
     _messages_dicts_to_responses_input,
     _obj_get,
     _stream_responses_events,
@@ -1383,7 +1384,7 @@ def chat(
             success=not incomplete,
         )
 
-        result: list[str] = []
+        output_chunks: list[tuple[str, bool]] = []
         phases = ResponsesPhaseCapture()
         preserve_items = any(
             _obj_get(item, "type") == "message"
@@ -1396,12 +1397,14 @@ def chat(
             if item_type == "reasoning":
                 if reasoning_text := _extract_responses_reasoning(item):
                     logger.debug("Reasoning content: %s", reasoning_text)
-                    result.append(f"<think>\n{reasoning_text}\n</think>")
+                    output_chunks.append(
+                        (f"<think>\n{reasoning_text}\n</think>", False)
+                    )
             elif item_type == "function_call":
                 name = _obj_get(item, "name", "").strip()
                 call_id = _obj_get(item, "call_id", "").strip()
                 arguments = _obj_get(item, "arguments", "")
-                result.append(f"@{name}({call_id}): {arguments}")
+                output_chunks.append((f"@{name}({call_id}): {arguments}", True))
             elif item_type == "message":
                 parts: list[str] = []
                 for part in _obj_get(item, "content", []) or []:
@@ -1413,11 +1416,18 @@ def chat(
                 # Preserve intra-message content boundaries without inventing a
                 # newline between parts. Legacy unphased output is unchanged.
                 if parts:
-                    result.extend(["".join(parts)] if preserve_items else parts)
+                    output_chunks.extend(
+                        (part, False)
+                        for part in (["".join(parts)] if preserve_items else parts)
+                    )
 
-        if not result:
+        if not output_chunks:
             raise ValueError("Responses API returned no usable output items")
-        content = "\n".join(part for part in result if part)
+        content = "\n".join(
+            _keep_calls_outside_fences(
+                [(text, call) for text, call in output_chunks if text], "\n"
+            )
+        )
         return content, phases.metadata(metadata, content)
 
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
