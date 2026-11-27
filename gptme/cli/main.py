@@ -349,7 +349,12 @@ class CommaSeparatedChoice(click.ParamType):
             # would widen a restricted subprocess child's toolset to defaults.
             from ..tools._allowlist import is_mcp_allowlist_entry
 
-            if is_mcp_allowlist_entry(check) and not any(c in check for c in "*?["):
+            if (
+                param is not None
+                and param.name == "tool_allowlist"
+                and is_mcp_allowlist_entry(check)
+                and not any(c in check for c in "*?[")
+            ):
                 continue
             # Defer validation for lenient prefixes (e.g. "+tts" plugin tools)
             if matched_prefix in self.lenient_prefixes:

@@ -995,14 +995,19 @@ class Subagent:
         except (ValueError, OSError):
             # Old/future configs must not hide an otherwise readable result.
             child_format = None
-        count_format: Literal["xml", "tool"] = (
-            "xml" if child_format == "xml" else "tool"
-        )
+
+        def _count_format_for(message) -> Literal["markdown", "xml", "tool"]:
+            recorded = (message.metadata or {}).get("tool_format")
+            if recorded in ("markdown", "xml", "tool"):
+                return recorded
+            return "xml" if child_format == "xml" else "tool"
+
         n_tool_uses = sum(
             len(
                 list(
                     ToolUse.iter_from_content(
-                        message.content, tool_format_override=count_format
+                        message.content,
+                        tool_format_override=_count_format_for(message),
                     )
                 )
             )

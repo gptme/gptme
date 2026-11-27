@@ -43,6 +43,7 @@ from .. import (
 from .._allowlist import (
     allowlist_contains_glob,
     is_hint_pattern,
+    is_tool_file_path,
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
@@ -123,10 +124,10 @@ def _same_grants(saved: list[str], current: list[str]) -> bool:
     continuable. File entries keep their order: load order is part of the
     boundary the operator declared.
     """
-    return [item for item in saved if _is_tool_file_entry(item)] == [
-        item for item in current if _is_tool_file_entry(item)
-    ] and {item for item in saved if not _is_tool_file_entry(item)} == {
-        item for item in current if not _is_tool_file_entry(item)
+    return [item for item in saved if is_tool_file_path(item)] == [
+        item for item in current if is_tool_file_path(item)
+    ] and {item for item in saved if not is_tool_file_path(item)} == {
+        item for item in current if not is_tool_file_path(item)
     }
 
 
@@ -148,7 +149,7 @@ def _intersect_tool_allowlists(
     # would run before the tightened boundary has authorized that execution.
     # Legacy records have no inert export manifest. Fail closed rather than
     # guessing whether a name/hint grant covers all exports (or their aliases).
-    if any(_is_tool_file_entry(item) for item in [*saved, *current]):
+    if any(is_tool_file_path(item) for item in [*saved, *current]):
         raise ValueError(
             "Cannot intersect a changed tool-file boundary without saved export "
             "metadata; start a new child with the current tool permissions."
@@ -156,7 +157,7 @@ def _intersect_tool_allowlists(
 
     candidates = {tool.name: tool for tool in get_available_tools()}
     for item in [*saved, *current]:
-        if not _is_tool_file_entry(item) and not allowlist_contains_glob([item]):
+        if not is_tool_file_path(item) and not allowlist_contains_glob([item]):
             candidates.setdefault(item, ToolSpec(name=item, desc=""))
 
     def permits(tool: ToolSpec, boundary: list[str]) -> bool:
@@ -222,10 +223,6 @@ def _ensure_subagent_signal_tools_loaded() -> None:
             loaded_names.add(tool_name)
 
 
-def _is_tool_file_entry(item: str) -> bool:
-    return item.endswith(".py") or "/" in item or "\\" in item
-
-
 def _subprocess_tools_arg(
     profile_tools: list[str] | None,
     parent_tool_allowlist: list[str] | None,
@@ -249,13 +246,13 @@ def _subprocess_tools_arg(
         tools = (
             []
             if profile_tools is not None
-            else [item for item in parent_tool_allowlist if _is_tool_file_entry(item)]
+            else [item for item in parent_tool_allowlist if is_tool_file_path(item)]
         )
         if profile_tools is not None:
             from ..base import load_from_file
 
             for item in parent_tool_allowlist:
-                if not _is_tool_file_entry(item):
+                if not is_tool_file_path(item):
                     continue
                 exported = load_from_file(Path(item))
                 permitted = [
@@ -277,7 +274,7 @@ def _subprocess_tools_arg(
                 tool.name, profile_tools, tool.hints
             ):
                 continue
-            if tool.name not in tools:
+            if tool.is_available and tool.name not in tools:
                 tools.append(tool.name)
     for tool_name in _SUBAGENT_SIGNAL_TOOLS:
         if tool_name not in tools:

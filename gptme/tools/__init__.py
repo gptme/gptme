@@ -1277,11 +1277,11 @@ def set_session_allowlist(allowlist: list[str] | None) -> None:
     """
     # Pin operator-approved files in the parent's workspace before a child
     # changes cwd. Re-resolving a relative path there can import another file.
+    # Use is_tool_file_path(): a slash is not enough, because MCP names may
+    # embed a server path (e.g. docs/team.echo_text).
     _session_allowlist_var.set(
         [
-            str(Path(item).expanduser().resolve())
-            if item.endswith(".py") or "/" in item or "\\" in item
-            else item
+            str(Path(item).expanduser().resolve()) if is_tool_file_path(item) else item
             for item in allowlist
         ]
         if allowlist is not None
