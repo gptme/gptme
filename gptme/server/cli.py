@@ -48,6 +48,7 @@ if threading.current_thread() is threading.main_thread() and not callable(
 
 import click
 from click_default_group import DefaultGroup
+from dotenv import load_dotenv
 
 from gptme.config import get_config, resolve_model_source, set_config_from_workspace
 
@@ -324,8 +325,15 @@ def serve(
     if exit_on_parent_death or watch_pid is not None:
         _start_parent_death_watcher(watch_pid=watch_pid)
 
+    # Load .env before resolving the configured model. init() loads it too, but
+    # that happens after this resolution, so a MODEL set only in .env would be
+    # missed here and the operator's provider choice silently dropped
+    # (gptme/gptme#5354). Loading twice is harmless: dotenv does not override
+    # variables that are already set.
+    load_dotenv()
+
     # A model pinned by the operator (--model, MODEL/GPTME_MODEL in the
-    # environment or config, [models].default) is a deliberate provider
+    # environment, .env or config, [models].default) is a deliberate provider
     # choice: never silently substitute a different provider when it cannot
     # be initialized (gptme/gptme#5353). Only auto-detect a fallback when no
     # model was configured at all.

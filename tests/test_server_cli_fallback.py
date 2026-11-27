@@ -200,6 +200,61 @@ def test_explicit_model_never_falls_back_to_another_provider(
     assert "openrouter/deepseek/deepseek-v4.1-flash" in log
 
 
+def test_dotenv_model_never_falls_back_to_another_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model pinned only in .env must not be replaced by another provider.
+
+    ``init()`` loads .env itself, so resolving the configured model before that
+    load saw no model and picked a fallback provider — sending conversations to
+    a provider the operator never chose (gptme/gptme#5354).
+
+    A subprocess cannot reproduce this portably: ``load_dotenv()`` discovers
+    ``.env`` relative to the gptme package, not the cwd. So drive ``serve()``
+    directly and let the patched loader stand in for the .env file.
+    """
+    from click.testing import CliRunner
+
+    from gptme.server import cli as server_cli
+
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    pinned = "openrouter/deepseek/deepseek-v4.1-flash"
+
+    def fake_load_dotenv(*args: object, **kwargs: object) -> bool:
+        monkeypatch.setenv("MODEL", pinned)
+        return True
+
+    init_calls: list[tuple[str | None, bool]] = []
+
+    def fake_init(model: str | None, **kwargs: object) -> None:
+        require_llm = bool(kwargs.get("require_llm", True))
+        init_calls.append((model, require_llm))
+        if require_llm:
+            raise ValueError("No API key found for provider openrouter")
+
+    class _App:
+        def run(self, **kwargs: object) -> None:
+            pass
+
+    monkeypatch.setattr(server_cli, "load_dotenv", fake_load_dotenv)
+    monkeypatch.setattr(server_cli, "init", fake_init)
+    monkeypatch.setattr("gptme.server.auth.init_auth", lambda **kwargs: None)
+    monkeypatch.setattr(server_cli, "init_telemetry", lambda **kwargs: None)
+    monkeypatch.setattr(server_cli, "shutdown_telemetry", lambda: None)
+    monkeypatch.setattr("gptme.server.app.create_app", lambda **kwargs: _App())
+    monkeypatch.setattr(
+        server_cli, "_pick_fallback_model", lambda: "openai/gpt-4o-mini"
+    )
+
+    result = CliRunner().invoke(server_cli.serve, ["--port", "0", "--tools", "none"])
+
+    assert result.exit_code == 0, result.output
+    # The pinned model is used (in degraded mode), never the fallback.
+    assert init_calls[-1] == (pinned, False)
+    assert "Using fallback" not in result.output
+
+
 def test_nvidia_key_without_model_still_serves_setup(
     tmp_path: Path, unused_tcp_port: int
 ) -> None:
