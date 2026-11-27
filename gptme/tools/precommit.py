@@ -57,8 +57,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Both runners read the same .pre-commit-config.yaml and accept the same
-# ``run`` subcommands (``--all-files``/``--files``). Prefer the reference
+# Both runners accept .pre-commit-config.yaml and the same ``run`` subcommands
+# (``--all-files``/``--files``); prek also prefers its native prek.toml. Prefer the reference
 # implementation, fall back to prek (the Rust reimplementation) when only it
 # is installed — otherwise checks silently disable in prek-only repos.
 PRECOMMIT_RUNNERS = ("pre-commit", "prek")
@@ -74,13 +74,41 @@ def get_precommit_runner() -> str | None:
     return None
 
 
+def _resolve_check_config() -> tuple[str | None, Path | None, Path | None]:
+    """Select the runner and its nearest config within the current repository."""
+    runner = get_precommit_runner()
+    root = _get_repo_root()
+    if runner is None:
+        return None, root, None
+    names = (
+        ("prek.toml", ".pre-commit-config.yaml")
+        if Path(runner).name.lower() in ("prek", "prek.exe")
+        else (".pre-commit-config.yaml",)
+    )
+    workspace = current_workspace()
+    for parent in (workspace, *workspace.parents):
+        for name in names:
+            config = parent / name
+            if config.is_file():
+                return runner, root, config
+        if parent == root:
+            break
+    return runner, root, None
+
+
 def use_checks() -> bool:
+    """Whether checks are explicitly enabled or their actual config is approved."""
+    runner, _, config = _resolve_check_config()
+    return _checks_enabled(runner, config)
+
+
+def _checks_enabled(runner: str | None, config_path: Path | None) -> bool:
     """Check if pre-commit checks are enabled.
 
     Pre-commit checks are enabled when either:
 
     1. GPTME_CHECK=true is set explicitly, or
-    2. A .pre-commit-config.yaml file exists in any parent directory and the
+    2. The selected runner's config exists within the repository and the
        user has approved that config (its hooks run arbitrary code, so a
        cloned repository must not enable them on its own)
 
@@ -93,31 +121,22 @@ def use_checks() -> bool:
     if explicit_disabled:
         return False
 
-    # Check for .pre-commit-config.yaml in any parent directory
     workspace = current_workspace()
-    config_path = next(
-        (
-            parent / ".pre-commit-config.yaml"
-            for parent in [workspace, *workspace.parents]
-            if parent.joinpath(".pre-commit-config.yaml").exists()
-        ),
-        None,
-    )
 
     if explicit_enabled and config_path is None:
         logger.warning(
-            "GPTME_CHECK is enabled but no .pre-commit-config.yaml found in any parent directory"
+            "GPTME_CHECK is enabled but no runner config (.pre-commit-config.yaml / prek.toml) found"
         )
 
     enabled = explicit_enabled
-    if not enabled and config_path is not None and get_precommit_runner():
+    if not enabled and config_path is not None and runner:
         from ..config.trust import check_precommit_trust
 
         # Auto-enable only for an approved config: same TOFU gate as gptme.toml.
         enabled = check_precommit_trust(config_path, workspace)
 
     # Check for a pre-commit runner (pre-commit or prek)
-    if enabled and not get_precommit_runner():
+    if enabled and not runner:
         logger.warning("neither pre-commit nor prek found, disabling pre-commit checks")
         return False
 
@@ -212,16 +231,15 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         or (False, output) if issues found or timed out,
         or (False, None) if interrupted/not-enabled.
     """
-    if not use_checks():
+    runner, root, config_path = _resolve_check_config()
+    if not _checks_enabled(runner, config_path):
         logger.debug("Pre-commit checks not enabled")
         return False, None
 
-    runner = get_precommit_runner()
     if runner is None:
         logger.debug("No pre-commit runner available")
         return False, None
 
-    root = _get_repo_root()
     if all_files:
         cmd = [runner, "run", "--all-files"]
     else:
@@ -233,26 +251,9 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         else:
             logger.debug("No modified files found, falling back to --all-files")
             cmd = [runner, "run", "--all-files"]
-    if root is not None:
-        # Keep the caller's nearest config when execution moves to the Git root.
-        # Do not import configuration from outside this repository.
-        config_names = (
-            ("prek.toml", ".pre-commit-config.yaml")
-            if Path(runner).name.lower() in ("prek", "prek.exe")
-            else (".pre-commit-config.yaml",)
-        )
-        workspace = current_workspace()
-        for parent in (workspace, *workspace.parents):
-            config = next(
-                (parent / name for name in config_names if (parent / name).is_file()),
-                None,
-            )
-            if config is not None:
-                if parent != root:
-                    cmd[2:2] = ["--config", str(config)]
-                break
-            if parent == root:
-                break
+    if config_path is not None:
+        # Pin execution to the exact file whose content was approved.
+        cmd[2:2] = ["--config", str(config_path)]
     start_time = time.monotonic()
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
@@ -357,8 +358,8 @@ def run_precommit_on_file(
     Yields:
         Messages with pre-commit results
     """
-    # Check if pre-commit checks should run
-    if not use_checks():
+    runner, root, config_path = _resolve_check_config()
+    if not _checks_enabled(runner, config_path):
         logger.debug("Pre-commit checks not enabled, skipping hook")
         return
 
@@ -366,7 +367,6 @@ def run_precommit_on_file(
         logger.debug("Per-file pre-commit checks disabled, skipping hook")
         return
 
-    runner = get_precommit_runner()
     if runner is None:
         logger.debug("No pre-commit runner available, skipping hook")
         return
@@ -391,14 +391,17 @@ def run_precommit_on_file(
         return
 
     try:
-        # Run pre-commit on the specific file
+        # Use the workspace-approved config even when the file is elsewhere.
+        cmd = [runner, "run", "--files", str(path)]
+        if config_path is not None:
+            cmd[2:2] = ["--config", str(config_path)]
         result = subprocess.run(
-            [runner, "run", "--files", str(path)],
+            cmd,
             check=False,
             capture_output=True,
             text=True,
             timeout=30,
-            cwd=path.parent,
+            cwd=root if root is not None else current_workspace(),
         )
 
         if result.returncode != 0:

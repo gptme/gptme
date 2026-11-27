@@ -127,20 +127,9 @@ def _check_project_trust(interactive: bool) -> bool:
     and RAG enablement. On approval the withheld surfaces are restored to the
     active config; on denial they stay withheld (see ``withhold_untrusted``).
     """
-    config = get_config()
-    if config.project is None:
-        return True
+    from .config.trust import approve_project_config
 
-    from .config.trust import check_project_trust, trust_source
-
-    project = trust_source(config.project)
-    workspace = project._workspace or (
-        config.chat.workspace if config.chat is not None else None
-    )
-    approved = check_project_trust(project, workspace, interactive=interactive)
-    if approved and config.project is not project:
-        config.project = project
-    return approved
+    return approve_project_config(interactive)
 
 
 def _register_core_compaction_hook() -> None:

@@ -295,3 +295,15 @@ def test_parsed_xml_round_trip_preserves_write(
     assert parse_entry(target).body == "Detail."
     if scope:
         assert not list((tmp_path / "memory").iterdir())
+
+
+def test_cli_memory_header_escapes_embedded_newlines(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+
+    def confirm(**kwargs):
+        assert "\n" not in kwargs["preview_header"]
+        assert "\\x0a" in kwargs["preview_header"]
+        return ConfirmationResult.confirm()
+
+    with patch("gptme.hooks.get_confirmation", side_effect=confirm):
+        list(memory_mod.execute_memory("Summary.", ["fact\nforged header"]))

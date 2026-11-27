@@ -147,12 +147,20 @@ def _project_lines(content: dict) -> list[str]:
     lines.extend(f"  hook: {cmd}" for cmd in content.get("hooks", []))
     for server in content.get("mcp", {}).get("servers", []):
         if server.get("command"):
-            argv = " ".join([server["command"], *map(str, server.get("args", []))])
+            import shlex
+
+            argv = shlex.join([server["command"], *map(str, server.get("args", []))])
             lines.append(f"  mcp server {server.get('name')!r} runs: {argv}")
         else:
             lines.append(
                 f"  mcp server {server.get('name')!r} connects to: {server.get('url')}"
             )
+        for key, value in server.items():
+            if key not in {"name", "command", "args", "url"}:
+                if isinstance(value, dict):
+                    lines.extend(f"    {key}: {k}={v}" for k, v in value.items())
+                else:
+                    lines.append(f"    {key}: {value}")
     if mcp := content.get("mcp"):
         flags = {k: mcp[k] for k in ("enabled", "auto_start") if k in mcp}
         if flags:
@@ -164,8 +172,8 @@ def _project_lines(content: dict) -> list[str]:
     lines.extend(
         f"  env: {key}={value}" for key, value in content.get("env", {}).items()
     )
-    if content.get("rag"):
-        lines.append("  rag: enabled")
+    for key, value in content.get("rag", {}).items():
+        lines.append(f"  rag {key}: {value}")
     return [sanitize_for_prompt(line) for line in lines]
 
 
@@ -357,7 +365,7 @@ def check_project_shell_trust(
 ) -> bool:
     """Gate project-level shell execution behind a TOFU trust check.
 
-    Prefer :func:`check_project_trust`, which also covers the non-shell
+    Prefer ``check_project_trust()``, which also covers the non-shell
     surfaces. This covers only ``context_cmd`` and hook commands.
 
     Returns:
@@ -397,6 +405,23 @@ def check_project_trust(
         what="Project gptme.toml (shell commands, MCP servers, plugins, env, rag)",
         title="Project wants to run code or change settings",
     )
+
+
+def approve_project_config(interactive: bool) -> bool:
+    """Restore approved settings before CLI defaults, plugins or tools read them."""
+    from .core import get_config
+
+    config = get_config()
+    if config.project is None:
+        return True
+    project = trust_source(config.project)
+    workspace = project._workspace or (
+        config.chat.workspace if config.chat is not None else None
+    )
+    approved = check_project_trust(project, workspace, interactive=interactive)
+    if approved:
+        config.project = project
+    return approved
 
 
 def is_project_trusted(project: ProjectConfig, workspace: Path | None) -> bool:

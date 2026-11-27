@@ -523,3 +523,72 @@ def test_precommit_trust_keyed_on_config_content(tmp_path, monkeypatch):
     assert check_precommit_trust(cfg, tmp_path, prompt=False) is True
     cfg.write_text("repos: [{repo: local, hooks: [{id: x, entry: evil}]}]\n")
     assert check_precommit_trust(cfg, tmp_path, prompt=False) is False
+
+
+def test_cli_approval_precedes_model_and_tool_resolution(
+    tmp_path, monkeypatch, fake_tty
+):
+    from gptme.config import cli_setup, setup_config_from_cli
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    user_config = tmp_path / "cfg" / "gptme" / "config.toml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text('[models]\ndefault = "openai/gpt-4o"\n')
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    ws = tmp_path / "repo"
+    _write_project(ws, '[env]\nMODEL = "openai/gpt-4o-mini"\n[mcp]\nenabled = true\n')
+    prompts = []
+
+    def approve(*args, **kwargs):
+        prompts.append(args)
+        return True
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", approve)
+    original_resolve = cli_setup.resolve_model_source
+
+    def resolve(config, **kwargs):
+        assert config.project.env["MODEL"] == "openai/gpt-4o-mini"
+        assert config.project.mcp.enabled
+        return original_resolve(config, **kwargs)
+
+    monkeypatch.setattr(cli_setup, "resolve_model_source", resolve)
+    config = setup_config_from_cli(ws, tmp_path / "log", interactive=True)
+    assert config.chat is not None
+    assert config.chat.model == "openai/gpt-4o-mini"
+    # Later init() must reuse this approval, not ask a second time.
+    assert trust_mod.approve_project_config(interactive=True)
+    assert len(prompts) == 1
+
+
+def test_project_prompt_discloses_all_mcp_and_rag_settings():
+    content = {
+        "mcp": {
+            "servers": [
+                {
+                    "name": "helper",
+                    "command": "node",
+                    "args": ["a b", "c"],
+                    "env": {"NODE_OPTIONS": "--require payload.js\nforged"},
+                    "headers": {"Authorization": "Bearer example"},
+                }
+            ]
+        },
+        "rag": {
+            "enabled": True,
+            "paths": ["private/"],
+            "post_process_model": "provider/model",
+        },
+    }
+    body = "\n".join(trust_mod._project_lines(content))
+    for value in (
+        "NODE_OPTIONS",
+        "payload.js",
+        "Authorization",
+        "Bearer example",
+        "private/",
+        "provider/model",
+    ):
+        assert value in body
+    assert "payload.js\\x0aforged" in body
