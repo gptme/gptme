@@ -7,8 +7,7 @@ import {
 } from '../useConnectionStatus';
 
 type Probe =
-  | { ok: true; url: string }
-  | { ok: false; url: string; reason: 'network'; message: string };
+  { ok: true; url: string } | { ok: false; url: string; reason: 'network'; message: string };
 
 const makeClient = () => ({
   isConnected$: observable(false),
@@ -38,10 +37,29 @@ describe('deriveConnectionStatus', () => {
     );
   });
 
-  it('is connecting while an attempt (or retry back-off) is in flight, even after a failure', () => {
+  it('is connecting while an explicit connect attempt is in flight, even after a failure', () => {
     expect(deriveConnectionStatus({ ...base, isAttempting: true, lastResult: FAILED })).toBe(
       'connecting'
     );
+  });
+
+  it('is connecting while auto-connecting within the grace period or before any probe failed', () => {
+    const auto = { ...base, isAutoConnecting: true };
+    expect(deriveConnectionStatus(auto)).toBe('connecting');
+    expect(deriveConnectionStatus({ ...auto, lastResult: FAILED })).toBe('connecting');
+    // First probe still in flight (no result yet) past the grace period, e.g. a waking instance.
+    expect(deriveConnectionStatus({ ...auto, graceExpired: true })).toBe('connecting');
+  });
+
+  it('is disconnected once a probe failed and the grace period expired, even while auto-connect retries', () => {
+    expect(
+      deriveConnectionStatus({
+        ...base,
+        isAutoConnecting: true,
+        lastResult: FAILED,
+        graceExpired: true,
+      })
+    ).toBe('disconnected');
   });
 
   it('is disconnected only after a probe actually failed', () => {
@@ -130,6 +148,31 @@ describe('useConnectionStatus', () => {
     mockCtx.api.lastConnectionResult$.set(FAILED);
     const { result } = renderHook(() => useConnectionStatus());
     expect(result.current).toBe('disconnected');
+  });
+
+  it('shows disconnected after the grace period while auto-connect keeps retrying an unreachable server', () => {
+    // Unreachable server: the first auto-connect probe fails fast, then the loop
+    // backs off and retries for minutes with isAutoConnecting$ still true.
+    mockCtx.isAutoConnecting$.set(true);
+    const seen: string[] = [];
+    const { result } = renderHook(() => {
+      const status = useConnectionStatus();
+      seen.push(status);
+      return status;
+    });
+    act(() => {
+      mockCtx.api.lastConnectionResult$.set(FAILED);
+    });
+    expect(result.current).toBe('connecting');
+    act(() => {
+      jest.advanceTimersByTime(CONNECTION_GRACE_MS - 1);
+    });
+    expect(seen).not.toContain('disconnected');
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(result.current).toBe('disconnected');
+    expect(mockCtx.isAutoConnecting$.get()).toBe(true);
   });
 
   it('skips the grace period when auto-connect is intentionally skipped', () => {

@@ -22,18 +22,27 @@ export const CONNECTION_GRACE_MS = 5000;
 export function deriveConnectionStatus({
   isConnected,
   isAttempting,
+  isAutoConnecting = false,
   lastResult,
   graceExpired,
 }: {
   isConnected: boolean;
-  /** A connect / auto-connect attempt (including retry back-off) is in progress. */
+  /** An explicit connect attempt (or auth-code exchange) is in flight. */
   isAttempting: boolean;
+  /**
+   * The background auto-connect loop is running (a probe or its retry back-off).
+   * The loop can run for minutes against an unreachable server, so it only holds
+   * off disconnected UI until a probe has failed and the grace period is over.
+   */
+  isAutoConnecting?: boolean;
   lastResult: ConnectionProbeResult | null | undefined;
   graceExpired: boolean;
 }): ConnectionStatus {
   if (isConnected) return 'connected';
   if (isAttempting) return 'connecting';
-  if (lastResult && !lastResult.ok) return 'disconnected';
+  const failed = !!lastResult && !lastResult.ok;
+  if (isAutoConnecting) return failed && graceExpired ? 'disconnected' : 'connecting';
+  if (failed) return 'disconnected';
   return graceExpired ? 'disconnected' : 'connecting';
 }
 
@@ -80,7 +89,8 @@ export function useConnectionStatus(client?: IApiClient): ConnectionStatus {
 
   return deriveConnectionStatus({
     isConnected,
-    isAttempting: isPrimary && (isConnecting || isAutoConnecting || isExchangingAuthCode),
+    isAttempting: isPrimary && (isConnecting || isExchangingAuthCode),
+    isAutoConnecting: isPrimary && isAutoConnecting,
     lastResult,
     // No probe is coming for a skipped auto-connect, so don't hold the
     // disconnected guidance back for the grace period.
