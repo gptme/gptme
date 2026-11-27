@@ -872,46 +872,12 @@ def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     )
 
 
-def test_prompt_workspace_skips_context_cmd_by_default(tmp_path):
-    """include_context_cmd defaults to False even when the project is trusted."""
-    from gptme.prompts import prompt_workspace
-
-    workspace = tmp_path / "project"
-    workspace.mkdir()
-    (workspace / "gptme.toml").write_text(
-        '[prompt]\ncontext_cmd = "echo TRUSTED_CONTEXT_CMD_RAN"\n'
-    )
-
-    msgs = list(
-        prompt_workspace(
-            workspace,
-            include_user_context=False,
-            include_runtime_context=False,
-        )
-    )
-    content = "\n".join(msg.content for msg in msgs)
-    assert "TRUSTED_CONTEXT_CMD_RAN" not in content
-    assert "Computed context" not in content
-
-    msgs_with = list(
-        prompt_workspace(
-            workspace,
-            include_context_cmd=True,
-            include_user_context=False,
-            include_runtime_context=False,
-        )
-    )
-    content_with = "\n".join(msg.content for msg in msgs_with)
-    assert "TRUSTED_CONTEXT_CMD_RAN" in content_with
-
-
-def test_prompt_workspace_skips_untrusted_context_cmd_even_when_requested(
-    tmp_path, monkeypatch
-):
-    """Passing include_context_cmd=True still requires an existing approval."""
+def test_prompt_workspace_skips_context_cmd_by_default(tmp_path, monkeypatch):
+    """include_context_cmd defaults to False; opt-in still needs stored approval."""
     import sys
 
     from gptme.config import trust as trust_mod
+    from gptme.config.trust import _record, compute_shell_hash
     from gptme.prompts import prompt_workspace
 
     monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
@@ -921,20 +887,32 @@ def test_prompt_workspace_skips_untrusted_context_cmd_even_when_requested(
 
     workspace = tmp_path / "project"
     workspace.mkdir()
-    (workspace / "gptme.toml").write_text(
-        '[prompt]\ncontext_cmd = "echo SHOULD_NOT_RUN"\n'
-    )
+    cmd = "echo TRUSTED_CONTEXT_CMD_RAN"
+    (workspace / "gptme.toml").write_text(f'[prompt]\ncontext_cmd = "{cmd}"\n')
 
-    msgs = list(
-        prompt_workspace(
-            workspace,
-            include_context_cmd=True,
-            include_user_context=False,
-            include_runtime_context=False,
+    def collect(**kwargs) -> str:
+        return "\n".join(
+            msg.content
+            for msg in prompt_workspace(
+                workspace,
+                include_user_context=False,
+                include_runtime_context=False,
+                **kwargs,
+            )
         )
-    )
-    content = "\n".join(msg.content for msg in msgs)
-    assert "SHOULD_NOT_RUN" not in content
+
+    content = collect()
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content
+    assert "Computed context" not in content
+
+    content_untrusted = collect(include_context_cmd=True)
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content_untrusted
+
+    _record(compute_shell_hash(cmd, []), True, workspace)
+    trust_mod._session_decisions.clear()
+
+    content_trusted = collect(include_context_cmd=True)
+    assert "TRUSTED_CONTEXT_CMD_RAN" in content_trusted
 
 
 def test_prompt_workspace_path_included_without_runtime_context(tmp_path):
