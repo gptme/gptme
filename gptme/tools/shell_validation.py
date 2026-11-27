@@ -301,32 +301,14 @@ def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
     return "".join(out), i
 
 
-def _has_closing_bracket(cmd: str, start: int) -> bool:
-    """Return True when a ``]`` closes a subscript before the word ends.
+def _char_before(cmd: str, pos: int) -> str:
+    """Return the character bash sees before ``pos``, or ``""`` at the start.
 
-    Bash reads ``a[`` as a literal word, so an unclosed ``[`` must not be
-    pushed onto the nesting stack: it would leave the stack non-empty and
-    suppress a later heredoc that bash does run. A real subscript
-    (``arr[0]``, ``arr[$i]``, ``$[1 << 2]``) has its closing ``]`` before any
-    word boundary.
-
-    The scan deliberately runs past a ``<<`` that appears inside the
-    subscript: ``a[1<<X]=2`` is an assignment whose subscript contains a
-    shift, so its ``]`` comes after the ``<<``. Stopping at the ``<<`` would
-    miss that ``]`` and misread the shift as a heredoc opener. ``<`` and
-    ``>`` are arithmetic operators there, not word boundaries, so only real
-    boundaries (whitespace, newline, control operators, quotes) end the word.
+    Bash removes backslash-newline before reading words, so look past it.
     """
-    i = start
-    n = len(cmd)
-    while i < n:
-        char = cmd[i]
-        if char == "]":
-            return True
-        if char.isspace() or char in ";&|()'\"`":
-            return False
-        i += 1
-    return False
+    while cmd[:pos].endswith("\\\n"):
+        pos -= 2
+    return cmd[pos - 1] if pos else ""
 
 
 def _scan_nesting(
@@ -338,7 +320,8 @@ def _scan_nesting(
 ) -> None:
     """Update ``stack`` with the brackets opened and closed in ``cmd[start:end]``.
 
-    Entries are ``[``, ``${``, ``((`` (arithmetic) and ``(`` (any other paren).
+    Entries are ``[``, ``$[``, ``${``, ``((`` (arithmetic), ``=(`` (compound
+    assignment) and ``(`` (any other paren).
     """
     i = start
     while i < end:
@@ -369,16 +352,18 @@ def _scan_nesting(
             i += 2
             continue
         if c == "(":
-            stack.append(c)
+            # ``name=(`` is a compound array assignment, where a ``[`` after
+            # ``(`` or a blank is a subscript too (``a=( [1<<X]=2 )``).
+            prev = _char_before(cmd, i)
+            stack.append("=(" if prev == "=" else "(")
         elif c == "[":
-            # ``[`` is an ordinary word character in bash unless it opens an
-            # array subscript or ``$[...]`` arithmetic. Pushing it for
-            # ``echo [`` or ``echo a[`` would leave it open and hide every
-            # later heredoc, including one bash actually runs.
-            prev = cmd[i - 1] if i else ""
-            if (prev.isalnum() or prev in "_]$") and _has_closing_bracket(cmd, i + 1):
+            # ``[`` glued to a word may open an array subscript (``a[1 << X]=2``)
+            # or be literal text (``echo a[``). Push it either way; the caller
+            # stops modelling heredocs while it is open.
+            prev = _char_before(cmd, i)
+            if prev.isalnum() or prev in ("_", "]"):
                 stack.append(c)
-        elif c == ")" and stack and stack[-1] == "(":
+        elif c == ")" and stack and stack[-1] in ("(", "=("):
             stack.pop()
         elif cmd.startswith("))", i) and stack and stack[-1] == "((":
             # Only ``))`` ends arithmetic: a lone ``)`` (a ``case`` pattern
@@ -482,6 +467,13 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             cmd, scanned, match.start(), nesting, quoted_regions + heredoc_regions
         )
         scanned = match.start()
+        if "[" in nesting or "=(" in nesting:
+            # Without bash's assignment-word context these cannot be told
+            # apart: ``a[1 <<X]=2`` is a shift, ``echo a[ <<X`` a real
+            # heredoc. Stop modelling rather than guess. Every later line then
+            # stays visible to validation, so neither a misread shift nor an
+            # inner ``<<`` in an unmodelled body can hide executed commands.
+            break
         if any(entry != "(" for entry in nesting):
             continue
         backslashes = 0

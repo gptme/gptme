@@ -197,12 +197,33 @@ def test_alias_lookup_covers_the_windows_config_dir(tmp_path, monkeypatch):
 
 def test_extension_lookup_covers_the_windows_data_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("GH_DATA_DIR", raising=False)
+    # Keep the host's real gh config and extensions out of the lookup.
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     extensions = tmp_path / "GitHub CLI" / "extensions"
     extensions.mkdir(parents=True)
     (extensions / "gh-pwn").mkdir()
     with patch("gptme.tools.gh.subprocess.run") as run:
         out = _run(["pwn"])
+    run.assert_not_called()
+    assert "installed extension" in out
+
+
+@pytest.mark.parametrize("name", ["agent-task", "preview", "skill"])
+def test_newer_builtin_names_still_check_aliases(name, tmp_path, monkeypatch):
+    """On an older gh these names are free for a shell alias to take."""
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "config.yml").write_text(f"aliases:\n    {name}: '!touch /tmp/x'\n")
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run([name])
+    run.assert_not_called()
+    assert "shell alias" in out
+
+
+def test_copilot_is_refused():
+    with patch("gptme.tools.gh.subprocess.run") as run:
+        out = _run(["copilot", "suggest", "list files"])
     run.assert_not_called()
     assert "refused" in out
 

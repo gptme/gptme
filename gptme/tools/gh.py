@@ -668,10 +668,11 @@ _SAFE_EXTENSION_ACTIONS = frozenset({"list", "ls", "search"})
 _EXTENSION_RUN_ACTIONS = frozenset({"browse", "create", "exec", "install", "upgrade"})
 
 # Commands gh itself implements. Anything else is a user alias or an installed
-# extension, both of which run programs the CLI resolves at call time.
+# extension, both of which run programs the CLI resolves at call time. Names
+# only recent releases implement (``agent-task``, ``preview``, ``skill``) are
+# left out: on an older gh an alias or extension can own them.
 _GH_BUILTIN_COMMANDS = frozenset(
     {
-        "agent-task",
         "alias",
         "api",
         "attestation",
@@ -681,7 +682,6 @@ _GH_BUILTIN_COMMANDS = frozenset(
         "codespace",
         "completion",
         "config",
-        "copilot",
         "discussion",
         "extension",
         "gist",
@@ -691,7 +691,6 @@ _GH_BUILTIN_COMMANDS = frozenset(
         "licenses",
         "org",
         "pr",
-        "preview",
         "project",
         "release",
         "repo",
@@ -699,7 +698,6 @@ _GH_BUILTIN_COMMANDS = frozenset(
         "run",
         "search",
         "secret",
-        "skill",
         "ssh-key",
         "status",
         "variable",
@@ -827,6 +825,9 @@ def _local_exec_reason(
     if sub in ("extension", "extensions", "ext") and action is not None:
         if action not in _SAFE_EXTENSION_ACTIONS or rest & _EXTENSION_RUN_ACTIONS:
             return f"`gh {sub} {action}` installs or runs extension programs"
+    if sub == "copilot":
+        # The gh-copilot extension on older gh, the Copilot CLI on newer.
+        return "`gh copilot` runs a local program"
     if sub == "config" and "set" in rest and _LOCAL_PROGRAM_CONFIG_KEYS & rest:
         return "the browser, editor and pager settings are commands gh executes"
     if "--" in gh_args[:-1]:
