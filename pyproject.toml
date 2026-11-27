@@ -35,14 +35,14 @@ dependencies = [
     "requests>=2.34,<3",  # For HTTP requests in browser tool (PDF detection)
     "publicsuffixlist>=1.0,<2",  # Offline ICANN/private suffix checks for browser cookies
     "json-repair>=0.61.7,<0.65",
-    "mcp>=1.28.1,<2",  # MCP 2 requires a client/server API migration.
+    "mcp>=1.28.1,<3",  # MCP 2 requires a client/server API migration.
     "questionary>=2.1.1,<3",
     "python-dateutil>=2.9.0.post0,<3",
     "pyyaml>=6.0.3,<7",
 
     # providers
-    "openai>=2.48,<3",  # OpenAI 3 requires migrating the httpx transport integration.
-    "anthropic>=1.8,<=1.13.0",  # Newer native tracing duplicates instrumentor spans.
+    "openai>=2.48,<4",  # OpenAI 3 requires migrating the httpx transport integration.
+    "anthropic>=1.8,<=2.14.0",  # Newer native tracing duplicates instrumentor spans.
     "httpx>=0.28.1,<1",  # LLM recovery and stream errors import httpx directly.
     "httpx2>=2.0.0,<3",  # Anthropic transport exceptions are imported directly.
 
@@ -219,7 +219,7 @@ dev = [
     "openapi-spec-validator>=0.9,<0.10",
     "jsonschema>=4.26,<5",  # Draft-07 contract tests; not a runtime dependency
     "pyinstaller>=6.21,<7; python_version >= '3.10' and python_version < '3.15'",
-    "sphinx>=8,<9",  # Sphinx 9 breaks nitpicky autodoc type references.
+    "sphinx>=8,<10",  # Sphinx 9 breaks nitpicky autodoc type references.
     "sphinx-click>=6.2,<7",
     "sphinx-book-theme>=1.1.4,<2",
     "sphinx-sitemap>=2.9,<3",
