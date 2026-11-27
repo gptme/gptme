@@ -4063,3 +4063,13 @@ def test_stale_provider_recovery_cannot_overwrite_newer_save(tmp_path):
     assert doc is not None
     assert doc.unwrap()["providers"][0]["base_url"] == "http://localhost/v1"
     assert config_file.read_bytes() == newer
+
+
+def test_user_config_path_honors_xdg_config_home(monkeypatch, tmp_path):
+    """XDG_CONFIG_HOME selects the user config dir; unset falls back to ~/.config."""
+    from gptme.config.user import _default_config_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert _default_config_path() == str(tmp_path / "gptme" / "config.toml")
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    assert _default_config_path() == os.path.expanduser("~/.config/gptme/config.toml")

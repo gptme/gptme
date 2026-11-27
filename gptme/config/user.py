@@ -205,8 +205,20 @@ def _read_config_text(path: str | Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _default_config_path() -> str:
+    """``$XDG_CONFIG_HOME/gptme/config.toml``, defaulting to ``~/.config``.
+
+    Honors ``XDG_CONFIG_HOME`` (on every platform, so macOS keeps its
+    documented ``~/.config/gptme`` location when it is unset), which lets a
+    process run with its own config directory, e.g. a dev server that must not
+    load the user's personal prompt files.
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
+    return os.path.join(os.path.expanduser(base), "gptme", "config.toml")
+
+
 # Define the path to the config file
-config_path = os.path.expanduser("~/.config/gptme/config.toml")
+config_path = _default_config_path()
 
 
 def _filter_known_fields(
