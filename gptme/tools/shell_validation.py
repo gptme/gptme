@@ -361,7 +361,9 @@ def _scan_nesting(
             # or be literal text (``echo a[``). Push it either way; the caller
             # stops modelling heredocs while it is open.
             prev = _char_before(cmd, i)
-            if prev.isalnum() or prev in ("_", "]"):
+            # Inside an open ``[`` or ``$[`` every ``[`` counts, or its ``]``
+            # would close the outer one early (``$[ [1] <<X ]``).
+            if prev.isalnum() or prev in ("_", "]") or "[" in stack or "$[" in stack:
                 stack.append(c)
         elif c == ")" and stack and stack[-1] in ("(", "=("):
             stack.pop()
@@ -454,11 +456,17 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     nesting: list[str] = []
     scanned = 0
 
+    # ``_find_quotes`` reads ``$'a\'b'`` as plain single quotes and loses track
+    # after the escaped quote, so nothing past one can be trusted as nesting.
+    ansi_c = re.search(r"\$'(?:[^'\\]|\\[^'])*\\'", cmd)
+
     for match in heredoc_pattern.finditer(cmd):
         # ``<<`` text inside an earlier heredoc body is data. Treating it as an
         # opener would start a region that runs past that body's terminator.
         if _is_in_quoted_region(match.start(), heredoc_regions):
             continue
+        if ansi_c and match.start() > ansi_c.start():
+            break
         # Quoted or escaped ``<<`` text is inert to the shell and must not hide
         # later lines from command validation.
         if _is_in_quoted_region(match.start(), quoted_regions):

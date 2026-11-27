@@ -234,6 +234,8 @@ def test_bash_runs_pipeline_after_bracket_argument_heredoc():
         ("a=( [1<<X]=2 )", "X]=2"),
         ("a+=(\n[(1 <<X)]=2\n)", "X"),
         ("a=\\\n([1<<X]=2)", "X]=2"),
+        ("echo $[ [1] <<X ]", "X"),
+        ("a=($'\\')' [1<<X]=2)", "X]=2"),
     ],
 )
 def test_spaced_subscript_shift_does_not_hide_commands(
