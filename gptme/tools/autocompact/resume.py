@@ -550,9 +550,7 @@ def _is_result_stubs_message(msg: Message) -> bool:
     """True for system messages that are LLM result stubs catalogs."""
     if msg.role != "system":
         return False
-    if msg.metadata and msg.metadata.get("result_stubs"):
-        return True
-    return msg.content.startswith(_RESULT_STUBS_PREFIX)
+    return bool(msg.metadata and msg.metadata.get("result_stubs"))
 
 
 def _is_compaction_artifact(msg: Message) -> bool:
@@ -1039,7 +1037,7 @@ def _build_dropped_result_stubs(
         "/tools load recall before requesting saved output."
     )
     content = f"{_RESULT_STUBS_PREFIX} {instructions}\n" + "\n".join(lines)
-    return Message("system", content)
+    return Message("system", content, metadata=MessageMetadata(result_stubs=True))
 
 
 _TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"

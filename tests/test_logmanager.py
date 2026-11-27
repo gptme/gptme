@@ -290,6 +290,41 @@ def test_fork_rejects_path_traversal(tmp_path: Path, monkeypatch):
     assert not (tmp_path / "escape").exists()
 
 
+@pytest.mark.parametrize("branch", ["main", "feature"])
+def test_fork_keeps_compaction_artifacts(tmp_path: Path, monkeypatch, branch: str):
+    """Forking from any branch must copy the full logdir, not just branches/."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    monkeypatch.setattr("gptme.logmanager.manager.get_logs_dir", lambda: logs)
+    logdir = logs / "orig"
+    manager = LogManager(
+        [Message("system", "s"), Message("user", "u"), Message("assistant", "a")],
+        logdir=logdir,
+    )
+    manager.write()
+    (logdir / "tool-outputs").mkdir()
+    (logdir / "tool-outputs" / "autocompact-abc.txt").write_text("original output")
+    (logdir / "compaction.jsonl").write_text("{}\n")
+    (logdir / "config.toml").write_text('[chat]\nworkspace = "/tmp"\n')
+    if branch != "main":
+        manager.branch(branch)
+
+    manager.fork("forked")
+
+    new = logs / "forked"
+    expected = [
+        "conversation.jsonl",
+        "tool-outputs/autocompact-abc.txt",
+        "compaction.jsonl",
+        "config.toml",
+    ]
+    if branch != "main":
+        expected.append(f"branches/{branch}.jsonl")
+    missing = [p for p in expected if not (new / p).exists()]
+    assert not missing, f"fork from branch {branch!r} lost: {missing}"
+    assert not (new / ".lock").exists()
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

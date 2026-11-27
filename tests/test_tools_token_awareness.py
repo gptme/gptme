@@ -244,3 +244,106 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
     tokens2 = int(usage2.split("Retained log estimate: ")[1].split("/")[0])
 
     assert tokens2 > tokens1  # Should have more tokens after adding messages
+
+
+def test_retained_estimate_tracks_compacted_log(tmp_path):
+    """Compaction replacing a log (even with more messages) resets the count."""
+    import re
+    from unittest.mock import MagicMock, patch
+
+    from gptme.hooks.token_awareness import (
+        _last_warning_tokens_var,
+        _message_counts_var,
+        _token_totals_var,
+        add_token_usage_warning,
+    )
+    from gptme.message import len_tokens
+
+    def _msg(i: int, n: int) -> Message:
+        return Message(
+            "user" if i % 2 == 0 else "assistant",
+            " ".join(f"w{i}_{j}" for j in range(n)),
+        )
+
+    for v in (_token_totals_var, _message_counts_var, _last_warning_tokens_var):
+        v.set(None)
+    model = MagicMock(context=200_000, model="gpt-4")
+    ws = tmp_path / "ws"
+    with patch("gptme.llm.models.get_default_model", return_value=model):
+        big = [_msg(i, 2000) for i in range(10)]
+        list(
+            add_token_usage_warning(
+                ToolExecutePostData(log=Log(messages=big), workspace=ws)
+            )
+        )
+        # Compaction replaces the log with a much shorter one (more messages, fewer tokens).
+        compacted = [_msg(100, 20), _msg(101, 20)] + [
+            _msg(200 + i, 600) for i in range(15)
+        ]
+        out = list(
+            add_token_usage_warning(
+                ToolExecutePostData(log=Log(messages=compacted), workspace=ws)
+            )
+        )
+    assert out
+    assert isinstance(out[0], Message)
+    actual = len_tokens(compacted, "gpt-4")
+    match = re.search(r"estimate: (\d+)/", out[0].content)
+    assert match is not None
+    reported = int(match.group(1))
+    assert abs(reported - actual) < 1000, (
+        f"reported {reported} retained tokens, log actually has {actual}"
+    )
+
+
+def test_retained_estimate_tracks_shrunk_and_trimmed_log(tmp_path):
+    """In-place trim compaction and message-count shrinks recount accurately."""
+    import re
+    from unittest.mock import MagicMock, patch
+
+    from gptme.hooks.token_awareness import (
+        _last_warning_tokens_var,
+        _message_counts_var,
+        _token_totals_var,
+        add_token_usage_warning,
+    )
+    from gptme.message import len_tokens
+
+    def _msg(i: int, n: int) -> Message:
+        return Message(
+            "user" if i % 2 == 0 else "assistant",
+            " ".join(f"t{i}_{j}" for j in range(n)),
+        )
+
+    for v in (_token_totals_var, _message_counts_var, _last_warning_tokens_var):
+        v.set(None)
+    model = MagicMock(context=200_000, model="gpt-4")
+    ws = tmp_path / "ws_trim"
+    with patch("gptme.llm.models.get_default_model", return_value=model):
+        initial = [_msg(i, 2000) for i in range(6)]
+        list(
+            add_token_usage_warning(
+                ToolExecutePostData(log=Log(messages=initial), workspace=ws)
+            )
+        )
+        # Same message count, but earlier messages stubbed in-place (trim compaction).
+        trimmed = [Message("system", "[stub]") for _ in range(4)] + initial[4:]
+        out_trimmed = list(
+            add_token_usage_warning(
+                ToolExecutePostData(log=Log(messages=trimmed), workspace=ws)
+            )
+        )
+        # Fewer messages (resume compaction).
+        shrunk = [Message("system", "summary"), _msg(50, 3000)]
+        out_shrunk = list(
+            add_token_usage_warning(
+                ToolExecutePostData(log=Log(messages=shrunk), workspace=ws)
+            )
+        )
+
+    for out, msgs in ((out_trimmed, trimmed), (out_shrunk, shrunk)):
+        assert out
+        assert isinstance(out[0], Message)
+        match = re.search(r"estimate: (\d+)/", out[0].content)
+        assert match is not None
+        assert int(match.group(1)) == len_tokens(msgs, "gpt-4")

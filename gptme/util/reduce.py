@@ -11,8 +11,10 @@ from typing import Literal
 
 from ..codeblock import Codeblock
 from ..llm.models import get_default_model, get_model
+from ..llm.models.types import ModelMeta
 from ..message import Message, len_tokens
 from . import console
+from .context_budget import MIN_BUDGET, resolve_safe_input_ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +372,18 @@ def _drop_orphaned_tool_pairs(
     return [m for m in pruned if id(m) in kept_ids]
 
 
+def _input_token_limit(model: ModelMeta) -> int:
+    """Maximum input tokens to retain while leaving room for completion output."""
+    return max(
+        min(MIN_BUDGET, model.context),
+        resolve_safe_input_ceiling(
+            model.context,
+            max_output=model.max_output or None,
+            model_id=model.full,
+        ),
+    )
+
+
 def limit_log(log: list[Message]) -> list[Message]:
     """
     Picks messages until the total number of tokens exceeds limit,
@@ -378,6 +392,7 @@ def limit_log(log: list[Message]) -> list[Message]:
     """
     model = get_default_model()
     assert model, "No model loaded"
+    input_limit = _input_token_limit(model)
 
     # Always pick the first system messages
     initial_system_msgs = []
@@ -408,9 +423,25 @@ def limit_log(log: list[Message]) -> list[Message]:
                         break
     extra_pinned = [m for m in log_tail if id(m) in extra_pinned_ids]
 
-    # Reserve budget for always-included messages.
+    # Reserve budget for always-included messages and completion output.
+    # Treat the output reserve as a soft target when always-included messages
+    # already reach or exceed input_limit: relax to model.context so small
+    # windows (e.g. 8k models with a ~6k system prompt) still send a request
+    # with reduced output headroom instead of dropping all conversational input.
     always_tokens = len_tokens(initial_system_msgs + extra_pinned, model.model)
-    tail_budget = max(0, model.context - always_tokens)
+    has_unpinned_tail = any(id(m) not in extra_pinned_ids for m in log_tail)
+    effective_limit = input_limit
+    if has_unpinned_tail and input_limit <= always_tokens < model.context:
+        logger.warning(
+            "Pinned/system messages (%d tokens) reach or exceed reserved input "
+            "limit (%d); relaxing limit to model context (%d) with reduced "
+            "output headroom",
+            always_tokens,
+            input_limit,
+            model.context,
+        )
+        effective_limit = model.context
+    tail_budget = max(0, effective_limit - always_tokens)
 
     # Pick the non-pinned messages in latest-first order within the remaining budget.
     msgs = []
@@ -477,12 +508,23 @@ def limit_log(log: list[Message]) -> list[Message]:
             has_user_request = True
             if "compaction_checkpoint_view" in (msg.metadata or {}):
                 continue
-            if len_tokens([*result, msg], model.model) <= model.context:
+            candidate_tokens = len_tokens([*result, msg], model.model)
+            if candidate_tokens <= model.context:
                 kept_ids = {id(m) for m in result} | {id(msg)}
-                logger.warning(
-                    "Context limiting dropped the conversation tail; preserving "
-                    "the latest user request without the oversized tool output"
-                )
+                if candidate_tokens > input_limit:
+                    logger.warning(
+                        "Context limiting dropped the conversation tail; preserving "
+                        "the latest user request (%d tokens exceeds reserved input "
+                        "limit %d; giving up output headroom within %d-token window)",
+                        candidate_tokens,
+                        input_limit,
+                        model.context,
+                    )
+                else:
+                    logger.warning(
+                        "Context limiting dropped the conversation tail; preserving "
+                        "the latest user request without the oversized tool output"
+                    )
                 return [m for m in log if id(m) in kept_ids]
             # Never substitute an older request for a newer one that cannot fit.
             raise ContextLimitError(_NO_USABLE_INPUT_MESSAGE)
