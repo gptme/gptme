@@ -824,7 +824,15 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
         for location in (*_SENSITIVE_PATH_PREFIXES, *_SENSITIVE_HOME_DIRS)
         for spelling in (location, _resolve_symlinks(location, home))
     }
-    for candidate in (normalized, _resolve_symlinks(normalized, home)):
+    # Keep the lexical absolute spelling too, including expansion of ~/$HOME:
+    # a home symlink can otherwise erase a protected ancestor such as /root.
+    absolute = home + normalized[1:] if normalized.startswith("~") else normalized
+    for candidate in (
+        abs_token,
+        normalized,
+        absolute,
+        _resolve_symlinks(normalized, home),
+    ):
         folded = candidate.casefold()
         if any(
             folded == location or folded.startswith(location + "/")

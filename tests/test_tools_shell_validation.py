@@ -1022,6 +1022,27 @@ class TestSensitiveArgs:
         monkeypatch.setenv("HOME", "/root/app")
         assert _has_sensitive_args(f"cat {spelling}")
 
+    @pytest.mark.parametrize("spelling", ["absolute", "~/token.txt", "$HOME/token.txt"])
+    def test_symlinked_home_preserves_system_ancestor(
+        self, tmp_path, monkeypatch, spelling
+    ):
+        """A home symlink out of a protected tree must retain lexical protection."""
+        from gptme.tools import shell_validation
+
+        protected = tmp_path / "protected"
+        protected.mkdir()
+        target = tmp_path / "target"
+        target.mkdir()
+        home = protected / "app"
+        home.symlink_to(target, target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(
+            shell_validation, "_SENSITIVE_PATH_PREFIXES", (str(protected) + "/",)
+        )
+        token = str(home / "token.txt") if spelling == "absolute" else spelling
+
+        assert _has_sensitive_args(f"cat {token}")
+
     def test_ordinary_workspace_file_still_allowlisted(self, tmp_path, monkeypatch):
         """Resolution must not make ordinary relative reads sensitive."""
         home = tmp_path / "home"
