@@ -689,6 +689,20 @@ def test_approve_precommit_config_prompts_once_at_startup(
     assert len(prompts) == 1
 
 
+def test_find_precommit_config_prefers_prek_toml_for_a_prek_runner(
+    tmp_path, monkeypatch
+):
+    """``which`` returns an absolute path; a prek-only repo must find prek.toml."""
+    ws = tmp_path / "repo"
+    ws.mkdir()
+    (ws / "prek.toml").write_text("repos = []\n")
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name: "/usr/bin/prek" if name == "prek" else None,
+    )
+    assert trust_mod.find_precommit_config(ws) == ws / "prek.toml"
+
+
 def test_precommit_approval_survives_a_nested_workspace_scope(
     tmp_path, monkeypatch, fake_tty
 ):

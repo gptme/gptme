@@ -502,9 +502,10 @@ def find_precommit_config(workspace: Path | None) -> Path | None:
     import shutil
 
     runner = next((r for r in ("pre-commit", "prek") if shutil.which(r)), None)
+    # ``which`` returns an absolute path, so compare the binary name.
     names = (
         ("prek.toml", ".pre-commit-config.yaml")
-        if runner == "prek"
+        if runner and os.path.basename(runner).lower() in ("prek", "prek.exe")
         else (".pre-commit-config.yaml",)
     )
     for parent in (workspace, *workspace.parents):
