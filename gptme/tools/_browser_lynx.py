@@ -142,7 +142,13 @@ class _CookieJar:
             # and the tail-matching form. Another host only touches the scope
             # it named.
             own = domain.lstrip(".") == host
-            for variant in {host, f".{host}"} if own else {domain}:
+            variants = {host, f".{host}"} if own else {domain}
+            if urlparse(url).scheme.lower() != "https" and any(
+                self.entries.get((variant, path, name), ("", 0, False))[2]
+                for variant in variants
+            ):
+                continue
+            for variant in variants:
                 if self.entries.pop((variant, path, name), None) is not None:
                     changed = True
             if entry is not None:
@@ -226,8 +232,8 @@ def _parse_set_cookie(
     """Parse one Set-Cookie header.
 
     Returns the jar key and the row to store under it, or ``None`` as the row
-    when the header deletes the cookie (expired, or an empty value, which leaves
-    nothing to forward). Returns ``None`` altogether if the header is unusable.
+    when the header deletes the cookie (expired). Returns ``None`` altogether
+    if the header is unusable.
     """
     pair, *attributes = header.split(";")
     name, separator, value = pair.partition("=")
@@ -271,7 +277,7 @@ def _parse_set_cookie(
     else:
         expires = now + _SESSION_COOKIE_TTL
     key = (domain, path, name)
-    if not value or expires <= now:
+    if expires <= now:
         return key, None
     return key, (value, expires, secure)
 

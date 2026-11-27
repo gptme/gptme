@@ -905,7 +905,7 @@ def test_cookie_domain_is_limited_to_sending_host(tmp_path, url, domain, expecte
     "deletion",
     [
         "sid=gone; Path=/; Max-Age=0",
-        "sid=; Path=/",
+        "sid=; Path=/; Max-Age=0",
         "sid=gone; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
         "sid=gone; Path=/; Domain=example.com; Max-Age=-1",
     ],
@@ -980,6 +980,21 @@ def test_cookie_default_path(tmp_path, request_path, cookie_path):
     assert _absorb(["sid=x"], url, tmp_path) == {
         ("example.com", cookie_path, "sid"): "x"
     }
+
+
+@pytest.mark.parametrize("header", ["sid=attacker; Path=/", "sid=; Path=/; Max-Age=0"])
+def test_http_cannot_replace_secure_cookie(tmp_path, header):
+    seed = {("example.com", "/", "sid"): ("secret", 2**33, True)}
+
+    assert _absorb([header], "http://example.com/", tmp_path, seed) == {
+        ("example.com", "/", "sid"): "secret"
+    }
+
+
+def test_empty_cookie_with_future_expiry_is_preserved(tmp_path):
+    assert _absorb(
+        ["consent=; Path=/; Max-Age=3600"], "https://example.com/", tmp_path
+    ) == {("example.com", "/", "consent"): ""}
 
 
 @pytest.mark.parametrize(
