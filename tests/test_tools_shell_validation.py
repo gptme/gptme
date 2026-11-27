@@ -1156,6 +1156,10 @@ class TestSensitiveArgs:
         assert _has_sensitive_args(command, cwd=fake_home)
         assert not is_allowlisted(command, cwd=fake_home)
 
+    @pytest.mark.parametrize("option", ["-dread", "-idread", "-eR", "-er"])
+    def test_option_value_letters_do_not_enable_recursion(self, fake_home, option):
+        assert is_allowlisted(f"grep {option} MARKER .", cwd=fake_home)
+
     def test_relative_cd_ignored_when_cdpath_set(self, fake_home: Path, monkeypatch):
         """CDPATH can send a relative ``cd`` anywhere, so it is unknown."""
         monkeypatch.setenv("CDPATH", str(fake_home))

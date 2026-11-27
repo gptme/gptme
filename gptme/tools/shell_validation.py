@@ -519,12 +519,15 @@ def _is_recursive_reader(name: str, args: list[str]) -> bool:
             ):
                 action = value if sep else following
         elif arg.startswith("-"):
-            if any(char in letters for char in arg[1:]):
-                return True
-            # ``-d ACTION``, alone or ending a bundle (``-id recurse``).
-            _, sep, value = arg[1:].partition("d")
-            if name == "grep" and sep:
-                action = value or following
+            for offset, char in enumerate(arg[1:], 1):
+                if char in letters:
+                    return True
+                if char in PERMITTED_FLAGS[name].short_value:
+                    # Everything after a value-taking option is its value,
+                    # not more flags (``-dread``, ``-eR``).
+                    if name == "grep" and char == "d":
+                        action = arg[offset + 1 :] or following
+                    break
         if action and "recurse".startswith(action):
             return True
     return False
