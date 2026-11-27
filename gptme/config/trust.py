@@ -113,6 +113,10 @@ def _sensitive_extras(project: ProjectConfig) -> dict:
         extras["env"] = dict(project.env)
     if project.plugins.paths:
         extras["plugin_paths"] = list(project.plugins.paths)
+    if project.plugins.enabled:
+        # The user allowlist and the project allowlist are unioned, so a project
+        # list can widen what the user opted into.
+        extras["plugin_enabled"] = list(project.plugins.enabled)
     if project.rag.enabled:
         extras["rag"] = dataclasses.asdict(project.rag)
     return extras
@@ -168,6 +172,10 @@ def _project_lines(content: dict) -> list[str]:
     lines.extend(
         f"  plugin path (loads code): {path}"
         for path in content.get("plugin_paths", [])
+    )
+    lines.extend(
+        f"  plugin enabled (widens the allowlist): {name}"
+        for name in content.get("plugin_enabled", [])
     )
     lines.extend(
         f"  env: {key}={value}" for key, value in content.get("env", {}).items()
@@ -407,11 +415,23 @@ def check_project_trust(
     )
 
 
-def approve_project_config(interactive: bool) -> bool:
-    """Restore approved settings before CLI defaults, plugins or tools read them."""
+def approve_project_config(
+    interactive: bool,
+    *,
+    server: bool = False,
+    workspace: Path | None = None,
+) -> bool:
+    """Restore approved settings before CLI defaults, plugins or tools read them.
+
+    Also takes the one startup decision on the repository's pre-commit config;
+    the automatic post-edit hook only reads it and never prompts.
+    """
     from .core import get_config
 
     config = get_config()
+    approve_precommit_config(
+        interactive=interactive, server=server, workspace=workspace
+    )
     if config.project is None:
         return True
     project = trust_source(config.project)
@@ -449,7 +469,7 @@ def withhold_untrusted(project: ProjectConfig) -> ProjectConfig:
         project,
         env={},
         mcp=None,
-        plugins=dataclasses.replace(project.plugins, paths=[]),
+        plugins=dataclasses.replace(project.plugins, paths=[], enabled=[]),
         rag=dataclasses.replace(project.rag, enabled=False),
         _untrusted_original=project,
     )
@@ -467,6 +487,74 @@ def precommit_trust_hash(config_path: Path) -> str:
             "sha256": hashlib.sha256(data).hexdigest(),
         }
     )
+
+
+def find_precommit_config(workspace: Path | None) -> Path | None:
+    """Nearest pre-commit runner config at or above *workspace*, within the repo.
+
+    Mirrors the runner preference in ``gptme.tools.precommit``: ``prek`` reads
+    ``prek.toml`` first, the reference implementation reads
+    ``.pre-commit-config.yaml``. Stops at the repository root so a config above
+    the checkout is not approved for a repo that would never use it.
+    """
+    if workspace is None:
+        return None
+    import shutil
+
+    runner = next((r for r in ("pre-commit", "prek") if shutil.which(r)), None)
+    names = (
+        ("prek.toml", ".pre-commit-config.yaml")
+        if runner == "prek"
+        else (".pre-commit-config.yaml",)
+    )
+    for parent in (workspace, *workspace.parents):
+        for name in names:
+            candidate = parent / name
+            if candidate.is_file():
+                return candidate
+        if (parent / ".git").exists():
+            break
+    return None
+
+
+def approve_precommit_config(
+    *,
+    interactive: bool,
+    server: bool = False,
+    workspace: Path | None = None,
+) -> bool:
+    """Ask once, at interactive startup, to auto-run the repo's pre-commit hooks.
+
+    Automatic post-edit checks never prompt (they call
+    :func:`check_precommit_trust` with ``prompt=False``). In non-interactive or
+    server mode this only reports an existing approval and logs why the hooks
+    stay disabled, so startup can never block on stdin even if one is attached.
+    """
+    from .core import get_config
+
+    if workspace is None:
+        config = get_config()
+        if config.project is not None:
+            workspace = config.project._workspace
+        if workspace is None and config.chat is not None:
+            workspace = config.chat.workspace
+    config_path = find_precommit_config(workspace)
+    if config_path is None:
+        return False
+
+    can_prompt = bool(interactive) and not server and sys.stdin.isatty()
+    if not can_prompt:
+        approved = check_precommit_trust(config_path, workspace, prompt=False)
+        if not approved:
+            logger.warning(
+                "Repository pre-commit hooks in %s are not approved; skipping them "
+                "in %s mode. Run gptme interactively once to approve them, or set "
+                "GPTME_CHECK=false to silence this.",
+                config_path,
+                "server" if server else "non-interactive",
+            )
+        return approved
+    return check_precommit_trust(config_path, workspace, interactive=True, prompt=True)
 
 
 def check_precommit_trust(

@@ -592,3 +592,98 @@ def test_project_prompt_discloses_all_mcp_and_rag_settings():
     ):
         assert value in body
     assert "payload.js\\x0aforged" in body
+
+
+# ---------------------------------------------------------------------------
+# Plugin allowlist and startup pre-commit approval
+# ---------------------------------------------------------------------------
+
+
+def test_plugin_allowlist_is_trust_gated(tmp_path, monkeypatch):
+    """A project ``plugins.enabled`` list widens the user allowlist, so it is gated."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    ws = tmp_path / "repo"
+    _write_project(ws, '[plugins]\nenabled = ["project-only"]\n')
+
+    project = _load(ws)
+    assert project.plugins.enabled == []
+
+    content = trust_mod.project_trust_content(project)
+    assert content["plugin_enabled"] == ["project-only"]
+    assert any("project-only" in line for line in trust_mod._project_lines(content))
+
+    _record(trust_mod.compute_project_hash(project), approved=True, workspace=ws)
+    trust_mod._session_decisions.clear()
+    assert _load(ws).plugins.enabled == ["project-only"]
+
+
+def _write_precommit_config(ws) -> None:
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / ".pre-commit-config.yaml").write_text("repos: []\n")
+
+
+def _set_precommit_workspace(monkeypatch, tmp_path, ws):
+    from gptme.config import Config, set_config
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name: "/usr/bin/pre-commit" if name == "pre-commit" else None,
+    )
+    set_config(Config(project=ProjectConfig(_workspace=ws)))
+    return ws / ".pre-commit-config.yaml"
+
+
+def test_approve_precommit_config_server_never_prompts_with_tty(
+    tmp_path, monkeypatch, fake_tty
+):
+    """A server run must not read stdin even when a TTY is attached."""
+    ws = tmp_path / "repo"
+    _write_precommit_config(ws)
+    cfg = _set_precommit_workspace(monkeypatch, tmp_path, ws)
+
+    def fail_prompt(*args, **kwargs):
+        raise AssertionError("server mode must not prompt on stdin")
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", fail_prompt)
+    assert trust_mod.approve_precommit_config(interactive=True, server=True) is False
+    assert check_precommit_trust(cfg, ws, prompt=False) is False
+
+
+def test_approve_precommit_config_non_interactive_never_prompts_with_tty(
+    tmp_path, monkeypatch, fake_tty
+):
+    """A non-interactive run must not read stdin even when a TTY is attached."""
+    ws = tmp_path / "repo"
+    _write_precommit_config(ws)
+    cfg = _set_precommit_workspace(monkeypatch, tmp_path, ws)
+
+    def fail_prompt(*args, **kwargs):
+        raise AssertionError("non-interactive mode must not prompt on stdin")
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", fail_prompt)
+    assert trust_mod.approve_precommit_config(interactive=False) is False
+    assert check_precommit_trust(cfg, ws, prompt=False) is False
+
+
+def test_approve_precommit_config_prompts_once_at_startup(
+    tmp_path, monkeypatch, fake_tty
+):
+    ws = tmp_path / "repo"
+    _write_precommit_config(ws)
+    cfg = _set_precommit_workspace(monkeypatch, tmp_path, ws)
+
+    prompts = []
+
+    def approve(*args, **kwargs):
+        prompts.append(args)
+        return True
+
+    monkeypatch.setattr(trust_mod, "_prompt_user", approve)
+    assert trust_mod.approve_precommit_config(interactive=True) is True
+    assert len(prompts) == 1
+
+    # The automatic post-edit check only reads the stored decision.
+    assert check_precommit_trust(cfg, ws, prompt=False) is True
+    assert trust_mod.approve_precommit_config(interactive=True) is True
+    assert len(prompts) == 1

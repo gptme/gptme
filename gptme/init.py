@@ -72,7 +72,7 @@ def init(
 
     load_dotenv()
     # Before plugins, model and tools: each reads trust-gated project settings.
-    project_trusted = _check_project_trust(interactive)
+    project_trusted = _check_project_trust(interactive, server)
     _init_plugins()
     try:
         init_model(model, interactive)
@@ -120,16 +120,17 @@ def init(
     _init_done = True
 
 
-def _check_project_trust(interactive: bool) -> bool:
+def _check_project_trust(interactive: bool, server: bool = False) -> bool:
     """Approve (or deny) the project config before anything consumes it.
 
-    One approval covers shell commands, MCP servers, plugin paths, ``[env]``
-    and RAG enablement. On approval the withheld surfaces are restored to the
-    active config; on denial they stay withheld (see ``withhold_untrusted``).
+    One approval covers shell commands, MCP servers, plugin paths, ``[env]``,
+    RAG enablement and the repository's pre-commit config. On approval the
+    withheld surfaces are restored to the active config; on denial they stay
+    withheld (see ``withhold_untrusted``).
     """
     from .config.trust import approve_project_config
 
-    return approve_project_config(interactive)
+    return approve_project_config(interactive, server=server)
 
 
 def _register_core_compaction_hook() -> None:

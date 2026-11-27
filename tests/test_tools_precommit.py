@@ -1123,7 +1123,9 @@ def test_approves_and_executes_same_prek_config(
     actual.write_text("repos = []")
     approved = []
 
-    def approve(config, ws):
+    def approve(config, ws, **kwargs):
+        # The automatic hook must never prompt; it only reads an approval.
+        assert kwargs.get("prompt") is False
         approved.append(config)
         return True
 

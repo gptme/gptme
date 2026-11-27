@@ -133,7 +133,18 @@ def _checks_enabled(runner: str | None, config_path: Path | None) -> bool:
         from ..config.trust import check_precommit_trust
 
         # Auto-enable only for an approved config: same TOFU gate as gptme.toml.
-        enabled = check_precommit_trust(config_path, workspace)
+        # Never prompt here: this runs from an automatic post-edit hook, where a
+        # stdin read would hang a server or non-interactive session. Startup
+        # asks once (trust.approve_precommit_config).
+        enabled = check_precommit_trust(config_path, workspace, prompt=False)
+        if not enabled:
+            logger.info(
+                "Pre-commit config %s is not approved for %s; skipping automatic "
+                "checks. Run gptme interactively once to approve it, or set "
+                "GPTME_CHECK=true.",
+                config_path,
+                workspace,
+            )
 
     # Check for a pre-commit runner (pre-commit or prek)
     if enabled and not runner:
