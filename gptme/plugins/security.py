@@ -227,8 +227,8 @@ _PATTERNS = (
         (?:(?:\\.|(?!(?P=quote))[^\\\n])*? (?:/|\\{1,2}))?
         (?:
             (?: \.(?:ssh|gnupg)
-              | (?:\.git-|application_default_)?credentials
-                (?:\.(?:json|ya?ml|txt|ini|db))?
+              | (?:\.git-|\.|application_default_)?credentials
+                (?:\.(?:json|ya?ml|toml|txt|ini|db|tfrc\.json))?
             )
             (?=[/\\]|(?P=quote))
             # The dotenv name may end at an interpolation: f"{x}", `${x}`, "%s".
