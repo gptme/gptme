@@ -292,6 +292,15 @@ class MessageMetadata(TypedDict, total=False):
     # recovery treat the nudge as transparent, while a real user message that
     # merely quotes the nudge text remains a task boundary.
     harness_nudge: bool
+    # Durable identity of a user prompt ("<timestamp isoformat>#<content
+    # digest>#<ordinal among prompts sharing both>"). Assigned before the
+    # prompt is first answered and kept on the message, so editing its text
+    # does not change the identity a reply was tagged with.
+    acp_prompt_id: str
+    # ID of the prompt an ACP reply answers (see ``acp_prompt_id``), so a
+    # fresh or stale session knows which prompts are done from the log itself.
+    # Not a position: deleting an older message must not shift it.
+    acp_answered_user_id: str
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.

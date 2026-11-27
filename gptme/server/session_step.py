@@ -10,6 +10,7 @@ handlers in api_v2_sessions.py.
 import asyncio
 import atexit
 import contextvars
+import hashlib
 import logging
 import os
 import re
@@ -647,6 +648,157 @@ def _iter_text_from_acp_update(update: Any) -> Iterable[str]:
                     yield block_text
 
 
+def _is_voice_call_turn(m: Message) -> bool:
+    return bool((m.metadata or {}).get("voice_call"))
+
+
+def _acp_prompts(messages: list[Message]) -> list[Message]:
+    """User messages ACP may prompt with.
+
+    Voice-call transcripts are excluded: they were answered on the call, and
+    their replies say nothing about the text prompts around them.
+    """
+    return [m for m in messages if m.role == "user" and not _is_voice_call_turn(m)]
+
+
+def _acp_prompt_key(m: Message) -> str:
+    """Timestamp plus a digest of the content, the base of a prompt's ID.
+
+    Timestamps alone collide (client-supplied on create, back-to-back
+    ``datetime.now()``, second-resolution imports), so identical timestamps
+    are told apart by content and, for byte-identical prompts, by ordinal.
+    ``surrogatepass`` keeps a stored lone surrogate encodable: JSON accepts
+    such a string, and the scan must not abort on one.
+    """
+    digest = hashlib.sha256(
+        m.content.encode("utf-8", errors="surrogatepass")
+    ).hexdigest()[:16]
+    return f"{m.timestamp.isoformat()}#{digest}"
+
+
+def _acp_reply_ids(messages: list[Message]) -> set[str]:
+    """Prompt IDs that ACP replies in ``messages`` still reference."""
+    return {
+        tagged
+        for m in messages
+        if m.role == "assistant"
+        and isinstance(tagged := (m.metadata or {}).get("acp_answered_user_id"), str)
+    }
+
+
+def _acp_prompt_ids(prompts: list[Message], taken: Iterable[str] = ()) -> list[str]:
+    """Stable identity per prompt.
+
+    The identity is persisted on the message (``metadata["acp_prompt_id"]``)
+    before a reply is tagged with it, so editing the prompt text afterwards
+    leaves the reply's tag resolvable. Prompts still lacking a stored ID get
+    the same deterministic timestamp+content+ordinal value, which is then
+    persisted by ``_ensure_acp_prompt_ids``. Unlike a list position, the ID
+    survives deleting an older prompt, including one with the same timestamp
+    but different content.
+    """
+    # Reserve every stored identity first, including prompts later in the log:
+    # deletion or insertion must not let an untagged prompt claim a survivor's ID.
+    # ``taken`` adds IDs that replies still reference (see ``_acp_reply_ids``):
+    # a deleted prompt's ID stays taken while a reply points at it, or a new
+    # prompt with the same text and timestamp would inherit its answer.
+    reserved = set(taken) | {
+        stored
+        for m in prompts
+        if isinstance(stored := (m.metadata or {}).get("acp_prompt_id"), str) and stored
+    }
+    seen: dict[str, int] = {}
+    ids = []
+    for m in prompts:
+        key = _acp_prompt_key(m)
+        ordinal = seen.get(key, 0)
+        seen[key] = ordinal + 1
+        stored = (m.metadata or {}).get("acp_prompt_id")
+        if isinstance(stored, str) and stored:
+            ids.append(stored)
+        else:
+            while (prompt_id := f"{key}#{ordinal}") in reserved:
+                ordinal += 1
+            seen[key] = ordinal + 1
+            reserved.add(prompt_id)
+            ids.append(prompt_id)
+    return ids
+
+
+def _assign_acp_prompt_ids(messages: list[Message]) -> tuple[list[Message], bool]:
+    """Return ``messages`` with every ACP prompt's identity persisted.
+
+    Called under the conversation reservation before the answered cursor is
+    derived, so the identity a reply will be tagged with is already durable
+    and survives a later content edit. The second element reports whether any
+    message changed. Changed prompts are replaced rather than mutated: the
+    log's append detection compares message identity, so an in-place metadata
+    edit would never be rewritten to the transcript.
+    """
+    prompts = _acp_prompts(messages)
+    prompt_ids = {
+        id(m): pid
+        for m, pid in zip(prompts, _acp_prompt_ids(prompts, _acp_reply_ids(messages)))
+    }
+    changed = False
+    updated: list[Message] = []
+    for m in messages:
+        prompt_id = prompt_ids.get(id(m))
+        if prompt_id is None or (m.metadata or {}).get("acp_prompt_id") == prompt_id:
+            updated.append(m)
+            continue
+        updated.append(
+            replace(m, metadata={**(m.metadata or {}), "acp_prompt_id": prompt_id})
+        )
+        changed = True
+    return updated, changed
+
+
+def _acp_answered_indices(messages: list[Message]) -> set[int]:
+    """Prompt positions answered according to the log, including non-prefixes.
+
+    ACP replies record the ID (see ``_acp_prompt_ids``) of the prompt they
+    answer. An untagged assistant reply (a normal step, or an ACP reply from an
+    older log) answers every prompt before it. Voice-call replies answer none.
+    """
+    position = {
+        prompt_id: i
+        for i, prompt_id in enumerate(
+            _acp_prompt_ids(_acp_prompts(messages), _acp_reply_ids(messages))
+        )
+    }
+    answered: set[int] = set()
+    prompts_seen = 0
+    for m in messages:
+        if _is_voice_call_turn(m):
+            continue
+        if m.role == "user":
+            prompts_seen += 1
+        elif m.role == "assistant" and not m.ui_only:
+            # A ui_only status message is display-only, not a reply.
+            tagged = (m.metadata or {}).get("acp_answered_user_id")
+            if isinstance(tagged, str):
+                # A deleted prompt leaves nothing to mark answered.
+                if tagged in position:
+                    answered.add(position[tagged])
+            else:
+                answered.update(range(prompts_seen))
+    return answered
+
+
+def _acp_answered_cursor(messages: list[Message]) -> int:
+    """Last consecutively answered prompt (-1 if the first is pending).
+
+    This compatibility cursor is informational; pending selection uses the
+    full set so a reply to a later prompt cannot hide an earlier gap.
+    """
+    answered = _acp_answered_indices(messages)
+    cursor = -1
+    while cursor + 1 in answered:
+        cursor += 1
+    return cursor
+
+
 async def _acp_step(
     conversation_id: str,
     session: "ConversationSession",
@@ -781,7 +933,7 @@ async def _acp_step(
                     SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise
 
-        user_messages = [m for m in manager.log.messages if m.role == "user"]
+        user_messages = _acp_prompts(manager.log.messages)
         if not user_messages:
             error_event: ErrorEvent = {
                 "type": "error",
@@ -799,26 +951,6 @@ async def _acp_step(
                     SessionManager.add_event(conversation_id, {"type": "step_complete"})
             return
 
-        next_user_index = session.acp_last_user_msg_index + 1
-        pending_user_messages = user_messages[next_user_index:]
-        if not pending_user_messages:
-            duplicate_error_event: ErrorEvent = {
-                "type": "error",
-                "error": "No new user message to process",
-            }
-            SessionManager.add_event(conversation_id, duplicate_error_event)
-            # Release the reservation and emit step_complete (matching the
-            # in-process step() early-exit paths and the documented
-            # contract) under step_lock so this can't race a new reservation.
-            with session.step_lock:
-                if session.step_seq == my_step_seq:
-                    session.generating = False
-                    session.generating_since = None
-                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
-            return
-
-        SessionManager.add_event(conversation_id, {"type": "generation_started"})
-
         stream_tokens: list[str] = []
 
         async def _on_acp_update(_session_id: str, update: Any) -> None:
@@ -832,25 +964,86 @@ async def _acp_step(
                     {"type": "generation_progress", "token": chunk},
                 )
 
-        acp_runtime.set_on_update(_on_acp_update)
-
+        # Everything from here on runs inside the cleanup boundary that
+        # releases the generating reservation, so a failure while deriving the
+        # cursor cannot leave the conversation stuck as "generating".
         try:
-            final_msg: Message | None = None
+            # Replies live in the shared log, so the log is the authority on
+            # which prompts are done. Persist each prompt's identity before any
+            # reply is tagged with it, so a later text edit cannot orphan the
+            # tag. Re-derive the cursor on every step: a fresh session
+            # (reconnect, restart) or a stale tab must not re-prompt a turn
+            # another session answered, and a positional in-session cursor goes
+            # stale when an older message is deleted, so it must never outrank
+            # the log.
+            # Load and save under the conversation lock other writers use, so
+            # a turn saved (e.g. a voice-call transcript) after this step's
+            # earlier load is not dropped by the rewrite that persists IDs.
+            with SessionManager.conversation_lock(conversation_id):
+                with session.step_lock:
+                    if session.step_seq != my_step_seq:
+                        return
+                    # Install the streaming callback only while this step owns
+                    # the reservation; the runtime's callback is shared with any
+                    # replacement step.
+                    acp_runtime.set_on_update(_on_acp_update)
+                manager = LogManager.load(conversation_id, lock=False)
+                messages, ids_changed = _assign_acp_prompt_ids(manager.log.messages)
+                if ids_changed:
+                    manager.log = manager.log.replace(messages=messages)
+                    manager.write()
+                user_messages = _acp_prompts(manager.log.messages)
+                session.acp_last_user_msg_index = _acp_answered_cursor(
+                    manager.log.messages
+                )
+                answered_indices = _acp_answered_indices(manager.log.messages)
+            pending_user_messages = [
+                (i, m) for i, m in enumerate(user_messages) if i not in answered_indices
+            ]
+            if not pending_user_messages:
+                duplicate_error_event: ErrorEvent = {
+                    "type": "error",
+                    "error": "No new user message to process",
+                }
+                SessionManager.add_event(conversation_id, duplicate_error_event)
+                return
 
-            for absolute_index, user_msg in enumerate(
-                pending_user_messages,
-                start=next_user_index,
-            ):
+            SessionManager.add_event(conversation_id, {"type": "generation_started"})
+
+            final_msg: Message | None = None
+            prompt_ids = _acp_prompt_ids(user_messages)
+
+            for absolute_index, user_msg in pending_user_messages:
+                with session.step_lock:
+                    if session.step_seq != my_step_seq:
+                        return
                 text, _raw = await acp_runtime.prompt(
                     user_msg.content, max_tokens=effective_max_tokens
                 )
-                final_text = "".join(stream_tokens) if stream_tokens else text
-                stream_tokens.clear()
-                msg = Message("assistant", final_text)
-                _append_and_notify(manager, session, msg)
-                manager.write()
-                session.acp_last_user_msg_index = absolute_index
-                final_msg = msg
+                # Commit only while this epoch still owns the step. Interrupts
+                # take these locks too, so revocation cannot slip between the
+                # ownership check and the durable answered marker. Reload to
+                # preserve other writers' turns saved while prompt() awaited.
+                with (
+                    SessionManager.conversation_lock(conversation_id),
+                    session.step_lock,
+                ):
+                    if session.step_seq != my_step_seq:
+                        return
+                    manager = LogManager.load(conversation_id, lock=False)
+                    final_text = "".join(stream_tokens) if stream_tokens else text
+                    stream_tokens.clear()
+                    msg = Message(
+                        "assistant",
+                        final_text,
+                        metadata={"acp_answered_user_id": prompt_ids[absolute_index]},
+                    )
+                    _append_and_notify(manager, session, msg)
+                    manager.write()
+                    session.acp_last_user_msg_index = _acp_answered_cursor(
+                        manager.log.messages
+                    )
+                    final_msg = msg
 
             if post_msgs := trigger_hook(
                 HookType.TURN_POST,
@@ -899,14 +1092,16 @@ async def _acp_step(
                 conversation_id, {"type": "error", "error": str(e)}
             )
         finally:
-            acp_runtime.set_on_update(None)
             # A replacement step (interrupt + /step) bumps session.step_seq
             # before this worker's finally runs; a stale worker must not clear
             # the new step's generating flag or emit a stale step_complete.
             # Compare-and-clear and the event are atomic under step_lock, so a
             # new reservation can't slip in between them.
+            # The same holds for the shared streaming callback: once replaced,
+            # it belongs to the new step and clearing it would cut off its reply.
             released = False
             with session.step_lock:
+                acp_runtime.clear_on_update(_on_acp_update)
                 if session.step_seq == my_step_seq:
                     session.generating = False
                     session.generating_since = None

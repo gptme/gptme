@@ -2123,3 +2123,792 @@ def test_runtime_refuses_to_reuse_a_transport_on_a_stopped_loop(monkeypatch, tmp
     _run(runtime.close())
     assert fallback == [_StaticClient._process]
     assert runtime._client is None
+
+
+def test_acp_step_fresh_session_skips_already_answered_history(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A new session (reconnect, restart, second tab) must not re-prompt answered turns."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.session_step as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    for role, content in [
+        ("user", "old question"),
+        ("assistant", "old answer"),
+        ("user", "new question"),
+    ]:
+        resp = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": role, "content": content},
+        )
+        assert resp.status_code == 200
+
+    session = ConversationSession(id="sid-fresh", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    with SessionManager._lock:
+        SessionManager._sessions["sid-fresh"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-fresh")
+
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        all_calls = [call for c in created for call in c.prompt_calls]
+        question_calls = [
+            call for call in all_calls if call[1] in {"old question", "new question"}
+        ]
+        assert question_calls == [("sess-test", "new question")]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-fresh", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-fresh")
+
+
+def _acp_session_over_log(
+    monkeypatch, client, tmp_path, sid, log, *, seed_prompt_ids: bool = True
+):
+    """Build a conversation with ``log`` (role, content, metadata) and a fresh ACP session.
+
+    Timestamps are explicit (one second apart unless ``metadata["ts"]`` pins
+    one), so tests never depend on ``datetime.now()`` resolution.
+    """
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+    from gptme.server.session_step import _acp_prompt_ids
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    conversation_id = _make_v2_conversation(client)["conversation_id"]
+    manager = LogManager.load(conversation_id, lock=False)
+    prompts: dict[str, Message] = {}
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for i, (role, content, metadata) in enumerate(log):
+        metadata = dict(metadata) if metadata else None
+        ts = (metadata or {}).pop("ts", base + timedelta(seconds=i))
+        if metadata and "answers" in metadata:
+            # Tag a reply with the ID of the prompt it answers.
+            prompt_list = list(prompts.values())
+            answered = prompt_list.index(prompts[metadata["answers"]])
+            metadata = {"acp_answered_user_id": _acp_prompt_ids(prompt_list)[answered]}
+        msg = Message(role, content, timestamp=ts, metadata=metadata or None)
+        if role == "user":
+            if seed_prompt_ids:
+                # A prompt's identity is persisted before it is first answered,
+                # as ``_acp_step`` does, so later edits and deletes keep it
+                # stable.
+                prompt_list = [*prompts.values(), msg]
+                prompt_id = _acp_prompt_ids(prompt_list)[-1]
+                msg = replace(
+                    msg, metadata={**(msg.metadata or {}), "acp_prompt_id": prompt_id}
+                )
+            prompts[content] = msg
+        manager.append(msg)
+    manager.write()
+
+    session = ConversationSession(id=sid, conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    with SessionManager._lock:
+        SessionManager._sessions[sid] = session
+        SessionManager._conversation_sessions[conversation_id].add(sid)
+    return conversation_id, session, created
+
+
+def _questions_prompted(created, questions):
+    return [call[1] for c in created for call in c.prompt_calls if call[1] in questions]
+
+
+def test_acp_step_fresh_session_retries_prompt_whose_reply_failed(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Two queued prompts, only the first answered: the reply sits after both
+    prompts in the log, but it answers only the first, so the second is retried."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-queued",
+        [
+            ("user", "first question", None),
+            ("user", "second question", None),
+            ("assistant", "first answer", {"answers": "first question"}),
+        ],
+    )
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question", "second question"}) == [
+            "second question"
+        ]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-queued", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-queued")
+
+
+def test_acp_step_stale_session_skips_prompt_answered_by_another_tab(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A tab whose cursor is behind the shared log must not resend a prompt
+    another tab already answered."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-stale",
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+            ("assistant", "a1", {"answers": "q1"}),
+            ("user", "q2", None),
+        ],
+    )
+    session.acp_last_user_msg_index = 0  # this tab only saw the first answer
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1", "q2"}) == ["q2"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-stale", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-stale")
+
+
+def test_acp_step_answered_marker_survives_deleting_an_older_message(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """The reply marks its prompt by a stable ID, so deleting an earlier
+    message cannot shift a still-pending prompt into the answered slot."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-deleted",
+        [
+            ("user", "old question", None),
+            ("assistant", "old answer", None),
+            ("user", "first question", None),
+            ("user", "second question", None),
+            ("assistant", "first answer", {"answers": "first question"}),
+        ],
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.edit([m for m in manager.log.messages if m.content != "old question"])
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(
+            created, {"old question", "first question", "second question"}
+        ) == ["second question"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-deleted", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-deleted"
+            )
+
+
+def test_acp_step_voice_call_reply_does_not_answer_text_prompt(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A saved voice transcript answers its own call turns, not an earlier
+    text prompt whose ACP reply failed; the transcript is never re-prompted."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    call = {"voice_call": {"call_sid": "CA123", "source": "twilio"}}
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-voice",
+        [
+            ("user", "typed question", None),
+            ("user", "spoken question", call),
+            ("assistant", "spoken answer", call),
+        ],
+    )
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"typed question", "spoken question"}) == [
+            "typed question"
+        ]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-voice", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-voice")
+
+
+def test_acp_step_same_timestamp_prompts_are_answered_separately(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Two prompts sharing a timestamp (client-supplied, back-to-back
+    ``datetime.now()``, second-resolution imports): answering the first must
+    not mark the second answered."""
+    from datetime import datetime, timezone
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    same = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-same-ts",
+        [
+            ("user", "first question", {"ts": same}),
+            ("user", "second question", {"ts": same}),
+            ("assistant", "first answer", {"answers": "first question"}),
+        ],
+    )
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question", "second question"}) == [
+            "second question"
+        ]
+        # The reply this step wrote carries the second prompt's own ID, so a
+        # fresh cursor re-derived from the log sees both prompts answered.
+        session.acp_last_user_msg_index = -1
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question", "second question"}) == [
+            "second question"
+        ]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-same-ts", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-same-ts"
+            )
+
+
+def test_acp_step_live_session_cursor_does_not_outrank_log_after_delete(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A live tab answered q0 and q1 (positional cursor 1). Deleting q0 shifts
+    positions, so the stale in-session cursor must not hide the new q2."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-live-delete",
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+            ("assistant", "a1", {"answers": "q1"}),
+        ],
+    )
+    session.acp_last_user_msg_index = 1  # this tab answered q0 and q1 itself
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.edit([m for m in manager.log.messages if m.content != "q0"])
+    manager.append(Message("user", "q2"))
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1", "q2"}) == ["q2"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-live-delete", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-live-delete"
+            )
+
+
+def test_acp_step_deleting_same_timestamp_prompt_keeps_later_pending(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """p0, p1 and p2 share a timestamp; p0 and p1 were answered. Deleting p0
+    must not renumber p1's or p2's identity, so p2 is still prompted."""
+    from datetime import datetime, timezone
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.server.api_v2_sessions import SessionManager
+
+    same = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-same-ts-delete",
+        [
+            ("user", "p0", {"ts": same}),
+            ("user", "p1", {"ts": same}),
+            ("user", "p2", {"ts": same}),
+            ("assistant", "a0", {"answers": "p0"}),
+            ("assistant", "a1", {"answers": "p1"}),
+        ],
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.edit([m for m in manager.log.messages if m.content != "p0"])
+    manager.write()
+    session.acp_last_user_msg_index = -1
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"p0", "p1", "p2"}) == ["p2"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-same-ts-delete", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-same-ts-delete"
+            )
+
+
+def test_acp_step_editing_an_answered_prompt_does_not_replay_it(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Save (without re-run) keeps the reply but rewrites the prompt text. The
+    prompt's identity must survive that edit, or ACP re-prompts an answered
+    prompt and repeats its side effects."""
+    from dataclasses import replace
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    # Start with an untagged prompt and let the step answer it, so the test
+    # fails if the step stops persisting prompt IDs.
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-edit",
+        [("user", "deploy prod", None)],
+        seed_prompt_ids=False,
+    )
+    _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+    assert _questions_prompted(created, {"deploy prod"}) == ["deploy prod"]
+    sent_before = sum(len(c.prompt_calls) for c in created)
+
+    persisted = LogManager.load(conversation_id, lock=False)
+    prompt_index = next(
+        i for i, m in enumerate(persisted.log.messages) if m.content == "deploy prod"
+    )
+    assert (persisted.log.messages[prompt_index].metadata or {}).get("acp_prompt_id"), (
+        "the prompt identity must be persisted when the reply is written"
+    )
+
+    manager = LogManager.load(conversation_id, lock=False)
+    msgs = list(manager.log.messages)
+    manager.edit(
+        [
+            replace(m, content="deploy production") if i == prompt_index else m
+            for i, m in enumerate(msgs)
+        ]
+    )
+    manager.append(Message("user", "now check logs"))
+    manager.write()
+    session.acp_last_user_msg_index = -1
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        sent = [call[1] for c in created for call in c.prompt_calls]
+        assert [
+            q
+            for q in sent[sent_before:]
+            if q.startswith("deploy") or q == "now check logs"
+        ] == ["now check logs"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-edit", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-edit")
+
+
+def test_acp_step_surrogate_prompt_does_not_stick_generating(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A stored message with an unpaired surrogate round-trips through the log
+    but cannot be UTF-8 encoded. It must not break the answered-cursor scan:
+    the step prompts the next message and the reservation is released."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    bad = "\ud83d"  # truncated emoji, accepted by JSON parsing
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-surrogate",
+        [
+            ("user", bad, None),
+            ("assistant", "answered", {"answers": bad}),
+            ("user", "next question", None),
+        ],
+    )
+    session.generating = True
+    session.generating_since = None
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {bad, "next question"}) == ["next question"]
+        assert not session.generating
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-surrogate", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-surrogate"
+            )
+
+
+def test_acp_step_cursor_failure_releases_reservation(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """An unexpected failure while deriving the answered cursor must release
+    the generating reservation and emit step_complete, not escape the cleanup
+    boundary and leave the conversation marked as generating."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-cursor-boom",
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+        ],
+    )
+
+    def _boom(_messages):
+        raise RuntimeError("cursor scan failed")
+
+    monkeypatch.setattr(sessions_mod, "_acp_answered_cursor", _boom)
+    session.generating = True
+    session.generating_since = None
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert not session.generating
+        assert session.events[-1]["type"] == "step_complete"
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-cursor-boom", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-cursor-boom"
+            )
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_acp_step_rechecks_ownership_and_prompts_after_locked_reload(
+    monkeypatch, client: FlaskClient, tmp_path, interrupted
+):
+    """A deletion between loads must not replay a surviving answered prompt.
+
+    An interrupted worker must also leave a replacement step's log and
+    generating reservation alone, even when new prompts need IDs.
+    """
+    from contextlib import contextmanager
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sid = "sid-reload-race"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+            ("assistant", "a1", {"answers": "q1"}),
+        ],
+    )
+    original_lock = SessionManager.conversation_lock
+    changed = False
+
+    @contextmanager
+    def _delete_before_reload(cid):
+        nonlocal changed
+        with original_lock(cid):
+            if not changed:
+                changed = True
+                manager = LogManager.load(cid, lock=False)
+                manager.edit([m for m in manager.log.messages if m.content != "q0"])
+                if interrupted:
+                    with session.step_lock:
+                        session.step_seq += 1
+                        session.generating = True
+                    manager.append(Message("user", "replacement question"))
+                manager.write()
+            yield
+
+    monkeypatch.setattr(SessionManager, "conversation_lock", _delete_before_reload)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert changed
+        assert _questions_prompted(created, {"q0", "q1", "replacement question"}) == []
+        if interrupted:
+            assert session.generating
+            assert not any(e["type"] == "step_complete" for e in session.events)
+            messages = LogManager.load(conversation_id, lock=False).log.messages
+            replacement = next(
+                m for m in messages if m.content == "replacement question"
+            )
+            assert not (replacement.metadata or {}).get("acp_prompt_id")
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop(sid, None)
+            SessionManager._conversation_sessions[conversation_id].discard(sid)
+
+
+def test_acp_step_new_identical_prompt_does_not_reuse_surviving_id(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Deleting a duplicate must not make its survivor's ID available again."""
+    from dataclasses import replace
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sid = "sid-reused-id"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, [("user", "same question", None)]
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    first = sessions_mod._acp_prompts(manager.log.messages)[0]
+    second = replace(first, metadata=None)
+    second_id = sessions_mod._acp_prompt_ids([first, second])[1]
+    second = replace(second, metadata={"acp_prompt_id": second_id})
+    manager.append(second)
+    manager.append(
+        Message("assistant", "answered", metadata={"acp_answered_user_id": second_id})
+    )
+    manager.write()
+    manager.edit([m for m in manager.log.messages if m is not first])
+    manager.append(replace(first, metadata=None))
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"same question"}) == ["same question"]
+        prompts = sessions_mod._acp_prompts(
+            LogManager.load(conversation_id, lock=False).log.messages
+        )
+        ids = sessions_mod._acp_prompt_ids(prompts)
+        assert ids[0] == second_id
+        assert len(set(ids)) == len(ids) == 2
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop(sid, None)
+            SessionManager._conversation_sessions[conversation_id].discard(sid)
+
+
+def _drop_acp_session(conversation_id, sid):
+    from gptme.server.api_v2_sessions import SessionManager
+
+    with SessionManager._lock:
+        SessionManager._sessions.pop(sid, None)
+        SessionManager._conversation_sessions[conversation_id].discard(sid)
+
+
+def test_acp_step_replacement_prompt_does_not_reuse_reply_referenced_id(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A deleted prompt's ID stays taken while a reply still references it.
+
+    Replacing the prompt with one of the same text and timestamp used to give
+    the new prompt the deleted prompt's ID, so the old reply marked it
+    answered and ACP never sent it, wherever the reply sat in the log.
+    """
+    from dataclasses import replace
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = "sid-reply-referenced-id"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [
+            ("user", "same question", None),
+            ("assistant", "answered", {"answers": "same question"}),
+        ],
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    old = sessions_mod._acp_prompts(manager.log.messages)[0]
+    old_id = (old.metadata or {}).get("acp_prompt_id")
+    assert old_id
+    manager.edit([m for m in manager.log.messages if m is not old])
+    manager.append(replace(old, metadata=None))
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"same question"}) == ["same question"]
+        prompts = sessions_mod._acp_prompts(
+            LogManager.load(conversation_id, lock=False).log.messages
+        )
+        assert (prompts[0].metadata or {}).get("acp_prompt_id") not in (None, old_id)
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+def test_acp_answered_cursor_ignores_ui_only_assistant_messages():
+    """A ``ui_only`` status message is not a reply and answers nothing."""
+    from gptme.message import Message
+    from gptme.server.session_step import _acp_answered_cursor
+
+    messages = [
+        Message("user", "run task"),
+        Message("assistant", "Working...", ui_only=True),
+    ]
+    assert _acp_answered_cursor(messages) == -1
+    assert _acp_answered_cursor([*messages, Message("assistant", "done")]) == 0
+
+
+def test_acp_step_stale_worker_keeps_replacement_update_callback(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """An interrupted step must not clear the callback its replacement installed."""
+    import gptme.server.session_step as sessions_mod
+
+    sid = "sid-callback-owner"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, [("user", "first question", None)]
+    )
+
+    async def replacement_callback(session_id, update):
+        return None
+
+    original_prompt = _DummyClient.prompt
+
+    async def interrupted_prompt(self, session_id, message, max_tokens=None):
+        # Interrupt + /step while this prompt is in flight: the replacement
+        # reserves a new step and installs its own streaming callback.
+        session.step_seq += 1
+        session.acp_runtime.set_on_update(replacement_callback)
+        return await original_prompt(self, session_id, message, max_tokens)
+
+    monkeypatch.setattr(_DummyClient, "prompt", interrupted_prompt)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question"}) == ["first question"]
+        assert session.acp_runtime._on_update is replacement_callback
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+@pytest.mark.parametrize("delete_reply", [False, True])
+def test_acp_step_retries_gap_before_answered_prompt(
+    monkeypatch, client: FlaskClient, tmp_path, delete_reply
+):
+    """A tagged answer to q1 must not hide an unanswered q0."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = "sid-answer-gap"
+    log: list[tuple[str, str, dict[str, str] | None]] = [
+        ("user", "q0", None),
+        ("user", "q1", None),
+    ]
+    if delete_reply:
+        log.append(("assistant", "a0", {"answers": "q0"}))
+    log.append(("assistant", "a1", {"answers": "q1"}))
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, log
+    )
+    if delete_reply:
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.edit([m for m in manager.log.messages if m.content != "a0"])
+        manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0"]
+        # The gap is now answered; a reconnect must not replay either prompt.
+        session.acp_last_user_msg_index = -1
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0"]
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+def test_acp_step_interrupted_reply_is_not_saved_or_followed_by_next_prompt(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A revoked prompt result cannot mark its turn answered or start another."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = "sid-revoked-reply"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [("user", "q0", None), ("user", "q1", None)],
+    )
+    original_prompt = _DummyClient.prompt
+
+    async def interrupted_prompt(self, session_id, message, max_tokens=None):
+        response = await original_prompt(self, session_id, message, max_tokens)
+        with session.step_lock:
+            session.step_seq += 1
+            session.generating = True
+        return response
+
+    monkeypatch.setattr(_DummyClient, "prompt", interrupted_prompt)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        messages = LogManager.load(conversation_id, lock=False).log.messages
+        assert not any((m.metadata or {}).get("acp_answered_user_id") for m in messages)
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0"]
+        assert session.generating
+        assert not any(
+            e["type"] in {"generation_complete", "step_complete"}
+            for e in session.events
+        )
+        assert session.acp_runtime._on_update is None
+        # A subsequent owner still sees both prompts pending.
+        monkeypatch.setattr(_DummyClient, "prompt", original_prompt)
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0", "q0", "q1"]
+    finally:
+        _drop_acp_session(conversation_id, sid)
