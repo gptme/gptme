@@ -4295,8 +4295,11 @@ class GptmeApp(App):
         children = await asyncio.to_thread(
             subagent_snapshots, logdir, parent_branch=branch
         )
+        # Textual prunes the DOM on shutdown before on_unmount sets _quitting,
+        # so a tick resuming from the thread may find the indicator gone.
         if (
             self._quitting
+            or not self.is_running
             or self.manager.logdir != logdir
             or self.manager.current_branch != branch
         ):
