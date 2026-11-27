@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
-from .shell_flags import _split_lines, flags_permitted
+from .shell_flags import (
+    PERMITTED_FLAGS,
+    _check_flag_token,
+    _split_lines,
+    flags_permitted,
+)
 
 if TYPE_CHECKING:
     from .base import ToolUse
@@ -392,7 +397,7 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
-def _attached_option_value(token: str) -> str | None:
+def _attached_option_value(name: str, token: str) -> str | None:
     """Return the value an option carries in the same word, if any.
 
     ``grep --file=/etc/shadow`` and ``grep -f/etc/shadow`` make the program
@@ -404,14 +409,74 @@ def _attached_option_value(token: str) -> str | None:
     if token.startswith("--"):
         _name, sep, value = token.partition("=")
         return value if sep and value else None
-    # Short option with an attached value (``-f/path``, ``-rf$HOME/x``). Only
-    # absolute, home and variable spellings can name a sensitive file here; a
-    # bare ``/`` is a delimiter value (``cut -d/``, ``sort -t/``), not a path.
-    start = next((i for i, char in enumerate(token) if char in "/$~"), None)
-    if start is None:
+    spec = PERMITTED_FLAGS.get(name)
+    if spec is None or not spec.bundling or spec.any_flag:
         return None
-    value = token[start:]
-    return value if value != "/" else None
+    for index, char in enumerate(token[1:], 1):
+        if char in spec.short:
+            continue
+        if char in spec.short_value:
+            value = token[index + 1 :]
+            # A slash used as a delimiter is not a root-directory read.
+            if value == "/" and (name, char) in (("cut", "d"), ("sort", "t")):
+                return None
+            return value or None
+        break
+    return None
+
+
+def _recursive_roots(name: str, args: list[str]) -> list[str]:
+    """Directory operands, excluding option values and the search pattern.
+
+    Reuse the permitted-flag grammar rather than guessing that every non-dash
+    token is a path. Unknown flags are rejected by flags_permitted() later.
+    """
+    spec = PERMITTED_FLAGS[name]
+    operands: list[str] = []
+    pattern_option = False
+    end_options = False
+    index = 0
+    while index < len(args):
+        token = args[index]
+        index += 1
+        if token == "--" and not end_options:
+            end_options = True
+            continue
+        if not end_options and token.startswith("-") and token != "-":
+            if name == "find" and token not in (
+                "-H",
+                "-L",
+                "-P",
+                "-O0",
+                "-O1",
+                "-O2",
+                "-O3",
+                "-D",
+            ):
+                break  # Everything after the starting paths is an expression.
+            option = token.partition("=")[0]
+            if name in ("grep", "rg", "ag"):
+                if option in (
+                    "--regexp",
+                    "--file",
+                    "--files",
+                ):
+                    pattern_option = True
+                elif not token.startswith("--"):
+                    for char in token[1:]:
+                        if char in spec.short_value:
+                            pattern_option |= char in "ef"
+                            break
+            _permitted, consumes_next = _check_flag_token(token, spec)
+            if consumes_next:
+                index += 1
+            continue
+        if name == "find" and token in ("(", "!", ")"):
+            break
+        operands.append(token)
+    if name in ("grep", "rg", "ag") and not pattern_option and operands:
+        operands.pop(0)
+    return operands or ["."]
 
 
 # Allowlisted readers that walk a directory tree. Pointing one at a directory
@@ -508,10 +573,17 @@ def _contains_sensitive_location(token: str, cwd: Path | None) -> bool:
     path = os.path.normpath(re.sub(r"^/+", "/", path))
     if path == "/":
         return True
-    inside = path + "/"
-    return any(
-        location == path or location.startswith(inside)
+    # Resolve the operand itself, not just its cwd: home-link may point at ~.
+    paths = {path, os.path.realpath(path)}
+    locations = {
+        spelling
         for location in _sensitive_locations()
+        for spelling in (location, os.path.realpath(location))
+    }
+    return any(
+        location == root or location.startswith(root.rstrip("/") + "/")
+        for root in paths
+        for location in locations
     )
 
 
@@ -521,8 +593,8 @@ def _cd_destinations(
     """Directories a ``cd`` with these arguments can move the shell to.
 
     Returns None when the destination cannot be determined statically
-    (``cd -``, ``cd $VAR``, ``cd ~user``, globs, or a relative target while
-    ``CDPATH`` is set).
+    (``cd -``, ``cd $VAR``, ``cd ~user``, globs, or a relative target subject
+    to the persistent shell's unknown ``CDPATH``).
     """
     operands = list(args)
     while operands and re.fullmatch(r"-[LPe@]+", operands[0]):
@@ -548,12 +620,20 @@ def _cd_destinations(
         return None
     if target.startswith("/"):
         return [Path(os.path.normpath(re.sub(r"^/+", "/", target)))]
-    if os.environ.get("CDPATH"):
+    # The persistent bash shell may have changed CDPATH without changing
+    # Python's environment. Only ./ and ../ spellings bypass CDPATH reliably.
+    if not target.startswith(("./", "../")):
         return None
-    return [
-        Path(os.path.normpath(cwd.resolve() / target)) if cwd is not None else None
-        for cwd in cwds
-    ]
+    destinations: list[Path | None] = []
+    for cwd in cwds:
+        if cwd is None:
+            destinations.append(None)
+        else:
+            destinations.extend(
+                Path(os.path.normpath(base / target))
+                for base in (cwd.absolute(), cwd.resolve())
+            )
+    return destinations
 
 
 def _command_segments(cmd: str) -> list[list[str]]:
@@ -566,23 +646,31 @@ def _command_segments(cmd: str) -> list[list[str]]:
     """
     segments: list[list[str]] = []
     for line in _split_lines(strip_transparent_wrappers(cmd)):
-        try:
-            lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|><()")
-            lexer.whitespace_split = True
-            lexer.commenters = ""
-            tokens = list(lexer)
-        except ValueError:
-            tokens = line.split()
-        current: list[str] = []
-        for token in tokens:
-            if token and all(char in ";&|()" for char in token):
-                if current:
-                    segments.append(current)
-                current = []
-            else:
-                current.append(token)
-        if current:
-            segments.append(current)
+        # Split before unquoting. shlex loses the distinction between a shell
+        # operator and quoted/escaped data such as the filename '()'.
+        regions = _find_quotes(line)
+        start = 0
+        index = 0
+        pieces: list[str] = []
+        while index < len(line):
+            if line[index] == "\\" and not _is_in_quoted_region(index, regions):
+                index += 2
+                continue
+            if line[index] in ";&|()" and not _is_in_quoted_region(index, regions):
+                pieces.append(line[start:index])
+                start = index + 1
+            index += 1
+        pieces.append(line[start:])
+        for piece in pieces:
+            try:
+                lexer = shlex.shlex(piece, posix=True, punctuation_chars="><")
+                lexer.whitespace_split = True
+                lexer.commenters = ""
+                tokens = list(lexer)
+            except ValueError:
+                tokens = piece.split()
+            if tokens:
+                segments.append(tokens)
     return segments
 
 
@@ -733,9 +821,27 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     for index, segment in enumerate(segments):
         name, args = segment[0], segment[1:]
         candidates: list[str] = []
-        for token in args:
+        for arg_index, token in enumerate(args):
+            # find's name patterns are matched by find, not read as files.
+            # A quoted '*.py' must not become a cwd-wide credential glob.
+            if (
+                name == "find"
+                and arg_index > 0
+                and args[arg_index - 1]
+                in (
+                    "-name",
+                    "-iname",
+                    "-path",
+                    "-ipath",
+                    "-regex",
+                    "-iregex",
+                    "-lname",
+                    "-ilname",
+                )
+            ):
+                continue
             candidates.append(token)
-            if (value := _attached_option_value(token)) is not None:
+            if (value := _attached_option_value(name, token)) is not None:
                 candidates.append(value)
         for token in candidates:
             if any(_token_is_sensitive(token, base) for base in cwds):
@@ -750,9 +856,7 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
             else:
                 cwds.extend(d for d in destinations if d not in cwds)
         elif _is_recursive_reader(name, args):
-            roots = [arg for arg in args if not arg.startswith("-")] or ["."]
-            if "." not in roots:
-                roots.append(".")
+            roots = _recursive_roots(name, args)
             for root in roots:
                 if any(_contains_sensitive_location(root, base) for base in cwds):
                     return True

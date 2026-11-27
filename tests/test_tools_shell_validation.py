@@ -1082,7 +1082,7 @@ class TestSensitiveArgs:
     @pytest.mark.parametrize(
         "command",
         [
-            "cd src && cat main.py",
+            "cd ./src && cat main.py",
             "cd /tmp && ls",
             "grep -r token .",
             "grep -r 'end$' src",
@@ -1110,6 +1110,76 @@ class TestSensitiveArgs:
         """CDPATH can send a relative ``cd`` anywhere, so it is unknown."""
         monkeypatch.setenv("CDPATH", str(fake_home))
         assert not is_allowlisted("cd .ssh && cat id_rsa", cwd=fake_home / "project")
+
+    @pytest.mark.parametrize(
+        "separator", ["'()'", '"()"', r"\(\)", "';'", "'|'", "'&'"]
+    )
+    def test_quoted_separator_keeps_following_secret_visible(self, separator):
+        assert not is_allowlisted(f"cat {separator} ~/.aws/credentials")
+        assert not _has_sensitive_args(f"cat {separator} notes.txt")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd ~ && file -f.ssh/id_rsa",
+            "cd ~ && file -f.netrc",
+            "cd ~ && grep -if.ssh/id_rsa notes.txt",
+            "cd ~/.ssh && grep -fid_rsa notes.txt",
+        ],
+    )
+    def test_attached_relative_secret_values(self, fake_home, command):
+        assert not is_allowlisted(command, cwd=fake_home / "project")
+
+    @pytest.mark.parametrize("option", ["-f.ssh/id_rsa", "-f.netrc", "-if.ssh/id_rsa"])
+    def test_attached_relative_value_from_home_cwd(self, fake_home, option):
+        assert not is_allowlisted(f"grep {option} notes.txt", cwd=fake_home)
+        assert is_allowlisted(
+            "grep -ifpatterns.txt notes.txt", cwd=fake_home / "project"
+        )
+
+    def test_recursive_root_symlink(self, fake_home):
+        link = fake_home / "project" / "home-link"
+        link.symlink_to(fake_home, target_is_directory=True)
+        for root in ("home-link", str(link)):
+            assert not is_allowlisted(f"grep -R . {root}", cwd=link.parent)
+
+    def test_chained_cd_preserves_logical_symlink_path(self, fake_home, tmp_path):
+        config = tmp_path / "external-config"
+        (config / "gptme").mkdir(parents=True)
+        (fake_home / ".config").symlink_to(config, target_is_directory=True)
+        assert not is_allowlisted(
+            "cd ~/.config && cd ./gptme && cat config.toml",
+            cwd=fake_home / "project",
+        )
+
+    def test_cdpath_may_exist_only_in_persistent_shell(self, fake_home):
+        assert not is_allowlisted("cd .ssh && cat id_rsa", cwd=fake_home / "project")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rg token {project}",
+            "rg -e token {project}",
+            "grep -r token {project}",
+            "grep -re token {project}",
+            "grep -rl token {project}",
+            "rg --files {project}",
+            "find {project} -name '*.py'",
+            "du -sh {project}",
+            "ls -R {project}",
+            "tree {project}",
+        ],
+    )
+    def test_explicit_search_root_does_not_include_home(self, fake_home, command):
+        assert is_allowlisted(
+            command.format(project=fake_home / "project"), cwd=fake_home
+        )
+
+    @pytest.mark.parametrize(
+        "command", ["rg -e token", "grep -re token", "find -name '*.py'", "du -sh"]
+    )
+    def test_option_value_is_not_a_search_root(self, fake_home, command):
+        assert not is_allowlisted(command, cwd=fake_home)
 
     def test_globbed_sensitive_path_not_allowlisted(self):
         """Shell glob expansion must not turn an approved token into /etc/shadow."""
