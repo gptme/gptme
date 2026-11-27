@@ -772,24 +772,16 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
         os.path.normpath(re.sub(r"^/+", "/", token)) if token.startswith("/") else token
     )
     home = os.path.expanduser("~")
-    # macOS filesystems are case-insensitive (``/ETC/shadow`` opens
-    # ``/etc/shadow``) and a symlink can make a harmless-looking path point at
-    # a protected one (``link -> /etc``; ``cat link/shadow``). Compare
-    # case-folded spellings, including the symlink-resolved form when the path
-    # exists.
-    for candidate in (abs_token, _resolve_symlinks(abs_token, home)):
-        folded = candidate.casefold()
-        if any(
-            folded.startswith(prefix.casefold()) for prefix in _SENSITIVE_PATH_PREFIXES
-        ):
-            return True
+
     # Sensitive home-relative credential directories.
     # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
     # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
     # Use a boundary check (exact match or followed by "/") to avoid
     # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
-    normalized = token
-    if token == home or token.startswith(home + "/"):
+    normalized = abs_token
+    if token.casefold() == home.casefold() or token.casefold().startswith(
+        home.casefold() + "/"
+    ):
         normalized = "~" + token[len(home) :]
     else:
         for sub in ("${HOME}/", "$HOME/"):
@@ -823,14 +815,20 @@ def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
     # ensures the prefix check below is also correct as belt-and-suspenders.
     if ".." in normalized:
         normalized = os.path.normpath(normalized)
-    # Same two spellings as the absolute prefixes: case variants (macOS
-    # ``~/.SSH/id_rsa``) and workspace symlinks into a credential directory
-    # (``link -> ~/.ssh``; ``cat link/id_rsa``).
+    # Normalize home variables before resolving paths, then check both system
+    # and credential locations. Resolve the protected locations too: ~/.ssh
+    # may link outside home, and macOS /etc links to /private/etc. Retain the
+    # literal spellings for case variants and paths that do not exist yet.
+    locations = {
+        spelling.rstrip("/").casefold()
+        for location in (*_SENSITIVE_PATH_PREFIXES, *_SENSITIVE_HOME_DIRS)
+        for spelling in (location, _resolve_symlinks(location, home))
+    }
     for candidate in (normalized, _resolve_symlinks(normalized, home)):
         folded = candidate.casefold()
         if any(
-            folded == prefix.casefold() or folded.startswith(prefix.casefold() + "/")
-            for prefix in _SENSITIVE_HOME_DIRS
+            folded == location or folded.startswith(location + "/")
+            for location in locations
         ):
             return True
     return False

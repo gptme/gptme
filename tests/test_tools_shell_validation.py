@@ -962,6 +962,56 @@ class TestSensitiveArgs:
 
         assert _has_sensitive_args("cat link/id_rsa", cwd=workspace)
 
+    @pytest.mark.parametrize(
+        "spelling", ["link/id_rsa", "~/.ssh/id_rsa", "keys/id_rsa"]
+    )
+    def test_symlinked_credential_location_requires_confirmation(
+        self, tmp_path, monkeypatch, spelling
+    ):
+        """Resolve protected locations too when ~/.ssh itself is a symlink."""
+        home = tmp_path / "home"
+        home.mkdir()
+        keys = tmp_path / "keys"
+        keys.mkdir()
+        (keys / "id_rsa").write_text("secret")
+        (home / ".ssh").symlink_to(keys, target_is_directory=True)
+        (tmp_path / "link").symlink_to(home / ".ssh", target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+
+        assert _has_sensitive_args(f"cat {spelling}", cwd=tmp_path)
+
+    @pytest.mark.parametrize("home_var", ["$HOME", "${HOME}"])
+    def test_home_variable_link_to_system_location_requires_confirmation(
+        self, tmp_path, monkeypatch, home_var
+    ):
+        """Expand home variables before checking symlink targets against /etc."""
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "etc-link").symlink_to("/etc", target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        assert _has_sensitive_args(f'cat "{home_var}/etc-link/shadow"', cwd=tmp_path)
+
+    def test_symlinked_system_location_requires_confirmation(
+        self, tmp_path, monkeypatch
+    ):
+        """Model macOS /etc -> /private/etc using real symlinks in a temp tree."""
+        from gptme.tools import shell_validation
+
+        protected = tmp_path / "etc"
+        target = tmp_path / "private" / "etc"
+        target.mkdir(parents=True)
+        protected.symlink_to(target, target_is_directory=True)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "etc-link").symlink_to(protected, target_is_directory=True)
+        monkeypatch.setattr(
+            shell_validation, "_SENSITIVE_PATH_PREFIXES", (str(protected) + "/",)
+        )
+
+        assert _has_sensitive_args("cat etc-link/shadow", cwd=workspace)
+
     def test_ordinary_workspace_file_still_allowlisted(self, tmp_path, monkeypatch):
         """Resolution must not make ordinary relative reads sensitive."""
         home = tmp_path / "home"
