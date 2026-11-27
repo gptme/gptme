@@ -194,3 +194,35 @@ def test_read_only_startup_skips_unavailable_denied_writer(
     )
     tools = init_tools(["read", "computer"], read_only=True, include_mcp=False)
     assert [tool.name for tool in tools] == ["read"]
+
+
+@pytest.mark.parametrize(("name", "is_mcp"), [("fs.write", True), ("shell", False)])
+def test_read_only_dynamic_specs_reject_writers_before_init(
+    name: str, is_mcp: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.tools import load_dynamic_tool_specs
+
+    init_tools(["read"], read_only=True, include_mcp=False)
+    initialize = Mock(side_effect=AssertionError("denied spec must not initialize"))
+    monkeypatch.setattr("gptme.tools._init_single_tool", initialize)
+    load_dynamic_tool_specs([ToolSpec(name=name, desc="Write", is_mcp=is_mcp)])
+    initialize.assert_not_called()
+    assert [tool.name for tool in get_tools()] == ["read"]
+
+
+def test_read_only_startup_rejects_denied_companion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.tools.read import tool as read
+
+    monkeypatch.setattr(
+        "gptme.tools.get_available_tools",
+        lambda **kwargs: [
+            read,
+            ToolSpec(name="custom", desc="Needs shell", requires_tools=["shell"]),
+            ToolSpec(name="shell", desc="Shell"),
+        ],
+    )
+    with pytest.raises(ValueError, match="not allowed in a read-only session"):
+        init_tools(["read", "custom", "shell"], read_only=True, include_mcp=False)
+    assert not {tool.name for tool in get_tools()} & {"shell", "custom"}

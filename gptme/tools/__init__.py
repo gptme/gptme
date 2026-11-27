@@ -813,6 +813,14 @@ def _add_required_tools(
         traversed.add(tool.name)
         for name in tool.requires_tools:
             dep = by_name.get(name)
+            if is_read_only_session() and (
+                name in _READ_ONLY_DENIED_TOOLS
+                or (dep is not None and _denied_for_read_only(dep))
+            ):
+                raise ValueError(
+                    f"Tool '{name}' is not allowed in a read-only session "
+                    f"(required by '{tool.name}')"
+                )
             if name in loaded:
                 if dep is not None and dep.requires_tools:
                     queue.append(dep)
@@ -1153,13 +1161,20 @@ def load_dynamic_tool_specs(specs: list[ToolSpec]) -> None:
     execute it immediately. Tools already loaded are skipped.
     """
     with _tools_init_lock:
+        if is_read_only_session():
+            specs = restrict_tools_for_read_only(specs)
         for spec in specs:
             if has_tool(spec.name):
                 continue
             initialized = _init_single_tool(spec, on_error="skip")
             if initialized is None:
                 continue
-            _loaded_tools_var.set([*_get_loaded_tools(), initialized])
+            active = [initialized]
+            if is_read_only_session():
+                active = with_direct_function_calls(
+                    restrict_tools_for_read_only(active)
+                )
+            _loaded_tools_var.set([*_get_loaded_tools(), *active])
             logger.info("Loaded dynamic tool '%s'", initialized.name)
 
 
