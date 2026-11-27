@@ -302,7 +302,7 @@ def test_cli_memory_header_escapes_embedded_newlines(tmp_path, monkeypatch):
 
     def confirm(**kwargs):
         assert "\n" not in kwargs["preview_header"]
-        assert "\\x0a" in kwargs["preview_header"]
+        assert "fact\\nforged header" in kwargs["preview_header"]
         return ConfirmationResult.confirm()
 
     with patch("gptme.hooks.get_confirmation", side_effect=confirm):
