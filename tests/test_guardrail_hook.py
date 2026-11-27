@@ -962,6 +962,87 @@ class TestFileToolSecretPaths:
         assert "Secret path access blocked" in out
         assert target.read_text() == "old\n"
 
+    @pytest.fixture
+    def optional_file_tools(self, monkeypatch):
+        """Expose optional tools without needing Morph credentials or an upload."""
+        from gptme.tools import get_tool
+
+        def unexpected_execute(code, args, kwargs):
+            pytest.fail("secret target reached the optional tool executor")
+
+        optional = {
+            name: ToolSpec(name=name, desc="test", execute=unexpected_execute)
+            for name in ("morph", "hashline_edit")
+        }
+        monkeypatch.setattr(
+            "gptme.tools.get_tool", lambda name: optional.get(name) or get_tool(name)
+        )
+
+    @pytest.mark.usefixtures("optional_file_tools")
+    @pytest.mark.parametrize(
+        "tool", ["save", "append", "patch", "morph", "hashline_edit"]
+    )
+    @pytest.mark.parametrize("native", [False, True])
+    def test_workspace_target_checked_when_process_cwd_differs(
+        self, tmp_path, monkeypatch, tool, native
+    ):
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.util.workspace import workspace_scope
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        secret = workspace / ".env"
+        secret.write_text("old\n")
+        (workspace / "notes.txt").symlink_to(secret)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        use = (
+            ToolUse(tool, None, None, {"path": "notes.txt", "content": "new\n"})
+            if native
+            else ToolUse(tool, ["notes.txt"], "new\n")
+        )
+        with workspace_scope(workspace):
+            assert guardrail_hook(use) is not None
+            out = self._execute(monkeypatch, use)
+        assert "Secret path access blocked" in out
+        assert secret.read_text() == "old\n"
+
+    @pytest.mark.usefixtures("optional_file_tools")
+    @pytest.mark.parametrize(
+        "tool", ["read", "save", "append", "patch", "morph", "hashline_edit"]
+    )
+    @pytest.mark.parametrize("relative", [False, True])
+    def test_symlink_parent_resolved_before_dotdot(
+        self, tmp_path, monkeypatch, tool, relative
+    ):
+        from gptme.hooks.guardrails import guardrail_hook
+        from gptme.tools import load_tool
+        from gptme.util.workspace import workspace_scope
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+        secret_dir = tmp_path / ".ssh"
+        (secret_dir / "subdir").mkdir(parents=True)
+        secret = secret_dir / "config"
+        secret.write_text("synthetic-private-config\n")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "link").symlink_to(secret_dir / "subdir", target_is_directory=True)
+        path = "link/../config"
+        if not relative:
+            path = str(workspace / path)
+        assert (workspace / path).resolve() == secret
+        monkeypatch.chdir(tmp_path)
+        if tool == "read":
+            load_tool("read")
+        use = ToolUse(tool, [path], "new\n" if tool != "read" else None)
+        with workspace_scope(workspace):
+            assert guardrail_hook(use) is not None
+            out = self._execute(monkeypatch, use)
+        assert "Secret path access blocked" in out
+        assert "synthetic-private-config" not in out
+        assert secret.read_text() == "synthetic-private-config\n"
+
     def test_ordinary_save_allowed(self, tmp_path, monkeypatch):
         target = tmp_path / "notes.txt"
         self._execute(monkeypatch, ToolUse("save", [str(target)], "hi\n"))

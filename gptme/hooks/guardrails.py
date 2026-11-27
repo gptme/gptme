@@ -312,7 +312,8 @@ def _read_secret_path_reason(
             if not os.path.isabs(literal):
                 read_root, _ = _configured_read_root()
                 literal = os.path.join(read_root or current_workspace(), literal)
-            literal = os.path.abspath(literal)
+            # Keep symlink/.. ordering: collapsing .. before realpath can
+            # check a different file than read's Path.resolve() opens.
         except (OSError, ValueError, RuntimeError):
             # A bad relative operand must not hide a later absolute secret
             # in a batch (e.g. when the process cwd has been deleted).
@@ -383,11 +384,17 @@ def _file_tool_secret_path_reason(tool_use: "ToolUse") -> str | None:
     Checked before the tool runs: ``patch`` reads the file and ``morph``
     uploads it before any confirmation, so a later check would be too late.
     """
+    from ..util.workspace import current_workspace
+
     for path_arg in _file_tool_paths(tool_use):
+        literal = os.path.expanduser(path_arg)
         try:
-            literal = os.path.abspath(os.path.expanduser(path_arg))
-        except (OSError, ValueError):
-            literal = path_arg
+            if not os.path.isabs(literal):
+                literal = os.path.join(current_workspace(), literal)
+            # Do not abspath/normpath here: realpath must follow symlinks
+            # before interpreting .., just like resolve_in_workspace().
+        except (OSError, ValueError, RuntimeError):
+            pass
         if _is_secret_path(path_arg) or _is_secret_target(literal):
             return (
                 f"Secret path access blocked: {tool_use.tool} targets {path_arg!r}. "
