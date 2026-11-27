@@ -1338,7 +1338,10 @@ def test_call_on_stopped_loop_raises_instead_of_hanging(tmp_path):
 
 
 @pytest.mark.timeout(20)
-def test_stop_loop_releases_queued_call_before_loop_thread_exits(monkeypatch, tmp_path):
+@pytest.mark.parametrize("sync_close", [False, True])
+def test_stop_loop_releases_queued_call_before_loop_thread_exits(
+    monkeypatch, tmp_path, sync_close
+):
     """A blocked transport callback must not keep a queued caller waiting."""
     import gptme.server.acp_session_runtime as mod
 
@@ -1367,7 +1370,11 @@ def test_stop_loop_releases_queued_call_before_loop_thread_exits(monkeypatch, tm
 
     def caller() -> None:
         try:
-            _run(runtime._run_on_loop(work))
+            if sync_close:
+                if not runtime._close_on_loop_sync(timeout=60):
+                    raise ConnectionError("close cancelled; process fallback required")
+            else:
+                _run(runtime._run_on_loop(work))
         except BaseException as exc:
             errors.append(exc)
         finally:
