@@ -261,25 +261,23 @@ def _load_page(browser: Browser, url: str) -> tuple[str, bool]:
         # Raises ValueError if blocked. Runs inside this try so the finally
         # below still closes the managed page.
         owner = _conversation_key()
-        blocked = False
         try:
             _validate_page_url(page.url)
         except ValueError:
-            # A blocked redirect's console output must not reach read_logs(),
-            # but the navigation errors do explain the failed load to the
-            # caller that asked for it.
-            blocked = True
+            # Keep nothing from a blocked landing page: its console output and
+            # page errors can both carry internal host names or token-bearing
+            # text. Drop the caller's previous entry too, so a read_logs() after
+            # the failed load cannot return an older page's logs either.
+            _last_logs.pop(owner, None)
             raise
-        finally:
-            # Replacing the caller's own entry only: another conversation's
-            # logs stay readable by that conversation.
-            _last_logs[owner] = {
-                "logs": [] if blocked else logs,
-                "errors": page_errors,
-                "url": url,
-            }
-            while len(_last_logs) > _MAX_LOG_ENTRIES:
-                _last_logs.pop(next(iter(_last_logs)))
+
+        # Re-assign through a pop so the key moves to the end of the insertion
+        # order: eviction below is FIFO, and a hot conversation must not be
+        # retired just because it has held a key for a long time.
+        _last_logs.pop(owner, None)
+        _last_logs[owner] = {"logs": logs, "errors": page_errors, "url": url}
+        while len(_last_logs) > _MAX_LOG_ENTRIES:
+            _last_logs.pop(next(iter(_last_logs)))
 
         # Server returned markdown directly — preserve source whitespace and skip HTML extraction
         if is_markdown:

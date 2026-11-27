@@ -2180,6 +2180,8 @@ class TestPlaywrightReadLogsIsolation:
         with pytest.raises(ValueError, match="blocked host"):
             pw._load_page(browser, "https://allowed.example/")
         assert "SECRET-TOKEN" not in pw.read_logs()
+        # Nothing from the blocked page is served, not even its URL.
+        assert pw.read_logs() == "No URL has been read yet."
 
     def test_blocked_redirect_drops_the_previous_pages_logs(self, monkeypatch):
         import gptme.tools._browser_playwright as pw
@@ -2210,6 +2212,7 @@ class TestPlaywrightReadLogsIsolation:
                 )
             assert "FIRST-PAGE-LOG" not in pw.read_logs()
             assert "BLOCKED" not in pw.read_logs()
+            assert pw.read_logs() == "No URL has been read yet."
         finally:
             current_conversation_id.reset(token)
 
