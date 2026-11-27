@@ -70,6 +70,7 @@ Design reference: gptme/gptme-cloud#910 (Option A — gptme-server sub-path prox
 from __future__ import annotations
 
 import logging
+import re
 import select
 import socket
 import threading
@@ -277,6 +278,11 @@ def _forward_response_headers(headers: Any) -> list[tuple[str, str]]:
     return [(key, value) for key, value in headers.items() if key.lower() not in skip]
 
 
+# RFC 9110 token "/" token. Anything else (empty, garbage, or several types
+# joined with "," by a repeated header) has no single type the proxy can vouch for.
+_SINGLE_MEDIA_TYPE_RE = re.compile(r"[!#$%&'*+.^_`|~0-9a-z-]+/[!#$%&'*+.^_`|~0-9a-z-]+")
+
+
 def _isolation_headers(content_type: str | None) -> list[tuple[str, str]]:
     """Return origin-isolation headers for a proxied response.
 
@@ -285,7 +291,17 @@ def _isolation_headers(content_type: str | None) -> list[tuple[str, str]]:
     """
     headers: list[tuple[str, str]] = [("X-Content-Type-Options", "nosniff")]
     mime = (content_type or "").split(";", 1)[0].strip().lower()
-    if mime in _HTML_LIKE_MIME:
+    # Fail closed: sandbox unless there is exactly one well-formed media type.
+    # An untyped body is served by Flask as text/html, a browser picks its own
+    # type from a combined header, and it renders any +xml document (RSS, Atom,
+    # MathML, ...) or XSL as XML, running XHTML scripts.
+    if (
+        "," in (content_type or "")
+        or not _SINGLE_MEDIA_TYPE_RE.fullmatch(mime)
+        or mime in _HTML_LIKE_MIME
+        or mime.endswith("+xml")
+        or mime == "text/xsl"
+    ):
         headers.append(("Content-Security-Policy", PREVIEW_CSP_SANDBOX))
     return headers
 
