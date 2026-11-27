@@ -1684,16 +1684,18 @@ def test_cancelled_close_kills_term_ignoring_child(monkeypatch, tmp_path):
 
     try:
         asyncio.run(_main())
+
+        # Assert before the safety-net cleanup below, which would kill the
+        # child itself and hide a close() that never signalled it.
+        assert len(result) == 1
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert runtime._client is None
+        assert runtime.session_id is None
+        assert loop_thread is not None and not loop_thread.is_alive()
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
     finally:
         runtime.terminate_subprocess_sync(graceful=False)
-
-    assert len(result) == 1
-    assert isinstance(result[0], asyncio.CancelledError)
-    assert runtime._client is None
-    assert runtime.session_id is None
-    assert loop_thread is not None and not loop_thread.is_alive()
-    with pytest.raises(ChildProcessError):
-        os.waitpid(pid, os.WNOHANG)
 
 
 def test_loop_calls_cancels_pending_futures_on_close():
