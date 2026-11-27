@@ -77,8 +77,8 @@ _available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
 _session_allowlist_var: ContextVar[list[str] | None] = ContextVar(
     "session_allowlist", default=None
 )
-# Whether the last init_tools() in this context ran under a read-only agent
-# profile; mid-conversation loads must apply the same restriction.
+# Whether this context runs under a read-only agent profile. Reinitialization
+# and mid-conversation loads must preserve it until clear_tools() starts afresh.
 _read_only_session_var: ContextVar[bool] = ContextVar(
     "read_only_session", default=False
 )
@@ -511,7 +511,8 @@ def init_tools(
 
     ``read_only`` (set for a read-only agent profile) removes functions that
     act outside the workspace, such as peer messaging; see
-    ``restrict_tools_for_read_only``.
+    ``restrict_tools_for_read_only``. Once enabled, the restriction persists
+    across reinitialization until ``clear_tools()`` starts a fresh session.
     """
     from ..config import get_config  # fmt: skip
 
@@ -528,7 +529,8 @@ def init_tools(
 
         allowlist = expand_tool_allowlist_presets(allowlist)
         set_session_allowlist(allowlist)
-        _read_only_session_var.set(read_only)
+        if read_only:
+            _read_only_session_var.set(True)
 
         # Partition allowlist into file paths and tool names
         file_paths: list[str] = []
@@ -566,7 +568,7 @@ def init_tools(
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
-        if read_only:
+        if is_read_only_session():
             loaded_tools[:] = restrict_tools_for_read_only(loaded_tools)
         loaded_tools[:] = with_direct_function_calls(loaded_tools)
 

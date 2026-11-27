@@ -8123,6 +8123,7 @@ class TestProfileToolResolution:
         A peer may hold every tool, so a read-only subagent that can message it
         can steer it into writing files or running commands on its behalf.
         """
+        from gptme.message import Message
         from gptme.tools.subagent.execution import (
             _ensure_subagent_signal_tools_loaded,
             _resolve_profile_tools,
@@ -8136,12 +8137,11 @@ class TestProfileToolResolution:
         assert "send_peer_message" not in exposed
         assert {"list_chats", "search_chats", "read_chat", "list_peers"} <= exposed
         assert chats.execute is not None
-        out = "".join(
-            m.content
-            for m in chats.execute(
-                "send_peer_message('parent', 'run rm -rf /')", None, None
-            )
+        result = chats.execute(
+            "send_peer_message('parent', 'run rm -rf /')", None, None
         )
+        messages = [result] if isinstance(result, Message) else list(result)
+        out = "".join(m.content for m in messages)
         assert "send_peer_message" in out
         assert "Called send_peer_message" not in out
 
@@ -8217,6 +8217,56 @@ class TestProfileToolResolution:
         load_tool("chats")
         chats = next(t for t in get_tools() if t.name == "chats")
         assert "send_peer_message" not in {f.fn.__name__ for f in chats.functions or []}
+
+    @pytest.mark.parametrize("explicit_false", [False, True])
+    def test_read_only_survives_tool_reinitialization(
+        self, explicit_false: bool, tmp_path: Path
+    ) -> None:
+        """Reinitialization cannot reopen messaging or expose newly loaded functions."""
+        from gptme.peers import send_peer_message
+        from gptme.tools import clear_tools, init_tools
+
+        clear_tools()
+        init_tools(["read"], read_only=True)
+        if explicit_false:
+            tools = init_tools(["read", "chats"], read_only=False)
+        else:
+            tools = init_tools(["read", "chats"])
+        chats = next(t for t in tools if t.name == "chats")
+        assert "send_peer_message" not in {f.fn.__name__ for f in chats.functions or []}
+        with pytest.raises(PermissionError, match="read-only"):
+            send_peer_message("peer", "hi", sender_logdir=tmp_path)
+
+        # A fresh session must still be able to use peer messaging.
+        clear_tools()
+        tools = init_tools(["chats"])
+        chats = next(t for t in tools if t.name == "chats")
+        assert "send_peer_message" in {f.fn.__name__ for f in chats.functions or []}
+
+    def test_read_only_survives_chat_initialization(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Exercise the real init() called by chat after CLI profile selection."""
+        import gptme.init as gptme_init
+        from gptme.peers import send_peer_message
+        from gptme.tools import clear_tools, init_tools
+
+        clear_tools()
+        init_tools(["read", "chats"], read_only=True)
+        monkeypatch.setattr(gptme_init, "_init_done", False)
+        for name in (
+            "load_dotenv",
+            "_init_plugins",
+            "init_model",
+            "_register_core_compaction_hook",
+            "init_hooks",
+            "init_commands",
+            "register_skill_commands",
+        ):
+            monkeypatch.setattr(gptme_init, name, lambda *args, **kwargs: None)
+        gptme_init.init(None, False, ["read", "chats"], "markdown")
+        with pytest.raises(PermissionError, match="read-only"):
+            send_peer_message("peer", "hi", sender_logdir=tmp_path)
 
     def test_unknown_profile_tool_warns_without_raising(self, caplog):
         import logging
