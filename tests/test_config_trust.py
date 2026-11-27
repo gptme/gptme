@@ -538,6 +538,42 @@ def test_legacy_shell_approval_keeps_hooks_but_withholds_new_surfaces(
     assert withheld.plugins.paths == []
 
 
+def test_full_config_denial_overrides_legacy_shell_in_session(
+    tmp_path, monkeypatch, fake_tty
+):
+    """An in-session 'no' to the expanded config must stop later unattended runs."""
+    from gptme.config.models import RagConfig
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    ws = tmp_path / "repo"
+    _record(compute_shell_hash("ctx.sh", []), approved=True, workspace=ws)
+    project = ProjectConfig(
+        _workspace=ws,
+        context_cmd="ctx.sh",
+        rag=RagConfig(enabled=True),
+    )
+    monkeypatch.setattr(trust_mod, "_prompt_user", lambda *a, **k: False)
+    assert check_project_trust(project, ws, interactive=True) is False
+    assert check_project_trust(project, ws, interactive=False) is False
+
+
+def test_full_config_denial_overrides_legacy_shell_after_restart(tmp_path, monkeypatch):
+    """A stored full-config 'no' must stop unattended runs after a process restart."""
+    from gptme.config.models import RagConfig
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    ws = tmp_path / "repo"
+    _record(compute_shell_hash("ctx.sh", []), approved=True, workspace=ws)
+    project = ProjectConfig(
+        _workspace=ws,
+        context_cmd="ctx.sh",
+        rag=RagConfig(enabled=True),
+    )
+    _record(trust_mod.compute_project_hash(project), approved=False, workspace=ws)
+    trust_mod._session_decisions.clear()
+    assert check_project_trust(project, ws, interactive=False) is False
+
+
 def test_non_interactive_miss_does_not_stick_after_later_approval(
     tmp_path, monkeypatch
 ):
@@ -722,6 +758,7 @@ def test_plugin_allowlist_is_trust_gated(tmp_path, monkeypatch):
 
 def _write_precommit_config(ws) -> None:
     ws.mkdir(parents=True, exist_ok=True)
+    (ws / ".git").mkdir(exist_ok=True)
     (ws / ".pre-commit-config.yaml").write_text("repos: []\n")
 
 
@@ -801,12 +838,27 @@ def test_find_precommit_config_prefers_prek_toml_for_a_prek_runner(
     """``which`` returns an absolute path; a prek-only repo must find prek.toml."""
     ws = tmp_path / "repo"
     ws.mkdir()
+    (ws / ".git").mkdir()
     (ws / "prek.toml").write_text("repos = []\n")
     monkeypatch.setattr(
         "shutil.which",
         lambda name: "/usr/bin/prek" if name == "prek" else None,
     )
     assert trust_mod.find_precommit_config(ws) == ws / "prek.toml"
+
+
+def test_find_precommit_config_returns_none_when_not_in_a_repo(tmp_path, monkeypatch):
+    """No .git on the way up: do not walk to / or pick an ancestor config."""
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".pre-commit-config.yaml").write_text("repos: []\n")
+    ws = home / "scratch"
+    ws.mkdir()
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda name: "/usr/bin/pre-commit" if name == "pre-commit" else None,
+    )
+    assert trust_mod.find_precommit_config(ws) is None
 
 
 def test_precommit_approval_survives_a_nested_workspace_scope(

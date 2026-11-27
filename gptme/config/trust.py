@@ -331,6 +331,22 @@ def _legacy_shell_approved(project: ProjectConfig, workspace: Path | None) -> bo
     return is_trusted(compute_shell_hash(context_cmd, hook_commands), workspace)
 
 
+def _is_denied(trust_hash: str, workspace: Path | None) -> bool:
+    """True if this session or the db holds ``approved=False`` for *trust_hash*.
+
+    A missing entry is not a denial. ``is_trusted`` only reports approvals, so
+    a stored ``no`` would otherwise be indistinguishable from "never asked".
+    """
+    cache_key = (_workspace_key(workspace), trust_hash)
+    if cache_key in _session_decisions:
+        return _session_decisions[cache_key] is False
+    db = _load_db()
+    entry = db.get("workspaces", {}).get(_workspace_key(workspace), {}).get(trust_hash)
+    if not isinstance(entry, dict):
+        return False
+    return entry.get("approved") is False
+
+
 def _is_approved(trust_hash: str, workspace: Path | None) -> bool:
     """Non-prompting check: env override, this session's decision, or the db."""
     if _launcher_trusts_all:
@@ -433,6 +449,12 @@ def check_project_trust(
     if not _needs_trust(content):
         return True
     if not _can_prompt(interactive) and _legacy_shell_approved(project, workspace):
+        # An explicit full-config "no" wins over a pre-upgrade shell approval.
+        # Otherwise every later unattended run would execute context_cmd/hooks
+        # the user just refused. Interactive re-prompt of a stored "no" is
+        # unchanged: only this unattended fallback is skipped.
+        if _is_denied(_hash_content(content), workspace):
+            return False
         if _sensitive_extras(project):
             logger.warning(
                 "Project gptme.toml in %s has a stored shell approval, but MCP, "
@@ -563,12 +585,17 @@ def find_precommit_config(workspace: Path | None) -> Path | None:
         if runner and os.path.basename(runner).lower() in ("prek", "prek.exe")
         else (".pre-commit-config.yaml",)
     )
-    for parent in (workspace, *workspace.parents):
+    parents = (workspace, *workspace.parents)
+    git_root = next((p for p in parents if (p / ".git").exists()), None)
+    if git_root is None:
+        # No repo: do not walk to /. Match runtime ``_resolve_check_config``.
+        return None
+    for parent in parents:
         for name in names:
             candidate = parent / name
             if candidate.is_file():
                 return candidate
-        if (parent / ".git").exists():
+        if parent == git_root:
             break
     return None
 
