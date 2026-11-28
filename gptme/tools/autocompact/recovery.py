@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...message import len_tokens
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
 
@@ -114,13 +115,18 @@ def _drop_oldest_turn(messages: list[Message]) -> list[Message]:
     return messages
 
 
+def _stored_text_tokens(messages: list[Message], model: str) -> int:
+    return len_tokens([message for message in messages if not message.ui_only], model)
+
+
 def _drop_to_retry_target(messages: list[Message], model: str) -> list[Message]:
-    """Remove whole old steps toward the same hysteresis target as budget trims."""
-    from ...util.context_measurement import measure_context_tokens
+    """Remove whole old steps toward the stored-text hysteresis target."""
     from .decision import TRIM_TARGET_RATIO
 
-    target = measure_context_tokens(messages, model) * TRIM_TARGET_RATIO
-    while measure_context_tokens(messages, model) > target:
+    # Dropping a step can invalidate the provider usage anchor. Compare stored
+    # text throughout so the lost anchor cannot count toward the reduction.
+    target = _stored_text_tokens(messages, model) * TRIM_TARGET_RATIO
+    while _stored_text_tokens(messages, model) > target:
         smaller = _drop_oldest_turn(messages)
         if len(smaller) == len(messages):
             break
@@ -140,7 +146,7 @@ def recover_reply(
     """Retry atomic provider overflows using strictly smaller lossless views.
 
     Try the existing trim first, then drop old whole steps toward 0.7 of the
-    previous request. At most eight smaller requests are attempted. Exhaustion,
+    previous view's stored text. At most eight smaller requests are attempted. Exhaustion,
     non-context errors, and partially emitted output restore the original view.
     A caller guard serializes view changes and distinguishes retry admission
     (False) from restoration (True), so revoked server epochs cannot clobber
@@ -150,8 +156,6 @@ def recover_reply(
     from time import monotonic
 
     from ...llm import did_llm_reply_emit_visible_output, is_context_length_error
-    from ...message import len_tokens
-    from ...util.context_measurement import measure_context_tokens
     from .events import append_compaction_event
 
     def guard(restoring: bool = False) -> AbstractContextManager[None]:
@@ -174,7 +178,7 @@ def recover_reply(
         for attempt in range(8):
             started = monotonic()
             before_messages = manager.log.messages
-            before_tokens = measure_context_tokens(before_messages, model)
+            before_tokens = _stored_text_tokens(before_messages, model)
             provider_before = len_tokens(messages, model)
             with guard():
                 pass
@@ -228,7 +232,7 @@ def recover_reply(
                     trigger="overflow",
                     method=method,
                     tokens_before=before_tokens,
-                    tokens_after=len_tokens(candidate, model),
+                    tokens_after=_stored_text_tokens(candidate, model),
                     messages_before=len(before_messages),
                     messages_after=len(candidate),
                     elapsed_seconds=monotonic() - started,
