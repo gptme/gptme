@@ -101,6 +101,7 @@ class TestIsSecretPath:
             # A template suffix only exempts the exact ending; trailing junk
             # after it is still a secret-bearing environment file.
             ".env.aws.example.bak",
+            ".env.dist.bak",
             ".env.production.example.local",
         ],
     )

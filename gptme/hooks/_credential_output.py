@@ -138,7 +138,9 @@ def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
     if name == "set" and not args:
         return _REASON
     if name in {"export", "declare", "typeset"}:
-        if any(arg.startswith("-") and "p" in arg[1:] for arg in args):
+        # `-p` prints values; bash also prints for `+p` (`declare +p NAME`
+        # dumps `declare -x NAME="value"`), so both signs count.
+        if any(arg.startswith(("-", "+")) and "p" in arg[1:] for arg in args):
             return _REASON
         if shell == "zsh" and name != "export":
             # Zsh prints existing named parameters without -p, and -m lists
