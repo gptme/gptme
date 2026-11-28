@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from anthropic.types.beta import BetaCompactionBlock
 
-from gptme.llm.llm_anthropic import _prepare_messages_for_api
+from gptme.llm.llm_anthropic import _compaction_betas_kwargs, _prepare_messages_for_api
 from gptme.message import Message
 from gptme.tools.autocompact import _resume_via_llm
 from gptme.tools.autocompact import native_anthropic as native
@@ -198,6 +198,107 @@ def test_no_block_leaves_messages_unchanged():
         for m in messages_dicts
         for part in (m["content"] if isinstance(m["content"], list) else [])
     )
+
+
+def test_replay_kwargs_accepted_by_nonbeta_endpoints():
+    """Once a conversation carries a compaction block, every later request goes
+    through the non-beta ``messages.create``/``.stream``. Those endpoints reject
+    a ``betas`` kwarg outright, so the beta flag must travel as an
+    ``anthropic-beta`` request header (issue #5232)."""
+    import inspect
+
+    import anthropic
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message(
+            "assistant",
+            "[compacted]",
+            metadata={"anthropic_compaction_block": dict(BLOCK)},
+        ),
+        Message("user", "recent question"),
+    ]
+    kwargs = _compaction_betas_kwargs(msgs)
+
+    client = anthropic.Anthropic(api_key="test-key")
+    for endpoint in (client.messages.create, client.messages.stream):
+        inspect.signature(endpoint).bind(
+            model="claude-test",
+            messages=[],
+            system=[],
+            max_tokens=1,
+            **kwargs,
+        )
+    assert kwargs["extra_headers"]["anthropic-beta"] == native.COMPACT_BETA
+
+
+def test_replay_sends_beta_header_and_block_on_the_wire():
+    """The signature check above only proves the SDK accepts ``extra_headers``.
+    Run both replay paths (``messages.create`` and ``messages.stream``) through
+    the real SDK against a mock transport and inspect the recorded requests:
+    each must carry the ``anthropic-beta`` header and the unchanged signed
+    block."""
+    import json
+
+    import anthropic
+    import httpx2
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message(
+            "assistant",
+            "[compacted]",
+            metadata={"anthropic_compaction_block": dict(BLOCK)},
+        ),
+        Message("user", "recent question"),
+    ]
+    kwargs = _compaction_betas_kwargs(msgs)
+    prepared, system_msgs, _ = _prepare_messages_for_api(msgs, None)
+
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-test",
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    client = anthropic.Anthropic(
+        api_key="test-key",
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+        max_retries=0,
+    )
+    call: dict = {
+        "model": "claude-test",
+        "messages": prepared,
+        "system": system_msgs,
+        "max_tokens": 1,
+        **kwargs,
+    }
+    client.messages.create(**call)
+    with client.messages.stream(**call):
+        pass
+
+    assert len(seen) == 2
+    for request in seen:
+        assert request.headers["anthropic-beta"] == native.COMPACT_BETA
+        body = json.loads(request.content)
+        assert body["messages"][0]["content"][0] == BLOCK
+
+
+def test_replay_kwargs_empty_without_block():
+    msgs = [Message("system", "System prompt"), Message("user", "hi")]
+    assert _compaction_betas_kwargs(msgs) == {}
 
 
 def _conversation_msgs():
