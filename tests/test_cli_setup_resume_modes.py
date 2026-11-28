@@ -270,17 +270,21 @@ def test_interactive_resume_keeps_saved_modes_on_disk(tmp_path):
     # This run is interactive, so it must not auto-confirm tools...
     assert cfg.chat.interactive is True
     assert cfg.chat.no_confirm is None
-    assert cfg.chat.stream is True
+    # ...and an unspecified --stream keeps the saved value.
+    assert cfg.chat.stream is False
     # ...but the conversation's saved run modes are unchanged.
     saved = ChatConfig.from_logdir(logdir)
     assert saved.no_confirm is True
     assert saved.interactive is False
     assert saved.stream is False
 
-    # Resuming again reflects the original record, not the first resume.
+    # An explicit flag wins in the other direction too.
+    cfg = setup_config_from_cli(
+        workspace=workspace, logdir=logdir, interactive=True, stream=True
+    )
+    assert cfg.chat is not None
+    assert cfg.chat.stream is True
     saved = ChatConfig.from_logdir(logdir)
-    assert saved.no_confirm is True
-    assert saved.interactive is False
     assert saved.stream is False
 
 

@@ -879,6 +879,13 @@ def main(
     dispatch_suppressed = click.get_current_context().meta.get(
         "shortcut_dispatch_suppressed", False
     )
+    # Only an explicit --stream/--no-stream overrides a resumed conversation's
+    # saved setting; the click default is indistinguishable from "not given".
+    explicit_stream = (
+        stream
+        if ctx.get_parameter_source("stream") is not click.core.ParameterSource.DEFAULT
+        else None
+    )
 
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
     if (
@@ -1220,7 +1227,7 @@ def main(
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     no_confirm=no_confirm or None,
-                    stream=stream,
+                    stream=explicit_stream,
                     interactive=interactive,
                     agent_path=Path(agent_path) if agent_path else None,
                     context_budget=context_budget,
@@ -1371,7 +1378,7 @@ def main(
             tool_format=tool_format,
             prune_tool_output=prune_tool_output,
             no_confirm=no_confirm or None,
-            stream=stream,
+            stream=explicit_stream,
             interactive=interactive,
             agent_path=Path(agent_path) if agent_path else None,
             allow_hosts=allow_hosts_list,

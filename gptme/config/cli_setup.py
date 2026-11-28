@@ -159,7 +159,10 @@ def setup_config_from_cli(
     tool_format: "ToolFormat | None" = None,
     prune_tool_output: bool | None = None,
     no_confirm: bool | None = None,
-    stream: bool = True,
+    # None means the flag was not given: keep the conversation's saved value
+    # (or the default for a new conversation). An explicit --stream/--no-stream
+    # wins in either direction.
+    stream: bool | None = None,
     interactive: bool = True,
     agent_path: Path | None = None,
     allow_hosts: list[str] | None = None,
@@ -354,7 +357,8 @@ def setup_config_from_cli(
         cli_config=ChatConfig(
             model=resolved_model,
             tool_format=resolved_tool_format,
-            stream=stream,
+            # Dataclass default: load_or_create then leaves a saved stream alone.
+            stream=ChatConfig().stream,
             interactive=interactive,
             no_confirm=resolved_no_confirm,
             workspace=workspace,
@@ -368,9 +372,10 @@ def setup_config_from_cli(
     # load_or_create only applies CLI values that differ from the dataclass
     # defaults, so a plain interactive resume of a conversation started with
     # --non-interactive would otherwise keep auto-confirming every tool.
+    # stream is only overridden when the flag was actually given.
     config.chat = replace(
         config.chat,
-        stream=stream,
+        stream=config.chat.stream if stream is None else stream,
         interactive=interactive,
         no_confirm=resolved_no_confirm,
     )
