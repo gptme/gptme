@@ -7,6 +7,7 @@ Data models live in session_models.py; execution logic in session_step.py.
 """
 
 import dataclasses
+import functools
 import logging
 import math
 import re
@@ -29,6 +30,7 @@ from .api_v2_common import (
     _redact_conversation_config,
     _validate_branch,
     _validate_conversation_id,
+    msg2dict,
 )
 
 # Log-safe rendering of client-controlled session ids: collapse anything
@@ -1235,13 +1237,45 @@ def api_conversation_transcript(conversation_id: str):
         return flask.jsonify({"error": "call_metadata.call_sid is required"}), 400
     if not isinstance(call_sid, str):
         return flask.jsonify({"error": "call_metadata.call_sid must be a string"}), 400
+    for i, turn in enumerate(turns):
+        turn_id = turn.get("turn_id")
+        if turn_id is not None and not isinstance(turn_id, str):
+            return flask.jsonify({"error": f"turns[{i}].turn_id must be a string"}), 400
+    per_turn = any(turn.get("turn_id") for turn in turns)
+    # A batch is deduplicated per turn or per call, never both: a retried mixed
+    # batch would skip the identified turns and append the others again.
+    if per_turn and not all(turn.get("turn_id") for turn in turns):
+        return (
+            flask.jsonify(
+                {"error": "either every turn has a non-empty turn_id, or none does"}
+            ),
+            400,
+        )
 
-    with LogManager.load(conversation_id, lock=True, create=True) as manager:
-        # Idempotency check: scan existing messages for this call_sid in metadata
-        for msg in manager.log.messages:
-            if msg.metadata:
-                voice_call = msg.metadata.get("voice_call")
-                if voice_call and voice_call.get("call_sid") == call_sid:
+    with SessionManager.conversation_lock(conversation_id):
+        # A running step or command holds its own copy of the log and would
+        # overwrite turns appended underneath it; the caller retries after it.
+        if SessionManager.conversation_generating(
+            conversation_id
+        ) or SessionManager.command_is_active(conversation_id):
+            return (
+                flask.jsonify(
+                    {"error": "generation in progress, retry later", "retry": True}
+                ),
+                409,
+            )
+
+        with LogManager.load(conversation_id, lock=True, create=True) as manager:
+            # Idempotency: per turn when turns carry ids (live calls post turn
+            # by turn), otherwise once per call (post-call promotion).
+            # Full history, not the compacted view: a turn compacted out of
+            # the view was still posted and must not be appended again.
+            seen_turns: dict[str, str] = {}  # turn_id -> posted text
+            for msg in manager.history_log.messages:
+                voice_call = (msg.metadata or {}).get("voice_call")
+                if not voice_call or voice_call.get("call_sid") != call_sid:
+                    continue
+                if not per_turn:
                     return flask.jsonify(
                         {
                             "status": "already_acked",
@@ -1249,32 +1283,95 @@ def api_conversation_transcript(conversation_id: str):
                             "messages_added": 0,
                         }
                     )
+                existing_turn_id = voice_call.get("turn_id")
+                if isinstance(existing_turn_id, str) and existing_turn_id:
+                    seen_turns[existing_turn_id] = msg.content
 
-        messages_added = 0
-        # Append each turn as a Message
-        for turn in turns:
-            role = turn.get("role")
-            text = (turn.get("text") or "").strip()
+            added: list[Message] = []
+            # A provider can revise a turn after it was posted (e.g. a longer
+            # final transcript for the same utterance): update it in place.
+            revised: dict[str, str] = {}  # turn_id -> revised text
+            appended: set[str] = set()
+            for turn in turns:
+                role = turn.get("role")
+                text = (turn.get("text") or "").strip()
 
-            # Skip empty/whitespace-only turns
-            if not text:
-                continue
-            if role not in ("user", "assistant"):
-                continue
+                # Skip empty/whitespace-only turns
+                if not text:
+                    continue
+                if role not in ("user", "assistant"):
+                    continue
+                turn_id = turn.get("turn_id")
+                if turn_id and turn_id in seen_turns:
+                    if turn_id not in appended and seen_turns[turn_id] != text:
+                        revised[turn_id] = text
+                    continue
 
-            msg = Message(
-                role=role,
-                content=text,
-                metadata={"voice_call": call_metadata},
-            )
-            manager.append(msg)
-            messages_added += 1
+                metadata = dict(call_metadata)
+                if turn_id:
+                    metadata["turn_id"] = turn_id
+                    seen_turns[turn_id] = text
+                    appended.add(turn_id)  # never revised twice per batch
+                msg = Message(
+                    role=role, content=text, metadata={"voice_call": metadata}
+                )
+                added.append(msg)
 
+            def _is_turn(msg: Message, turn_id: str) -> bool:
+                voice_call = (msg.metadata or {}).get("voice_call") or {}
+                return (
+                    voice_call.get("call_sid") == call_sid
+                    and voice_call.get("turn_id") == turn_id
+                )
+
+            for turn_id, text in revised.items():
+                manager.revise(functools.partial(_is_turn, turn_id=turn_id), text)
+            for msg in added:
+                manager.append(msg)
+                if not revised:
+                    SessionManager.add_event(
+                        conversation_id,
+                        {
+                            "type": "message_added",
+                            "message": msg2dict(msg, manager.workspace, manager.logdir),
+                        },
+                    )
+            if revised:
+                # Revised text replaces earlier messages: resend the whole log.
+                log_dict = manager.to_dict(branches=True)
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "conversation_edited",
+                        "index": next(
+                            (
+                                i
+                                for i, msg in enumerate(manager.log.messages)
+                                if any(_is_turn(msg, t) for t in revised)
+                            ),
+                            0,
+                        ),
+                        "truncated": False,
+                        "log": log_dict.get("log", []),
+                        "branches": log_dict.get("branches", {}),
+                    },
+                )
+
+    if added or revised:
+        from .api_v2 import _update_conversation_in_cache  # fmt: skip
+
+        _update_conversation_in_cache(conversation_id)
+
+    if per_turn and not added and not revised:
+        status = "already_acked"
+    else:
+        status = "ok"
     return flask.jsonify(
         {
-            "status": "ok",
+            "status": status,
             "conversation_id": conversation_id,
-            "messages_added": messages_added,
+            "messages_added": len(added),
+            "messages_revised": len(revised),
         }
     )
 

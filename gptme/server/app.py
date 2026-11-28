@@ -203,6 +203,7 @@ def create_app(
     from .tasks_api import tasks_api  # fmt: skip
     from .tools_api import tools_api  # fmt: skip
     from .tts_api import tts_api  # fmt: skip
+    from .voice_api import voice_api  # fmt: skip
     from .workspace_api import workspace_api  # fmt: skip
 
     app.register_blueprint(a2a_api)
@@ -217,6 +218,7 @@ def create_app(
     app.register_blueprint(tts_api)
     app.register_blueprint(computer_api)
     app.register_blueprint(preview_proxy_api)
+    app.register_blueprint(voice_api)
 
     # Register OpenAPI documentation
     from .openapi_docs import docs_api  # fmt: skip

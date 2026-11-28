@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from 'next-themes';
 import { ApiProvider } from './contexts/ApiContext';
+import { VoiceCallProvider } from './contexts/VoiceCallContext';
 import { EmbeddedContextProvider } from './contexts/EmbeddedContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { lazy, Suspense, type FC } from 'react';
@@ -12,6 +13,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { SetupWizard } from './components/SetupWizard';
+import { ActiveVoiceCallBar } from './components/ActiveVoiceCallBar';
 import { appRoutes } from './appRoutes';
 
 // Lazy-loaded route pages — code-split at route boundaries for smaller initial bundle
@@ -71,36 +73,39 @@ const App: FC = () => {
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <ApiProvider queryClient={queryClient}>
-                <BrowserRouter basename={import.meta.env.BASE_URL}>
-                  <ErrorBoundary>
-                    <Suspense fallback={<RouteLoader />}>
-                      <Routes>
-                        <Route path={appRoutes.root} element={<Index />} />
-                        <Route path={appRoutes.chat} element={<Index />} />
-                        <Route path={appRoutes.chatConversation} element={<Index />} />
-                        <Route path={appRoutes.tasks} element={<Tasks />} />
-                        <Route path={appRoutes.taskDetails} element={<Tasks />} />
-                        <Route path={appRoutes.skills} element={<Skills />} />
-                        <Route path={appRoutes.agents} element={<Agents />} />
-                        <Route path={appRoutes.agentOverview} element={<Agents />} />
-                        <Route path={appRoutes.workspaces} element={<Workspaces />} />
-                        <Route path={appRoutes.history} element={<History />} />
-                        <Route path={appRoutes.externalSessions} element={<ExternalSessions />} />
-                        <Route path={appRoutes.admin} element={<Admin />} />
-                        <Route path={appRoutes.health} element={<Health />} />
-                        <Route path={appRoutes.settings} element={<SettingsPage />} />
-                        <Route path={appRoutes.settingsCategory} element={<SettingsPage />} />
-                        <Route path={appRoutes.workspace} element={<Workspace />} />
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
-                    </Suspense>
-                  </ErrorBoundary>
-                  <SetupWizard />
-                  <CommandPalette />
-                  <ShortcutsDialog />
-                  <Toaster />
-                  <Sonner />
-                </BrowserRouter>
+                <VoiceCallProvider>
+                  <BrowserRouter basename={import.meta.env.BASE_URL}>
+                    <ErrorBoundary>
+                      <Suspense fallback={<RouteLoader />}>
+                        <Routes>
+                          <Route path={appRoutes.root} element={<Index />} />
+                          <Route path={appRoutes.chat} element={<Index />} />
+                          <Route path={appRoutes.chatConversation} element={<Index />} />
+                          <Route path={appRoutes.tasks} element={<Tasks />} />
+                          <Route path={appRoutes.taskDetails} element={<Tasks />} />
+                          <Route path={appRoutes.skills} element={<Skills />} />
+                          <Route path={appRoutes.agents} element={<Agents />} />
+                          <Route path={appRoutes.agentOverview} element={<Agents />} />
+                          <Route path={appRoutes.workspaces} element={<Workspaces />} />
+                          <Route path={appRoutes.history} element={<History />} />
+                          <Route path={appRoutes.externalSessions} element={<ExternalSessions />} />
+                          <Route path={appRoutes.admin} element={<Admin />} />
+                          <Route path={appRoutes.health} element={<Health />} />
+                          <Route path={appRoutes.settings} element={<SettingsPage />} />
+                          <Route path={appRoutes.settingsCategory} element={<SettingsPage />} />
+                          <Route path={appRoutes.workspace} element={<Workspace />} />
+                          <Route path="*" element={<NotFound />} />
+                        </Routes>
+                      </Suspense>
+                    </ErrorBoundary>
+                    <SetupWizard />
+                    <ActiveVoiceCallBar />
+                    <CommandPalette />
+                    <ShortcutsDialog />
+                    <Toaster />
+                    <Sonner />
+                  </BrowserRouter>
+                </VoiceCallProvider>
               </ApiProvider>
             </TooltipProvider>
           </QueryClientProvider>

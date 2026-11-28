@@ -89,6 +89,15 @@ def _parse_tools_allowlist(tools: str | None) -> list[str] | None:
     return names
 
 
+def _is_reloader_parent(debug: bool) -> bool:
+    """Whether this is Werkzeug's reloader parent, which never serves requests.
+
+    Under ``--debug`` the reloader re-runs the CLI in a child process that
+    serves; the parent only watches files.
+    """
+    return debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+
+
 def _pid_alive(pid: int) -> bool:
     """Check if a PID is still alive on this host.
 
@@ -298,6 +307,16 @@ def main():
         "Can also be set via the GPTME_SERVER_DEFAULT_PROFILE environment variable."
     ),
 )
+@click.option(
+    "--voice",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable realtime voice: start a gptme-voice sidecar for each realtime "
+        "provider with an API key (OPENAI_API_KEY, XAI_API_KEY). Requires "
+        "gptme-voice. Can also be set via GPTME_SERVER_VOICE=1."
+    ),
+)
 def serve(
     debug: bool,
     verbose: bool,
@@ -311,6 +330,7 @@ def serve(
     exit_on_parent_death: bool,
     watch_pid: int | None,
     default_profile: str | None,
+    voice: bool,
 ):  # pragma: no cover
     """Starts a server and web UI for gptme."""
     from .app import create_app
@@ -443,6 +463,21 @@ def serve(
         if allowed_hosts
         else None,
     )
+
+    from .voice_api import init_voice, voice_enabled_from_env
+
+    # Only the serving process starts sidecars (not the reloader's parent).
+    if (voice or voice_enabled_from_env()) and not _is_reloader_parent(debug):
+        from ..llm.models import get_default_model  # fmt: skip
+
+        default_model = get_default_model()
+        init_voice(
+            host=host,
+            port=port,
+            token=token,
+            workspace=Path.cwd(),
+            model=default_model.full if default_model else None,
+        )
 
     try:
         # Written inside the try so a failed startup still removes it.

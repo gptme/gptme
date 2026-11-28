@@ -362,7 +362,12 @@ def _get_raw_client_socket(environ: dict[str, Any]) -> socket.socket | None:
 
 
 def _build_upstream_request_line(
-    port: int, subpath: str, environ: dict[str, Any]
+    port: int,
+    subpath: str,
+    environ: dict[str, Any],
+    *,
+    query: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> bytes:
     """Build the raw HTTP/1.1 request bytes to forward to the upstream server.
 
@@ -373,13 +378,26 @@ def _build_upstream_request_line(
     """
     method = environ.get("REQUEST_METHOD", "GET")
     path = "/" + subpath.lstrip("/")
-    qs = _sanitize_query_string(environ.get("QUERY_STRING", ""))
+    # An explicit query replaces the client's (callers that build their own
+    # upstream query must not leak client-supplied parameters).
+    qs = (
+        query
+        if query is not None
+        else _sanitize_query_string(environ.get("QUERY_STRING", ""))
+    )
     if qs:
         path = f"{path}?{qs}"
     http_version = environ.get("SERVER_PROTOCOL", "HTTP/1.1")
 
     lines: list[str] = [f"{method} {path} {http_version}"]
+    # Client copies of headers we inject are dropped, so a client cannot
+    # supply (or shadow) a value only the server is meant to set.
+    injected = {k.lower() for k in (extra_headers or {})}
     for key, value in _forward_request_headers(flask.request.headers).items():
+        if key.lower() in injected:
+            continue
+        lines.append(f"{key}: {value}")
+    for key, value in (extra_headers or {}).items():
         lines.append(f"{key}: {value}")
     lines.append(f"Host: 127.0.0.1:{port}")
     lines.append("Connection: Upgrade")
@@ -433,6 +451,9 @@ def _websocket_tunnel(
     port: int,
     subpath: str,
     environ: dict[str, Any],
+    *,
+    query: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> flask.Response:
     """Handle a WebSocket upgrade by opening a raw TCP tunnel to the target port.
 
@@ -455,7 +476,9 @@ def _websocket_tunnel(
             501,
         )
 
-    raw_request = _build_upstream_request_line(port, subpath, environ)
+    raw_request = _build_upstream_request_line(
+        port, subpath, environ, query=query, extra_headers=extra_headers
+    )
 
     try:
         target_sock = socket.create_connection(("127.0.0.1", port), timeout=5)

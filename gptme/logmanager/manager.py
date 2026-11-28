@@ -24,7 +24,7 @@ if os.name == "nt":
         import msvcrt as _msvcrt
     except ImportError:
         pass
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, fields, replace
@@ -1101,6 +1101,50 @@ class LogManager:
         self.log = new_log
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_EDIT)
+
+    def revise(self, match: Callable[[Message], bool], content: str) -> bool:
+        """Set the content of the messages ``match`` selects, in place.
+
+        For a revised transcript (a longer final text for an utterance that
+        was already posted), not a user edit: no backup branch is saved.
+        Every stored copy of the current branch is updated (the active
+        compacted view, the branch and its lossless archive), so switching
+        views afterwards keeps the revision. Returns whether anything changed.
+        """
+
+        changed = False
+
+        def revised(log: Log) -> Log:
+            nonlocal changed
+            messages = [
+                msg.replace(content=content)
+                if match(msg) and msg.content != content
+                else msg
+                for msg in log.messages
+            ]
+            if all(new is old for new, old in zip(messages, log.messages)):
+                return log
+            changed = True
+            return log.replace(messages=messages)
+
+        branch = self.current_branch
+        self._branches[branch] = revised(self._branches[branch])
+        if self.current_view is not None:
+            self._views[self.current_view] = revised(self._views[self.current_view])
+        if self._lossless_log is not None and branch == "main":
+            self._lossless_log = revised(self._lossless_log)
+        if branch in self._branch_lossless_logs:
+            self._branch_lossless_logs[branch] = revised(
+                self._branch_lossless_logs[branch]
+            )
+        if changed:
+            self.write()
+            # The event log sits beside the branch file: record the branch.
+            self._write_event_log(
+                eventlog.EVENT_MESSAGE_EDIT,
+                messages=self._branches[branch].messages,
+            )
+        return changed
 
     def _reconcile_branch_history(self, previous: Log, updated: Log) -> None:
         """Retain hidden inherited history, but replace edited visible messages.

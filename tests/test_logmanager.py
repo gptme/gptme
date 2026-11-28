@@ -17,6 +17,7 @@ from gptme.logmanager import (
     LogManager,
     check_for_modifications,
     conversation_name_error,
+    eventlog,
 )
 from gptme.logmanager.manager import (
     _active_prompt_generation,
@@ -1639,3 +1640,38 @@ def test_event_replay_matches_transcript_after_a_merged_append(tmp_path: Path):
     transcript = Log.read_jsonl(tmp_path / "conversation.jsonl")
     assert [m.content for m in transcript] == expected
     assert _recovered_contents(tmp_path) == expected
+
+
+def test_revise_updates_view_branch_and_disk_without_backup(
+    tmp_path: Path, monkeypatch
+):
+    """A revised voice turn reaches the full history, not only the active view,
+    and does not leave an edit backup branch behind."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "early"))
+    turn = Message("user", "Hello", metadata={"voice_call": {"turn_id": "t0"}})
+    manager.append(turn)
+    manager.create_view("compacted-001", Log([Message("system", "summary"), turn]))
+    manager.switch_view("compacted-001")
+
+    def is_t0(msg: Message) -> bool:
+        return (msg.metadata or {}).get("voice_call", {}).get("turn_id") == "t0"
+
+    assert manager.revise(is_t0, "Hello, use the other file")
+    assert not manager.revise(is_t0, "Hello, use the other file")
+
+    assert [m.content for m in manager.log] == ["summary", "Hello, use the other file"]
+    on_disk = Log.read_jsonl(logdir / "conversation.jsonl")
+    assert [m.content for m in on_disk] == ["early", "Hello, use the other file"]
+    view = Log.read_jsonl(logdir / "views" / "compacted-001.jsonl")
+    assert [m.content for m in view] == ["summary", "Hello, use the other file"]
+    manager.switch_to_master()
+    assert [m.content for m in manager.log] == ["early", "Hello, use the other file"]
+    assert list(manager._branches) == ["main"]
+    edit = [e for e in eventlog.read_events(logdir) if e["type"] == "message_edit"]
+    assert [m["content"] for m in edit[-1]["payload"]["messages"]] == [
+        "early",
+        "Hello, use the other file",
+    ]
