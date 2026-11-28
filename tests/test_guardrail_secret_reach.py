@@ -6,6 +6,7 @@ import pytest
 
 from gptme.hooks.guardrails import _find_secret_path_in_cmd, guardrail_hook
 from gptme.tools.base import ToolUse
+from gptme.util.workspace import workspace_scope
 
 
 @pytest.fixture
@@ -1154,3 +1155,10 @@ def test_quoted_link_names_are_resolved_as_written(
 ) -> None:
     (linked_workspace / name).symlink_to("notes.txt")
     assert _find_secret_path_in_cmd(command, linked_workspace) is not None
+
+
+def test_link_operand_defaults_to_session_workspace(linked_workspace: Path) -> None:
+    # A server's process cwd belongs to the host, not to this conversation.
+    assert _find_secret_path_in_cmd("cat notes.txt") is None
+    with workspace_scope(linked_workspace):
+        assert _find_secret_path_in_cmd("cat notes.txt") is not None
