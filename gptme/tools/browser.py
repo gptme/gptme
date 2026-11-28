@@ -115,6 +115,7 @@ from ..util.gh import (
     parse_github_url,
     transform_github_url,
 )
+from ..util.terminal import strip_terminal_controls
 from ..util.workspace import current_workspace
 from ._url_safety import _validate_url_scheme
 from .base import (
@@ -517,13 +518,17 @@ def _bound_browser_result(result: str, command_info: str) -> str:
 
 
 def _bound_str_return(fn: _F) -> _F:
-    """Bound string returns so every call path (Python, direct, native) agrees."""
+    """Clean and bound string returns so every call path agrees.
+
+    Applies to Python, direct and native calls alike. Results carry remote page
+    content, so terminal control sequences are removed first.
+    """
 
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         result = fn(*args, **kwargs)
         if isinstance(result, str):
-            return _bound_browser_result(result, fn.__name__)
+            return _bound_browser_result(strip_terminal_controls(result), fn.__name__)
         return result
 
     return cast(_F, wrapper)

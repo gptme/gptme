@@ -4,13 +4,17 @@ from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from gptme.message import Message
+from gptme.tools import python as python_tool
 from gptme.tools.base import ToolSpec
 from gptme.tools.browser import (
     _DEFAULT_BROWSER_MAX_OUTPUT_CHARS,
     BROWSER_MAX_OUTPUT_CHARS_ENV,
     _bound_browser_result,
     _browser_max_output_chars,
+    read_logs,
     read_url,
     tool,
 )
@@ -148,3 +152,105 @@ def test_from_function_generic_path_is_unbounded_without_adapter():
     huge = "x" * 5000
     messages = _as_messages(spec.execute(None, None, {"text": huge}))
     assert messages[0].content == huge
+
+
+def test_public_browser_results_drop_terminal_control_sequences(monkeypatch):
+    """Fetched page text must not be able to drive the user's terminal."""
+    page = (
+        "start\x1bc reset \x1b]0;title\x07osc \x1bPdcs\x1b\\ "
+        "\x1b[2Jcsi \x9b31mc1 \x90x\x9c bs\x08\x7f\x00 end"
+    )
+    monkeypatch.setattr("gptme.tools.browser.browser", "playwright")
+    monkeypatch.setattr(
+        "gptme.tools.browser.read_logs_playwright", lambda: page, raising=False
+    )
+
+    result = read_logs()
+
+    assert result == "startc reset ]0;titleosc Pdcs\\ csi c1 x bs end"
+
+
+def test_public_browser_results_keep_text_layout(monkeypatch):
+    monkeypatch.setattr("gptme.tools.browser.browser", "playwright")
+    monkeypatch.setattr(
+        "gptme.tools.browser.read_logs_playwright",
+        lambda: "a\tb\r\nc\n\x0cpage two\rnot overwritten é 漢",
+        raising=False,
+    )
+
+    assert read_logs() == "a\tb\nc\n\x0cpage two\nnot overwritten é 漢"
+
+
+@pytest.fixture
+def isolated_shell(monkeypatch):
+    """Run in-process on a fresh IPython shell and stop its history thread."""
+    monkeypatch.setenv("GPTME_SANDBOX", "none")
+    monkeypatch.setattr(python_tool, "_ipython", None)
+    monkeypatch.setattr(python_tool, "_resolve_kernel_backend", lambda: False)
+    yield
+    shell = python_tool._ipython
+    if shell is not None and (history := shell.history_manager) is not None:
+        history.end_session()
+        if history.save_thread is not None:
+            history.save_thread.stop()
+            history.save_thread.join(timeout=2)
+
+
+def test_ipython_results_drop_terminal_control_sequences(isolated_shell):
+    """Both the model-facing result and the console rendering are cleaned."""
+    page = "Docs\x1bc\x1b]0;title\x1b\\ \x1b[31mred\x1b[0m end"
+
+    msg = next(python_tool.execute_python(f"{page!r}", [], None))
+
+    for text in (msg.content, msg.terminal_display_content or ""):
+        assert "\x1b" not in text
+        assert "Docsc]0;title\\ red end" in text
+
+
+def test_ipython_timeout_output_drops_terminal_control_sequences(
+    isolated_shell, monkeypatch
+):
+    """The timeout branch returns before the shared strip; it must clean too."""
+    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "0.5")
+
+    msg = next(
+        python_tool.execute_python(
+            r"print('a\x1bc\x1b]0;title\x07b'); import time; time.sleep(30)",
+            [],
+            None,
+        )
+    )
+
+    assert "timed out" in msg.content
+    assert "\x1b" not in msg.content
+
+
+def test_ipython_message_results_drop_terminal_control_sequences(isolated_shell):
+    """A cell that returns a Message skips the string path; clean it too."""
+    code = (
+        "from gptme.message import Message\n"
+        r"Message('system', 'a\x1bc\x1b]0;t\x07b')"
+    )
+
+    msg = next(python_tool.execute_python(code, [], None))
+
+    assert "\x1b" not in msg.content
+    assert msg.content == "ac]0;tb"
+
+
+def test_sandbox_output_drops_terminal_control_sequences(monkeypatch):
+    """The docker/wasmtime path builds its own message; it must clean too."""
+    monkeypatch.setenv("GPTME_SANDBOX", "docker")
+    with (
+        patch.object(python_tool, "get_confirmation") as confirm,
+        patch("gptme.sandbox.SandboxConfig.check_available", return_value=(True, "")),
+        patch(
+            "gptme.sandbox.sandbox_exec_python",
+            return_value=("a\x1bc\x1b]0;t\x07b", "", 0),
+        ),
+    ):
+        confirm.return_value.action = python_tool.ConfirmAction.CONFIRM
+        msg = next(python_tool.execute_python("print('x')", [], {}))
+
+    assert "\x1b" not in msg.content
+    assert "ac]0;tb" in msg.content

@@ -31,7 +31,6 @@ import functools
 import importlib.util
 import io
 import os
-import re
 import site
 import sys
 import tempfile
@@ -60,6 +59,7 @@ from ..util.interrupt import (
     start_tracking,
     stop_tracking,
 )
+from ..util.terminal import strip_terminal_controls
 from ..util.workspace import current_workspace
 from . import get_tools
 from .base import (
@@ -1037,6 +1037,21 @@ def _kernel_image_attachments(
     return files, artifacts, notices
 
 
+def _strip_message_controls(msg: Message) -> Message:
+    """Strip terminal control sequences from a message a cell returned.
+
+    Cell results that are already ``Message`` objects skip the string path, so
+    clean them here before they reach the console or the conversation log.
+    """
+    content = strip_terminal_controls(msg.content)
+    display = msg.terminal_display_content
+    if display is not None:
+        display = strip_terminal_controls(display)
+    if content == msg.content and display == msg.terminal_display_content:
+        return msg
+    return dataclasses.replace(msg, content=content, terminal_display_content=display)
+
+
 def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     """Execute *code* in the separate Jupyter kernel process."""
     from .python_kernel import get_backend
@@ -1070,10 +1085,10 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         and not result.images
         and not result.image_notices
     ):
-        yield from backend._bridge.messages
+        yield from (_strip_message_controls(m) for m in backend._bridge.messages)
         return
 
-    yield from backend._bridge.messages
+    yield from (_strip_message_controls(m) for m in backend._bridge.messages)
     output = ""
 
     if result.stdout:
@@ -1103,7 +1118,7 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         if tb_str:
             output += md_codeblock("traceback", tb_str) + "\n\n"
 
-    output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+    output = strip_terminal_controls(output)
 
     files, artifacts, notices = _kernel_image_attachments(result)
     if notices:
@@ -1180,7 +1195,7 @@ def execute_python(
             output += f"Process exited with code {returncode}\n"
         yield Message(
             "system",
-            f"Executed code block ({label}).\n\n" + output,
+            f"Executed code block ({label}).\n\n" + strip_terminal_controls(output),
         )
         return
 
@@ -1234,12 +1249,16 @@ def execute_python(
             if isinstance(error, CliTermination):
                 raise error
     if timed_out_fired:
+        # Strip here too: this branch returns before the shared strip below, and
+        # a cell that printed fetched text can carry escape sequences.
         yield Message(
             "system",
             f"Execution timed out after {timeout:g}s and was interrupted "
             "(GPTME_IPYTHON_TIMEOUT). Run long work in the background with the "
             "shell tool instead.\n\n"
-            + _format_cell_output(captured_stdout, captured_stderr),
+            + strip_terminal_controls(
+                _format_cell_output(captured_stdout, captured_stderr)
+            ),
         )
         return
 
@@ -1249,11 +1268,11 @@ def execute_python(
     # TODO: should we include captured stdout with messages like these?
     # used by vision tool and observe helpers
     if isinstance(result.result, Message):
-        yield result.result
+        yield _strip_message_controls(result.result)
         return
     if isinstance(result.result, list):
         if result.result and all(isinstance(m, Message) for m in result.result):
-            yield from result.result
+            yield from (_strip_message_controls(m) for m in result.result)
             return
         # empty list or non-Message list falls through to repr output below
 
@@ -1294,9 +1313,10 @@ def execute_python(
             # foreground. Adding a synthesized summary here would produce an
             # extra duplicate occurrence in non-live replay contexts.
 
-    # strip ANSI escape sequences (safety net — colors are disabled at the source
-    # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)
-    output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+    # strip terminal control sequences: colors are disabled at the source via
+    # NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them,
+    # and results can carry untrusted text that would drive the terminal
+    output = strip_terminal_controls(output)
 
     # Detect plot files created or modified during execution and attach descriptors
     plot_artifacts = _make_plot_artifacts(pre_images, post_images)
@@ -1305,7 +1325,7 @@ def execute_python(
     # not part of the live stream when LogManager prints the terminal message.
     terminal_parts = ["Executed code block."]
     if terminal_output:
-        terminal_parts.append(terminal_output.rstrip())
+        terminal_parts.append(strip_terminal_controls(terminal_output).rstrip())
     msg = Message(
         "system",
         "Executed code block.\n\n" + output,

@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import re
 import sys
 from contextlib import contextmanager
 from typing import Any
@@ -27,6 +28,23 @@ def flush_stdin() -> None:
     elif _msvcrt:
         while _msvcrt.kbhit():
             _msvcrt.getch()
+
+
+# CSI sequences are removed whole. For every other escape (ESC c, OSC, DCS, ...)
+# dropping the control bytes leaves the rest as inert, visible text.
+_CSI_SEQUENCE = re.compile(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]")
+# C0, DEL and C1, keeping tab, newline, vertical tab, form feed and carriage return.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]")
+
+
+def strip_terminal_controls(text: str) -> str:
+    """Remove terminal control sequences from untrusted text.
+
+    A lone carriage return becomes a newline so text cannot overwrite the line
+    it is printed on.
+    """
+    text = _CONTROL_CHARS.sub("", _CSI_SEQUENCE.sub("", text))
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 # Global state for conversation name
