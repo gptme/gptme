@@ -1037,6 +1037,21 @@ def _kernel_image_attachments(
     return files, artifacts, notices
 
 
+def _strip_message_controls(msg: Message) -> Message:
+    """Strip terminal control sequences from a message a cell returned.
+
+    Cell results that are already ``Message`` objects skip the string path, so
+    clean them here before they reach the console or the conversation log.
+    """
+    content = strip_terminal_controls(msg.content)
+    display = msg.terminal_display_content
+    if display is not None:
+        display = strip_terminal_controls(display)
+    if content == msg.content and display == msg.terminal_display_content:
+        return msg
+    return dataclasses.replace(msg, content=content, terminal_display_content=display)
+
+
 def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     """Execute *code* in the separate Jupyter kernel process."""
     from .python_kernel import get_backend
@@ -1070,10 +1085,10 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         and not result.images
         and not result.image_notices
     ):
-        yield from backend._bridge.messages
+        yield from (_strip_message_controls(m) for m in backend._bridge.messages)
         return
 
-    yield from backend._bridge.messages
+    yield from (_strip_message_controls(m) for m in backend._bridge.messages)
     output = ""
 
     if result.stdout:
@@ -1253,11 +1268,11 @@ def execute_python(
     # TODO: should we include captured stdout with messages like these?
     # used by vision tool and observe helpers
     if isinstance(result.result, Message):
-        yield result.result
+        yield _strip_message_controls(result.result)
         return
     if isinstance(result.result, list):
         if result.result and all(isinstance(m, Message) for m in result.result):
-            yield from result.result
+            yield from (_strip_message_controls(m) for m in result.result)
             return
         # empty list or non-Message list falls through to repr output below
 

@@ -223,3 +223,16 @@ def test_ipython_timeout_output_drops_terminal_control_sequences(
 
     assert "timed out" in msg.content
     assert "\x1b" not in msg.content
+
+
+def test_ipython_message_results_drop_terminal_control_sequences(isolated_shell):
+    """A cell that returns a Message skips the string path; clean it too."""
+    code = (
+        "from gptme.message import Message\n"
+        r"Message('system', 'a\x1bc\x1b]0;t\x07b')"
+    )
+
+    msg = next(python_tool.execute_python(code, [], None))
+
+    assert "\x1b" not in msg.content
+    assert msg.content == "ac]0;tb"
