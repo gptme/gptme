@@ -29,6 +29,21 @@ _READERS = {
     "egrep",
     "fgrep",
     "rg",
+    # Programs that print a file's bytes or lines in another form.
+    "base64",
+    "basenc",
+    "xxd",
+    "od",
+    "hexdump",
+    "strings",
+    "nl",
+    "tac",
+    "rev",
+    "cut",
+    "paste",
+    "sort",
+    "uniq",
+    "fold",
 }
 
 
@@ -63,6 +78,11 @@ class _Grep:
     passthru: bool = False
     dereference: bool = False
     ripgrep: bool = False
+
+    @property
+    def searches_hidden(self) -> bool:
+        """rg descends into hidden files with --hidden/-. or -uu."""
+        return self.ripgrep and ("." in self.flags or self.flags.count("u") >= 2)
 
 
 def _parse_grep(
@@ -156,7 +176,14 @@ def _parse_grep(
                 "operand",
             )
         )
-        long_flags.update({"--smart-case": "S", "--case-sensitive": "s"})
+        long_flags.update(
+            {
+                "--smart-case": "S",
+                "--case-sensitive": "s",
+                "--hidden": ".",
+                "--unrestricted": "u",
+            }
+        )
     else:
         value_flags.update(
             {
@@ -238,6 +265,9 @@ def _parse_grep(
             # Prints matching and non-matching lines; --passthrough is an alias.
             if ripgrep and name in {"--passthru", "--passthrough"}:
                 result.passthru = True
+                continue
+            if ripgrep and name == "--no-hidden":
+                result.flags = result.flags.replace(".", "")
                 continue
             if name in value_flags:
                 if eq:
@@ -789,7 +819,12 @@ def find_secret_reach(
             grep.flags += "F"
         extra_files = _expand_grep_patterns(grep) if grep else []
         files = list(grep.files) if grep else _reader_operands(words[1:])
-        recursive = bool(grep and name != "rg" and set(grep.flags) & {"r", "R"})
+        # Plain rg skips hidden files (where the .env family lives) and is
+        # treated as non-recursive; with hidden files enabled it reaches them.
+        recursive = bool(
+            grep
+            and (grep.searches_hidden if name == "rg" else set(grep.flags) & {"r", "R"})
+        )
         if recursive and not files:
             files = ["."]
         if grep:

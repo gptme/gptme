@@ -103,6 +103,11 @@ class TestIsSecretPath:
             ".env.aws.example.bak",
             ".env.dist.bak",
             ".env.production.example.local",
+            # Named variants: prefix-named and dash/underscore-suffixed.
+            "prod.env",
+            "staging.env",
+            ".env-staging",
+            ".env_local",
         ],
     )
     def test_dot_env_environment_variants(self, name):
@@ -120,6 +125,10 @@ class TestIsSecretPath:
             # these are checked in with placeholders, not credentials.
             ".env.production.example",
             ".env.local.template",
+            ".env-staging.example",
+            "prod.env.sample",
+            "dotenv",
+            "venv",
         ],
     )
     def test_dot_env_templates_are_not_secret(self, name):

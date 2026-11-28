@@ -37,6 +37,18 @@ def secret_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "grep -ri openrouter .",
         "grep -r TOKEN nested; echo done",
         "echo before && grep -rn OPENROUTER .",
+        # Byte/line dumpers read their (glob) operands like cat.
+        "base64 .env*",
+        "xxd .en?",
+        "od -c nested/.env.loc*",
+        "strings nested/.e*",
+        # rg searches hidden files with --hidden, -. or -uu.
+        "rg --hidden OPENROUTER",
+        "rg --hidden OPENROUTER .",
+        "rg -. TOKEN nested",
+        "rg -uu OPENROUTER",
+        "rg -u -u OPENROUTER",
+        "rg --unrestricted --unrestricted OPENROUTER",
     ],
 )
 def test_secret_reach_is_detected(secret_tree: Path, command: str) -> None:
@@ -57,6 +69,14 @@ def test_secret_reach_is_detected(secret_tree: Path, command: str) -> None:
         "printf '%s' 'grep -rn OPENROUTER .'",
         "cat <<'EOF'\ngrep -rn OPENROUTER .\nEOF",
         "rg OPENROUTER .",
+        # One -u lifts .gitignore only; hidden files stay skipped.
+        "rg -u OPENROUTER",
+        "rg --hidden --no-hidden OPENROUTER",
+        "rg --hidden 'def foo'",
+        "base64 config/*.txt",
+        "sort notes*",
+        # A bare * skips dotfiles, as in bash.
+        "strings nested/*",
     ],
 )
 def test_ordinary_searches_stay_allowed(secret_tree: Path, command: str) -> None:
