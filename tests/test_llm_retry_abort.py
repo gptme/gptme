@@ -62,6 +62,26 @@ def test_backoff_wait_interrupted_mid_wait_returns_true():
     assert elapsed < 2.0
 
 
+def test_backoff_wait_aborts_when_predicate_turns_true_mid_wait():
+    """A caller-side cancel (e.g. ACP Stop) ends the wait without a full delay."""
+    stopped = threading.Event()
+
+    def abort() -> bool:
+        return stopped.is_set()
+
+    interrupter = threading.Timer(0.1, stopped.set)
+    interrupter.start()
+    try:
+        start = time.monotonic()
+        aborted = backoff_wait(10.0, abort=abort)
+        elapsed = time.monotonic() - start
+    finally:
+        interrupter.join()
+
+    assert aborted is True
+    assert elapsed < 2.0
+
+
 def test_backoff_wait_stale_generation_returns_immediately():
     """A generation captured before an interrupt is permanently stale."""
     gen = current_generation()

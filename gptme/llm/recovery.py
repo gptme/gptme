@@ -95,6 +95,51 @@ _empty_reply_ends_turn: ContextVar[bool] = ContextVar(
 _notification: ContextVar[Callable[[RetryNotice], None] | None] = ContextVar(
     "llm_recovery_notification", default=None
 )
+_generation_gate: ContextVar[Callable[[], None] | None] = ContextVar(
+    "llm_generation_gate", default=None
+)
+
+
+@contextmanager
+def generation_gate(check: Callable[[], None]) -> Iterator[None]:
+    """Run ``check`` in ``reply()`` after GENERATION_PRE hooks, before the request.
+
+    ``check`` raises to abort the generation. Unlike a hook, it cannot be
+    skipped by another hook that stops propagation.
+    """
+    token = _generation_gate.set(check)
+    try:
+        yield
+    finally:
+        _generation_gate.reset(token)
+
+
+def check_generation_gate() -> None:
+    """Run the bound generation gate, if any."""
+    if check := _generation_gate.get():
+        check()
+
+
+def generation_gate_aborted() -> bool:
+    """Return True when the bound gate would abort the generation.
+
+    Lets a retry backoff wait (which cannot raise) react to a Stop instead of
+    sleeping out the full delay. The gate's only contract is "raises to abort",
+    so any exception it raises means aborted; ``check_generation_gate`` raises
+    the same signal again for the caller.
+
+    ``KeyboardInterrupt``/``SystemExit`` are re-raised instead of being folded
+    into "aborted": a Ctrl+C during the wait is the CLI's own signal, not a
+    Stop, and swallowing it would surface the provider error instead and leave
+    queued prompts hanging.
+    """
+    try:
+        check_generation_gate()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:
+        return True
+    return False
 
 
 @contextmanager
@@ -351,6 +396,10 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
     generation = current_generation()
     try:
         while True:
+            # A Stop must also gate retries: the gate is checked once in reply()
+            # before the first attempt, but a cancel can land during the backoff
+            # wait. No provider request may start after it.
+            check_generation_gate()
             if time.monotonic() >= budget.deadline:
                 raise _budget_error("LLM recovery deadline exceeded")
             if (
@@ -402,10 +451,15 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
                 # provider attempt after the monotonic budget has expired.
                 if delay >= budget.deadline - time.monotonic():
                     raise
+                # The third argument (abort predicate) makes the wait end as
+                # soon as Stop arrives instead of sleeping out the delay.
                 if (
-                    backoff_wait(delay, generation)
+                    backoff_wait(delay, generation, generation_gate_aborted)
                     or time.monotonic() >= budget.deadline
                 ):
+                    # If the wait ended because of Stop, surface that signal
+                    # instead of the provider error so the caller cancels.
+                    check_generation_gate()
                     raise
     finally:
         _recovering.reset(token)

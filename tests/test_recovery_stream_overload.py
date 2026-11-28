@@ -1,6 +1,6 @@
 """Offline coverage for HTTP-200 SSE errors inside generation recovery."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import httpx
 import openai
@@ -106,7 +106,11 @@ def test_recovery_owns_sse_retry_with_adapter_retries_disabled(
     monkeypatch.delenv("GPTME_TEST_MAX_RETRIES", raising=False)
     waits: list[float] = []
 
-    def wait(delay: float, generation: int | None) -> bool:
+    def wait(
+        delay: float,
+        generation: int | None,
+        abort: Callable[[], bool] | None = None,
+    ) -> bool:
         waits.append(delay)
         return False
 

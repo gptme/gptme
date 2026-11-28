@@ -13,6 +13,7 @@ threads without affecting unrelated LLM work in the same process.
 
 import threading
 import time
+from collections.abc import Callable
 
 _generation = 0
 _lock = threading.Lock()
@@ -128,7 +129,11 @@ def interrupt_pending_retries() -> None:
         _generation += 1
 
 
-def backoff_wait(delay: float, generation: int | None = None) -> bool:
+def backoff_wait(
+    delay: float,
+    generation: int | None = None,
+    abort: Callable[[], bool] | None = None,
+) -> bool:
     """Wait up to ``delay`` seconds before a retry attempt.
 
     Returns True (abort the retry, re-raise) if interrupt_thread() signalled
@@ -137,8 +142,10 @@ def backoff_wait(delay: float, generation: int | None = None) -> bool:
     the explicit/call generation and the thread generation bound via
     bind_thread_generation() (generations only grow, so ``min`` means "abort if
     either capture point is stale"). ``generation=None`` captures the current
-    generation at wait start (still aborts if interrupted mid-wait). Polls in
-    50ms steps — negligible for seconds-scale, rare backoff sleeps.
+    generation at wait start (still aborts if interrupted mid-wait). An optional
+    ``abort`` predicate is polled alongside them so a caller-side cancel (e.g.
+    ACP's Stop gate) ends the wait promptly. Polls in 50ms steps — negligible
+    for seconds-scale, rare backoff sleeps.
     """
     if generation is None:
         generation = _generation
@@ -148,11 +155,15 @@ def backoff_wait(delay: float, generation: int | None = None) -> bool:
     interrupt_event: threading.Event | None = getattr(_tls, "interrupt_event", None)
     if interrupt_event is not None and interrupt_event.is_set():
         return True
+    if abort is not None and abort():
+        return True
     deadline = time.monotonic() + delay
     while True:
         if _generation != generation:
             return True
         if interrupt_event is not None and interrupt_event.is_set():
+            return True
+        if abort is not None and abort():
             return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:

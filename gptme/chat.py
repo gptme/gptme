@@ -1676,8 +1676,13 @@ def step(
     logdir: Path | None = None,
     max_tokens: int | None = None,
     on_tool_execution: Callable[[int, ToolUse], None] | None = None,
+    stream_tool_outputs: bool = False,
 ) -> Generator[Message, None, None]:
-    """Runs a single pass of the chat - generates response and executes tools."""
+    """Generate a response and execute tools.
+
+    With ``stream_tool_outputs``, yield the reply before tools run and each
+    result as it completes. The reply then carries no aggregate tool timings.
+    """
     default_model = get_default_model()
     # Only require default_model if no explicit model was passed
     # Use nested if/else for proper mypy type narrowing
@@ -1777,7 +1782,7 @@ def step(
             # token, so suppress the later LogManager print in that mode. JSON
             # output is non-streaming and needs this structured assistant event.
             msg_response = msg_response.replace(quiet=not is_output_json())
-            # Buffer tool outputs so we can attach per-step timing to the
+            # By default, buffer outputs to attach per-step timing to the
             # assistant message *before* it is yielded. The yielded message is
             # therefore only available once all tools in this step complete.
             # Callers whose log is observed live, or must survive an interrupt
@@ -1790,16 +1795,21 @@ def step(
             # before a potentially long-running tool blocks the thread.
             if on_before_tool_execution is not None:
                 on_before_tool_execution(msg_response)
-            # list() exhausts execute_msg which populates tool_timings in-place.
-            tool_outputs = list(
-                execute_msg(
-                    msg_response,
-                    log=log,
-                    workspace=workspace,
-                    tool_timings=tool_timings,
-                    on_tool_execution=on_tool_execution,
-                )
+            tool_output_iter = execute_msg(
+                msg_response,
+                log=log,
+                workspace=workspace,
+                tool_timings=tool_timings,
+                on_tool_execution=on_tool_execution,
             )
+            if stream_tool_outputs:
+                # Cancellable consumers need each result before the next tool
+                # boundary can abort the iterator and discard buffered output.
+                yield msg_response
+                yield from tool_output_iter
+                return
+            # Exhaust the iterator to populate aggregate timings in-place.
+            tool_outputs = list(tool_output_iter)
             if tool_timings:
                 # Preserve aggregates for buffered step() consumers. CLI/TUI
                 # persist the early reply unchanged; durable per-call timings

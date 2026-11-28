@@ -313,6 +313,60 @@ def test_backoff_abort_stops_replay(monkeypatch):
     assert caught.value is error and len(calls) == 1
 
 
+def test_generation_gate_blocks_retry_after_stop(monkeypatch):
+    """A Stop during the retry backoff must not start another request.
+
+    ``reply()`` checks the gate once before the first attempt; the replay loop
+    must check it again before each retry, otherwise Stop that lands during the
+    backoff still spends a provider request.
+    """
+    error = httpx.ReadError("cut")
+    calls, _ = install_stream(monkeypatch, [[error], ["retried"]])
+    stopped: list[bool] = []
+
+    class _Stopped(BaseException):
+        pass
+
+    def gate() -> None:
+        if stopped:
+            raise _Stopped
+
+    def wait(delay, generation=None, abort=None):
+        stopped.append(True)  # Stop arrives while the backoff wait runs
+        return False
+
+    monkeypatch.setattr(recovery, "backoff_wait", wait)
+    with recovery.generation_gate(gate), pytest.raises(_Stopped):
+        llm.reply([Message("user", "hi")], MODEL, stream=True)
+    assert len(calls) == 1
+
+
+def test_generation_gate_aborted_keeps_keyboard_interrupt():
+    """Ctrl+C inside the gate must reach the CLI, not read as an ACP Stop.
+
+    The abort predicate is polled from the retry wait; folding
+    ``KeyboardInterrupt`` into "aborted" would re-raise the provider error
+    instead and leave the queued prompt uncleared.
+    """
+
+    def gate() -> None:
+        raise KeyboardInterrupt
+
+    with recovery.generation_gate(gate), pytest.raises(KeyboardInterrupt):
+        recovery.generation_gate_aborted()
+
+
+def test_generation_gate_aborted_reports_base_exception_stop():
+    class _Stopped(BaseException):
+        pass
+
+    def gate() -> None:
+        raise _Stopped
+
+    with recovery.generation_gate(gate):
+        assert recovery.generation_gate_aborted() is True
+
+
 def test_reset_callback_consumes_deadline(monkeypatch):
     now = [100.0]
     monkeypatch.setattr(recovery.time, "monotonic", lambda: now[0])

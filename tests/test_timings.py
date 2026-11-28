@@ -168,7 +168,8 @@ def test_step_attaches_timings_to_assistant_message():
     assert timings.get("gen_ms") == 800.0
 
 
-def test_step_attaches_tool_timings():
+@pytest.mark.parametrize("stream_tool_outputs", [False, True])
+def test_step_attaches_tool_timings(stream_tool_outputs):
     """step() should merge tool_ms/tool_ms_by_name into the assistant message timings."""
     from gptme.chat import step
     from gptme.tools import init_tools
@@ -187,7 +188,9 @@ def test_step_attaches_tool_timings():
 
     chat_module = importlib.import_module("gptme.chat")
     with patch.object(chat_module, "reply", return_value=mock_response):
-        yielded = list(step(messages, stream=False))
+        yielded = list(
+            step(messages, stream=False, stream_tool_outputs=stream_tool_outputs)
+        )
 
     assistant_msgs = [m for m in yielded if m.role == "assistant"]
     assert assistant_msgs
@@ -198,7 +201,15 @@ def test_step_attaches_tool_timings():
     # LLM timings from mock should be preserved
     assert timings.get("ttft_ms") == 100.0
     assert timings.get("gen_ms") == 500.0
-    # Tool timings should be added
+    if stream_tool_outputs:
+        assert "tool_ms" not in timings
+        assert "tool_ms_by_name" not in timings
+        results = [m for m in yielded if (m.metadata or {}).get("tool_call") == 0]
+        assert results[-1].metadata is not None
+        assert results[-1].metadata["timings"]["tool_ms"] > 0
+        assert assistant_msg.metadata["tool_format"] == "markdown"
+        return
+    # Tool timings should be added for buffered consumers.
     assert "tool_ms" in timings, f"expected tool_ms in timings, got {timings}"
     assert timings["tool_ms"] > 0
     assert "tool_ms_by_name" in timings
