@@ -344,9 +344,10 @@ class CommaSeparatedChoice(click.ParamType):
             # Allow file paths (e.g. path/to/tool.py) to pass through
             if check.endswith(".py") or "/" in check or "\\" in check:
                 continue
-            # MCP tools are discovered only after configuration is loaded.
-            # Accept exact qualified names without additive (+) syntax, which
-            # would widen a restricted subprocess child's toolset to defaults.
+            # MCP tools are discovered only after configuration is loaded, so
+            # accept exact qualified names here, bare or additive
+            # (`+server.tool`). Additive syntax is not a widening path: a
+            # restricted subprocess child is only ever sent a replacement list.
             from ..tools._allowlist import is_mcp_allowlist_entry
 
             if (
@@ -365,6 +366,19 @@ class CommaSeparatedChoice(click.ParamType):
                 else set()
             )
             if check not in self._choice_set and check not in extra_choices:
+                # A managed subprocess child receives its allowlist from the
+                # parent, which cannot see this workspace's plugins or
+                # credentials (#5379). Defer unknown bare names to the child's
+                # own toolchain init, which skips tools it cannot find. Only
+                # the replacement list the parent sends is affected; an
+                # interactive `--tools` stays strict.
+                if (
+                    matched_prefix is None
+                    and param is not None
+                    and param.name == "tool_allowlist"
+                    and os.environ.get("GPTME_SUBAGENT_AGENT_ID")
+                ):
+                    continue
                 self.fail(
                     f"invalid choice: {part}. (choose from {', '.join(self.choices)})",
                     param,
