@@ -1774,6 +1774,71 @@ def test_cancelled_start_releases_its_loop(monkeypatch, tmp_path):
 
 
 @pytest.mark.timeout(20)
+def test_cancelled_start_with_failed_cleanup_leaves_runtime_usable(
+    monkeypatch, tmp_path
+):
+    """A cancelled start whose cleanup also fails must not block later starts.
+
+    The abandoned-loop release reaps the child by pid; it must also drop the
+    stale ``_client`` handle, or ``_ensure_loop_calls`` refuses to start a new
+    loop and every later start fails with "bound to a stopped loop".
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _BrokenCleanupClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            self._process = object()
+            clients.append(self)
+            entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(release.wait, 10)
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if self.index == 0:
+                raise OSError("broken transport")
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _BrokenCleanupClient)
+    monkeypatch.setattr(
+        mod, "_terminate_asyncio_process_sync", lambda proc, timeout: None
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+
+        for _ in range(500):
+            if runtime._loop_thread is None and runtime._client is None:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime._loop_thread is None
+        assert runtime._client is None
+
+        await runtime.start()
+        assert runtime.session_id == "sess-1"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
 def test_cancelled_start_keeps_a_waiting_start_alive(monkeypatch, tmp_path):
     """Cancelling one caller must not stop the loop a waiting start needs."""
     import gptme.server.acp_session_runtime as mod

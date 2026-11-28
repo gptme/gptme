@@ -422,6 +422,8 @@ class AcpSessionRuntime:
             if self._starts_entering > 0 or self._session_id is not None:
                 self._reap_unstarted_client(unstarted)
                 self._unstarted_client = None
+                if self._client is unstarted:
+                    self._client = None
             elif self._client is unstarted:
                 self._unstarted_client = None
                 self.terminate_subprocess_sync(graceful=False)
@@ -449,6 +451,10 @@ class AcpSessionRuntime:
         if unstarted is not None:
             self._reap_unstarted_client(unstarted)
             self._unstarted_client = None
+            if self._client is unstarted:
+                # The loop is going away; a stale handle would make the next
+                # start refuse to create a fresh loop.
+                self._client = None
         with self._loop_lock:
             loop = self._loop
             self._loop = None
