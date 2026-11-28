@@ -749,16 +749,17 @@ def prompt_workspace(
     # Computed context last (changes most often, least cacheable).
     # Opt-in only: get_prompt() runs context_cmd after a TOFU check. Direct
     # callers that pass True still need an existing approval (no prompt here).
+    #
+    # Use check_project_trust() (full project hash) rather than the shell-only
+    # check: startup stores one approval over every trust-gated surface, so a
+    # project that also has [env], MCP, plugin paths or RAG would otherwise miss
+    # its approval here and silently drop an approved context_cmd. With
+    # interactive=False this never prompts; the legacy shell-only approval is
+    # still honored for configs that predate the full-hash scheme.
     if include_context_cmd and project and project.context_cmd:
-        from ..config.trust import check_project_shell_trust, commands_from_project
+        from ..config.trust import check_project_trust
 
-        ctx, hook_commands = commands_from_project(project)
-        if check_project_shell_trust(
-            ctx,
-            hook_commands,
-            workspace,
-            interactive=False,
-        ) and (
+        if check_project_trust(project, workspace, interactive=False) and (
             cmd_output := get_project_context_cmd_output(project.context_cmd, workspace)
         ):
             yield Message("system", "## Computed context\n\n" + cmd_output)
