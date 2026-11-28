@@ -210,10 +210,12 @@ class AcpSessionRuntime:
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
 
-        # Serializes entry (and the teardown of a failed entry) across callers,
-        # which may run on different event loops. Held for the whole start, so a
-        # failure can never tear down a session another start owns.
-        self._start_mutex = threading.Lock()
+        # Starts are serialized on the runtime loop. ``_starts_entering``
+        # counts callers inside a start on that loop (including ones waiting for
+        # the lock), so a failed start only releases state when nobody else is
+        # entering. Both are only touched from the runtime loop.
+        self._start_lock: asyncio.Lock | None = None
+        self._starts_entering = 0
 
         # Dedicated event loop owning the ACP transport (see module docstring).
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -304,6 +306,10 @@ class AcpSessionRuntime:
             self._loop = loop
             self._loop_thread = thread
             self._loop_calls = calls
+            # Serializes starts on the loop that runs them. An asyncio lock is
+            # bound to one loop, so it is created with the loop and discarded
+            # with it.
+            self._start_lock = asyncio.Lock()
             return loop, calls
 
     def _stop_loop(self, join_timeout: float = 5.0) -> None:
@@ -389,12 +395,6 @@ class AcpSessionRuntime:
 
     # -- lifecycle ----------------------------------------------------------
 
-    async def _acquire_start_mutex(self) -> None:
-        """Take the start mutex without blocking the caller's event loop."""
-        if self._start_mutex.acquire(blocking=False):
-            return
-        await asyncio.to_thread(self._start_mutex.acquire)
-
     def _release_unstarted(self) -> None:
         """Stop the dedicated loop if start never produced a usable session.
 
@@ -402,10 +402,13 @@ class AcpSessionRuntime:
         whose entry failed would otherwise leak that daemon thread (and any
         child that entry spawned before raising).
 
-        Callers hold ``_start_mutex``, so no overlapping start can be entering
-        while this runs: the teardown cannot take a session another start owns.
+        Called from the caller's loop after a failure, so it refuses while
+        another start is entering: that start owns the loop and is about to
+        publish (or fail) on it.
         """
         if self._session_id is not None:
+            return
+        if self._starts_entering > 0:
             return
         if self._client is not None:
             self.terminate_subprocess_sync(graceful=False)
@@ -414,16 +417,36 @@ class AcpSessionRuntime:
 
     async def start(self) -> None:
         """Start ACP subprocess and create ACP session if not already started."""
-        await self._acquire_start_mutex()
         try:
             await self._run_on_loop(self._start_impl)
-        except BaseException:
-            self._release_unstarted()
+        except BaseException as exc:
+            if getattr(exc, "_acp_release_unstarted", False):
+                self._release_unstarted()
             raise
-        finally:
-            self._start_mutex.release()
 
     async def _start_impl(self) -> None:
+        # Serialize the whole entry: overlapping starts would otherwise each
+        # spawn a subprocess, and the later one would orphan the earlier
+        # session (or a failing one could clear a slot it does not own).
+        lock = self._start_lock
+        if lock is None:  # pragma: no cover - _run_on_loop creates it
+            raise ConnectionError("ACP runtime loop is not running")
+        self._starts_entering += 1
+        try:
+            async with lock:
+                try:
+                    await self._start_entry()
+                except BaseException as exc:
+                    if self._session_id is None and self._starts_entering == 1:
+                        # Nothing was published and nobody is waiting. The loop
+                        # cannot be stopped from this thread without cancelling
+                        # this call's own result, so the caller does it.
+                        exc._acp_release_unstarted = True  # type: ignore[attr-defined]
+                    raise
+        finally:
+            self._starts_entering -= 1
+
+    async def _start_entry(self) -> None:
         if self._client is not None and self._session_id is not None:
             return
 
@@ -500,19 +523,14 @@ class AcpSessionRuntime:
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
-        # The mutex covers the lazy start and any teardown of it, so a prompt
-        # never reads or runs on a client another caller is releasing. It also
-        # keeps two prompts off one ACP session, which would interleave.
-        await self._acquire_start_mutex()
         try:
             return await self._run_on_loop(self._prompt_impl, message, max_tokens)
-        except BaseException:
-            # A failed entry must not leak the dedicated loop of a runtime that
-            # never became ready.
-            self._release_unstarted()
+        except BaseException as exc:
+            # A lazy start enters through ``_start_impl``; a failed entry must
+            # not leak the dedicated loop of a runtime that never became ready.
+            if getattr(exc, "_acp_release_unstarted", False):
+                self._release_unstarted()
             raise
-        finally:
-            self._start_mutex.release()
 
     async def _prompt_impl(
         self, message: str, max_tokens: int | None

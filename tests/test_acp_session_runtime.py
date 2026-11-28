@@ -1674,28 +1674,47 @@ def test_overlapping_successful_starts_create_one_session(monkeypatch, tmp_path)
     asyncio.run(_scenario())
 
 
-@pytest.mark.timeout(15)
-def test_failed_start_releases_the_start_mutex(monkeypatch, tmp_path):
-    """A failed start must not leave the runtime wedged for later starts.
-
-    The mutex is held for the whole entry, so a failure that skipped the
-    release would block every later start (and prompt) forever.
-    """
+@pytest.mark.timeout(20)
+def test_cancelled_start_does_not_wedge_the_runtime(monkeypatch, tmp_path):
+    """A cancelled start releases the loop so a later start still succeeds."""
     import gptme.server.acp_session_runtime as mod
 
-    class _FailingClient(_DummyClient):
-        async def __aenter__(self):
-            raise OSError("entry failed")
+    clients: list[Any] = []
+    entered = threading.Event()
+    release = threading.Event()
 
-    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingClient)
+    class _GatedClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            clients.append(self)
+            entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(release.wait, 10)
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
     runtime = mod.AcpSessionRuntime(workspace=tmp_path)
 
-    with pytest.raises(OSError, match="entry failed"):
-        asyncio.run(runtime.start())
+    async def _scenario() -> None:
+        task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
 
-    assert not runtime._start_mutex.locked()
-    assert runtime._client is None
-    assert runtime.session_id is None
+        await runtime.start()
+        assert runtime.session_id == "sess-1"
+
+    asyncio.run(_scenario())
 
 
 @pytest.mark.timeout(15)
