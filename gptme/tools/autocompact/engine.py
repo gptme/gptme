@@ -17,6 +17,7 @@ from pathlib import Path
 from ...context import strip_reasoning
 from ...llm.models import get_default_model, get_model
 from ...message import Message, len_tokens
+from ...util.context_measurement import measure_provider_overhead
 from ...util.master_context import (
     MessageByteRange,
     build_master_context_index,
@@ -397,6 +398,18 @@ def auto_compact_log(
     # If we are below the configured limit and no safe projection applies, return as-is.
     tokens = len_tokens(log, model=model.model)
     initial_tokens = tokens  # preserved for final reduction_pct even after Phase 0
+    has_ui_only = any(m.ui_only for m in log)
+    visible_tokens = (
+        len_tokens([m for m in log if not m.ui_only], model=model.model)
+        if has_ui_only
+        else tokens
+    )
+    provider_overhead = measure_provider_overhead(log, model.full, model.model)
+    if provider_overhead >= limit:
+        # No amount of trimming can fit: don't destroy stored text trying.
+        # Summarization is the path that handles this.
+        provider_overhead = 0
+    effective_limit = limit - provider_overhead
 
     # Phase 0: Relevance-scored pruning of stale tool outputs.
     # Only when already over budget — same gate as estimate_compaction_savings —
@@ -404,7 +417,7 @@ def auto_compact_log(
     # large, unreferenced tool outputs in place so tool-call pairing and
     # master-context indices stay valid. Surviving content is kept verbatim.
     phase0_tokens_saved = 0
-    if tokens >= limit:
+    if visible_tokens >= effective_limit:
         # Record keep/drop decisions before the live pass mutates the log.
         if logdir is not None:
             shadow_prune_stale_tool_outputs(
@@ -425,6 +438,11 @@ def auto_compact_log(
                 f"({len(log)} messages remaining)"
             )
             tokens = len_tokens(log, model=model.model)
+            visible_tokens = (
+                len_tokens([m for m in log if not m.ui_only], model=model.model)
+                if has_ui_only
+                else tokens
+            )
 
     # Calculate message positions from end (for age-based reasoning stripping)
     log_length = len(log)
@@ -437,7 +455,7 @@ def auto_compact_log(
         and _has_reasoning_block(msg.content)
         for idx, msg in enumerate(log)
     )
-    needs_compacting = tokens >= limit
+    needs_compacting = visible_tokens >= effective_limit
 
     # Check if any messages need Phase 3 compression
     needs_phase3_compression = any(
@@ -464,7 +482,16 @@ def auto_compact_log(
         return
 
     if needs_compacting:
-        logger.info(f"Auto-compacting log: {tokens} tokens exceeds limit of {limit}")
+        if provider_overhead > 0:
+            logger.info(
+                f"Auto-compacting log: {visible_tokens + provider_overhead} tokens "
+                f"({visible_tokens} stored + {provider_overhead} provider overhead) "
+                f"exceeds limit of {limit}"
+            )
+        else:
+            logger.info(
+                f"Auto-compacting log: {tokens} tokens exceeds limit of {limit}"
+            )
     if needs_reasoning_strip:
         logger.info(
             f"Stripping reasoning from messages beyond threshold {reasoning_strip_age_threshold}"
@@ -502,16 +529,23 @@ def auto_compact_log(
     # This achieves target reduction with minimal information loss
     tool_result_tokens_saved = 0
     compression_tokens_saved = 0
-    current_tokens = len_tokens(compacted_log, model.model)
+    current_tokens = (
+        len_tokens([m for m in compacted_log if not m.ui_only], model=model.model)
+        if has_ui_only
+        else len_tokens(compacted_log, model=model.model)
+    )
     # Hysteresis: aim below the trigger so a successful trim leaves headroom.
-    # target_ratio=1.0 keeps the pre-hysteresis behaviour for direct callers.
-    target_tokens = max(1, int(limit * target_ratio))
+    # Convert the request-token target into stored-text units by subtracting
+    # non-reclaimable provider overhead. target_ratio=1.0 keeps the
+    # pre-hysteresis behaviour for direct callers.
+    request_target = max(1, int(limit * target_ratio))
+    target_tokens = request_target - provider_overhead
 
     if current_tokens >= target_tokens:
         # Identify all candidate tool results for truncation (with original indices)
         candidates: list[tuple[int, int, Message]] = []  # (idx, tokens, msg)
         for idx, msg in enumerate(compacted_log):
-            if msg.pinned or idx < keep_head:
+            if msg.pinned or msg.ui_only or idx < keep_head:
                 continue
             if msg.role == "system":
                 msg_tokens = len_tokens(msg.content, model.model)
@@ -619,13 +653,18 @@ def auto_compact_log(
 
     # Check if we're now within limits
     final_tokens = len_tokens(compacted_log, model.model)
+    final_visible_tokens = (
+        len_tokens([m for m in compacted_log if not m.ui_only], model=model.model)
+        if has_ui_only
+        else final_tokens
+    )
     total_saved = (
         phase0_tokens_saved
         + tool_result_tokens_saved
         + compression_tokens_saved
         + reasoning_tokens_saved
     )
-    if final_tokens <= limit:
+    if final_visible_tokens <= effective_limit:
         # Calculate reduction percentage against the original token count
         reduction_pct = (
             ((initial_tokens - final_tokens) / initial_tokens * 100)
@@ -683,7 +722,7 @@ def auto_compact_log(
         head_msgs = [m.replace(pinned=True) for m in compacted_log[:keep_head]]
         tail_msgs = compacted_log[keep_head:]
         head_tokens = len_tokens(head_msgs, model.model)
-        tail_limit = max(0, limit - head_tokens)
+        tail_limit = max(0, effective_limit - head_tokens)
         yield from head_msgs
         yield from reduce_log(tail_msgs, tail_limit)
     elif keep_head >= len(compacted_log):
@@ -697,4 +736,4 @@ def auto_compact_log(
         )
         yield from (m.replace(pinned=True) for m in compacted_log)
     else:
-        yield from reduce_log(compacted_log, limit)
+        yield from reduce_log(compacted_log, effective_limit)
