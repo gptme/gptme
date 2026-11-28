@@ -14,7 +14,12 @@ from gptme.tools.chats import _format_message_with_context, read_chat, search_ch
 def history(tmp_path, monkeypatch):
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
 
-    def write(content: str, name: str = "2026-01-01-synthetic") -> str:
+    def write(
+        content: str,
+        name: str = "2026-01-01-synthetic",
+        *,
+        continuation: tuple[str, ...] = ("safe continuation",),
+    ) -> str:
         directory = tmp_path / name
         directory.mkdir(exist_ok=True)
         messages = [
@@ -28,11 +33,14 @@ def history(tmp_path, monkeypatch):
                 "content": content,
                 "timestamp": "2026-01-01T00:00:01+00:00",
             },
-            {
-                "role": "assistant",
-                "content": "safe continuation",
-                "timestamp": "2026-01-01T00:00:02+00:00",
-            },
+            *(
+                {
+                    "role": "assistant",
+                    "content": text,
+                    "timestamp": f"2026-01-01T00:00:{offset:02}+00:00",
+                }
+                for offset, text in enumerate(continuation, start=2)
+            ),
         ]
         (directory / "conversation.jsonl").write_text(
             "\n".join(json.dumps(m) for m in messages) + "\n"
@@ -40,6 +48,53 @@ def history(tmp_path, monkeypatch):
         return name
 
     return write
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected_indices"),
+    [
+        ([], [1, 2, 3]),
+        (["--matches", "1"], [1]),
+        (["-m", "4"], [1, 2, 3, 4]),
+        (["--matches", "0"], []),
+    ],
+)
+def test_json_search_respects_matches(history, flags, expected_indices):
+    history(
+        "needle first", continuation=("needle second", "needle third", "needle fourth")
+    )
+    result = CliRunner().invoke(chats, ["search", "needle", "--json", *flags])
+    assert result.exit_code == 0, result.exception
+    [conversation] = json.loads(result.output)
+    assert conversation["matches"] == 4
+    assert [
+        snippet["index"] for snippet in conversation["snippets"]
+    ] == expected_indices
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected_snippets"),
+    [
+        ([], ["**needle** first"]),
+        (["--matches", "0"], []),
+    ],
+)
+def test_text_search_respects_matches(history, flags, expected_snippets):
+    name = history("needle first", continuation=("needle second",))
+    result = CliRunner().invoke(chats, ["search", "needle", *flags])
+    assert result.exit_code == 0, result.exception
+    assert f"{name} (2 matches):" in result.output
+    assert len(re.findall(r"^  Match \d+ \(", result.output, re.MULTILINE)) == len(
+        expected_snippets
+    )
+    assert re.findall(r"\*\*needle\*\* \w+", result.output) == expected_snippets
+
+
+@pytest.mark.parametrize("flags", [[], ["--json"]])
+def test_search_rejects_negative_matches(flags):
+    result = CliRunner().invoke(chats, ["search", "needle", "--matches", "-1", *flags])
+    assert result.exit_code == 2
+    assert "Invalid value for '-m' / '--matches'" in result.output
 
 
 @pytest.mark.parametrize(
