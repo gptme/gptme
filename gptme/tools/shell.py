@@ -920,6 +920,7 @@ class ShellSession:
         timeout: float | None = None,
         *,
         capture: BackgroundJob | None = None,
+        _commands: list[str] | None = None,
     ) -> tuple[int | None, str, str]:
         """Runs a command in the shell and returns the output."""
         # Establish ownership before parsing, which can outlast promotion.
@@ -930,7 +931,8 @@ class ShellSession:
         result: tuple[int | None, str, str] | None = None
         error_text: str | None = None
         try:
-            result = self._run_commands(code, output=output, timeout=timeout)
+            commands = split_commands(code) if _commands is None else _commands
+            result = self._run_commands(commands, output=output, timeout=timeout)
             return result
         except BaseException as exc:
             # Finalization seals the capture before a promoted worker publishes.
@@ -963,9 +965,8 @@ class ShellSession:
             self._capture_segments = None
 
     def _run_commands(
-        self, code: str, output: bool, timeout: float | None
+        self, commands: list[str], output: bool, timeout: float | None
     ) -> tuple[int | None, str, str]:
-        commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
         for cmd in commands:
@@ -984,19 +985,22 @@ class ShellSession:
         # trailing/leading newlines may be meaningful inside the combined stream.
         return res_code, trim_blank_lines(res_stdout), trim_blank_lines(res_stderr)
 
-    def _needs_tty(self, command: str) -> bool:
+    def _can_use_tty(self) -> bool:
+        # TTY commands run outside the persistent shell's sandbox.
+        return (
+            not _is_windows
+            and sys.stdin.isatty()
+            and not SandboxConfig.from_env().enabled
+        )
+
+    def _needs_tty(self, command: str, *, _commands: list[str] | None = None) -> bool:
         """Check if a command needs a TTY (e.g. sudo password prompt) and we're interactive."""
-        return any(self._command_needs_tty(cmd) for cmd in split_commands(command))
+        commands = split_commands(command) if _commands is None else _commands
+        return any(self._command_needs_tty(cmd) for cmd in commands)
 
     def _command_needs_tty(self, command: str) -> bool:
         """Check whether one command is routed through the interactive TTY path."""
-        if _is_windows:
-            return False  # No /dev/tty on Windows
-        if not sys.stdin.isatty():
-            return False
-        if SandboxConfig.from_env().enabled:
-            # _run_with_tty launches a separate host process, outside the persistent
-            # sandbox. Keep sandboxed commands on the isolated shell instead.
+        if not self._can_use_tty():
             return False
         # Check for sudo without -S (stdin password) or -n (non-interactive)
         try:
@@ -1273,7 +1277,7 @@ class ShellSession:
         self, command: str, output=True, tries=0, timeout: float | None = None
     ) -> tuple[int | None, str, str]:
         # Use TTY-based execution for interactive sudo commands
-        if self._needs_tty(command):
+        if self._command_needs_tty(command):
             return self._run_with_tty(
                 command, output=output, timeout=timeout, trim_output=False
             )
@@ -3153,8 +3157,12 @@ def execute_shell_impl(
     allowlisted = is_allowlisted(cmd, cwd=shell.get_cwd())
 
     start_time = time.monotonic()
+    # Classify interactive commands before choosing how to run them. Without a
+    # usable TTY, leave parsing inside run() so promotion can cover its cost.
+    commands = split_commands(cmd) if shell._can_use_tty() else None
+    needs_tty = commands is not None and shell._needs_tty(cmd, _commands=commands)
     capture = None
-    if logdir is not None and not _is_windows and not shell._needs_tty(cmd):
+    if logdir is not None and not _is_windows and not needs_tty:
         from uuid import uuid4
 
         capture = BackgroundJob(
@@ -3181,7 +3189,7 @@ def execute_shell_impl(
         not _is_windows
         and foreground_timeout is not None
         and (timeout is None or foreground_timeout < timeout)
-        and not shell._needs_tty(cmd)
+        and not needs_tty
     )
     if promoted:
         result: dict[str, tuple[int | None, str, str]] = {}
@@ -3190,7 +3198,11 @@ def execute_shell_impl(
         def run_foreground() -> None:
             try:
                 result["value"] = shell.run(
-                    cmd, output=False, timeout=timeout, capture=capture
+                    cmd,
+                    output=False,
+                    timeout=timeout,
+                    capture=capture,
+                    _commands=commands,
                 )
             except BaseException as exc:
                 error.append(exc)
@@ -3316,7 +3328,7 @@ def execute_shell_impl(
     else:
         try:
             returncode, stdout, stderr = shell.run(
-                cmd, timeout=timeout, capture=capture
+                cmd, timeout=timeout, capture=capture, _commands=commands
             )
         except KeyboardInterrupt as e:
             # Extract partial output and handle subprocess termination
@@ -4097,6 +4109,15 @@ def _bash_syntax_error(
     return message or fallback or "bash -n rejected the script without a diagnostic"
 
 
+def _require_valid_bash(script: str) -> None:
+    bash_error = _bash_syntax_error(script, fallback=None, strict=True)
+    if bash_error is not None:
+        raise ValueError(
+            f"Shell syntax error: {bash_error}\n"
+            f"Please fix the syntax or use a different approach."
+        )
+
+
 def split_commands(script: str) -> list[str]:
     """Split at top-level newlines, preserving Bash lists and original source.
 
@@ -4112,12 +4133,7 @@ def split_commands(script: str) -> list[str]:
         # strict=True: bash present but the check itself failed must not be
         # mistaken for "bash accepted the script" — fail closed instead of
         # sending a suspect script whole to the persistent shell.
-        bash_error = _bash_syntax_error(script, fallback=None, strict=True)
-        if bash_error is not None:
-            raise ValueError(
-                f"Shell syntax error: {bash_error}\n"
-                f"Please fix the syntax or use a different approach."
-            )
+        _require_valid_bash(script)
         return [script]
 
     commands: list[str] = []
@@ -4144,6 +4160,11 @@ def split_commands(script: str) -> list[str]:
     if start is not None:
         commands.append(source[start:end].decode("utf-8"))
 
+    if len(commands) == 1:
+        # An invalid eval payload cannot emit its completion marker.
+        _require_valid_bash(commands[0])
+        return commands
+
     # A clean tree is not proof of correct Bash boundaries. In particular,
     # tree-sitter can parse `time { ... }` as ordinary words, with no ERROR
     # node. Let Bash reject incomplete fragments before they reach the shell.
@@ -4162,12 +4183,7 @@ def split_commands(script: str) -> list[str]:
         # syntax error, so give the whole script one more bash -n check: raise on
         # a genuine syntax error, otherwise keep the conservative single-command
         # return. `fallback=None` keeps the bash-unavailable case benign.
-        bash_error = _bash_syntax_error(script, fallback=None, strict=True)
-        if bash_error is not None:
-            raise ValueError(
-                f"Shell syntax error: {bash_error}\n"
-                f"Please fix the syntax or use a different approach."
-            )
+        _require_valid_bash(script)
         return [script]
     return commands
 

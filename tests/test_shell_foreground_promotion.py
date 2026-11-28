@@ -1168,9 +1168,14 @@ def test_small_foreground_output_has_no_spool_or_job(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "5")
+    from gptme.tools import shell as shell_module
+
     set_shell(ShellSession(cwd=str(tmp_path)))
+    check = Mock(wraps=shell_module._bash_syntax_error)
+    monkeypatch.setattr(shell_module, "_bash_syntax_error", check)
     messages = list(execute_shell_impl("printf 'small'", logdir=tmp_path, timeout=10))
     assert "small" in messages[-1].content
+    check.assert_called_once()
     assert not list(tmp_path.rglob("*.live"))
     assert not list(tmp_path.rglob("*.json"))
     assert not list_background_jobs()
