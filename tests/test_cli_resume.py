@@ -18,6 +18,7 @@ from gptme.cli.cmd_resume import (
     synthesize_prompt,
 )
 from gptme.cli.util import main as util_main
+from gptme.config import ChatConfig, MCPConfig, MCPServerConfig
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -354,6 +355,90 @@ def test_resume_output_json(populated_logs: tuple[Path, list[Path]], monkeypatch
     assert "last_active" in data
     assert "has_task" in data
     assert isinstance(data["tools_used"], list)
+
+
+@pytest.mark.parametrize(
+    ("config", "expected_name"),
+    [
+        pytest.param(
+            '[[mcp.servers]]\nname = "wiki-server"\n',
+            "actual-session",
+            id="nested-name",
+        ),
+        pytest.param('name = "hello\\tworld"\n', "hello\tworld", id="escaped-name"),
+        pytest.param(
+            'name = "My Session"\n[[mcp.servers]]\nname = "wiki-server"\n',
+            "My Session",
+            id="top-level-name",
+        ),
+        pytest.param(
+            'name = "Legacy"\n[chat]\nname = "Canonical"\n',
+            "Canonical",
+            id="chat-name-takes-precedence",
+        ),
+        pytest.param(
+            'name = "Legacy"\n[chat]\nname = ""\n',
+            "Legacy",
+            id="empty-chat-name-uses-legacy",
+        ),
+        pytest.param(
+            'name = "Legacy"\n[chat]\nname = 123\n',
+            "Legacy",
+            id="non-string-chat-name-uses-legacy",
+        ),
+        pytest.param(
+            'name = "Legacy"\nchat = "not a table"\n',
+            "Legacy",
+            id="non-table-chat-uses-legacy",
+        ),
+        pytest.param('name = ""\n', "actual-session", id="empty-name"),
+        pytest.param("name = 123\n", "actual-session", id="non-string-name"),
+        pytest.param("[broken\n", "actual-session", id="malformed-config"),
+        pytest.param(None, "actual-session", id="missing-config"),
+    ],
+)
+def test_resume_session_name_from_toml(
+    logs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: str | None,
+    expected_name: str,
+) -> None:
+    session = _make_session(logs_dir, "run-autonomous-actual-session")
+    if config is not None:
+        (session / "config.toml").write_text(config, encoding="utf-8")
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    runner = CliRunner()
+
+    metadata = runner.invoke(resume, ["--output", "json"])
+    assert metadata.exit_code == 0, metadata.output
+    assert json.loads(metadata.output)["name"] == expected_name
+
+    listing = runner.invoke(resume, ["--list"])
+    assert listing.exit_code == 0, listing.output
+    assert f"  {expected_name}  (no_user_msg)" in listing.output
+
+    prompt = runner.invoke(util_main, ["resume"])
+    assert prompt.exit_code == 0, prompt.output
+    assert f"[SESSION: {expected_name}]" in prompt.output
+
+
+def test_resume_session_name_from_saved_chat_config(
+    logs_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = _make_session(logs_dir, "run-autonomous-actual-session")
+    name = 'Saved "Chat"\twith a \\ backslash'
+    ChatConfig(
+        _logdir=session,
+        name=name,
+        workspace=session,
+        mcp=MCPConfig(servers=[MCPServerConfig(name="wiki-server")]),
+    ).save()
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+
+    result = CliRunner().invoke(resume, ["--output", "json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["name"] == name
 
 
 def test_resume_invoked_via_util_subcommand(

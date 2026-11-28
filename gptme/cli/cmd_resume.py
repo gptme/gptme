@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import click
+import tomllib
 
 # ── helpers ────────────────────────────────────────────────────────────
 
@@ -47,14 +48,18 @@ def _list_sessions(logs_dir: Path, n: int | None = 20) -> list[Path]:
 
 def _session_name(session_dir: Path) -> str:
     """Extract human-readable name from config.toml or directory name."""
-    config = session_dir / "config.toml"
-    if config.exists():
-        for line in config.read_text(errors="replace").splitlines():
-            m = re.match(r'^name\s*=\s*"(.+)"', line.strip())
-            if m:
-                return m.group(1)
-    name = session_dir.name
-    return re.sub(r"^run-[a-z]+-", "", name)
+    try:
+        with (session_dir / "config.toml").open("rb") as config:
+            data = tomllib.load(config)
+        chat = data.get("chat")
+        name = chat.get("name") if isinstance(chat, dict) else None
+        if not isinstance(name, str) or not name:
+            name = data.get("name")
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        name = None
+    if isinstance(name, str) and name:
+        return name
+    return re.sub(r"^run-[a-z]+-", "", session_dir.name)
 
 
 def _task_from_user_content(content: str) -> str:
