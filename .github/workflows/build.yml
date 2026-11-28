@@ -6,6 +6,9 @@ on:
   pull_request:
     # Stacked PRs target feature branches before their base lands on master.
     branches: [ master, 'feat/*' ]
+    # ready_for_review is not in the default pull_request types. Build jobs
+    # skip drafts; this type retriggers Build when a draft is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     # Docker images and PyInstaller binaries (which bundle the web UI) only
     # depend on these; workflow-, docs- and test-only PRs skip the build.
     paths:
@@ -95,7 +98,9 @@ jobs:
     # changes is skipped off-PR, so its output is empty, which is not 'false':
     # master pushes and dispatches always build. A failed detection
     # also builds (fail open).
-    if: ${{ !cancelled() && needs.changes.outputs.docker != 'false' }}
+    # Draft PRs are skipped so review-round pushes do not occupy the 20-job
+    # org pool; true on push/dispatch (no pull_request payload).
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (!cancelled() && needs.changes.outputs.docker != 'false')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -267,7 +272,9 @@ jobs:
     needs: changes
     # changes is skipped off-PR; run anyway. An empty output (skipped or failed
     # detection) is not 'false', so both OSes build: fail open.
-    if: ${{ !cancelled() }}
+    # Draft PRs are skipped so review-round pushes do not occupy the 20-job
+    # org pool; true on push/dispatch (no pull_request payload).
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (!cancelled())
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:

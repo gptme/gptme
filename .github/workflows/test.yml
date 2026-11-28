@@ -6,6 +6,10 @@ on:
   pull_request:
     # Stacked PRs target feature branches before their base lands on master.
     branches: [ master, 'feat/*' ]
+    # ready_for_review is not in the default pull_request types. Heavy jobs
+    # skip drafts (review rounds cost no runner slots on the 20-job org
+    # pool); this type retriggers Test when a draft is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
   # Merge queue: the queue waits for required checks on its temporary merge
   # commit, so the required jobs below must run for merge_group events.
   merge_group:
@@ -90,8 +94,9 @@ jobs:
   # Also includes slow tests (browser, MCP, integration, etc.) since they don't need API
   test-no-api:
     needs: changes
-    # Always run on push to master; on PRs, only when code changed
-    if: github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true'
+    # Always run on push/merge_group; on PRs, only when code changed.
+    # Skip draft PRs so review-round pushes do not occupy the 20-job org pool.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true')
     name: Test without API keys
     runs-on: ubuntu-latest
     # A hung xdist worker otherwise burns the 6h default (gptme/gptme#4009:
@@ -174,8 +179,9 @@ jobs:
   # Minimal install test: no extras, tests the most common user installation config
   test-minimal:
     needs: changes
-    # Always run on push to master; on PRs, only when code changed
-    if: github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true'
+    # Always run on push/merge_group; on PRs, only when code changed.
+    # Skip draft PRs so review-round pushes do not occupy the 20-job org pool.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true')
     name: Test without API keys or extras
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -230,7 +236,8 @@ jobs:
   # A 3.15-only regression from a code PR surfaces on the master push instead.
   test-py315:
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.deps == 'true'
+    # Skip draft PRs so review-round pushes do not occupy the 20-job org pool.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || needs.changes.outputs.deps == 'true')
     name: Test on Python 3.15 without API keys or extras
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -273,8 +280,9 @@ jobs:
   # not a full matrix — a broad skip-marked suite would only buy fake confidence.
   test-windows:
     needs: changes
-    # Always run on push to master; on PRs, only when code changed
-    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    # Always run on push to master; on PRs, only when code changed.
+    # Skip draft PRs so review-round pushes do not occupy the 20-job org pool.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || needs.changes.outputs.code == 'true')
     name: Test Windows path/config slice
     runs-on: windows-latest
     # The path-walk bug this job exists to catch manifests as an infinite loop,
@@ -322,7 +330,8 @@ jobs:
   # runner-PATH pytest cannot mask a broken project env.
   test-uv:
     needs: changes
-    if: github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true'
+    # Skip draft PRs so review-round pushes do not occupy the 20-job org pool.
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name == 'push' || github.event_name == 'merge_group' || needs.changes.outputs.code == 'true')
     name: Test with uv (lockfile smoke)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -358,11 +367,15 @@ jobs:
   # Note: Anthropic tests route through OpenRouter (OPENROUTER_API_KEY) for cost controls
   test-api:
     needs: changes
-    # Run on push to master, or on PRs when API-related code changed (and not a fork)
+    # Run on push to master, or on ready (non-draft) PRs when API-related code
+    # changed (and not a fork). Drafts skip so review rounds cost no API or runners.
     if: |
-      (github.event_name == 'push') ||
-      (needs.changes.outputs.api-related == 'true' &&
-       (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'))
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (
+        (github.event_name == 'push') ||
+        (needs.changes.outputs.api-related == 'true' &&
+         (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'))
+      )
     name: API tests with ${{ matrix.model }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
