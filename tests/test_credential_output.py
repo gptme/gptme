@@ -1,5 +1,9 @@
 """Credential-output policy tests use inert source strings, never real dumps."""
 
+import os
+import shutil
+import subprocess
+
 import pytest
 
 from gptme.hooks.guardrails import guardrail_hook
@@ -138,6 +142,14 @@ from gptme.tools.base import ToolUse
         "declare +F",
         "declare -I",
         "builtin export -n",
+        "bash -c 'builtin export -n'",
+        # GNU-style long options are still option-only argv; a shell that
+        # accepts them must not turn a no-name call into a dump.
+        "declare --export",
+        "export --no-export",
+        "typeset --readonly",
+        # `--` does not stop the shopt check from seeing `xtrace`.
+        "shopt -o -s -- xtrace",
         "zsh -c 'typeset -g'",
         "zsh -c 'typeset +g'",
         "zsh -c 'typeset +m'",
@@ -206,6 +218,11 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "zsh -c 'typeset -f'",
         "typeset -F -x",
         "bash -c 'declare -Fx'",
+        # `builtin` inside a nested shell keeps that shell's dialect: bash -F
+        # lists function names only, and zsh named -x does not print.
+        "bash -c 'builtin typeset -F'",
+        "bash -c 'builtin declare -f'",
+        "zsh -c 'builtin typeset -x OPENAI_API_KEY'",
         "declare -x FOO=bar",
         "declare -- FOO=bar",
         "declare +x FOO=bar",
@@ -244,6 +261,26 @@ def test_credential_output_is_blocked(command, monkeypatch):
 def test_benign_commands_are_not_credential_output(command, monkeypatch):
     monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
     assert guardrail_hook(ToolUse(tool="shell", args=[], content=command)) is None
+
+
+@pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+def test_zsh_named_x_sets_attribute_without_printing() -> None:
+    """Pin the zsh semantics the named ``-x`` allowance relies on.
+
+    zsh's ``typeset -x NAME`` only sets the export attribute; it does not echo
+    the value (unlike ``-p``/``+p``/``+m``). Run a real zsh so the guard's
+    exemption cannot silently become a dump on a future zsh release.
+    """
+    env = {**os.environ, "SYNTHETIC_TOKEN": "synthetic-value"}
+    result = subprocess.run(
+        ["zsh", "-c", "typeset -x SYNTHETIC_TOKEN"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
 
 
 def test_no_sensitive_value_in_reason_or_shadow_log(monkeypatch, caplog):
