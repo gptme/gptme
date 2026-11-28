@@ -187,6 +187,8 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
 
     # Create new client and reconnect
     new_client = MCPClient(config=config)
+    if old_client is not None:
+        new_client.copy_session_settings_from(old_client)
     tools, session = new_client.connect(server_name)
 
     # Store the new client
@@ -237,6 +239,8 @@ def _call_mcp_tool_with_retry(
                     from ..mcp.client import MCPClient as MCPClientRuntime
 
                     replacement = MCPClientRuntime(config=config)
+                    if client is not None:
+                        replacement.copy_session_settings_from(client)
                     replacement.connect(server_name)
                     clients[server_name] = replacement
                 continue

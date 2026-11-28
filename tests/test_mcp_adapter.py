@@ -1167,6 +1167,103 @@ def test_session_client_retry_stays_in_session_registry(mock_config):
     assert "test-server" not in _mcp_clients
 
 
+@pytest.mark.parametrize("session_scoped", [False, True], ids=["default", "session"])
+def test_mcp_tool_reconnect_preserves_client_state(
+    mock_config: Config, monkeypatch: pytest.MonkeyPatch, session_scoped: bool
+) -> None:
+    """A recovered tool connection honors settings at the first server exchange."""
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.types import (
+        CallToolResult,
+        ElicitRequestFormParams,
+        ElicitRequestParams,
+        ElicitResult,
+        ErrorData,
+        FileUrl,
+        Root,
+        TextContent,
+    )
+
+    from gptme.mcp.client import MCPClient
+    from gptme.tools import set_tools
+    from gptme.tools.base import ToolUse
+
+    root = Root(uri=FileUrl("file:///workspace"), name="Workspace")
+    response = ElicitResult(action="accept", content={"answer": "yes"})
+    params = ElicitRequestFormParams(
+        message="Continue?", requestedSchema={"type": "object"}
+    )
+
+    async def elicit(request: ElicitRequestParams) -> ElicitResult:
+        assert request == params
+        return response
+
+    listing = ListToolsResult(
+        tools=[Tool(name="test_tool", inputSchema={"type": "object"})]
+    )
+    first_session = MagicMock(spec=ClientSession)
+    next_session = MagicMock(spec=ClientSession)
+    next_session.call_tool.return_value = CallToolResult(
+        content=[TextContent(type="text", text="recovered")]
+    )
+    handshake_state: list[tuple[list[Root], bool, ElicitResult | ErrorData | None]] = []
+    clients: dict[str, MCPClient] = {} if session_scoped else _mcp_clients
+
+    async def connect_stdio(
+        client: MCPClient, _params: StdioServerParameters
+    ) -> tuple[ListToolsResult, ClientSession]:
+        reconnecting = bool(handshake_state)
+        roots = await client._list_roots_callback(MagicMock())
+        elicited = (
+            await client._elicitation_callback_wrapper(MagicMock(), params)
+            if reconnecting
+            else None
+        )
+        handshake_state.append(
+            (roots.roots, client.has_elicitation_callback(), elicited)
+        )
+        session = next_session if reconnecting else first_session
+        client.session = session
+        client.tools = listing
+        return listing, session
+
+    monkeypatch.setattr(MCPClient, "_setup_stdio_connection", connect_stdio)
+    set_tools(
+        create_mcp_tools(mock_config, clients=clients if session_scoped else None)
+    )
+    original = clients["test-server"]
+    try:
+        original.set_roots([root])
+        original.set_elicitation_callback(elicit)
+        # The server exited before sending the tool request became possible.
+        original._read_stream = MagicMock()
+        original._read_stream.statistics.return_value = SimpleNamespace(
+            open_send_streams=0
+        )
+        (call,) = ToolUse.iter_from_content(
+            '@test-server.test_tool(call-1): {"param1": "value"}',
+            tool_format_override="tool",
+        )
+        assert [msg.content for msg in call.execute()] == ["recovered"]
+        first_session.call_tool.assert_not_awaited()
+        next_session.call_tool.assert_awaited_once_with(
+            "test_tool", {"param1": "value"}
+        )
+        assert handshake_state == [([], False, None), ([root], True, response)]
+
+        replacement = clients["test-server"]
+        assert replacement is not original
+        if session_scoped:
+            assert "test-server" not in _mcp_clients
+        replacement.add_root("file:///another-workspace")
+        assert original.get_roots() == [root]
+    finally:
+        current = clients.get("test-server")
+        if current is not None and current is not original:
+            current.close()
+        original.close()
+
+
 def test_restart_mcp_client_failed_reconnect_clears_stale_registry_entry(
     mock_config,
 ):
