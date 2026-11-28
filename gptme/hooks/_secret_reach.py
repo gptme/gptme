@@ -740,6 +740,7 @@ def find_secret_reach(
     is_secret: Callable[[str], bool],
     normalize: Callable[[str], str],
     *,
+    links_to_secret: Callable[[str], bool] = lambda _path: False,
     workspace: Path | None = None,
 ) -> str | None:
     """Find a literal reader's direct, glob or shallow recursive secret operand."""
@@ -818,9 +819,11 @@ def find_secret_reach(
                 else [anchor(normalize(operand))]
             )
             for path in expanded:
+                globbed = operand in patterns
+                # A glob match is a concrete name, so its link target counts too.
                 if (
-                    operand in patterns
-                    and is_secret(os.path.abspath(path))
+                    globbed
+                    and (is_secret(os.path.abspath(path)) or links_to_secret(path))
                     and os.path.isfile(path)
                 ):
                     # GNU grep reads stdin when recursion is off and no FILE
@@ -844,7 +847,10 @@ def find_secret_reach(
                         path, budget, follow_file_symlinks=grep.dereference
                     ):
                         if (
-                            is_secret(os.path.abspath(reached))
+                            (
+                                is_secret(os.path.abspath(reached))
+                                or (globbed and links_to_secret(reached))
+                            )
                             and grep
                             and _selected(grep, reached, path)
                             and _matches_values(grep, reached)

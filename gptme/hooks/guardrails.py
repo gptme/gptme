@@ -52,7 +52,8 @@ TOOL_EXECUTE_PRE (priority 200) for ``read``'s secret-path rule.
 
 import logging
 import os
-from collections.abc import Generator
+import re
+from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -157,7 +158,7 @@ def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
     The prefix rules below match text, so ``~/work/../.ssh/config`` and a
     relative ``.ssh/config`` slip past a literal comparison. Symlink targets
     are not resolved here: :func:`_links_to_secret` does that for literal shell
-    operands, not for glob expansions (see ``test_file_symlinks_in_globs``).
+    operands, and the reader-reach scan does it for glob matches.
     Metacharacters may be literal filename characters after shell quoting
     (``work$/../.ssh/config``), including operands of arbitrary programs that
     the reader-reach analysis does not inspect. Check the collapsed spelling
@@ -255,9 +256,9 @@ def _links_to_secret(operand: str, workspace: Path | None = None) -> bool:
     the user's own home, so ``.venv/bin/python`` linking into ``~/.local`` still
     runs as root. Credential directories and file names always apply.
 
-    Globs and substitutions are not evaluated, so what they expand to is not
-    resolved. The standard stream aliases are skipped (see
-    :data:`_DEV_STREAM_LINKS`).
+    Globs and substitutions are not evaluated here. Glob matches are resolved by
+    :func:`._secret_reach.find_secret_reach`; substitution output is not. The
+    standard stream aliases are skipped (see :data:`_DEV_STREAM_LINKS`).
     """
     # A quoted operand is opened exactly as written (trailing spaces, a literal
     # ``$``); an unquoted one is expanded first. Check both spellings.
@@ -287,6 +288,26 @@ def _spelling_links_to_secret(spelling: str, workspace: Path | None) -> bool:
     return _is_secret_spelling(resolved, exempt_under=str(Path.home()))
 
 
+def _shell_words(tokens: list[str]) -> Iterator[tuple[str, bool]]:
+    """Yield each word to check, and whether it can only be an operand.
+
+    A word following ``--`` or a redirect is a file name even if it starts with a
+    dash. Words still wrapped in backticks are also yielded without them.
+    """
+    options_ended = redirected = False
+    for word in tokens:
+        if word and set(word) <= set(";&|()<>"):
+            redirected = "<" in word or ">" in word
+            options_ended = options_ended and redirected
+        else:
+            is_operand = options_ended or redirected
+            redirected = False
+            options_ended = options_ended or word == "--"
+            for spelling in dict.fromkeys((word, word.strip("`"))):
+                if spelling:
+                    yield spelling, is_operand
+
+
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
     """Return the first token in ``cmd`` that looks like a secret path, or None."""
     import shlex
@@ -300,12 +321,13 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
-        # Unmatched quotes etc. — fallback to whitespace split
-        tokens = cmd.split()
+        # Unmatched quotes etc. — split on whitespace, keeping operators apart
+        # from the words they are glued to, as the lexer above does.
+        tokens = re.findall(r"[;&|<>()]+|[^\s;&|<>()]+", cmd)
 
-    for operand in tokens:
+    for operand, is_operand in _shell_words(tokens):
         token = operand.strip("'\"")
-        # Option flags: skip unless they carry a value after '='
+        # Option flags: check a value carried after '='
         # (`python script.py --aws_key=~/.aws/credentials`).
         if token.startswith("-"):
             if "=" in token:
@@ -315,7 +337,9 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
                 linked = operand.split("=", 1)[1]
                 if _links_to_secret(linked, workspace):
                     return linked
-            continue
+            # After `--` or a redirect, a leading dash is part of a file name.
+            if not is_operand:
+                continue
         # A bare name can be a link too (`cat notes.txt`), so check links
         # before the path-shape heuristic below.
         if _links_to_secret(operand, workspace):
@@ -332,10 +356,19 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
         if _is_secret_path(token, workspace):
             return token
 
+    from ..util.workspace import current_workspace
     from ._secret_reach import find_secret_reach
 
+    try:
+        base = workspace or current_workspace()
+    except OSError:
+        base = None  # the process cwd was removed; keep the lexical scan
     return find_secret_reach(
-        cmd, _is_secret_path, _normalize_path_token, workspace=workspace
+        cmd,
+        _is_secret_path,
+        _normalize_path_token,
+        links_to_secret=lambda path: _spelling_links_to_secret(path, base),
+        workspace=base,
     )
 
 

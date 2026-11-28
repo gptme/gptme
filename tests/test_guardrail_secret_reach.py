@@ -183,9 +183,8 @@ def test_quoted_glob_does_not_expand(secret_tree: Path) -> None:
 
 
 def test_file_symlinks_in_globs(secret_tree: Path) -> None:
-    # This policy does not resolve targets of innocuously named symlinks.
     (secret_tree / "config" / "link.txt").symlink_to(secret_tree / ".env")
-    assert _find_secret_path_in_cmd("cat config/link.*") is None
+    assert _find_secret_path_in_cmd("cat config/link.*") is not None
 
 
 @pytest.mark.parametrize(
@@ -1191,3 +1190,55 @@ def test_workspace_under_dev_is_still_checked(linked_workspace: Path) -> None:
         assert _find_secret_path_in_cmd("cat notes.txt", Path(tmp)) is not None
         assert _find_secret_path_in_cmd(f"cat {tmp}/notes.txt", Path(tmp)) is not None
         assert _find_secret_path_in_cmd("cat /dev/fd/3", Path(tmp)) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat note*",
+        "cat ?otes.txt",
+        "cat <note*",
+        "grep synthetic note*",
+        "grep -r synthetic key*",
+        "cat `echo notes.txt`",
+        "cat -- -notes",
+        "cat < -notes",
+        "wc -c <-notes",
+        "cat notes.txt;# it's",
+        "cat notes.txt|head # it's",
+        "(cat notes.txt) # it's",
+        "cat -- -notes # it's",
+        "tool -- --input=notes.txt",
+    ],
+)
+def test_linked_secret_behind_shell_syntax_is_detected(
+    linked_workspace: Path, command: str
+) -> None:
+    (linked_workspace / "-notes").symlink_to("notes.txt")
+    assert _find_secret_path_in_cmd(command, linked_workspace) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat read*",
+        "grep -r plain read*",
+        "cat `echo readme`",
+        "cat -- readme",
+        "cat < readme",
+        "cat readme;# it's",
+        "ls -notes",
+        "cat /dev/std*",
+    ],
+)
+def test_ordinary_shell_syntax_stays_allowed(
+    linked_workspace: Path, command: str
+) -> None:
+    (linked_workspace / "-notes").symlink_to("notes.txt")
+    assert _find_secret_path_in_cmd(command, linked_workspace) is None
+
+
+def test_glob_link_defaults_to_session_workspace(linked_workspace: Path) -> None:
+    assert _find_secret_path_in_cmd("cat note*") is None
+    with workspace_scope(linked_workspace):
+        assert _find_secret_path_in_cmd("cat note*") is not None
