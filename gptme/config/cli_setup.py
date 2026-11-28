@@ -15,6 +15,7 @@ from ..tools import get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
+    matching_allowlist_tools,
 )
 from ..tools._allowlist import is_tool_file_path as _is_tool_file_path
 from .chat import ChatConfig
@@ -69,9 +70,14 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
 
     allowlist = expand_tool_allowlist_presets(allowlist)
     assert allowlist is not None
+    # Resolve named entries together so required tools can match any entry.
+    named_entries = [item for item in allowlist if not _is_tool_file_path(item)]
+    tools = (
+        get_toolchain(named_entries, warn_skipped_mcp=False) if named_entries else []
+    )
     normalized: list[str] = []
-    seen: set[str] = set()
 
+    # Preserve input order, expanding patterns where they occur.
     for item in allowlist:
         if _is_tool_file_path(item):
             resolved = Path(item).expanduser().resolve()
@@ -81,20 +87,13 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
                 raise ValueError(f"Tool path is not a file: {item}")
             if resolved.suffix != ".py":
                 raise ValueError(f"Tool file must be a .py file: {item}")
-            normalized_item = str(resolved)
-            if normalized_item not in seen:
-                normalized.append(normalized_item)
-                seen.add(normalized_item)
-            continue
+            normalized.append(str(resolved))
+        else:
+            normalized.extend(
+                tool.name for tool in matching_allowlist_tools(item, tools)
+            )
 
-        # Per-item resolution would warn about "excluded" MCP tools once per item
-        for tool in get_toolchain([item], warn_skipped_mcp=False):
-            if tool.name in seen:
-                continue
-            normalized.append(tool.name)
-            seen.add(tool.name)
-
-    return normalized
+    return list(dict.fromkeys(normalized))
 
 
 def parse_tool_specs(specs: Iterable[str]) -> str | None:

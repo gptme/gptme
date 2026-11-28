@@ -1948,6 +1948,95 @@ def test_tools_unknown_hint_fails_cli_validation(runner: CliRunner):
 
 
 @pytest.mark.parametrize(
+    ("tool_args", "tool_env", "expected"),
+    [
+        pytest.param(
+            ["--tools", "read,hashline_edit"],
+            None,
+            ["read", "hashline_edit", "complete"],
+            id="explicit",
+        ),
+        pytest.param(
+            ["--tools", "+hashline_edit,read"],
+            None,
+            ["hashline_edit", "read", "complete"],
+            id="additive",
+        ),
+        pytest.param(
+            [],
+            "hashline_edit,read",
+            ["hashline_edit", "read", "complete"],
+            id="environment",
+        ),
+        pytest.param(
+            [],
+            "hashline_*,read,hashline_edit",
+            ["hashline_edit", "read", "complete"],
+            id="environment-glob",
+        ),
+        pytest.param(["--tools", "hashline_edit"], None, None, id="missing-companion"),
+        pytest.param(["--tools", "read"], None, ["read", "complete"], id="read-alone"),
+    ],
+)
+def test_startup_allowlist_with_tool_companions(
+    runner: CliRunner,
+    args: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tool_args: list[str],
+    tool_env: str | None,
+    expected: list[str] | None,
+) -> None:
+    from gptme.config.chat import ChatConfig
+    from gptme.tools import clear_tools, get_tools
+
+    if tool_env is None:
+        monkeypatch.delenv("TOOL_ALLOWLIST", raising=False)
+    else:
+        monkeypatch.setenv("TOOL_ALLOWLIST", tool_env)
+
+    loaded: set[str] = set()
+
+    def capture_tools(*_: object, **__: object) -> None:
+        loaded.update(tool.name for tool in get_tools())
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", capture_tools)
+    # The autouse fixture initializes the default tools. Start with a fresh CLI registry.
+    clear_tools()
+    result = runner.invoke(
+        cli.main,
+        [
+            *args,
+            "-n",
+            "--model",
+            "local/test",
+            "--system",
+            "short",
+            *tool_args,
+            "hello",
+        ],
+    )
+
+    if expected is None:
+        assert result.exit_code == 2, result.output
+        assert (
+            "Tool 'hashline_edit' requires 'read', which is not permitted by the tool allowlist"
+            in result.output
+        )
+        assert not loaded
+        return
+
+    assert result.exit_code == 0, result.output
+    saved = ChatConfig.from_logdir(cli.get_logs_dir() / args[-1]).tools
+    assert saved is not None
+    if tool_args and tool_args[-1].startswith("+"):
+        assert saved[-len(expected) :] == expected
+        assert "shell" in loaded
+    else:
+        assert saved == expected
+    assert loaded == set(saved)
+
+
+@pytest.mark.parametrize(
     "tool_spec",
     [
         "./definitely-missing-custom-tool.py",
