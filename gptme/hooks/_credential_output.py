@@ -39,10 +39,10 @@ def _words(node: "Node") -> list[str]:
 
 
 def _unwrap(words: list[str]) -> list[str]:
-    """Unwrap simple command/exec/sudo/env prefixes, not arbitrary option syntax."""
+    """Unwrap simple command/builtin/exec/sudo/env prefixes, not option syntax."""
     while words:
         name, args = PurePosixPath(words[0]).name, words[1:]
-        if name in {"command", "exec", "sudo"}:
+        if name in {"command", "builtin", "exec", "sudo"}:
             if args and args[0] == "--":
                 args = args[1:]
             if not args or args[0].startswith("-"):
@@ -112,7 +112,7 @@ def _shell_options(args: list[str]) -> tuple[bool, str | None, bool]:
     return False, script, not command_string and (stdin_mode or i == len(args))
 
 
-def _command_reason(words: list[str], depth: int) -> str | None:
+def _command_reason(words: list[str], depth: int, shell: str) -> str | None:
     if not words:
         return None
     name, args = PurePosixPath(words[0]).name, words[1:]
@@ -138,14 +138,62 @@ def _command_reason(words: list[str], depth: int) -> str | None:
     if name == "set" and not args:
         return _REASON
     if name in {"export", "declare", "typeset"}:
-        if not args or any(arg.startswith("-") and "p" in arg[1:] for arg in args):
+        # `-p` prints values; bash also prints for `+p` (`declare +p NAME`
+        # dumps `declare -x NAME="value"`), so both signs count.
+        if any(arg.startswith(("-", "+")) and "p" in arg[1:] for arg in args):
+            return _REASON
+        if shell == "zsh" and name != "export":
+            # Zsh prints existing named parameters without -p, and -m lists
+            # pattern matches. Assignments do not print the previous value;
+            # named -x only sets the export attribute (unlike -p or -m).
+            flags = ""
+            for arg in args:
+                # A standalone sign ends option parsing. Later -x is an
+                # operand, so it cannot enable the named-export exception.
+                if arg in {"-", "+", "--"} or not arg.startswith(("-", "+")):
+                    break
+                if arg.startswith("-"):
+                    flags += arg[1:]
+                elif "m" in arg[1:]:
+                    # `+m` forces the matching parameters to be printed even
+                    # inside a function, like pattern mode with `-m`. The
+                    # operands are patterns, so a secret name may be hidden
+                    # behind a wildcard; mark pattern printing for the check
+                    # below.
+                    flags += "m"
+                elif "p" in arg[1:]:
+                    # Zsh's +p prints values too, including after -x.
+                    return _REASON
+            if any(
+                not arg.startswith(("-", "+"))
+                and not _ASSIGNMENT.match(arg)
+                and ("m" in flags or (flags != "x" and _SECRET_NAME.search(arg)))
+                for arg in args
+            ):
+                return _REASON
+        # With no name operand these print variables, whatever the options:
+        # `export -n`, `declare -g` and `declare +x` dump like `export -p`.
+        # Only function listings are exempt. `-F` is one in bash alone; zsh
+        # and ksh use it for floating-point variables, and `sh` may be either.
+        # A lone `+` ends options in zsh; elsewhere it is an (invalid) name.
+        if all(
+            arg.startswith(("-", "+")) and (arg != "+" or shell == "zsh")
+            for arg in args
+        ):
+            listing = {"f", "F"} if shell == "bash" else {"f"}
+            if not any(arg.startswith("-") and listing & set(arg) for arg in args):
+                return _REASON
+    if name == "shopt":
+        # `shopt -o -s xtrace` / `shopt -os xtrace` is `set -x`.
+        flags = "".join(arg[1:] for arg in args if arg.startswith("-"))
+        if "o" in flags and "s" in flags and "xtrace" in args:
             return _REASON
     if name == "set" or name in _SHELLS:
         xtrace, script, _ = _shell_options(args)
         if xtrace:
             return _REASON
         if script and name in _SHELLS:
-            return credential_output_reason(script, depth + 1)
+            return credential_output_reason(script, depth + 1, shell=name)
     return None
 
 
@@ -172,7 +220,9 @@ def _prints_secret_expansion(node: "Node") -> bool:
     return False
 
 
-def credential_output_reason(command: str, depth: int = 0) -> str | None:
+def credential_output_reason(
+    command: str, depth: int = 0, shell: str = "bash"
+) -> str | None:
     """Return a static refusal reason, never matched source or variable values.
 
     Covers literal shell options, env/printenv, shell state dumps, sensitive
@@ -199,7 +249,7 @@ def credential_output_reason(command: str, depth: int = 0) -> str | None:
                 if any(arg.startswith("BASH_XTRACEFD=") for arg in raw_words[1:]):
                     return _REASON
             words = _unwrap(raw_words)
-            if reason := _command_reason(words, depth):
+            if reason := _command_reason(words, depth, shell):
                 return reason
             if words and PurePosixPath(words[0]).name in {"echo", "printf"}:
                 if _prints_secret_expansion(node):
@@ -214,7 +264,9 @@ def credential_output_reason(command: str, depth: int = 0) -> str | None:
                         for child in redirect.named_children:
                             if child.type == "heredoc_body":
                                 if reason := credential_output_reason(
-                                    (child.text or b"").decode(), depth + 1
+                                    (child.text or b"").decode(),
+                                    depth + 1,
+                                    shell=PurePosixPath(words[0]).name,
                                 ):
                                     return reason
         pending.extend(node.named_children)

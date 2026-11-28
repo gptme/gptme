@@ -175,6 +175,9 @@ def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
     return [expanded] if anchored == expanded else [expanded, anchored]
 
 
+_ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
+
+
 def _is_secret_path(path: str, workspace: Path | None = None) -> bool:
     """Return True if ``path`` looks like it leads to a secret/credential file.
 
@@ -223,8 +226,13 @@ def _is_secret_spelling(expanded: str, exempt_under: str | None = None) -> bool:
     if basename in ("id_rsa", "id_ecdsa", "id_ed25519", "id_dsa", "credentials"):
         return True
 
-    # .env files but not .envrc or .env.example
-    return basename == ".env" or basename.startswith(".env.local")
+    # .env and its environment variants (.env.production, .env.test.local, ...),
+    # but not .envrc or templates such as .env.example and
+    # .env.production.example. The template exemption is scoped to this branch so
+    # it cannot mask a non-.env name that happens to end in a template suffix.
+    if basename == ".env" or basename.startswith(".env."):
+        return not basename.endswith(_ENV_TEMPLATE_SUFFIXES)
+    return False
 
 
 def _is_secret_target(literal: str, exempt_under: str | None = None) -> bool:

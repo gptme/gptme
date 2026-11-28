@@ -1,5 +1,9 @@
 """Credential-output policy tests use inert source strings, never real dumps."""
 
+import os
+import shutil
+import subprocess
+
 import pytest
 
 from gptme.hooks.guardrails import guardrail_hook
@@ -44,6 +48,19 @@ from gptme.tools.base import ToolUse
         "export -p",
         "declare -p",
         "typeset -p",
+        # Bash prints values for `+p` too, with or without a name operand.
+        "declare +p",
+        "declare +p FOO",
+        "typeset +p FOO",
+        "bash -c 'declare +p FOO'",
+        "declare -x",
+        "typeset -x",
+        "declare -rx",
+        "declare -x | grep TOKEN",
+        "shopt -os xtrace",
+        "shopt -so xtrace",
+        "shopt -s -o xtrace",
+        "shopt -o -s xtrace",
         "export",
         "declare",
         "typeset",
@@ -74,6 +91,72 @@ from gptme.tools.base import ToolUse
         "bash -s - arg <<'EOF'\nprintenv\nEOF",
         'echo "$(printf %s "$API_KEY")"',
         'API_KEY=synthetic echo "$OTHER_TOKEN"',
+        # In zsh and ksh, -F selects floating-point variables and prints values.
+        "zsh -c 'typeset -F'",
+        "ksh -c 'typeset -F'",
+        "zsh <<'EOF'\ntypeset -F\nEOF",
+        "zsh -c 'typeset -Fx'",
+        "ksh -c 'typeset -F -x'",
+        "zsh <<'EOF'\ntypeset -Fx\nEOF",
+        "zsh -c 'typeset OPENAI_API_KEY'",
+        "zsh -c 'declare GITHUB_TOKEN'",
+        "zsh -c 'typeset -px OPENAI_API_KEY'",
+        "zsh -c 'typeset -x +p OPENAI_API_KEY'",
+        # `+m` forces matching parameters to print even inside a function.
+        "zsh -c 'typeset -x +m OPENAI_API_KEY'",
+        "zsh -c 'typeset +m OPENAI_API_KEY'",
+        "zsh -c \"typeset -x +m '*TOKEN*'\"",
+        "zsh -c 'declare -x +m GITHUB_TOKEN'",
+        "zsh -c 'declare -x +p GITHUB_TOKEN'",
+        "zsh -c 'typeset + -x OPENAI_API_KEY'",
+        "zsh <<'EOF'\ntypeset -x +p OPENAI_API_KEY\nEOF",
+        "zsh -c \"typeset -mx '*TOKEN*'\"",
+        "zsh -c \"typeset -m '*TOKEN*'\"",
+        "zsh <<'EOF'\ntypeset OPENAI_API_KEY\nEOF",
+        "sh -c 'declare -Fx'",
+        # An end-of-options marker names nothing, so these still dump.
+        "export --",
+        "declare --",
+        "declare -- -x",
+        "export -x --",
+        "typeset --",
+        "zsh -c 'typeset --'",
+        "zsh -c 'typeset -'",
+        "zsh -c 'export -'",
+        # Zsh accepts a lone `+` as that marker too.
+        "zsh -c 'typeset +'",
+        "zsh -c 'export +'",
+        "zsh -c 'declare +'",
+        "zsh <<'EOF'\ntypeset +\nEOF",
+        # `builtin NAME` runs the builtin with identical output.
+        "builtin declare -x",
+        "builtin typeset -x",
+        "builtin -- export",
+        # With no name operand, these options still print values.
+        "export -n",
+        "export -n --",
+        "declare -g",
+        "typeset -g",
+        "declare +x",
+        "declare +f",
+        "declare +F",
+        "declare -I",
+        "builtin export -n",
+        "bash -c 'builtin export -n'",
+        # GNU-style long options are still option-only argv; a shell that
+        # accepts them must not turn a no-name call into a dump.
+        "declare --export",
+        "export --no-export",
+        "typeset --readonly",
+        # `--` does not stop the shopt check from seeing `xtrace`.
+        "shopt -o -s -- xtrace",
+        "zsh -c 'typeset -g'",
+        "zsh -c 'typeset +g'",
+        "zsh -c 'typeset +m'",
+        "zsh <<'EOF'\ntypeset +g\nEOF",
+        "command builtin set",
+        "builtin shopt -os xtrace",
+        'builtin echo "$API_KEY"',
     ],
 )
 def test_credential_output_is_blocked(command, monkeypatch):
@@ -124,6 +207,44 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "python3 script.py --api-key $API_KEY",
         "compgen -e",
         "declare -F",
+        "declare -Fx",
+        # Function listings and name operands print no other variable's value.
+        "declare -f",
+        "export -f",
+        "export -nf",
+        "declare -f my_function",
+        "export -n FOO",
+        "declare -g FOO=bar",
+        "zsh -c 'typeset -f'",
+        "typeset -F -x",
+        "bash -c 'declare -Fx'",
+        # `builtin` inside a nested shell keeps that shell's dialect: bash -F
+        # lists function names only, and zsh named -x does not print.
+        "bash -c 'builtin typeset -F'",
+        "bash -c 'builtin declare -f'",
+        "zsh -c 'builtin typeset -x OPENAI_API_KEY'",
+        "declare -x FOO=bar",
+        "declare -- FOO=bar",
+        "declare +x FOO=bar",
+        "export -- FOO=bar",
+        "set --",
+        "builtin shopt -s nullglob",
+        "builtin cd /tmp",
+        "zsh -c 'typeset OPENAI_API_KEY=synthetic'",
+        "zsh -c 'typeset -x OPENAI_API_KEY=synthetic'",
+        "zsh -c 'typeset -x OPENAI_API_KEY'",
+        "zsh -c 'typeset -x + OPENAI_API_KEY'",
+        "zsh -c 'declare -x + GITHUB_TOKEN'",
+        "zsh -c 'declare -x GITHUB_TOKEN'",
+        "zsh <<'EOF'\ntypeset -x OPENAI_API_KEY\nEOF",
+        "zsh -c 'typeset SESSION_LABEL'",
+        "bash -c 'typeset OPENAI_API_KEY'",
+        # Bash rejects a lone `+` as an identifier instead of dumping.
+        "bash -c 'typeset +'",
+        "bash -c 'export +'",
+        "bash -c 'declare +'",
+        "shopt -s nullglob",
+        "shopt -ou xtrace",
         "set -e",
         "set -o",
         "set -o pipefail",
@@ -140,6 +261,26 @@ def test_credential_output_is_blocked(command, monkeypatch):
 def test_benign_commands_are_not_credential_output(command, monkeypatch):
     monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
     assert guardrail_hook(ToolUse(tool="shell", args=[], content=command)) is None
+
+
+@pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+def test_zsh_named_x_sets_attribute_without_printing() -> None:
+    """Pin the zsh semantics the named ``-x`` allowance relies on.
+
+    zsh's ``typeset -x NAME`` only sets the export attribute; it does not echo
+    the value (unlike ``-p``/``+p``/``+m``). Run a real zsh so the guard's
+    exemption cannot silently become a dump on a future zsh release.
+    """
+    env = {**os.environ, "SYNTHETIC_TOKEN": "synthetic-value"}
+    result = subprocess.run(
+        ["zsh", "-c", "typeset -x SYNTHETIC_TOKEN"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
 
 
 def test_no_sensitive_value_in_reason_or_shadow_log(monkeypatch, caplog):
