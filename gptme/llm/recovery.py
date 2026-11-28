@@ -23,7 +23,12 @@ import httpx
 import requests
 
 from .retry_abort import backoff_wait, current_generation
-from .retry_policy import _retry_after_seconds, get_max_retries, retry_delay_for_error
+from .retry_policy import (
+    _retry_after_seconds,
+    get_max_retries,
+    is_quota_exhausted,
+    retry_delay_for_error,
+)
 
 logger = logging.getLogger(__name__)
 DEFAULT_RECOVERY_SECONDS = 600.0
@@ -308,6 +313,8 @@ def is_transient_provider_error(error: BaseException) -> bool:
     status = getattr(error, "status_code", None)
     if status is None:
         status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 429 and "openai" in modules and is_quota_exhausted(error):
+        return False
     if status == 200 and "anthropic" in modules:
         # The Anthropic SDK raises a mid-stream SSE ``error`` event as an
         # APIStatusError carrying the HTTP 200 of the stream; classify its type.

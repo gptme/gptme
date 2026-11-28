@@ -72,6 +72,7 @@ from .retry_policy import (
     DEFAULT_BASE_DELAY,
     SDK_MAX_RETRIES,
     get_max_retries,
+    is_quota_exhausted,
     retry_delay_for_error,
 )
 from .utils import (
@@ -970,7 +971,7 @@ def _handle_openai_transient_error(
 
     Retries on:
     - 5xx server errors (500-599): Internal errors, bad gateway, service unavailable, etc.
-    - 429 rate limit errors: Should back off and retry
+    - 429 rate limit errors other than exhausted billing quota
     - Connection errors: Network issues, timeouts
     - httpx transport/protocol errors: Incomplete reads, server disconnects mid-stream
     """
@@ -1015,8 +1016,7 @@ def _handle_openai_transient_error(
             "service_unavailable_error",
         }
     elif isinstance(e, RateLimitError):
-        # 429 rate limit - should back off and retry
-        should_retry = True
+        should_retry = not is_quota_exhausted(e)
     elif isinstance(e, APIConnectionError):
         # Connection errors are transient
         should_retry = True
