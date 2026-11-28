@@ -40,6 +40,7 @@ from .completion import complete_model, complete_tools
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from contextlib import ExitStack
     from types import FrameType
 
     from ..logmanager import ConversationMeta
@@ -1649,18 +1650,20 @@ def main(
                 logger.error(
                     f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
                 )
+        lock_error = _is_conversation_lock_error(e)
         if not config.chat.interactive:
             error_class, exit_code = _classify_fatal_error(e)
-            _write_terminal_error_to_log(
-                logdir, error_class, exit_code, _format_fatal_error(e)
-            )
+            if not lock_error:
+                _write_terminal_error_to_log(
+                    logdir, error_class, exit_code, _format_fatal_error(e)
+                )
         else:
             exit_code = 1
         # the conversation is saved; say how to get back to it once the
         # cause is fixed (printed at exit if the log is nonempty).
         # A live lock is the exception: resume is the same failing command
         # (gptme#2607).
-        if not _is_conversation_lock_error(e):
+        if not lock_error:
             show_resume_hint_on_exit = True
         sys.exit(exit_code)
     finally:
@@ -1835,6 +1838,34 @@ def _format_fatal_error(e: BaseException) -> str:
     return str(e)
 
 
+def _has_http_status_code(e: BaseException, emsg: str, codes: tuple[int, ...]) -> bool:
+    """Return True if ``e`` carries one of ``codes`` as an HTTP status code.
+
+    Checks structured ``status_code`` / ``response.status_code`` attributes
+    first, then falls back to standalone status-code tokens in ``emsg`` so
+    bare substrings inside longer numbers (e.g. ``PID 14032``, ``140352 tokens``,
+    ``4013 ms``) or non-status quantities do not misfire.
+    """
+    status = getattr(e, "status_code", None)
+    if status is None:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+    if isinstance(status, int) and not isinstance(status, bool):
+        return status in codes
+
+    import re
+
+    code_alt = "|".join(str(c) for c in codes)
+    for match in re.finditer(rf"(?<![\w.])(?:{code_alt})(?![\w]|\.\d)", emsg):
+        before = emsg[: match.start()]
+        after = emsg[match.end() :]
+        if re.search(r"\b(?:pid|port|line)\s*[:=#]?\s*$", before, re.IGNORECASE):
+            continue
+        if re.match(r"\s*(?:tokens?|ms|sec(?:ond)?s?|bytes?)\b", after, re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
 def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
     """Classify a fatal exception into (error_class, exit_code).
 
@@ -1842,13 +1873,16 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
     unclassified exceptions is ("generic", 1) to preserve the existing
     behaviour.
     """
+    if _is_conversation_lock_error(e):
+        return "generic", 1
+
     etype = type(e).__name__
     emsg = str(e)
     emsg_lower = emsg.lower()
 
     # Rate-limit / quota exhausted — temporary, retry later (exit 75)
     if etype == "RateLimitError" or (
-        "429" in emsg
+        _has_http_status_code(e, emsg, (429,))
         and (
             "rate" in emsg_lower
             or "usage_limit_reached" in emsg_lower
@@ -1859,21 +1893,65 @@ def _classify_fatal_error(e: BaseException) -> tuple[str, int]:
         return "rate_limit", EXIT_RATE_LIMIT
 
     # Authentication / permission denied — needs credential update (exit 76)
-    if etype in ("AuthenticationError", "PermissionDeniedError", "GptmeAuthError") or (
-        "401" in emsg or "403" in emsg
-    ):
+    if etype in (
+        "AuthenticationError",
+        "PermissionDeniedError",
+        "GptmeAuthError",
+    ) or _has_http_status_code(e, emsg, (401, 403)):
         return "auth_error", EXIT_AUTH_ERROR
 
     # Model / service unavailable — 404 or 503 response (exit 77).
     # SDK-native: NotFoundError (404) and ServiceUnavailableError (503) match by type
     # name.  InternalServerError covers HTTP 500/502/504 — those are generic server
     # errors, not a predictable availability failure, so they fall through to exit 1.
-    if etype in ("NotFoundError", "ServiceUnavailableError") or (
-        "404" in emsg or "503" in emsg or "model_unavailable" in emsg_lower
+    if (
+        etype in ("NotFoundError", "ServiceUnavailableError")
+        or _has_http_status_code(e, emsg, (404, 503))
+        or "model_unavailable" in emsg_lower
     ):
         return "model_unavailable", EXIT_MODEL_UNAVAIL
 
     return "generic", 1
+
+
+_ERROR_LOG_LIFECYCLE_LOCK_TIMEOUT = 0.5
+_ERROR_LOG_LIFECYCLE_LOCK_POLL_INTERVAL = 0.01
+
+
+def _enter_lifecycle_lock_briefly(
+    stack: ExitStack,
+    logdir: Path,
+    *,
+    timeout: float = _ERROR_LOG_LIFECYCLE_LOCK_TIMEOUT,
+    poll_interval: float = _ERROR_LOG_LIFECYCLE_LOCK_POLL_INTERVAL,
+) -> None:
+    """Enter ``conversation_lifecycle_lock(logdir, blocking=False)`` with brief retries.
+
+    Short-lived holders such as ``gptme chats send`` (prompt queue writes)
+    momentarily hold the lifecycle gate without owning the conversation.
+    """
+    import errno
+
+    from ..logmanager.locking import conversation_lifecycle_lock
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            stack.enter_context(conversation_lifecycle_lock(logdir, blocking=False))
+            return
+        except OSError as exc:
+            retryable = isinstance(
+                exc, (BlockingIOError, PermissionError)
+            ) or exc.errno in (
+                errno.EACCES,
+                errno.EAGAIN,
+                errno.EWOULDBLOCK,
+                errno.EDEADLK,
+            )
+            remaining = deadline - time.monotonic()
+            if not retryable or remaining <= 0:
+                raise
+            time.sleep(min(poll_interval, remaining))
 
 
 def _write_terminal_error_to_log(
@@ -1884,9 +1962,18 @@ def _write_terminal_error_to_log(
     This gives machine-readable evidence of the failure in the same
     ``conversation.jsonl`` that callers inspect for assistant output, instead
     of silently ending the log at the user prompt.
+
+    Refuses to append when another process holds ``logdir/.lock`` or is
+    currently starting up / cleaning up ``logdir``. Retries briefly when the
+    short-lived lifecycle gate is busy (e.g. during a concurrent ``gptme chats
+    send`` prompt-queue write) before re-checking conversation ownership.
     """
-    log_file = logdir / "conversation.jsonl"
-    if not logdir.exists():
+    from contextlib import ExitStack
+    from io import FileIO
+
+    from ..logmanager import manager as logmanager_mod
+
+    if not logdir.is_dir():
         return
     event = {
         "role": "system",
@@ -1898,9 +1985,45 @@ def _write_terminal_error_to_log(
             "exit_code": exit_code,
         },
     }
+    log_file = logdir / "conversation.jsonl"
+    lockfile = logdir / ".lock"
     try:
-        with open(log_file, "a") as f:
-            f.write(json.dumps(event) + "\n")
+        with ExitStack() as stack:
+            _enter_lifecycle_lock_briefly(stack, logdir)
+            if not logdir.is_dir():
+                return
+            lock_fd: FileIO | None = None
+            try:
+                if lockfile.exists():
+                    lock_key = lockfile.resolve()
+                    with logmanager_mod._windows_lock_owners_guard:
+                        owned_by_self = lock_key in logmanager_mod._windows_lock_owners
+                    if not owned_by_self:
+                        candidate_fd: FileIO | None = None
+                        try:
+                            candidate_fd = FileIO(lockfile, "r+")
+                            candidate_fd.seek(0)
+                            logmanager_mod.LogManager._platform_lock(candidate_fd)
+                            lock_fd = candidate_fd
+                        except OSError:
+                            if candidate_fd is not None:
+                                candidate_fd.close()
+                            try:
+                                pid_str = lockfile.read_text(encoding="utf-8").strip()
+                                lock_pid = int(pid_str) if pid_str.isdigit() else None
+                            except (OSError, ValueError):
+                                lock_pid = None
+                            if lock_pid != os.getpid():
+                                return
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(event) + "\n")
+            finally:
+                if lock_fd is not None:
+                    try:
+                        logmanager_mod.LogManager._platform_unlock(lock_fd)
+                    except (OSError, ValueError):
+                        pass
+                    lock_fd.close()
     except OSError:
         pass  # best-effort — don't mask the original failure
 
