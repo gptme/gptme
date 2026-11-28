@@ -1,5 +1,7 @@
 """Secret reach tests inspect inert commands and synthetic files only."""
 
+import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -1179,3 +1181,13 @@ def test_linked_workspace_path_is_not_a_linked_operand(
     alias.symlink_to(linked_workspace, target_is_directory=True)
     assert _find_secret_path_in_cmd(command, alias) is None
     assert _find_secret_path_in_cmd("cat notes.txt", alias) is not None
+
+
+@pytest.mark.skipif(not os.access("/dev/shm", os.W_OK), reason="needs /dev/shm")
+def test_workspace_under_dev_is_still_checked(linked_workspace: Path) -> None:
+    # Only the standard stream aliases are exempt, not everything under /dev.
+    with tempfile.TemporaryDirectory(dir="/dev/shm") as tmp:
+        (Path(tmp) / "notes.txt").symlink_to(linked_workspace / "notes.txt")
+        assert _find_secret_path_in_cmd("cat notes.txt", Path(tmp)) is not None
+        assert _find_secret_path_in_cmd(f"cat {tmp}/notes.txt", Path(tmp)) is not None
+        assert _find_secret_path_in_cmd("cat /dev/fd/3", Path(tmp)) is None

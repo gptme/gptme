@@ -243,6 +243,10 @@ def _is_secret_target(literal: str, exempt_under: str | None = None) -> bool:
     return resolved != literal and _is_secret_spelling(resolved, exempt_under)
 
 
+# These link into /proc, which the broad secret prefixes would otherwise block.
+_DEV_STREAM_LINKS = ("/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/fd")
+
+
 def _links_to_secret(operand: str, workspace: Path | None = None) -> bool:
     """True if a literal shell operand leads through a symlink to a secret file.
 
@@ -252,8 +256,8 @@ def _links_to_secret(operand: str, workspace: Path | None = None) -> bool:
     runs as root. Credential directories and file names always apply.
 
     Globs and substitutions are not evaluated, so what they expand to is not
-    resolved. ``/dev`` operands are skipped: ``/dev/stderr`` and friends link
-    into ``/proc``.
+    resolved. The standard stream aliases are skipped (see
+    :data:`_DEV_STREAM_LINKS`).
     """
     # A quoted operand is opened exactly as written (trailing spaces, a literal
     # ``$``); an unquoted one is expanded first. Check both spellings.
@@ -272,10 +276,11 @@ def _spelling_links_to_secret(spelling: str, workspace: Path | None) -> bool:
         # every word look linked.
         base = os.path.realpath(workspace or current_workspace())
         anchored = os.path.join(base, spelling)
-        if os.path.abspath(anchored).startswith("/dev/"):
+        spelled = os.path.abspath(anchored)
+        if any(_path_has_prefix(spelled, alias) for alias in _DEV_STREAM_LINKS):
             return False
         resolved = os.path.realpath(anchored)
-        if resolved == os.path.abspath(anchored):
+        if resolved == spelled:
             return False  # no link on the path
     except (OSError, ValueError):
         return False
