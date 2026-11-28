@@ -221,6 +221,7 @@ class ConversationSession(BaseSession):
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False
     acp_runtime: "AcpSessionRuntime | None" = field(default=None, repr=False)
+    acp_send_history: bool = False
     # Index of the last user message processed through ACP mode.
     # Prevents duplicate /step calls from re-sending the same user message.
     acp_last_user_msg_index: int = -1
