@@ -167,3 +167,16 @@ def test_attachment_change_rejects_named_rewind(tmp_path, capsys):
     assert command(manager, "/backtrack attachment") == []
     assert manager.log.messages == before
     assert "does not match" in capsys.readouterr().out
+
+
+def test_dash_dash_label_keeps_prefix_check(tmp_path, capsys):
+    """A saved label like "--5" resolves as a label, so it must not skip the
+    content check that numeric indices skip."""
+    manager = manager_at(tmp_path)
+    for i in range(4):
+        manager.append(Message("user", f"msg {i}", quiet=True))
+    save_conv_checkpoint(tmp_path, 1, "--5", prefix_hash="not-this-conversation")
+    before = list(manager.log.messages)
+    assert command(manager, "/backtrack --5") == []
+    assert manager.log.messages == before
+    assert "does not match" in capsys.readouterr().out

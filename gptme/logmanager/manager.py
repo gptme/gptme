@@ -105,6 +105,25 @@ def conversation_name_error(value: str) -> str | None:
     return conversation_id_error(value)
 
 
+def _unchanged_since_persisted(log: "Log", path: Path) -> bool:
+    """Whether *log* is locally unchanged since loading or writing *path*.
+
+    Such a log has nothing of ours to persist. Another manager may have
+    appended to the file since, and a full rewrite triggered by the disk-size
+    drift in :py:meth:`Log._can_append` would silently drop those messages.
+    """
+    baseline = log.loaded if log.loaded is not None else log.persisted
+    return (
+        log.persisted_path is not None
+        and path.exists()
+        and log.persisted_path == path.resolve()
+        and log.persisted_size is not None
+        and path.stat().st_size >= log.persisted_size
+        and len(baseline) == len(log)
+        and all(old is new for old, new in zip(baseline, log))
+    )
+
+
 @dataclass(frozen=True, repr=False)
 class Log:
     messages: list[Message] = field(default_factory=list)
@@ -117,6 +136,9 @@ class Log:
     persisted: tuple[Message, ...] = field(default=(), compare=False, repr=False)
     persisted_path: Path | None = field(default=None, compare=False, repr=False)
     persisted_size: int | None = field(default=None, compare=False, repr=False)
+    # In-memory baseline after load-time attachment snapshotting. Unlike
+    # persisted, these objects may contain hashes not yet present on disk.
+    loaded: tuple[Message, ...] | None = field(default=None, compare=False, repr=False)
 
     def __getitem__(self, key):
         return self.messages[key]
@@ -193,6 +215,25 @@ class Log:
 
     def write_jsonl(self, path: PathLike, *, append: bool = False) -> "Log":
         output = Path(path)
+        if append and self.persisted_path == output.resolve() and output.exists():
+            # Preserve concurrent growth, but repair a truncated file rather
+            # than report success with acknowledged messages missing on disk.
+            if (
+                self.persisted_size is not None
+                and output.stat().st_size >= self.persisted_size
+                and len(self.persisted) == len(self)
+                and all(old is new for old, new in zip(self.persisted, self))
+            ):
+                return self
+            # Load-time attachment snapshotting alone is not a local change:
+            # defer that migration rather than write a stale copy over a newer
+            # transcript. Real local changes and truncation still rewrite below.
+            if (
+                self.persisted_size is not None
+                and output.stat().st_size > self.persisted_size
+                and _unchanged_since_persisted(self, output)
+            ):
+                return self
         append_safe = append and self._can_append(output)
         start = len(self.persisted) if append_safe else 0
         lines = (json.dumps(msg.to_dict()) + "\n" for msg in self.messages[start:])
@@ -235,6 +276,7 @@ class Log:
                 if temp_path is not None:
                     temp_path.unlink(missing_ok=True)
         return self.replace(
+            loaded=None,
             persisted=tuple(self.messages),
             persisted_path=output.resolve(),
             persisted_size=output.stat().st_size,
@@ -350,28 +392,21 @@ class LogManager:
         if (self.logdir / "conversation.jsonl").exists():
             _branch = "main"
             if _branch not in self._branches:
-                branch_log = Log.read_jsonl(self.logdir / "conversation.jsonl")
-                self._branches[_branch] = branch_log.replace(
-                    messages=self.snapshot_message_files(branch_log.messages)
+                self._branches[_branch] = self._load_snapshotted(
+                    self.logdir / "conversation.jsonl"
                 )
         for file in self.logdir.glob("branches/*.jsonl"):
             if file.name == self.logdir.name:
                 continue
             _branch = file.stem
             if _branch not in self._branches:
-                branch_log = Log.read_jsonl(file)
-                self._branches[_branch] = branch_log.replace(
-                    messages=self.snapshot_message_files(branch_log.messages)
-                )
+                self._branches[_branch] = self._load_snapshotted(file)
 
         # Load lossless snapshot (written by manual compaction to preserve full history)
         self._lossless_log: Log | None = None
         lossless_path = self.logdir / "lossless.jsonl"
         if lossless_path.exists():
-            lossless_log = Log.read_jsonl(lossless_path)
-            self._lossless_log = lossless_log.replace(
-                messages=self.snapshot_message_files(lossless_log.messages)
-            )
+            self._lossless_log = self._load_snapshotted(lossless_path)
 
         # Non-main archives belong to the branch, never the shared main history.
         self._branch_lossless_logs: dict[str, Log] = {}
@@ -386,10 +421,7 @@ class LogManager:
             for archive in self.logdir.glob("branch-archives/*.jsonl")
         )
         for branch, archive in archives.items():
-            branch_log = Log.read_jsonl(archive)
-            self._branch_lossless_logs[branch] = branch_log.replace(
-                messages=self.snapshot_message_files(branch_log.messages)
-            )
+            self._branch_lossless_logs[branch] = self._load_snapshotted(archive)
 
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
@@ -397,10 +429,7 @@ class LogManager:
         if views_dir.exists():
             for file in views_dir.glob("*.jsonl"):
                 view_name = file.stem
-                view_log = Log.read_jsonl(file)
-                self._views[view_name] = view_log.replace(
-                    messages=self.snapshot_message_files(view_log.messages)
-                )
+                self._views[view_name] = self._load_snapshotted(file)
                 logger.debug(f"Loaded view branch: {view_name}")
 
         # Restore the last active view unless the caller selected one.
@@ -776,6 +805,20 @@ class LogManager:
         # Return message with updated hashes (Message is frozen, so replace)
         return replace(msg, file_hashes=file_hashes)
 
+    def _load_snapshotted(self, path: Path) -> Log:
+        """Read a transcript and snapshot its attachments.
+
+        Snapshotting can replace a message object (a legacy row without file
+        hashes, or a deleted store entry) without changing what is on disk, so
+        the snapshotted objects are the unchanged-since-load baseline. Keeping
+        the raw reads there would make an untouched log look modified, and
+        write() would rewrite it from this stale copy over other managers'
+        appends.
+        """
+        log = Log.read_jsonl(path)
+        messages = self.snapshot_message_files(log.messages)
+        return log.replace(messages=messages, loaded=tuple(messages))
+
     def snapshot_message_files(self, msgs: list[Message]) -> list[Message]:
         """Snapshot message attachments while preserving valid existing hashes."""
         return [self._store_message_files(msg, preserve_existing=True) for msg in msgs]
@@ -797,9 +840,12 @@ class LogManager:
         # A failed archive write must leave the on-disk conversation unchanged.
         if self._lossless_log is not None and self.logdir:
             lossless_path = self.logdir / "lossless.jsonl"
-            self._lossless_log = self._lossless_log.write_jsonl(
-                lossless_path, append=True
-            )
+            if self.current_branch == "main" or not _unchanged_since_persisted(
+                self._lossless_log, lossless_path
+            ):
+                self._lossless_log = self._lossless_log.write_jsonl(
+                    lossless_path, append=True
+                )
             paths.add(lossless_path)
 
         for branch, archive in self._branch_lossless_logs.items():
@@ -813,11 +859,18 @@ class LogManager:
             # manager may have appended since load. Disk-size drift must not turn
             # this no-op into a stale full rewrite via Log._can_append(). An
             # unchanged legacy snapshot must also defer to a migrated archive.
+            baseline = (
+                archive.loaded
+                if branch != self.current_branch and archive.loaded is not None
+                else archive.persisted
+            )
             if (
                 archive.persisted_path is not None
                 and archive_path.exists()
-                and len(archive.persisted) == len(archive)
-                and all(old is new for old, new in zip(archive.persisted, archive))
+                and archive.persisted_size is not None
+                and archive_path.stat().st_size >= archive.persisted_size
+                and len(baseline) == len(archive)
+                and all(old is new for old, new in zip(baseline, archive))
             ):
                 continue
             archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -847,12 +900,19 @@ class LogManager:
                     if self.current_branch != "main":
                         main_path = self.logdir / "conversation.jsonl"
                         main_path.parent.mkdir(parents=True, exist_ok=True)
-                        self._branches[branch] = log.write_jsonl(main_path, append=True)
                         paths.add(main_path)
+                        if not _unchanged_since_persisted(log, main_path):
+                            self._branches[branch] = log.write_jsonl(
+                                main_path, append=True
+                            )
                     continue
                 branch_path = branches_dir / f"{branch}.jsonl"
-                self._branches[branch] = log.write_jsonl(branch_path, append=True)
                 paths.add(branch_path)
+                # The current branch was written above (directly or through
+                # its view's underlying branch); others may belong to a
+                # concurrent manager, so leave them alone when unchanged here.
+                if not _unchanged_since_persisted(log, branch_path):
+                    self._branches[branch] = log.write_jsonl(branch_path, append=True)
 
             # Write view branches
             if self._views:
@@ -860,8 +920,11 @@ class LogManager:
                 views_dir.mkdir(parents=True, exist_ok=True)
                 for view_name, log in self._views.items():
                     view_path = views_dir / f"{view_name}.jsonl"
-                    self._views[view_name] = log.write_jsonl(view_path, append=True)
                     paths.add(view_path)
+                    if view_name == self.current_view or not _unchanged_since_persisted(
+                        log, view_path
+                    ):
+                        self._views[view_name] = log.write_jsonl(view_path, append=True)
 
         # Persist model selection trace alongside the conversation
         trace_path = self.write_model_trace()
@@ -947,9 +1010,11 @@ class LogManager:
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
         name = f"{branch_prefix}{n}"
-        self._branches[name] = self.log.replace(persisted=())
+        self._branches[name] = self.log.replace(persisted=(), loaded=None)
         if self.full_log is not self.log:
-            self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
+            self._branch_lossless_logs[name] = self.full_log.replace(
+                persisted=(), loaded=None
+            )
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -1200,6 +1265,7 @@ class LogManager:
             # to manager.log — that may already be a restored compacted view.
             branch_log = manager._branches[manager.current_branch]
             manager._branches[manager.current_branch] = branch_log.replace(
+                loaded=tuple(branch_log.messages),
                 persisted=log.persisted,
                 persisted_path=log.persisted_path,
                 persisted_size=log.persisted_size,
@@ -1236,9 +1302,11 @@ class LogManager:
             return
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
-            self._branches[name] = self.log.replace(persisted=())
+            self._branches[name] = self.log.replace(persisted=(), loaded=None)
             if self.full_log is not self.log:
-                self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
+                self._branch_lossless_logs[name] = self.full_log.replace(
+                    persisted=(), loaded=None
+                )
         self.current_branch = name
         self.current_view = None
         if name == "main":

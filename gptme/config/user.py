@@ -120,14 +120,36 @@ def _back_up_before_reencoding(path: str | Path) -> None:
     if resolved not in _encoding_unverified:
         return
     backup = Path(f"{path}.orig")
-    if backup.exists():
+    if backup.is_file():
         # Already preserved by an earlier save; this file is safe to rewrite.
         _encoding_unverified.discard(resolved)
         return
-    staged = Path(f"{path}.orig.tmp")
+    # Per-save staging name: overlapping saves of the same legacy file must not
+    # delete each other's in-progress copy.
+    staged = Path(f"{path}.orig.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
-        staged.write_bytes(Path(path).read_bytes())
-        staged.replace(backup)
+        original = Path(path).read_bytes()
+        # Keep backups owner-only, including after publication. Copying mode
+        # bits onto a new inode can grant a different group or inherited ACL
+        # access to [env] secrets. Backups need not retain shared readability.
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(original)
+        try:
+            # No-clobber publish: the first completed backup wins, since every
+            # concurrent save copied the same original bytes.
+            os.link(staged, backup)
+        except FileExistsError:
+            # A concurrent save published it first. Anything else at that path
+            # (a broken symlink, a directory) holds no copy of the bytes.
+            if not backup.is_file():
+                raise
+        except OSError:
+            # Filesystem without hard links: fall back to rename unless a
+            # concurrent save has already published the backup.
+            if not backup.is_file():
+                staged.replace(backup)
+        staged.unlink(missing_ok=True)
     except OSError as e:
         staged.unlink(missing_ok=True)
         # The marker is deliberately left in place: this file still holds
