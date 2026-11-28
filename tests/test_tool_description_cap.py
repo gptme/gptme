@@ -87,6 +87,13 @@ class TestAnthropicSchemaCap:
         result = _anthropic_spec2tool(spec)
         assert len(result["description"]) <= MAX_TOOL_DESCRIPTION_LENGTH
 
+    def test_desc_fallback_when_no_instructions(self):
+        # MCP-generated ToolSpecs carry only `desc`, so get_instructions() is
+        # empty; Anthropic must fall back to `desc` instead of sending "" (#5317).
+        spec = ToolSpec(name="mcp_demo", desc="Look things up")
+        result = _anthropic_spec2tool(spec)
+        assert result["description"] == "Look things up"
+
 
 class TestSystemPromptRendererCap:
     def test_tool_format_capped(self):
