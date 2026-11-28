@@ -4,7 +4,10 @@ from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from gptme.message import Message
+from gptme.tools import python as python_tool
 from gptme.tools.base import ToolSpec
 from gptme.tools.browser import (
     _DEFAULT_BROWSER_MAX_OUTPUT_CHARS,
@@ -15,7 +18,6 @@ from gptme.tools.browser import (
     read_url,
     tool,
 )
-from gptme.tools.python import execute_python
 
 
 def _as_messages(result: Generator[Message, None, None] | Message) -> list[Message]:
@@ -179,12 +181,26 @@ def test_public_browser_results_keep_text_layout(monkeypatch):
     assert read_logs() == "a\tb\nc\n\x0cpage two\nnot overwritten é 漢"
 
 
-def test_ipython_results_drop_terminal_control_sequences(monkeypatch):
+@pytest.fixture
+def isolated_shell(monkeypatch):
+    """Run in-process on a fresh IPython shell and stop its history thread."""
+    monkeypatch.setenv("GPTME_SANDBOX", "none")
+    monkeypatch.setattr(python_tool, "_ipython", None)
+    monkeypatch.setattr(python_tool, "_resolve_kernel_backend", lambda: False)
+    yield
+    shell = python_tool._ipython
+    if shell is not None and (history := shell.history_manager) is not None:
+        history.end_session()
+        if history.save_thread is not None:
+            history.save_thread.stop()
+            history.save_thread.join(timeout=2)
+
+
+def test_ipython_results_drop_terminal_control_sequences(isolated_shell):
     """Both the model-facing result and the console rendering are cleaned."""
-    monkeypatch.setattr("gptme.tools.python._resolve_kernel_backend", lambda: False)
     page = "Docs\x1bc\x1b]0;title\x1b\\ \x1b[31mred\x1b[0m end"
 
-    msg = next(execute_python(f"{page!r}", [], None))
+    msg = next(python_tool.execute_python(f"{page!r}", [], None))
 
     for text in (msg.content, msg.terminal_display_content or ""):
         assert "\x1b" not in text
