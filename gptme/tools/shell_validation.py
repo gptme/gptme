@@ -212,6 +212,107 @@ def _skip_line_continuations(cmd: str, i: int) -> int:
     return i
 
 
+# Per-character shell quoting context. The scanners below classify every
+# character once, so they all agree with ``_find_quotes`` about ANSI-C strings.
+_UNQUOTED = 0
+_SINGLE = 1  # plain '...' — a backslash is literal
+_ANSI_C = 2  # $'...' — a backslash escapes the next character
+_DOUBLE = 3
+_COMMENT = 4
+
+
+def _shell_context(cmd: str) -> list[int]:
+    """Classify each character of ``cmd`` by its bash quoting context.
+
+    ANSI-C strings (``$'...'``) are ``_ANSI_C``, where a backslash escapes the
+    next character; plain ``'...'`` is ``_SINGLE``, where it is literal.
+    Escaped characters inherit the context of their backslash, a
+    backslash-newline continuation is ``_UNQUOTED`` whitespace, and a shell
+    comment's ``#`` and text are ``_COMMENT``.
+
+    This is the single source of truth for quote state, so the scanners that
+    guard the allowlist cannot drift from ``_find_quotes``.
+    """
+    n = len(cmd)
+    ctx = [_UNQUOTED] * n
+    in_single = in_double = ansi_c = in_comment = False
+    i = 0
+    while i < n:
+        c = cmd[i]
+        if in_comment:
+            if c == "\n":
+                in_comment = False
+            else:
+                ctx[i] = _COMMENT
+            i += 1
+            continue
+        if ansi_c:
+            quoted = _ANSI_C
+        elif in_single:
+            quoted = _SINGLE
+        elif in_double:
+            quoted = _DOUBLE
+        else:
+            quoted = _UNQUOTED
+
+        # A backslash escapes the next character outside plain single quotes
+        # (so it also escapes inside ANSI-C strings and double quotes).
+        if c == "\\" and i + 1 < n and (ansi_c or not in_single):
+            ctx[i] = quoted
+            ctx[i + 1] = quoted
+            i += 2
+            continue
+
+        if c == "$" and not in_single and not in_double:
+            # Bash deletes ``\<newline>`` before tokenizing, so a dollar pair
+            # (or ``$'``) can be split across a continued line.
+            nxt = _skip_line_continuations(cmd, i + 1)
+            following = cmd[nxt : nxt + 1]
+            if following == "$":
+                # ``$$`` is the shell PID; a quote after it is a plain one.
+                for j in range(i, nxt + 1):
+                    ctx[j] = _UNQUOTED
+                i = nxt + 1
+                continue
+            if following == "'":
+                for j in range(i, nxt + 1):
+                    ctx[j] = _ANSI_C
+                in_single = ansi_c = True
+                i = nxt + 1
+                continue
+
+        if c == "'" and not in_double:
+            if in_single:
+                ctx[i] = _ANSI_C if ansi_c else _SINGLE
+                in_single = ansi_c = False
+            else:
+                ctx[i] = _SINGLE
+                in_single = True
+            i += 1
+            continue
+
+        if c == '"' and not in_single:
+            ctx[i] = _DOUBLE
+            in_double = not in_double
+            i += 1
+            continue
+
+        if (
+            c == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+        ):
+            ctx[i] = _COMMENT
+            in_comment = True
+            i += 1
+            continue
+
+        ctx[i] = quoted
+        i += 1
+    return ctx
+
+
 def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     """Find all quoted regions in a command string.
 
@@ -1236,36 +1337,36 @@ def _has_command_substitution(cmd: str) -> bool:
     Returns True if executable backtick, ``$(...)`` or ``<(...)``/``>(...)``
     process-substitution syntax is found.
     """
-    # Walk the string tracking both single- and double-quote context.
-    in_single = False
-    in_double = False
+    # Reuse the shared, ANSI-C-aware quote classifier so this scanner cannot
+    # disagree with ``_find_quotes`` about where a string starts or ends.
+    ctx = _shell_context(cmd)
     i = 0
-    while i < len(cmd):
+    n = len(cmd)
+    while i < n:
+        kind = ctx[i]
+        # Plain single quotes and comments are literal; nothing substitutes.
+        if kind == _SINGLE or kind == _COMMENT:
+            i += 1
+            continue
         c = cmd[i]
-        # Escape sequences: only active outside single quotes (bash rule)
-        if c == "\\" and not in_single and i + 1 < len(cmd):
+        # Escape sequences: active outside plain single quotes (so also inside
+        # ANSI-C strings and double quotes). The escaped character is literal.
+        if c == "\\" and i + 1 < n:
             i += 2
             continue
-        # Single quote: open/close ONLY when not already inside double quotes.
-        # Inside a double-quoted string, ' is a literal character in bash.
-        if c == "'" and not in_double:
-            in_single = not in_single
-        # Double quote: open/close ONLY when not already inside single quotes
-        elif c == '"' and not in_single:
-            in_double = not in_double
-        # Backticks and $(...) substitute when not inside single quotes. Both
-        # still substitute inside double-quoted strings.
-        elif not in_single and (c == "`" or cmd.startswith("$(", i)):
+        # Inside an ANSI-C string nothing substitutes.
+        if kind == _ANSI_C:
+            i += 1
+            continue
+        # Backticks and $(...) substitute outside single quotes, including
+        # inside double-quoted strings.
+        if c == "`" or cmd.startswith("$(", i):
             return True
         # Process substitution <(...) / >(...) runs a command too, but unlike
-        # $(...) it is inert inside double quotes, so both quote contexts
-        # suppress it. Without this, `rg pattern <(sh -c id)` auto-approved:
-        # the inner command never appears at a separator cmd_regex looks for.
-        elif (
-            not in_single
-            and not in_double
-            and (cmd.startswith("<(", i) or cmd.startswith(">(", i))
-        ):
+        # $(...) it is inert inside double quotes, so only unquoted positions
+        # count. Without this, `rg pattern <(sh -c id)` auto-approved: the
+        # inner command never appears at a separator cmd_regex looks for.
+        if kind == _UNQUOTED and (cmd.startswith("<(", i) or cmd.startswith(">(", i)):
             return True
         i += 1
     return False
@@ -1340,34 +1441,13 @@ def _blank_heredoc_headers(cmd: str) -> str:
 
 def _blank_shell_comments(cmd: str) -> str:
     """Replace unquoted shell comments with blanks, preserving newlines."""
+    # Shared classifier: ANSI-C strings are single-quoted contexts, so a ``#``
+    # inside ``$'...'`` is not a comment (a private scanner used to blank it).
+    ctx = _shell_context(cmd)
     chars = list(cmd)
-    in_single = in_double = in_comment = False
-    i = 0
-    while i < len(cmd):
-        char = cmd[i]
-        if in_comment:
-            if char == "\n":
-                in_comment = False
-            else:
-                chars[i] = " "
-            i += 1
-            continue
-        if char == "\\" and not in_single and i + 1 < len(cmd):
-            i += 2
-            continue
-        if char == "'" and not in_double:
-            in_single = not in_single
-        elif char == '"' and not in_single:
-            in_double = not in_double
-        elif (
-            char == "#"
-            and not in_single
-            and not in_double
-            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
-        ):
+    for i, kind in enumerate(ctx):
+        if kind == _COMMENT and chars[i] != "\n":
             chars[i] = " "
-            in_comment = True
-        i += 1
     return "".join(chars)
 
 

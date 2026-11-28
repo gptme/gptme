@@ -1669,6 +1669,23 @@ class TestCommandSubstitution:
         """An escaped dollar sign makes the command-substitution syntax literal."""
         assert is_allowlisted(r"echo \$(date)")
 
+    def test_ansi_c_escaped_quote_does_not_hide_substitution(self):
+        """A ``$'...'`` escaped quote must not swallow a following ``$(id)``.
+
+        ``_has_command_substitution`` used to run a private quote scanner that
+        read ``$'...'`` as a plain single-quoted string, closed it at the
+        escaped quote, and then treated ``$(id)`` as quoted.
+        """
+        assert not is_allowlisted(r"echo $'\'' $(id) #'")
+
+    def test_ansi_c_escaped_quote_does_not_hide_comment_marker(self):
+        """A ``#`` inside ``$'...'`` is literal text, not a shell comment.
+
+        ``_blank_shell_comments`` used to blank ``' ; python x.py`` as a
+        comment, hiding ``python`` from the allowlist check.
+        """
+        assert not is_allowlisted(r"echo $'\' # ' ; python x.py")
+
 
 # ── P3: Pipe-to-shell regex close-paren gap ─────────────────────────────────
 
