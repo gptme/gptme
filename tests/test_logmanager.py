@@ -1972,6 +1972,41 @@ def test_delete_prefers_the_exact_id_over_its_trimmed_form(
     assert len(prompts) == 2
 
 
+def test_delete_without_stdin_cancels_instead_of_raising(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A confirmation that cannot be answered cancels the delete, not crashes.
+
+    Piped or scripted sessions have no stdin to answer the prompt. Raising
+    ``EOFError`` out of the command aborted the whole session, so a delete that
+    needs confirmation (an id reached by trimming whitespace) has to fail safe.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    conv_dir = logs / "draft"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+
+    def no_stdin(prompt: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_stdin)
+    cmd = Message("user", "/delete --force draft ", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+    assert "pass --force" in out
+    assert (logs / "draft").exists()
+
+
 @pytest.mark.parametrize(
     ("line", "deleted"),
     [

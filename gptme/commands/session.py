@@ -242,9 +242,15 @@ def cmd_delete(ctx: CommandContext) -> None:
     force_in_id = conv_id == raw and body != raw
     if not (force and typed_exactly and not force_in_id):
         # repr() makes a stray or non-breaking space in the id visible
-        response = input(
-            f"Delete conversation {conv_id!r}? This cannot be undone. [y/N] "
-        )
+        try:
+            response = input(
+                f"Delete conversation {conv_id!r}? This cannot be undone. [y/N] "
+            )
+        except (KeyboardInterrupt, EOFError):
+            # No interactive stdin (scripted or piped session): the confirmation
+            # cannot be answered, so cancel instead of raising out of the command.
+            print("\nCancelled (no input to confirm; pass --force to skip it).")
+            return
         confirmed = response.lower().strip() in ("y", "yes")
         if not confirmed:
             print("Cancelled.")
