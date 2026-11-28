@@ -1674,6 +1674,10 @@ def test_overlapping_failed_start_keeps_successful_session(
         await asyncio.wait([second])
 
         winner = 1 if failing_finishes_first else 0
+        tasks = (first, second)
+        assert tasks[winner].result() is None
+        with pytest.raises(OSError, match="entry failed"):
+            tasks[1 - winner].result()
         assert runtime._client is clients[winner]
         assert runtime.session_id == f"sess-{winner}"
 
