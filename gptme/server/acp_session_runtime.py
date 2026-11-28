@@ -593,6 +593,14 @@ class AcpSessionRuntime:
         if self._client is not None:
             self._client.set_on_update(on_update)
 
+    def clear_on_update(self, expected: Any) -> None:
+        """Detach a completed worker's callback unless another worker replaced it.
+
+        Callers serialize this compare-and-clear with callback installation.
+        """
+        if self._on_update is expected:
+            self.set_on_update(None)
+
     async def prompt(
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
