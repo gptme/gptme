@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -620,3 +621,23 @@ def test_execute_patch_keeps_lone_carriage_return(tmp_path):
 
     assert "successfully" in result
     assert f.read_bytes() == b'one\nbar = "a\rb"\nTWO\n'
+
+
+@pytest.mark.parametrize(
+    "include_context", [False, True], ids=["outside-hunk", "in-hunk"]
+)
+def test_execute_patch_preserves_trailing_content_cr(
+    tmp_path: Path, include_context: bool
+) -> None:
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"first\r\r\noriginal lines\r\nlast\r\n")
+    context = "first\r\n" if include_context else ""
+    patch = (
+        f"<<<<<<< ORIGINAL\n{context}original lines\n"
+        f"=======\n{context}modified lines\n>>>>>>> UPDATED\n"
+    )
+
+    result = next(execute_patch(patch, [str(target)], None)).content
+
+    assert "successfully" in result
+    assert target.read_bytes() == b"first\r\r\nmodified lines\r\nlast\r\n"

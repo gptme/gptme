@@ -1807,3 +1807,35 @@ def test_3way_merge_keeps_lone_carriage_returns_in_untouched_text():
     merged, had_conflicts = _try_3way_merge(snapshot, ops, live)
     assert not had_conflicts
     assert merged == "zero\na\rb\nc\nd\ne\n"
+
+
+@pytest.mark.parametrize("edit_preview", [False, True], ids=["confirm", "edit"])
+def test_hashline_edit_preserves_trailing_content_cr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit_preview: bool
+) -> None:
+    from gptme.hooks import ConfirmationResult
+
+    def confirm(*, preview: str, default_confirm: bool) -> ConfirmationResult:
+        assert default_confirm
+        assert preview == "first\r\nnew\nlast\n"
+        if edit_preview:
+            return ConfirmationResult.edit(preview.replace("last", "LAST"))
+        return ConfirmationResult.confirm()
+
+    monkeypatch.setattr("gptme.hooks.get_confirmation", confirm)
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"first\r\r\nold\r\nlast\r\n")
+
+    list(execute_read(None, [str(target)], None))
+    tag = get_stored_tag(str(target.resolve()))
+    assert tag is not None
+    expected_snapshot = "first\r\nold\nlast\n"
+    assert read_text_lf(target) == expected_snapshot
+    assert lookup_snapshot(str(target.resolve()), tag) == (True, expected_snapshot)
+
+    block = f"[{target.resolve()}#{tag}]\nPUT 2.=2:\n+new\n"
+    messages = _msgs(execute_hashline_edit(block, [str(target)], None))
+
+    assert "applied" in messages[0].lower()
+    last = b"LAST" if edit_preview else b"last"
+    assert target.read_bytes() == b"first\r\r\nnew\r\n" + last + b"\r\n"

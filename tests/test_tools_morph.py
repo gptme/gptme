@@ -614,3 +614,27 @@ def test_morph_writes_existing_file_on_acl_platforms(
     assert f.read_text() == "def foo():\n    return 1\n"
     # Nothing is staged beside the target on the in-place path.
     assert sorted(p.name for p in tmp_path.iterdir()) == ["target.py"]
+
+
+@pytest.mark.parametrize(
+    "response",
+    ["first\r\nnew\n", "first\r\r\nnew\r\n", "first\nnew\n"],
+    ids=["normalized", "crlf", "omitted-cr"],
+)
+def test_execute_morph_preserves_trailing_content_cr(
+    tmp_path: Path, response: str
+) -> None:
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"first\r\r\nold\r\n")
+    with (
+        patch("gptme.tools.morph._chat_complete", return_value=(response, {})),
+        patch(
+            "gptme.hooks.get_confirmation", return_value=ConfirmationResult.confirm()
+        ),
+    ):
+        messages = list(
+            execute_morph(None, None, {"path": str(target), "edit": "Update"})
+        )
+
+    assert "Edit successfully applied" in messages[0].content
+    assert target.read_bytes() == b"first\r\r\nnew\r\n"
