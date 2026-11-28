@@ -2706,6 +2706,97 @@ def test_adjacent_fences_bare_multifence_content_line():
     assert "more code" in blocks[0].content
 
 
+@pytest.mark.parametrize("closer_length", [4, 5])
+@pytest.mark.parametrize("lang", ["shell", "bash", "ipython", "py"])
+def test_exec_lang_accepts_closer_longer_than_opener(
+    lang: str, closer_length: int
+) -> None:
+    """An exec-lang block closes on a bare fence at least as long as its opener.
+
+    CommonMark lets a closing fence be longer than the opening one. For exec
+    langs a bare fence at depth 1 is never a nested opener (shell/ipython have
+    no triple-backtick syntax), so a longer closer must still close the block
+    (gptme/gptme#5199 defect 7). A longer fence followed by content stays literal
+    content — see test_adjacent_fences_bare_multifence_content_line.
+    """
+    markdown = f"```{lang}\nls -la\n" + "`" * closer_length + "\n"
+    assert [
+        (block.lang, block.content) for block in Codeblock.iter_from_markdown(markdown)
+    ] == [(lang, "ls -la")]
+
+
+def test_nonexec_block_rejects_closer_longer_than_opener() -> None:
+    """A save block keeps the exact-width rule: a longer bare fence is not a closer."""
+    markdown = "```save a.md\nhello\n````\n"
+    assert list(Codeblock.iter_from_markdown(markdown)) == []
+
+
+def test_streaming_longer_exec_fence_with_content_stays_open() -> None:
+    """A longer exec fence is not a closer until the next line is known.
+
+    During streaming the line after the fence has not arrived yet; yielding a
+    block there drops the streamed tail when the fence turns out to be literal
+    content (gptme/gptme#5386 Greptile P1).
+    """
+    prefix = "```shell\nsome code\n``````"
+    assert list(_extract_codeblocks(prefix, streaming=True)) == []
+    full = prefix + "\nmore code\n```\n"
+    blocks = list(_extract_codeblocks(full, streaming=True))
+    assert [(block.lang, block.content) for block in blocks] == [
+        ("shell", "some code\n``````\nmore code")
+    ]
+
+
+@pytest.mark.parametrize("closer_length", [4, 6])
+def test_exec_lang_longer_closer_followed_by_fence_closes(closer_length: int) -> None:
+    """A longer bare fence followed by another fence closes the exec-lang block.
+
+    "Nothing follows" includes the next fence starting a fresh block, so the
+    longer fence is a closer here (not literal content). Anchors the
+    fence-follows shape alongside the content-follows case above.
+    """
+    markdown = "```shell\necho a\n" + "`" * closer_length + "\n```text\nx\n```\n"
+    assert [
+        (block.lang, block.content) for block in Codeblock.iter_from_markdown(markdown)
+    ] == [("shell", "echo a"), ("text", "x")]
+
+
+def test_exec_lang_longer_fence_inside_nested_level_closes_nested() -> None:
+    """A longer bare fence at depth > 1 closes the nested level, not the block.
+
+    The exec-lang widening only applies at depth 1. Inside a nested tagged block
+    a longer bare fence still decrements the nesting level (pre-existing rule),
+    so the outer shell block is yielded (gptme/gptme#5386 AI-review P1).
+    """
+    markdown = "```shell\necho a\n```python\nx\n````\necho b\n```\n"
+    blocks = list(Codeblock.iter_from_markdown(markdown))
+    assert [(block.lang, block.content) for block in blocks] == [
+        ("shell", "echo a\n```python\nx\n````\necho b")
+    ]
+
+
+def test_line_fence_states_mirrors_longer_exec_fence_content_rule() -> None:
+    """Both fence walkers agree a longer bare fence followed by content is literal.
+
+    Extraction keeps the longer fence as content; `_line_fence_states` must not
+    treat it as a delimiter either, or the two walkers diverge and the block is
+    destroyed (gptme/gptme#5386 AI-review P1, security).
+    """
+    from gptme.codeblock import _line_fence_states
+
+    markdown = "```shell\necho x\n``````\necho ' ```'\n```\n"
+    # Extraction preserves the legitimate shell block.
+    assert [
+        (block.lang, block.content) for block in Codeblock.iter_from_markdown(markdown)
+    ] == [("shell", "echo x\n``````\necho ' ```'")]
+    # The longer fence is literal content, not a closing delimiter.
+    states = _line_fence_states(markdown)
+    longer_fence_line = 2
+    depth, is_delim, _ = states[longer_fence_line]
+    assert depth == 1
+    assert is_delim is False
+
+
 def test_fence_preserved_in_extraction():
     """Codeblock.fence should reflect the original fence length (3+)."""
     # Triple backticks (default)

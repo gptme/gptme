@@ -522,7 +522,18 @@ def _line_fence_states(
         if line_fence_match:
             line_fence_len = len(line_fence_match.group(1))
             is_bare_fence = line.strip() == "`" * line_fence_len
-            is_outer_close = is_bare_fence and line_fence_len == fence_len
+            # Mirror extraction: exec-lang outer blocks accept a closer at
+            # least as long as the opener; non-exec blocks keep exact width.
+            # Only at depth 1: a longer bare fence inside a nested level closes
+            # that level via the `depth > 1` branch below, as before.
+            is_outer_close = is_bare_fence and (
+                line_fence_len == fence_len
+                or (
+                    outer_lang in _EXEC_LANGS
+                    and depth == 1
+                    and line_fence_len >= fence_len
+                )
+            )
             if is_outer_close or (is_bare_fence and depth > 1):
                 if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
                     states.append((depth, False, outer_lang))
@@ -531,6 +542,20 @@ def _line_fence_states(
                 next_is_fence = i + 1 < len(lines) and bool(
                     re.match(r"^`{3,}", lines[i + 1])
                 )
+                # Mirror extraction: a longer bare fence for an exec-lang block
+                # is a closer only when nothing follows it (blank/EOF or another
+                # fence). With more non-fence content after it, it stays literal
+                # content, so both walkers agree and the fence does not
+                # prematurely close.
+                if (
+                    outer_lang in _EXEC_LANGS
+                    and line_fence_len > fence_len
+                    and depth == 1
+                    and next_has_content
+                    and not next_is_fence
+                ):
+                    states.append((depth, False, outer_lang))
+                    continue
                 if (
                     depth == 1
                     and next_has_content
@@ -1236,9 +1261,22 @@ def _extract_codeblocks(
                     line_fence_len = len(line_fence_match.group(1))
                     # Check if this is a bare fence (only backticks on the line)
                     is_bare_fence = line.strip() == "`" * line_fence_len
-                    # For closing the outer block, need exact match of opening fence length
-                    # For inner nested blocks, any bare fence can close them
-                    is_outer_close = is_bare_fence and line_fence_len == fence_len
+                    # For closing the outer block, need exact match of opening
+                    # fence length, except for exec langs: a bare fence at depth
+                    # 1 is never a nested opener there (shell/ipython have no
+                    # triple-backtick syntax), so a closer at least as long as
+                    # the opener closes the block (CommonMark). Non-exec save
+                    # blocks keep the exact-width rule so a longer bare fence in
+                    # their body stays literal content.
+                    # For inner nested blocks, any bare fence can close them.
+                    is_outer_close = is_bare_fence and (
+                        line_fence_len == fence_len
+                        or (
+                            lang in _EXEC_LANGS
+                            and nesting_depth == 1
+                            and line_fence_len >= fence_len
+                        )
+                    )
                     if is_outer_close or (is_bare_fence and nesting_depth > 1):
                         # Bare fence - determine if opening or closing based on context
                         # A fence inside an open quoted string or a Python
@@ -1269,6 +1307,24 @@ def _extract_codeblocks(
                         next_is_fence = has_next_line and bool(
                             re.match(r"^`{3,}", lines[i + 1])
                         )
+
+                        # A bare fence *longer* than the opener is a closer for an
+                        # exec-lang block only when nothing follows it (blank/EOF or
+                        # another fence). When more content follows, the line is a
+                        # literal content line of backticks, not a delimiter — see
+                        # test_adjacent_fences_bare_multifence_content_line. An
+                        # exact-width fence keeps the existing "always a closer for
+                        # exec langs" rule (shell has no nested fences).
+                        if (
+                            lang in _EXEC_LANGS
+                            and line_fence_len > fence_len
+                            and nesting_depth == 1
+                            and next_has_content
+                            and not next_is_fence
+                        ):
+                            content_lines.append(line)
+                            i += 1
+                            continue
 
                         # Decision logic:
                         # 1. If we have nested blocks open (depth > 1), prefer closing
@@ -1472,6 +1528,19 @@ def _extract_codeblocks(
                                 and not _ipython_in_triple_double
                                 and not _ipython_in_triple_single
                             ):
+                                # A bare fence *longer* than the opener may still
+                                # turn out to be literal content: the following
+                                # line has not arrived yet. Yield only once a real
+                                # blank line (or a following fence) confirms
+                                # closure; otherwise keep the block open so the
+                                # streamed tail is not dropped (gptme/gptme#5386
+                                # Greptile P1 "Streamed commands lose their tail").
+                                if (
+                                    line_fence_len > fence_len
+                                    and not next_is_blank
+                                    and not next_is_fence
+                                ):
+                                    break
                                 yield Codeblock(
                                     lang,
                                     "\n".join(content_lines),
