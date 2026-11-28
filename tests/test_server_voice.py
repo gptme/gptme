@@ -16,6 +16,7 @@ import pytest
 
 pytest.importorskip("flask", reason="flask not installed; install -E server")
 
+from gptme.message import Message
 from gptme.server import voice_api
 from gptme.server.voice_api import VoiceManager, VoiceSidecar
 
@@ -203,6 +204,51 @@ class TestPerTurnTranscript:
             m["content"] for m in log if (m.get("metadata") or {}).get("voice_call")
         ]
         assert voice == ["Hello, use the other file", "Hi!", "thanks"]
+
+    def test_revision_reaches_full_history_under_a_compacted_view(
+        self, client: FlaskClient
+    ):
+        """With a compacted view active, a revised turn is updated in the full
+        history too, a turn compacted out of the view is not re-added, and no
+        edit backup branch is created."""
+        from gptme.logmanager import Log, LogManager
+
+        conv = f"test-voice-{uuid.uuid4().hex[:8]}"
+        self._post(
+            client,
+            conv,
+            [
+                {"role": "user", "text": "Hello", "turn_id": "webui-abc:0"},
+                {"role": "assistant", "text": "Hi!", "turn_id": "webui-abc:1"},
+            ],
+        )
+        with LogManager.load(conv, lock=True) as manager:
+            kept = manager.log.messages[-1]
+            manager.create_view("compacted-001", Log([Message("system", "sum"), kept]))
+            manager.switch_view("compacted-001")
+            manager.write()
+
+        resp = self._post(
+            client,
+            conv,
+            [
+                {"role": "user", "text": "Hello", "turn_id": "webui-abc:0"},
+                {"role": "assistant", "text": "Hi there!", "turn_id": "webui-abc:1"},
+                {"role": "user", "text": "thanks", "turn_id": "webui-abc:2"},
+            ],
+        )
+        assert resp.get_json()["messages_revised"] == 1
+        assert resp.get_json()["messages_added"] == 1
+
+        with LogManager.load(conv, lock=False) as manager:
+            assert manager.current_view == "compacted-001"
+            assert [m.content for m in manager.log] == ["sum", "Hi there!", "thanks"]
+            assert [
+                m.content
+                for m in manager.history_log
+                if (m.metadata or {}).get("voice_call")
+            ] == ["Hello", "Hi there!", "thanks"]
+            assert list(manager._branches) == ["main"]
 
     def test_turns_without_ids_keep_call_level_dedupe(self, client: FlaskClient):
         """Post-call promotion (no turn ids) is still deduplicated per call."""

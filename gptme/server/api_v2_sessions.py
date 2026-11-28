@@ -7,6 +7,7 @@ Data models live in session_models.py; execution logic in session_step.py.
 """
 
 import dataclasses
+import functools
 import logging
 import math
 import re
@@ -1267,8 +1268,10 @@ def api_conversation_transcript(conversation_id: str):
         with LogManager.load(conversation_id, lock=True, create=True) as manager:
             # Idempotency: per turn when turns carry ids (live calls post turn
             # by turn), otherwise once per call (post-call promotion).
-            seen_turns: dict[str, int] = {}  # turn_id -> index in the log
-            for i, msg in enumerate(manager.log.messages):
+            # Full history, not the compacted view: a turn compacted out of
+            # the view was still posted and must not be appended again.
+            seen_turns: dict[str, str] = {}  # turn_id -> posted text
+            for msg in manager.history_log.messages:
                 voice_call = (msg.metadata or {}).get("voice_call")
                 if not voice_call or voice_call.get("call_sid") != call_sid:
                     continue
@@ -1282,12 +1285,13 @@ def api_conversation_transcript(conversation_id: str):
                     )
                 existing_turn_id = voice_call.get("turn_id")
                 if isinstance(existing_turn_id, str) and existing_turn_id:
-                    seen_turns[existing_turn_id] = i
+                    seen_turns[existing_turn_id] = msg.content
 
             added: list[Message] = []
             # A provider can revise a turn after it was posted (e.g. a longer
             # final transcript for the same utterance): update it in place.
-            revised: dict[int, str] = {}
+            revised: dict[str, str] = {}  # turn_id -> revised text
+            appended: set[str] = set()
             for turn in turns:
                 role = turn.get("role")
                 text = (turn.get("text") or "").strip()
@@ -1299,41 +1303,32 @@ def api_conversation_transcript(conversation_id: str):
                     continue
                 turn_id = turn.get("turn_id")
                 if turn_id and turn_id in seen_turns:
-                    index = seen_turns[turn_id]
-                    if index >= 0 and manager.log.messages[index].content != text:
-                        revised[index] = text
+                    if turn_id not in appended and seen_turns[turn_id] != text:
+                        revised[turn_id] = text
                     continue
 
                 metadata = dict(call_metadata)
                 if turn_id:
                     metadata["turn_id"] = turn_id
-                    seen_turns[
-                        turn_id
-                    ] = -1  # appended below, never revised twice per batch
+                    seen_turns[turn_id] = text
+                    appended.add(turn_id)  # never revised twice per batch
                 msg = Message(
                     role=role, content=text, metadata={"voice_call": metadata}
                 )
                 added.append(msg)
 
-            if revised:
-                msgs = list(manager.log.messages)
-                for index, text in revised.items():
-                    msgs[index] = dataclasses.replace(msgs[index], content=text)
-                manager.edit(msgs + added)
-                log_dict = manager.to_dict(branches=True)
-                SessionManager.add_event(
-                    conversation_id,
-                    {
-                        "type": "conversation_edited",
-                        "index": min(revised),
-                        "truncated": False,
-                        "log": log_dict.get("log", []),
-                        "branches": log_dict.get("branches", {}),
-                    },
+            def _is_turn(msg: Message, turn_id: str) -> bool:
+                voice_call = (msg.metadata or {}).get("voice_call") or {}
+                return (
+                    voice_call.get("call_sid") == call_sid
+                    and voice_call.get("turn_id") == turn_id
                 )
-            else:
-                for msg in added:
-                    manager.append(msg)
+
+            for turn_id, text in revised.items():
+                manager.revise(functools.partial(_is_turn, turn_id=turn_id), text)
+            for msg in added:
+                manager.append(msg)
+                if not revised:
                     SessionManager.add_event(
                         conversation_id,
                         {
@@ -1341,6 +1336,26 @@ def api_conversation_transcript(conversation_id: str):
                             "message": msg2dict(msg, manager.workspace, manager.logdir),
                         },
                     )
+            if revised:
+                # Revised text replaces earlier messages: resend the whole log.
+                log_dict = manager.to_dict(branches=True)
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "conversation_edited",
+                        "index": next(
+                            (
+                                i
+                                for i, msg in enumerate(manager.log.messages)
+                                if any(_is_turn(msg, t) for t in revised)
+                            ),
+                            0,
+                        ),
+                        "truncated": False,
+                        "log": log_dict.get("log", []),
+                        "branches": log_dict.get("branches", {}),
+                    },
+                )
 
     if added or revised:
         from .api_v2 import _update_conversation_in_cache  # fmt: skip
