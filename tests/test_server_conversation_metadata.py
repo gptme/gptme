@@ -196,6 +196,17 @@ class TestMetadata:
         assert data["tags"] == []
         assert data["starred"] is True
 
+    @pytest.mark.parametrize("method", ["get", "patch"])
+    def test_invalid_conversation_id_is_400(self, client: FlaskClient, method):
+        cid = "c" * 300
+        url = f"/api/v2/conversations/{cid}/metadata"
+        if method == "get":
+            resp = client.get(url)
+        else:
+            resp = client.patch(url, json={"starred": True})
+        assert resp.status_code == 400
+        assert "conversation_id" in resp.get_json()["error"]
+
     def test_metadata_does_not_touch_chat_config(self, client: FlaskClient):
         cid = _create_conv(client)
         before = client.get(f"/api/v2/conversations/{cid}/config").get_json()
@@ -628,3 +639,44 @@ class TestConfigPatchModelValidation:
 
         with pytest.raises(ValueError, match="model name after the provider"):
             _validate_conversation_model("openai/")
+
+    def test_patch_model_when_conversation_has_no_config(self, client: FlaskClient):
+        """A logdir without config.toml has no saved model to compare against.
+
+        `_saved_model_and_effort` returns the "nothing saved" tuple instead of
+        raising, so a PATCH still validates the requested model.
+        """
+        from gptme.dirs import get_logs_dir
+
+        cid = _create_conv(client)
+        (get_logs_dir() / cid / "config.toml").unlink()
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": "openai/gpt-4o-mini"}},
+        )
+        assert resp.status_code == 200, resp.get_json()
+
+    def test_empty_and_bare_provider_models_are_accepted(self):
+        from gptme.server.api_v2 import _validate_conversation_model
+
+        # An empty model means "unset"; nothing to validate.
+        _validate_conversation_model("   ")
+        # A bare provider name selects that provider's default model.
+        _validate_conversation_model("openai")
+
+    def test_saved_model_lookup_failure_is_not_fatal(self, monkeypatch):
+        """A config.toml that fails to load must not break a settings save."""
+        from gptme.config.chat import ChatConfig
+        from gptme.dirs import get_logs_dir
+        from gptme.server import api_v2
+
+        cid = f"conv-broken-config-{uuid4().hex[:8]}"
+        logdir = get_logs_dir() / cid
+        logdir.mkdir(parents=True)
+        (logdir / "config.toml").write_text("")
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(ChatConfig, "from_logdir", staticmethod(boom))
+        assert api_v2._saved_model_and_effort(cid) == (None, None, None)
