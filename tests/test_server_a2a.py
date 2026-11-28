@@ -216,6 +216,7 @@ def test_a2a_reports_failure_released_between_read_and_idle_check(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         session.generating = True
         real_read_events = session.read_events
@@ -277,6 +278,7 @@ def test_a2a_final_drain_respects_blocking_timeout(client, monkeypatch, tmp_path
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         # The step is idle, but another holder (a deferred watch wake whose
         # disk write stalls) owns step_lock.
@@ -339,6 +341,7 @@ def test_a2a_final_drain_timeout_still_reports_posted_error(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         session.generating = False
         real_read_events = session.read_events
@@ -408,6 +411,7 @@ def test_a2a_unlimited_blocking_timeout_does_not_fail_idle_step(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         session.generating = False
 
@@ -620,6 +624,7 @@ def test_a2a_step_complete_on_first_read_returns_completed(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         manager.append(Message("assistant", "first-read response"))
@@ -703,6 +708,7 @@ def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         manager.append(Message("assistant", "late response"))
@@ -885,6 +891,8 @@ def test_a2a_crash_failure_survives_gc_while_transcript_write_stalls(
         for worker in workers:
             worker.join(5)
             assert not worker.is_alive()
+
+
 def _guarded_fake_step(session, seen: list[bool]):
     """Mirror step()'s entry guard: an interrupted step returns without releasing."""
 
