@@ -881,6 +881,9 @@ def test_prompt_workspace_skips_context_cmd_by_default(tmp_path, monkeypatch):
     from gptme.prompts import prompt_workspace
 
     monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    # conftest.py sets the trust-all flag True for the rest of the suite; this
+    # test must exercise the real default-skip and stored-approval paths.
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", False)
     trust_mod._session_decisions.clear()
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
