@@ -236,3 +236,21 @@ def test_ipython_message_results_drop_terminal_control_sequences(isolated_shell)
 
     assert "\x1b" not in msg.content
     assert msg.content == "ac]0;tb"
+
+
+def test_sandbox_output_drops_terminal_control_sequences(monkeypatch):
+    """The docker/wasmtime path builds its own message; it must clean too."""
+    monkeypatch.setenv("GPTME_SANDBOX", "docker")
+    with (
+        patch.object(python_tool, "get_confirmation") as confirm,
+        patch("gptme.sandbox.SandboxConfig.check_available", return_value=(True, "")),
+        patch(
+            "gptme.sandbox.sandbox_exec_python",
+            return_value=("a\x1bc\x1b]0;t\x07b", "", 0),
+        ),
+    ):
+        confirm.return_value.action = python_tool.ConfirmAction.CONFIRM
+        msg = next(python_tool.execute_python("print('x')", [], {}))
+
+    assert "\x1b" not in msg.content
+    assert "ac]0;tb" in msg.content

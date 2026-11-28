@@ -1195,7 +1195,7 @@ def execute_python(
             output += f"Process exited with code {returncode}\n"
         yield Message(
             "system",
-            f"Executed code block ({label}).\n\n" + output,
+            f"Executed code block ({label}).\n\n" + strip_terminal_controls(output),
         )
         return
 
