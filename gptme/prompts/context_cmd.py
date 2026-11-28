@@ -83,7 +83,8 @@ def get_project_context_cmd_output(
             cwd=workspace,
             shell=True,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=env,
         )
@@ -105,12 +106,15 @@ def get_project_context_cmd_output(
         # so LLM can see what worked and what failed for self-recovery
         # Truncate stdout to prevent context explosion, truncate stderr for safety
         output = _truncate_context_output(result.stdout)
+        if output:
+            output += "\n\n"
+        output += f"## Context Generation Error (exit {result.returncode})"
         stderr_stripped = result.stderr.strip()
         if stderr_stripped:
             stderr_preview = stderr_stripped[:500]
             if len(stderr_stripped) > 500:
                 stderr_preview += "\n... (truncated)"
-            output += f"\n\n## Context Generation Error (exit {result.returncode})\n\n{stderr_preview}"
+            output += f"\n\n{stderr_preview}"
         return md_codeblock(cmd, output)
     except Exception as e:
         logger.error(f"Error running context command: {e}")
