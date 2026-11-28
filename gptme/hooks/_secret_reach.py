@@ -735,6 +735,24 @@ def _selected(grep: _Grep, path: str, root: str) -> bool:
     return not any(fnmatch.fnmatchcase(d, p) for d in dirs for p in grep.exclude_dirs)
 
 
+def _reader_operands(args: list[str]) -> list[str]:
+    """Non-flag words, plus every word after a literal ``--`` separator.
+
+    After ``--`` the shell passes words verbatim, so a dash-prefixed name is a
+    filename the reader will open. Keep it as an operand (globs included)
+    instead of dropping it as a flag.
+    """
+    operands: list[str] = []
+    separated = False
+    for word in args:
+        if not separated and word == "--":
+            separated = True
+            continue
+        if separated or not word.startswith("-"):
+            operands.append(word)
+    return operands
+
+
 def find_secret_reach(
     command: str,
     is_secret: Callable[[str], bool],
@@ -770,11 +788,7 @@ def find_secret_reach(
         if grep and name == "fgrep":
             grep.flags += "F"
         extra_files = _expand_grep_patterns(grep) if grep else []
-        files = (
-            list(grep.files)
-            if grep
-            else [word for word in words[1:] if not word.startswith("-")]
-        )
+        files = list(grep.files) if grep else _reader_operands(words[1:])
         recursive = bool(grep and name != "rg" and set(grep.flags) & {"r", "R"})
         if recursive and not files:
             files = ["."]

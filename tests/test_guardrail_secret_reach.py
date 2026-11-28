@@ -108,6 +108,42 @@ def test_review_benign_cases(secret_tree: Path, command: str) -> None:
     assert _find_secret_path_in_cmd(command) is None
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat -- -n*",
+        "cat -- -notes",
+        "cat -- ./-notes",
+        "head -- -note?",
+        "head -n 2 -- -notes",
+        "cat -- *",
+        "cat -- -*",
+    ],
+)
+def test_dash_named_operands_after_separator(secret_tree: Path, command: str) -> None:
+    """After ``--`` a dash-prefixed word is a file name, not a flag."""
+    (secret_tree / "-notes").symlink_to(".env")
+    (secret_tree / "-note2").symlink_to(".env")
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat --",
+        "cat -- README.md",
+        "head -n 1 -- pyproject.toml",
+        "cat -n README.md",
+    ],
+)
+def test_separator_keeps_ordinary_operands_allowed(
+    secret_tree: Path, command: str
+) -> None:
+    (secret_tree / "README.md").write_text("synthetic readme\n")
+    (secret_tree / "pyproject.toml").write_text("synthetic project\n")
+    assert _find_secret_path_in_cmd(command) is None
+
+
 def test_shared_directory_budget(
     secret_tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
