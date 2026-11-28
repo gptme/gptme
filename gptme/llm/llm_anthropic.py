@@ -2002,14 +2002,23 @@ def _spec2tool(
 ) -> "anthropic.types.ToolParam":
     name = native_tool_name(spec.name)
 
+    # MCP-generated ToolSpecs carry their human-readable text in `desc`, with no
+    # `instructions` or `instructions_format`, so get_instructions() is empty.
+    # Fall back to `desc` like the OpenAI conversion, otherwise Anthropic sends
+    # an empty tool description.
+    description = (
+        spec.instructions_format.get("tool")
+        or spec.get_instructions("tool")
+        or spec.desc
+        or ""
+    )
+
     # TODO: are input_schema and parameters the same? (both JSON Schema?)
     return cast(
         "anthropic.types.ToolParam",
         {
             "name": name,
-            "description": truncate_tool_description(
-                spec.get_instructions("tool"), spec.name
-            ),
+            "description": truncate_tool_description(description, spec.name),
             "input_schema": parameters2dict(spec.parameters),
         },
     )
