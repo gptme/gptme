@@ -282,3 +282,22 @@ def test_interactive_resume_keeps_saved_modes_on_disk(tmp_path):
     assert saved.no_confirm is True
     assert saved.interactive is False
     assert saved.stream is False
+
+
+def test_noninteractive_preset_resume_keeps_boundary_without_complete(tmp_path):
+    """A saved preset is an exclusive boundary; resume must not widen it."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        tool_allowlist="read-only",
+        interactive=False,
+    )
+    assert ChatConfig.from_logdir(logdir).tools == ["read-only"]
+
+    cfg = setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=False)
+    assert cfg.chat is not None
+    assert cfg.chat.tools == ["read-only"]
+    assert ChatConfig.from_logdir(logdir).tools == ["read-only"]

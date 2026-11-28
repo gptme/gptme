@@ -66,3 +66,18 @@ def test_enabling_extra_feature_takes_effect():
     # This is exactly how gptme/util/sound.py:331 reads the setting.
     assert get_config().get_env_bool("GPTME_DING") is True
     assert get_config().get_env_bool("GPTME_CONTEXT_TREE") is True
+
+
+def test_disabling_extra_feature_takes_effect():
+    """The written "0" must read back as disabled, not merely as a present key."""
+    with patch("gptme.cli.setup.Confirm.ask", return_value=True):
+        _configure_extra_features(FEATURES)
+    reload_config()
+    assert get_config().get_env_bool("GPTME_DING") is True
+
+    # user answers "no" to the enable prompt: the disable path writes "0"
+    with patch("gptme.cli.setup.Confirm.ask", return_value=False):
+        _configure_extra_features(FEATURES)
+    reload_config()
+    assert get_config().get_env_bool("GPTME_DING", True) is False
+    assert get_config().get_env_bool("GPTME_CONTEXT_TREE", True) is False

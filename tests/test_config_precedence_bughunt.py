@@ -2,7 +2,7 @@
 
 Each test FAILS on master ed58254b because of the bug it names.
 Run from the checkout:
-  .venv/bin/python -m pytest /tmp/bob-scratch/2494/r1/test_config_precedence_bugs.py -q -p no:cacheprovider
+  .venv/bin/python -m pytest tests/test_config_precedence_bughunt.py -q
 """
 
 from collections.abc import Iterator
