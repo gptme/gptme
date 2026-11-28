@@ -771,6 +771,35 @@ def test_format_trends_html_uses_gptme_eval_cli(tmp_path):
     assert "gptme-eval --leaderboard --leaderboard-format html --trends" in output
 
 
+def test_sparse_format_does_not_hide_qualifying_trend():
+    """A format with many one-test days must not suppress a complete run (#5322)."""
+    rows = [
+        {
+            "model": "test-model",
+            "format": "tool",
+            "test": str(i),
+            "passed": True,
+            "run_dir": "20261126_120000Z",
+        }
+        for i in range(4)
+    ]
+    rows += [
+        {
+            "model": "test-model",
+            "format": "markdown",
+            "test": str(day),
+            "passed": True,
+            "run_dir": f"202611{day:02d}_120000Z",
+        }
+        for day in range(21, 26)
+    ]
+
+    result = compute_rate_trends(rows, min_tests=4, window_days=36500)
+
+    assert "test-model" in result["daily_rates"], result
+    assert result["daily_rates"]["test-model"] == [("2026-11-26", 1.0, 4, 4)]
+
+
 def test_normalize_model_openrouter_proxied():
     """OpenRouter-proxied models get display names with (OR) suffix."""
     assert (
