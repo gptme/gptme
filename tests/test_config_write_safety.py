@@ -1431,3 +1431,57 @@ def test_onboard_recovery_reports_a_config_that_is_still_invalid(
     assert "still invalid" in out
     assert "hooks must be an object" in out
     assert list(config_file.parent.glob("config.toml.corrupt-*"))
+
+
+def test_scalar_prompt_section_warns_instead_of_crashing(
+    config_file: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A top-level ``prompt = 1`` must not crash config loading with TypeError.
+
+    The scalar reaches ``_filter_known_fields`` as an int, where ``set(data)``
+    raised ``TypeError``. Like the other section-type mismatches, it now warns
+    and falls back to defaults instead of aborting every config load.
+    """
+    config_file.write_text("prompt = 1\n", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="gptme.config.user"):
+        config = load_user_config(str(config_file))
+
+    assert config.prompt.about_user is None
+    assert any("[prompt] should be a table" in r.message for r in caplog.records)
+
+
+def test_onboard_recovery_handles_a_scalar_prompt_in_surviving_config(
+    config_file: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Real files: a corrupt main config plus a local ``prompt = 1``.
+
+    Recovery moves the unparseable main file aside, then re-reads the surviving
+    local config. That re-read raised ``TypeError`` from the scalar prompt and
+    aborted onboarding with a traceback after the backup had already happened.
+    It must now complete and save.
+    """
+    from gptme.cli import onboard
+
+    local = config_file.with_name("config.local.toml")
+    local.write_text("prompt = 1\n", encoding="utf-8")
+    config_file.write_text('[models\ndefault = "broken"\n', encoding="utf-8")
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        # Real loader against the real files; the first read hits the corrupt
+        # main config, the re-read sees the surviving local file.
+        patch.object(
+            onboard,
+            "get_config",
+            side_effect=lambda: SimpleNamespace(user=load_user_config()),
+        ),
+        patch.object(onboard.Confirm, "ask", return_value=True),
+        patch("gptme.config.core.reload_config"),
+    ):
+        result = onboard._create_config("openai", "openai/new")
+
+    assert result == config_file
+    assert "Traceback" not in capsys.readouterr().out
+    assert load_user_config(str(config_file)).models.default == "openai/new"
+    assert list(config_file.parent.glob("config.toml.corrupt-*"))

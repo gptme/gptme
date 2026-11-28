@@ -708,6 +708,13 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     # Note: prompt and env are optional - defaults are used if missing
 
     prompt_data = config.pop("prompt", {})
+    if not isinstance(prompt_data, dict):
+        # A scalar ``prompt = 1`` parses as TOML but reaches
+        # ``_filter_known_fields`` as an int, where ``set(data)`` raises
+        # TypeError and crashes config loading (and onboarding). Treat it like
+        # the other section-type mismatches: warn and fall back to defaults.
+        logger.warning(f"[prompt] should be a table, got {type(prompt_data).__name__}")
+        prompt_data = {}
     prompt = UserPromptConfig(
         **_filter_known_fields(UserPromptConfig, prompt_data, "prompt")
     )
