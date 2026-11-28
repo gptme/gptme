@@ -668,6 +668,31 @@ def test_get_models_url_env_models_url():
         assert get_models_url(config) == "https://custom.example.com/v1"
 
 
+def test_get_models_url_token_base_url_ignores_env_base_url():
+    """A token with its own base_url keeps model listing on the token's service.
+
+    Chat ignores GPTME_CLOUD_BASE_URL for such a token, and --list-models sends
+    the same bearer, so it must not go to the env host (gptme/gptme#5218 item 8).
+    """
+    from gptme.llm.llm_gptme import (
+        DEFAULT_BASE_URL,
+        DEFAULT_MODELS_BASE_URL,
+        get_base_url,
+        get_models_url,
+    )
+
+    token_data = {
+        "access_token": "gptme-ai-bearer",
+        "expires_at": 9999999999,
+        "server_url": "https://auth.gptme.ai",
+        "base_url": DEFAULT_BASE_URL,
+    }
+    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": "https://other.example.com/v1"})
+    with patch("gptme.llm.llm_gptme._load_token", return_value=token_data):
+        assert get_base_url(config) == DEFAULT_BASE_URL
+        assert get_models_url(config) == DEFAULT_MODELS_BASE_URL
+
+
 def test_get_models_url_env_base_url_custom_server():
     """GPTME_CLOUD_BASE_URL for a custom (non-Supabase) server should be used for models."""
     from gptme.llm.llm_gptme import get_models_url
