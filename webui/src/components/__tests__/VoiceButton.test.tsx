@@ -131,6 +131,25 @@ describe('VoiceButton', () => {
     expect(mockStart).not.toHaveBeenCalled();
   });
 
+  it('keeps the stop control for a live call here when voice is reported unavailable', async () => {
+    mockGetVoiceStatus.mockResolvedValue({
+      available: false,
+      reason: 'voice service not responding',
+      providers: [],
+      default_provider: null,
+    });
+    mockCall = {
+      ...mockCall,
+      state: 'recording',
+      conversationId: 'conv-1',
+      serverId: 'srv-primary',
+    };
+    renderButton();
+    const button = await screen.findByRole('button', { name: /Click to end/ });
+    button.click();
+    expect(mockStop).toHaveBeenCalled();
+  });
+
   it('uses the remembered provider when it is available', async () => {
     localStorage.setItem('gptme_voice_provider', 'grok');
     mockGetVoiceStatus.mockResolvedValue(bothProviders);

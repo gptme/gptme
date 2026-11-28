@@ -102,21 +102,24 @@ export function VoiceButton({ conversationId, serverId, startConversation }: Pro
   const call = useVoiceCall();
   const { state, error, level, stop } = call;
 
-  if (!status?.available || !provider) return null;
-  const target = conversationId ?? startConversation;
-  if (!target) return null;
-
   const isActive = state === 'recording' || state === 'connecting';
   const isLoading = state === 'connecting';
   const here = isCallFor(call, conversationId, owner);
+  // A live call here keeps its stop control even if a status poll says voice
+  // is unavailable (e.g. a health check timed out mid-call).
+  const liveHere = isActive && here;
+  if (!liveHere && (!status?.available || !provider)) return null;
+  const target = conversationId ?? startConversation;
+  if (!target && !liveHere) return null;
   const elsewhere = isActive && !!call.conversationId && !here;
   // An error belongs to the conversation whose call failed.
   const hasError = !!error && (!call.conversationId || here);
-  const label = stateLabel(state, hasError ? error : null, provider.label, elsewhere);
+  const label = stateLabel(state, hasError ? error : null, provider?.label ?? 'Voice', elsewhere);
 
   const handleClick = () => {
     if (isActive) stop();
-    else call.start(target, { client, serverId: owner, provider: provider.id });
+    else if (target && provider)
+      call.start(target, { client, serverId: owner, provider: provider.id });
   };
 
   const chooseProvider = (id: string) => {
@@ -172,7 +175,7 @@ export function VoiceButton({ conversationId, serverId, startConversation }: Pro
         </TooltipContent>
       </Tooltip>
 
-      {providers.length > 1 && (
+      {provider && providers.length > 1 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
