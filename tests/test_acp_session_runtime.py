@@ -3316,3 +3316,38 @@ def test_acp_step_clears_sent_mark_unless_interrupted(
         assert _questions_prompted(created, {"q0"}) == ["q0"]
     finally:
         _drop_acp_session(conversation_id, sid)
+
+
+def test_enabling_acp_hands_off_history_in_one_prompt(monkeypatch, client, tmp_path):
+    from gptme.server.api_v2_sessions import SessionManager
+    from gptme.server.session_step import _acp_step
+
+    sid = "sid-enable-acp-history"
+    conversation_id, session, clients = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [
+            ("user", "The previous run was for workspace Orion.", None),
+            ("system", "tool transcript should stay local", None),
+            ("assistant", "I recorded the Orion plan.", None),
+            ("user", "What was the workspace again?", None),
+            ("user", "What should I do next?", None),
+        ],
+    )
+    session.acp_send_history = True
+
+    try:
+        _run(_acp_step(conversation_id, session, tmp_path))
+        calls = [prompt for c in clients for _, prompt in c.prompt_calls]
+        assert len(calls) == 2
+        assert "The previous run was for workspace Orion." in calls[0]
+        assert "I recorded the Orion plan." in calls[0]
+        assert "tool transcript should stay local" not in calls[0]
+        assert calls[0].endswith("What was the workspace again?")
+        assert calls[1] == "What should I do next?"
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop(sid, None)
+            SessionManager._conversation_sessions[conversation_id].discard(sid)
