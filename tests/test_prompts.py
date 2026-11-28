@@ -772,6 +772,63 @@ def test_prompt_workspace_can_skip_user_context(tmp_path, monkeypatch):
     assert str(user_notes.resolve()) not in files_without_user
 
 
+@pytest.mark.parametrize("location", ["config", "workspace"])
+def test_get_prompt_with_legacy_encoded_agent_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    from gptme.prompts import _loaded_agent_files_var
+    from gptme.util.context import enrich_messages_with_context
+    from gptme.util.context_dedup import _content_hash
+
+    workspace = tmp_path / "workspace"
+    config_dir = tmp_path / "config"
+    workspace.mkdir()
+    config_dir.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path", str(config_dir / "config.toml")
+    )
+
+    directory = config_dir if location == "config" else workspace
+    legacy_agent = directory / "AGENTS.md"
+    legacy_agent.write_bytes(b"caf\xe9 legacy instructions\n")
+    valid_agent = directory / "CLAUDE.md"
+    valid_rules = "Read the adjacent instructions.\n"
+    valid_agent.write_text(valid_rules, encoding="ascii")
+
+    loaded: set[str] = set()
+    token = _loaded_agent_files_var.set(loaded)
+    try:
+        messages = get_prompt(
+            [],
+            workspace=workspace,
+            context_mode="selective",
+            context_include=["files"],
+        )
+    finally:
+        _loaded_agent_files_var.reset(token)
+
+    instructions = [msg for msg in messages if legacy_agent in msg.files]
+    assert len(instructions) == 1
+    assert instructions[0].files == [legacy_agent, valid_agent]
+    assert {str(legacy_agent.resolve()), str(valid_agent.resolve())} <= loaded
+
+    embedded = enrich_messages_with_context(instructions, workspace)[0]
+    expected_hashes = {f"ch:{_content_hash(valid_rules)}"}
+    assert valid_rules in embedded.content
+    try:
+        legacy_rules = legacy_agent.read_text()
+    except UnicodeDecodeError:
+        assert embedded.files == [legacy_agent]
+    else:
+        # A locale that can decode the file should still embed and hash its text.
+        assert embedded.files == []
+        assert legacy_rules in embedded.content
+        expected_hashes.add(f"ch:{_content_hash(legacy_rules)}")
+    assert {key for key in loaded if key.startswith("ch:")} == expected_hashes
+
+
 def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     """~/AGENTS.md must not leak when workspace is under the home directory.
 
