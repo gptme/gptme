@@ -506,6 +506,9 @@ class Subagent:
     context_mode: Literal["full", "selective", "fork"] = "full"
     context_include: list[str] | None = None
     profile: str | None = None
+    # Captured operator boundary; persist it so continuation in another context
+    # cannot turn a restricted child into an unrestricted one.
+    parent_tool_allowlist: list[str] | None = None
     output_schema: "type | dict | None" = None
     use_acp: bool = False
     # Per-call reasoning effort override (e.g. "low"/"medium"/"high"), forwarded
@@ -981,8 +984,33 @@ class Subagent:
         # copied from the parent; skip them so the count reflects only this
         # subagent's tool calls, not the parent's inherited history.
         own_msgs = log[self.fork_message_count :]
+        # Read the child's dialect, not the parent's current context. Native
+        # parsing includes markdown, but XML needs its own parser.
+        from ...config.chat import ChatConfig
+
+        try:
+            child_format = ChatConfig.from_logdir(
+                self.logdir, create_workspace=False
+            ).tool_format
+        except (ValueError, OSError):
+            # Old/future configs must not hide an otherwise readable result.
+            child_format = None
+
+        def _count_format_for(message) -> Literal["markdown", "xml", "tool"]:
+            recorded = (message.metadata or {}).get("tool_format")
+            if recorded in ("markdown", "xml", "tool"):
+                return recorded
+            return "xml" if child_format == "xml" else "tool"
+
         n_tool_uses = sum(
-            len(list(ToolUse.iter_from_content(message.content)))
+            len(
+                list(
+                    ToolUse.iter_from_content(
+                        message.content,
+                        tool_format_override=_count_format_for(message),
+                    )
+                )
+            )
             for message in own_msgs
             if message.role == "assistant"
         )
@@ -1054,16 +1082,25 @@ class Subagent:
                 # Only recover adjacent, tool-free prose from this child's history:
                 # never cross a user turn (harness nudges excepted), tool
                 # invocation, or fork boundary.
-                if complete_tool.kwargs is not None and len(native_tools) == 1:
+                if complete_tool.kwargs is not None:
                     from ...context import strip_reasoning
                     from ...message import _strip_think_sig
 
+                    # Prose precedes the message's first call; ``complete`` may
+                    # share the message with other calls (e.g. [save, complete]).
+                    first_call_start = min(
+                        (t.start for t in native_tools if t.start is not None),
+                        default=complete_tool.start,
+                    )
                     # Reasoning and provider signatures are not a report. Strip
                     # them before deciding whether to recover preceding prose.
                     summary, _ = strip_reasoning(
-                        _strip_think_sig(terminal_msg.content[: complete_tool.start])
+                        _strip_think_sig(terminal_msg.content[:first_call_start])
                     )
-                    if not summary:
+                    # Only walk back to earlier messages when ``complete`` was
+                    # the message's sole call: other calls in this message are
+                    # work done after any earlier prose.
+                    if not summary and len(native_tools) == 1:
                         for previous in reversed(
                             log[self.fork_message_count : terminal_index]
                         ):

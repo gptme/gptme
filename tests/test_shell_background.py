@@ -733,6 +733,21 @@ class TestExecuteOutputCommand:
         assert "Finished" in msgs[0].content
         assert "No output yet" in msgs[0].content
 
+    def test_wait_after_guard_kill_shows_reason(self):
+        """`wait N` on a guard-killed job must say why it died, not only -15 (#5247)."""
+        from gptme.tools.shell_background import (
+            _record_kill_reason,
+            execute_wait_command,
+        )
+
+        job = start_background_job("sleep 60")
+        _record_kill_reason(job, "Killed by the memory guard: RSS over limit.")
+        job.kill()
+        msgs = list(execute_wait_command(str(job.id), "5"))
+        assert "Killed by the memory guard" in msgs[-1].content
+        msgs = list(execute_kill_command(str(job.id)))
+        assert "Killed by the memory guard" in msgs[0].content
+
     def test_long_stdout_truncated(self):
         """Stdout longer than 8000 chars should be truncated."""
         # Generate >8000 chars

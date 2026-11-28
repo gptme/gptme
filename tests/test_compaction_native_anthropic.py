@@ -351,6 +351,7 @@ def test_resume_via_llm_falls_back_to_generic_when_native_fails(monkeypatch):
 
     resume_content = "# Resume\n## Summary\nWe discussed testing.\n"
     with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
+        mock_llm._resolve_max_tokens.return_value = 8192
         mock_response = MagicMock()
         mock_response.content = resume_content
         mock_llm.reply.return_value = mock_response

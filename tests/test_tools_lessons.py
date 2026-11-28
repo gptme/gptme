@@ -596,6 +596,43 @@ class TestAutoIncludeLessonsHook:
             "/lessons/l2.md",
         }
 
+    @patch("gptme.tools.lessons._get_lesson_index")
+    @patch("gptme.tools.lessons.get_config")
+    def test_harness_nudge_does_not_reset_per_turn_limit(self, mock_config, mock_index):
+        """A user-role harness nudge stays inside the turn (#5247)."""
+        config = MagicMock()
+        config.get_env_bool.side_effect = lambda key, default: default
+        config.get_env.side_effect = lambda key: {
+            "GPTME_LESSONS_MAX_SESSION": "20",
+            "GPTME_LESSONS_MAX_PER_TURN": "2",
+        }.get(key)
+        mock_config.return_value = config
+        lessons = [_lesson(path=f"/lessons/l{i}.md") for i in range(4)]
+        mock_index.return_value.lessons = lessons
+        manager = self._make_manager([_msg("user", "trigger content")])
+
+        with patch("gptme.tools.lessons.LessonMatcher") as MockMatcher:
+            matcher = MockMatcher.return_value
+            matcher.match.return_value = [_match_result(x) for x in lessons[:2]]
+            first = list(auto_include_lessons_hook(manager))
+            assert len(first) == 1
+            manager.log.messages.extend(first)
+            manager.log.messages.append(_msg("assistant", "no tool call"))
+            manager.log.messages.append(
+                Message(
+                    "user",
+                    "<system>No tool call detected in last message.</system>",
+                    metadata={"harness_nudge": True},
+                )
+            )
+            matcher.match.return_value = [_match_result(x) for x in lessons]
+            assert list(auto_include_lessons_hook(manager)) == []
+            # Identical pasted text without provenance starts a genuine turn.
+            manager.log.messages.append(
+                _msg("user", "<system>No tool call detected in last message.</system>")
+            )
+            assert len(list(auto_include_lessons_hook(manager))) == 1
+
     @pytest.mark.parametrize("limit", [None, "0", "-1", "invalid"])
     @patch("gptme.tools.lessons._get_lesson_index")
     @patch("gptme.tools.lessons.get_config")

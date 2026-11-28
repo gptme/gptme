@@ -259,6 +259,31 @@ def test_resumed_tool_turn_does_not_start_provider_eligible_event(
     assert recorded_requests(hook_env)[0]["event_kind"] == "tool"
 
 
+def test_harness_nudge_is_not_a_new_prompt(hook_env: dict[str, Any]) -> None:
+    """A user-role harness nudge keeps the real prompt as the query (#5247)."""
+    fake_cli(hook_env, "print(json.dumps({'version':1, 'status':'empty', 'ids':[]}))")
+    run_hook(hook_env)
+    hook_env["manager"].log.messages.extend(
+        [
+            Message("assistant", "thinking without a tool call"),
+            Message(
+                "user",
+                "<system>No tool call detected in last message.</system>",
+                metadata={"harness_nudge": True},
+            ),
+        ]
+    )
+    run_hook(hook_env)
+    first_request, nudge_request = recorded_requests(hook_env)
+    assert nudge_request["event_kind"] == "tool"
+    assert nudge_request["query"] == first_request["query"] == "commit changes safely"
+    pasted = "<system>No tool call detected in last message.</system>"
+    hook_env["manager"].log.messages.append(Message("user", pasted))
+    run_hook(hook_env)
+    assert recorded_requests(hook_env)[-1]["event_kind"] == "user_prompt"
+    assert recorded_requests(hook_env)[-1]["query"] == pasted
+
+
 def test_guard_policy_changes_fingerprint_input(hook_env: dict[str, Any]) -> None:
     fake_cli(hook_env, "print(json.dumps({'version':1, 'status':'empty', 'ids':[]}))")
     run_hook(hook_env)

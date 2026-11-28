@@ -4,6 +4,7 @@ Provides allowlist/denylist checking, shellcheck integration, and
 quote/heredoc parsing helpers for safe command execution.
 """
 
+import io
 import logging
 import os
 import re
@@ -581,44 +582,6 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 def _is_in_quoted_region(pos: int, quoted_regions: list[tuple[int, int]]) -> bool:
     """Check if a position is within any quoted region."""
     return any(start <= pos < end for start, end in quoted_regions)
-
-
-def _find_first_unquoted_pipe(command: str) -> int | None:
-    """Find the position of the first pipe operator that's not in quotes.
-
-    Returns None if no unquoted pipe is found.
-    Skips escaped pipes and logical OR operators (||).
-    """
-    quoted_regions = _find_quotes(command)
-
-    pos = 0
-    while True:
-        pipe_pos = command.find("|", pos)
-        if pipe_pos == -1:
-            return None
-
-        # An odd run of backslashes escapes the pipe; pairs escape each other.
-        backslashes = 0
-        preceding = pipe_pos - 1
-        while preceding >= 0 and command[preceding] == "\\":
-            backslashes += 1
-            preceding -= 1
-        if backslashes % 2:
-            pos = pipe_pos + 1
-            continue
-
-        # Check if this pipe is inside quotes
-        if not _is_in_quoted_region(pipe_pos, quoted_regions):
-            # Check if this is part of || (logical OR)
-            if pipe_pos + 1 < len(command) and command[pipe_pos + 1] == "|":
-                # Skip the || operator
-                pos = pipe_pos + 2
-                continue
-
-            return pipe_pos
-
-        # Try next pipe
-        pos = pipe_pos + 1
 
 
 def _has_file_redirection(cmd: str) -> bool:
@@ -1545,23 +1508,41 @@ _COMMAND_SEPARATORS = {"|", "||", "&", "&&", ";", ";;", "(", ")"}
 def _interpreter_args(rest: str) -> list[str] | None:
     """The interpreter's arguments as the shell passes them, without
     redirects; None if they can't be parsed."""
+    line = rest.split("\n", 1)[0]
     try:
-        lexer = shlex.shlex(rest.split("\n", 1)[0], posix=True, punctuation_chars=True)
+        stream = io.StringIO(line)
+        lexer = shlex.shlex(stream, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
-        tokens = iter(list(lexer))
+        # (token, whether it ended directly before a redirect operator). shlex
+        # drops whitespace, so `python3 123 > out` and `2>out` would otherwise
+        # look alike; only the latter's digits are the redirect's fd.
+        lexed: list[tuple[str, bool]] = []
+        start = 0
+        for token in lexer:
+            end = stream.tell()
+            before_redirect = line[end - 1 : end] in ("<", ">")
+            # A shell IO_NUMBER must be unquoted and unescaped. shlex strips
+            # both, so inspect the source spelling as well as adjacency.
+            raw = line[start : end - 1] if before_redirect else ""
+            lexed.append((token, before_redirect and raw.lstrip() == token))
+            start = end - 1 if before_redirect else end
     except ValueError:
         return None
+    tokens = iter(lexed)
     args: list[str] = []
-    for token in tokens:
+    fd_adjacent = False
+    for token, before_redirect in tokens:
         if token in _COMMAND_SEPARATORS:
             break
         if set(token) <= set("<>&") and set(token) & set("<>"):
             # a redirect (`2>/dev/null`, `>&1`): drop its fd and target
-            if args and args[-1].isdigit():
+            if args and args[-1].isdigit() and fd_adjacent:
                 args.pop()
             next(tokens, None)
+            fd_adjacent = False
             continue
         args.append(token)
+        fd_adjacent = before_redirect
     return args
 
 

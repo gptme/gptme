@@ -41,6 +41,7 @@ def _without_inprocess_cwd_pin(fn: _F) -> _F:
 
 
 from ...util.workspace import current_workspace, resolve_in_workspace
+from .. import get_session_allowlist, set_session_allowlist
 from . import execution as _exec
 from .concurrency import get_slot_sem
 from .control import append_control_op, discard_control_ops
@@ -1015,6 +1016,18 @@ def subagent(
             # Fallback to logdir's parent if cwd doesn't exist
             workspace = logdir.parent
 
+    # Validate backend restrictions and tool selection before isolation allocation.
+    parent_tool_allowlist = get_session_allowlist()
+    if use_acp and parent_tool_allowlist is not None:
+        raise ValueError(
+            "ACP cannot enforce the parent tool allowlist; use thread or subprocess mode."
+        )
+    tools_arg = (
+        _exec._capture_subprocess_tools(profile, parent_tool_allowlist)
+        if use_subprocess and not use_acp
+        else None
+    )
+
     # Preserve the pre-isolation workspace so clarification replies can recreate
     # isolation even when the original workspace was not a Git repository.
     base_workdir = workspace
@@ -1307,6 +1320,7 @@ def subagent(
             elif hasattr(output_schema, "__annotations__"):
                 output_schema_dict = {"type": "object"}
 
+        # Tool selection was captured before allocating isolation above.
         def _launch_subprocess():
             _sem = get_slot_sem()
             _sem.acquire()
@@ -1318,6 +1332,8 @@ def subagent(
                     _exec._cleanup_isolation(sa)
                     return
                 process = _exec._run_subagent_subprocess(
+                    tools_arg=tools_arg,
+                    parent_tool_allowlist=parent_tool_allowlist,
                     prompt=prompt,
                     logdir=logdir,
                     model=model_name,
@@ -1396,6 +1412,7 @@ def subagent(
             output_schema=output_schema,
             process=None,
             execution_mode="subprocess",
+            parent_tool_allowlist=parent_tool_allowlist,
             workdir=workspace,
             base_workdir=base_workdir,
             isolated=bool(isolated),
@@ -1436,6 +1453,7 @@ def subagent(
         # concurrent run (gptme/gptme#4990).
         _own_run: list[Subagent] = []
 
+        # The operator boundary was captured before allocating isolation above.
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
             # abort backoffs even for LLM calls that start after teardown.
@@ -1452,6 +1470,7 @@ def subagent(
                     return
                 try:
                     _exec._create_subagent_thread(
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=prompt,
                         logdir=logdir,
                         model=model_name,
@@ -1577,6 +1596,7 @@ def subagent(
             output_schema=output_schema,
             process=None,
             execution_mode="thread",
+            parent_tool_allowlist=parent_tool_allowlist,
             workdir=workspace,
             base_workdir=base_workdir,
             isolated=bool(isolated),
@@ -2124,6 +2144,20 @@ def subagent_continue(
     except FileNotFoundError:
         workspace = sa.logdir.parent
 
+    parent_tool_allowlist = _exec._intersect_tool_allowlists(
+        sa.parent_tool_allowlist, get_session_allowlist()
+    )
+    if sa.use_acp and parent_tool_allowlist is not None:
+        raise ValueError(
+            "ACP cannot enforce the parent tool allowlist; use thread or subprocess mode."
+        )
+    # Tool selection may raise; do it before taking ownership of the writer lease.
+    tools_arg = (
+        _exec._capture_subprocess_tools(sa.profile, parent_tool_allowlist)
+        if sa.execution_mode == "subprocess"
+        else None
+    )
+
     # Take the cross-process writer lease BEFORE publishing the new attempt, so a
     # rejected parent never overwrites the active writer's durable metadata or
     # outcome. The worker owns it from here and hands it to the child.
@@ -2166,6 +2200,7 @@ def subagent_continue(
             try:
                 if sa.execution_mode == "thread":
                     _exec._create_subagent_thread(
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=message,
                         logdir=sa.logdir,
                         model=sa.model,
@@ -2186,6 +2221,8 @@ def subagent_continue(
                     )
                 elif sa.execution_mode == "subprocess":
                     process = _exec._run_subagent_subprocess(
+                        tools_arg=tools_arg,
+                        parent_tool_allowlist=parent_tool_allowlist,
                         prompt=message,
                         logdir=sa.logdir,
                         model=sa.model,
@@ -2299,6 +2336,7 @@ def subagent_continue(
         workdir=sa.workdir,
         base_workdir=sa.base_workdir,
         execution_mode=sa.execution_mode,
+        parent_tool_allowlist=parent_tool_allowlist,
         isolated=sa.isolated,
         isolation_mode=sa.isolation_mode,
         worktree_path=sa.worktree_path,
@@ -2436,7 +2474,11 @@ def subagent_reply(agent_id: str, reply: str) -> None:
 
     # Re-spawn with the same parameters, augmented prompt.
     # On failure, restore the old state so the caller can retry.
+    caller_allowlist = get_session_allowlist()
     try:
+        set_session_allowlist(
+            _exec._intersect_tool_allowlists(sa.parent_tool_allowlist, caller_allowlist)
+        )
         subagent(
             agent_id=agent_id,
             prompt=augmented_prompt,
@@ -2471,6 +2513,9 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = old_result
         raise
+
+    finally:
+        set_session_allowlist(caller_allowlist)
 
     # Respawn succeeded: GC the retained worktree now that the new agent is live
     # (the respawn starts from a fresh isolation, so the old one is superseded).

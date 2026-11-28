@@ -540,6 +540,7 @@ def init_tools(
     *,
     include_mcp: bool = True,
     read_only: bool = False,
+    interactive: bool | None = None,
 ) -> list[ToolSpec]:
     """Initialize tools in a thread-safe manner.
 
@@ -560,6 +561,10 @@ def init_tools(
     act outside the workspace, such as peer messaging; see
     ``restrict_tools_for_read_only``. Once enabled, the restriction persists
     across reinitialization until ``clear_tools()`` starts a fresh session.
+
+    ``interactive`` is the current frontend's mode when it is known. ``None``
+    falls back to the chat config, which is persisted and may describe the run
+    that created the conversation rather than the one resuming it.
     """
     from ..config import get_config  # fmt: skip
 
@@ -571,7 +576,7 @@ def init_tools(
             env_allowlist = config.get_env("TOOL_ALLOWLIST")
             if env_allowlist:
                 allowlist = env_allowlist.split(",")
-            elif config.chat and config.chat.tools:
+            elif config.chat and config.chat.tools is not None:
                 allowlist = config.chat.tools
 
         allowlist = expand_tool_allowlist_presets(allowlist)
@@ -609,7 +614,29 @@ def init_tools(
         # When file paths are present, only load explicitly named built-in tools
         # (file_paths + no names = only file tools; file_paths + names = both)
         name_allowlist = tool_names if (tool_names or file_paths) else allowlist
-        for tool in get_toolchain(name_allowlist, include_mcp=include_mcp):
+        # `complete` ends a turn, so it belongs to autonomous sessions only. The
+        # current frontend's mode is authoritative: a resumed conversation can
+        # carry a stale `interactive=False` from the run that created it (e.g.
+        # resuming an autonomous chat in the TUI), which must not enable it.
+        frontend_interactive = interactive
+        if frontend_interactive is None:
+            frontend_interactive = (
+                config.chat.interactive if config.chat is not None else True
+            )
+        default_completion = (
+            allowlist is None and config.chat is not None and not frontend_interactive
+        )
+        selected_tools = get_toolchain(name_allowlist, include_mcp=include_mcp)
+        if default_completion:
+            # The lookup above already reported skipped MCP tools. Repeating the
+            # warning for this internal `complete` probe would claim the operator
+            # excluded tools they never named.
+            selected_tools.extend(
+                get_toolchain(
+                    ["complete"], include_mcp=include_mcp, warn_skipped_mcp=False
+                )
+            )
+        for tool in selected_tools:
             if is_read_only_session() and _denied_for_read_only(tool):
                 continue
             if has_tool(tool.name):
@@ -1248,7 +1275,18 @@ def set_session_allowlist(allowlist: list[str] | None) -> None:
     ``None`` means unrestricted. An explicit list is the hard cap that
     ``request_tool_change`` enablement must honor.
     """
-    _session_allowlist_var.set(list(allowlist) if allowlist is not None else None)
+    # Pin operator-approved files in the parent's workspace before a child
+    # changes cwd. Re-resolving a relative path there can import another file.
+    # Use is_tool_file_path(): a slash is not enough, because MCP names may
+    # embed a server path (e.g. docs/team.echo_text).
+    _session_allowlist_var.set(
+        [
+            str(Path(item).expanduser().resolve()) if is_tool_file_path(item) else item
+            for item in allowlist
+        ]
+        if allowlist is not None
+        else None
+    )
 
 
 def unload_tool(tool_name: str) -> ToolSpec:
