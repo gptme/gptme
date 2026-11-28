@@ -670,7 +670,7 @@ describe('Model selector (gptme#3440)', () => {
     });
   });
 
-  it('shows the fallback pill on the home page while models are loading (gptme#4112)', () => {
+  it('keeps the home model picker enabled until the server default is known', () => {
     mockModelsLoading = true;
     const autoFocus$ = observable(false);
     const onSend = jest.fn();
@@ -678,10 +678,13 @@ describe('Model selector (gptme#3440)', () => {
 
     const badge = screen.getByTestId('model-selector');
     expect(badge).not.toHaveAttribute('aria-label', 'Loading model...');
-    expect(badge).toHaveTextContent('claude-sonnet-4-6');
+    expect(badge).toHaveTextContent('Server default');
     expect(badge).toBeEnabled();
 
     mockModelsLoading = false;
+    rerender(<ChatInput onSend={onSend} autoFocus$={autoFocus$} />);
+    expect(badge).toHaveTextContent('Server default');
+
     mockDefaultModel = 'openai/gpt-4o';
     rerender(<ChatInput onSend={onSend} autoFocus$={autoFocus$} />);
 
@@ -690,6 +693,17 @@ describe('Model selector (gptme#3440)', () => {
       'aria-label',
       'Loading model...'
     );
+  });
+
+  it('shows a configured home model while the catalog is loading', () => {
+    mockModelsLoading = true;
+    render(
+      <ChatInput defaultModel="openai/gpt-4o" onSend={jest.fn()} autoFocus$={observable(false)} />
+    );
+
+    const badge = screen.getByTestId('model-selector');
+    expect(badge).toHaveTextContent('gpt-4o');
+    expect(badge).toBeEnabled();
   });
 
   it('keeps the skeleton for an active conversation until models resolve', () => {

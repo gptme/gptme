@@ -18,6 +18,58 @@ import { test, expect } from '@playwright/test';
 // stability across DOM mutations, and the maximum spinner count during rendering.
 
 test.describe('UI stability: model selector (gptme#3440)', () => {
+  test('home model selector shows Server default while the model catalog is pending', async ({
+    page,
+  }) => {
+    let releaseModels!: () => void;
+    const modelsPending = new Promise<void>((resolve) => {
+      releaseModels = resolve;
+    });
+    await page.route(
+      (url) => /^\/api\/v2(?:\/|$)/.test(url.pathname),
+      async (route) => {
+        const request = route.request();
+        const headers = {
+          'Access-Control-Allow-Origin': request.headers()['origin'] ?? '*',
+          'Access-Control-Allow-Credentials': 'true',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        };
+        if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+
+        const { pathname } = new URL(request.url());
+        if (pathname === '/api/v2') {
+          return route.fulfill({ headers, json: { api_version: 2, contract_revision: 5 } });
+        }
+        if (pathname === '/api/v2/conversations') {
+          return route.fulfill({ headers, json: { conversations: [] } });
+        }
+        if (pathname === '/api/v2/models') {
+          await modelsPending;
+          return route.fulfill({
+            headers,
+            json: { default: 'mock/echo', models: [], recommended: [] },
+          });
+        }
+        return route.fulfill({ status: 404, headers, json: { error: 'not mocked' } });
+      }
+    );
+
+    const modelsRequested = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === '/api/v2/models'
+    );
+    await page.goto('/chat');
+    await modelsRequested;
+
+    const badge = page.getByTestId('model-selector');
+    try {
+      await expect(badge).toBeEnabled();
+      await expect(badge).toHaveText('Server default');
+    } finally {
+      releaseModels();
+    }
+    await expect(badge).toHaveText('echo');
+  });
+
   // The model selector (chat-input badge) must not flash the wrong model.
   //
   // Regression: when chatConfig loaded asynchronously, the badge showed the
