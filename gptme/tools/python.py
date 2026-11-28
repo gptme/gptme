@@ -31,7 +31,6 @@ import functools
 import importlib.util
 import io
 import os
-import re
 import site
 import sys
 import tempfile
@@ -60,6 +59,7 @@ from ..util.interrupt import (
     start_tracking,
     stop_tracking,
 )
+from ..util.terminal import strip_terminal_controls
 from ..util.workspace import current_workspace
 from . import get_tools
 from .base import (
@@ -1103,7 +1103,7 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         if tb_str:
             output += md_codeblock("traceback", tb_str) + "\n\n"
 
-    output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+    output = strip_terminal_controls(output)
 
     files, artifacts, notices = _kernel_image_attachments(result)
     if notices:
@@ -1294,9 +1294,10 @@ def execute_python(
             # foreground. Adding a synthesized summary here would produce an
             # extra duplicate occurrence in non-live replay contexts.
 
-    # strip ANSI escape sequences (safety net — colors are disabled at the source
-    # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)
-    output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+    # strip terminal control sequences: colors are disabled at the source via
+    # NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them,
+    # and results can carry untrusted text that would drive the terminal
+    output = strip_terminal_controls(output)
 
     # Detect plot files created or modified during execution and attach descriptors
     plot_artifacts = _make_plot_artifacts(pre_images, post_images)
@@ -1305,7 +1306,7 @@ def execute_python(
     # not part of the live stream when LogManager prints the terminal message.
     terminal_parts = ["Executed code block."]
     if terminal_output:
-        terminal_parts.append(terminal_output.rstrip())
+        terminal_parts.append(strip_terminal_controls(terminal_output).rstrip())
     msg = Message(
         "system",
         "Executed code block.\n\n" + output,

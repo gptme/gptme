@@ -15,6 +15,7 @@ from gptme.tools.browser import (
     read_url,
     tool,
 )
+from gptme.tools.python import execute_python
 
 
 def _as_messages(result: Generator[Message, None, None] | Message) -> list[Message]:
@@ -176,3 +177,15 @@ def test_public_browser_results_keep_text_layout(monkeypatch):
     )
 
     assert read_logs() == "a\tb\nc\n\x0cpage two\nnot overwritten é 漢"
+
+
+def test_ipython_results_drop_terminal_control_sequences(monkeypatch):
+    """Both the model-facing result and the console rendering are cleaned."""
+    monkeypatch.setattr("gptme.tools.python._resolve_kernel_backend", lambda: False)
+    page = "Docs\x1bc\x1b]0;title\x1b\\ \x1b[31mred\x1b[0m end"
+
+    msg = next(execute_python(f"{page!r}", [], None))
+
+    for text in (msg.content, msg.terminal_display_content or ""):
+        assert "\x1b" not in text
+        assert "Docsc]0;title\\ red end" in text
