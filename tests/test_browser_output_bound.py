@@ -205,3 +205,21 @@ def test_ipython_results_drop_terminal_control_sequences(isolated_shell):
     for text in (msg.content, msg.terminal_display_content or ""):
         assert "\x1b" not in text
         assert "Docsc]0;title\\ red end" in text
+
+
+def test_ipython_timeout_output_drops_terminal_control_sequences(
+    isolated_shell, monkeypatch
+):
+    """The timeout branch returns before the shared strip; it must clean too."""
+    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "0.5")
+
+    msg = next(
+        python_tool.execute_python(
+            r"print('a\x1bc\x1b]0;title\x07b'); import time; time.sleep(30)",
+            [],
+            None,
+        )
+    )
+
+    assert "timed out" in msg.content
+    assert "\x1b" not in msg.content

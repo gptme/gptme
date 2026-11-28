@@ -1234,12 +1234,16 @@ def execute_python(
             if isinstance(error, CliTermination):
                 raise error
     if timed_out_fired:
+        # Strip here too: this branch returns before the shared strip below, and
+        # a cell that printed fetched text can carry escape sequences.
         yield Message(
             "system",
             f"Execution timed out after {timeout:g}s and was interrupted "
             "(GPTME_IPYTHON_TIMEOUT). Run long work in the background with the "
             "shell tool instead.\n\n"
-            + _format_cell_output(captured_stdout, captured_stderr),
+            + strip_terminal_controls(
+                _format_cell_output(captured_stdout, captured_stderr)
+            ),
         )
         return
 
