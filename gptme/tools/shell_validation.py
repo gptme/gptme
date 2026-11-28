@@ -199,6 +199,19 @@ def strip_transparent_wrappers(cmd: str) -> str:
     return _WRAPPER_PREFIX_RE.sub(lambda m: m.group("lead"), cmd)
 
 
+def _skip_line_continuations(cmd: str, i: int) -> int:
+    """Return the first index at or after ``i`` that is not a continued newline.
+
+    Bash deletes ``\\<newline>`` before it tokenizes a command, so ``$``,
+    a continued newline and ``$`` are the two characters of ``$$`` rather than
+    a dollar followed by an ANSI-C string.
+    """
+    n = len(cmd)
+    while i + 1 < n and cmd[i] == "\\" and cmd[i + 1] == "\n":
+        i += 2
+    return i
+
+
 def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     """Find all quoted regions in a command string.
 
@@ -222,15 +235,19 @@ def _find_quotes(cmd: str) -> list[tuple[int, int]]:
             continue
 
         if c == "$" and not in_single and not in_double:
-            following = cmd[i + 1 : i + 2]
+            # Bash deletes ``\<newline>`` before tokenizing, so a dollar pair
+            # (or ``$'``) can be split across a continued line. Look past those
+            # continuations when deciding what this dollar starts.
+            nxt = _skip_line_continuations(cmd, i + 1)
+            following = cmd[nxt : nxt + 1]
             if following == "$":
                 # ``$$`` is the shell PID, so a quote after it is a plain one.
-                i += 2
+                i = nxt + 1
                 continue
             if following == "'":
-                start = i + 1
+                start = nxt
                 in_single = ansi_c = True
-                i += 2
+                i = nxt + 1
                 continue
 
         # Handle single quotes

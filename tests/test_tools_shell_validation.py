@@ -84,6 +84,18 @@ class TestFindQuotes:
         start = cmd.index("'")
         assert _find_quotes(cmd) == [(start, start + 4)]
 
+    def test_dollar_pair_split_by_line_continuation_is_pid(self):
+        # Bash deletes the continued newline, so this is ``$$`` (the PID)
+        # followed by a plain single-quoted string.
+        cmd = "echo $\\\n$'a\\' ; git add . ; echo 'x'"
+        assert _find_quotes(cmd) == [(9, 13), (33, 36)]
+
+    def test_ansi_c_string_after_continued_dollar(self):
+        # ``$`` + continued newline + ``'`` is an ANSI-C string once the
+        # continuation is removed.
+        cmd = "echo $\\\n'a\\'b' c"
+        assert _find_quotes(cmd) == [(8, 14)]
+
     def test_dollar_quote_inside_double_quotes_is_literal(self):
         cmd = 'echo "$\'" x'
         assert _find_quotes(cmd) == [(5, 9)]
@@ -333,6 +345,13 @@ class TestIsAllowlisted:
 
 def test_ansi_c_escaped_quote_does_not_hide_later_commands():
     cmd = "echo $'\\'' ; git add . ; echo $'\\''"
+    assert is_denylisted(cmd)[0]
+
+
+def test_ansi_c_dollar_split_by_line_continuation_does_not_hide_later_commands():
+    # ``$\<newline>$'...'`` is ``$$`` (the PID) plus a plain string once bash
+    # removes the continued newline, so ``git add .`` stays executable.
+    cmd = "echo $\\\n$'a\\' ; git add . ; echo 'x'"
     assert is_denylisted(cmd)[0]
 
 
