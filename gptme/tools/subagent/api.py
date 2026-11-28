@@ -679,9 +679,8 @@ def subagent(
             marks the subagent result as ``"timeout"`` after ``max_time`` seconds
             and delivers a timeout status notification via the LOOP_CONTINUE hook.
             In subprocess mode the child process is terminated. In thread mode
-            the background thread is not force-stopped; callers see the cached
-            timeout result immediately while the thread continues until it
-            finishes naturally. Defaults to ``None`` (no limit).
+            the child stops at its next step boundary; an in-flight call can
+            finish first. Defaults to ``None`` (no limit).
 
             Use this for defensive orchestration (prevent a stuck subagent from
             blocking the parent) or hard time budgets in autonomous sessions.
@@ -1664,9 +1663,7 @@ def _timeout_subagent(
         f"Auto-cancelled after {max_time}s (max_time exceeded)",
         duration_s=max(0.0, time.time() - sa.started_at),
     )
-    if not set_subagent_result_if_absent(
-        agent_id, timeout_result, attempt=expected_run
-    ):
+    if not set_subagent_result_if_absent(agent_id, timeout_result, attempt=sa):
         return  # Another result was set concurrently (subagent finished at the same time)
 
     if sa.execution_mode == "subprocess" and sa.process:
@@ -1674,10 +1671,11 @@ def _timeout_subagent(
         logger.info(
             f"Subagent '{agent_id}' subprocess killed after {max_time}s (max_time)."
         )
-    else:
+    elif sa.execution_mode == "thread":
         logger.info(
-            f"Subagent '{agent_id}' marked timed-out after {max_time}s "
-            "(thread will stop at its next checkpoint)."
+            "Subagent '%s' timed out after %ss and will stop at its next checkpoint.",
+            agent_id,
+            max_time,
         )
 
     notify_completion(

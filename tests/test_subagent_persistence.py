@@ -1818,7 +1818,11 @@ class TestOwnerScopedIdLookup:
     def test_timeout_reaches_its_run_while_another_conversation_runs_id(
         self, tmp_path: Path, monkeypatch
     ):
+        from unittest.mock import MagicMock
+
+        from gptme.tools.complete import SessionCompleteException
         from gptme.tools.subagent.api import _timeout_subagent, subagent_status
+        from gptme.tools.subagent.hooks import _subagent_control_hook
 
         parent_a, parent_b, _, _, as_conversation = self._setup(tmp_path, monkeypatch)
         sa_a, gate_a = self._live_run(tmp_path, "live-a", parent_a, 100.0)
@@ -1827,15 +1831,18 @@ class TestOwnerScopedIdLookup:
             "gptme.tools.subagent.api.notify_completion", lambda *a, **k: None
         )
         try:
-            # B's watchdog fires while A's older run is still registered.
-            _timeout_subagent("worker", 1.0, expected_run=sa_b)
-            as_conversation(parent_b)
-            assert subagent_status("worker")["status"] == "timeout"
-            # A's own watchdog reaches A even though B holds the slot.
+            # A loses the shared ID slot to B, but its own watchdog still stops A.
             _timeout_subagent("worker", 1.0, expected_run=sa_a)
-            as_conversation(parent_a)
-            assert subagent_status("worker")["status"] == "timeout"
+            assert sa_a.shadowed
+            with pytest.raises(SessionCompleteException, match="timed out"):
+                list(_subagent_control_hook(MagicMock(logdir=sa_a.logdir)))
+            assert not sa_b.cancel_event.is_set()
             as_conversation(parent_b)
+            assert subagent_status("worker")["status"] == "running"
+
+            _timeout_subagent("worker", 1.0, expected_run=sa_b)
+            assert subagent_status("worker")["status"] == "timeout"
+            as_conversation(parent_a)
             assert subagent_status("worker")["status"] == "timeout"
         finally:
             gate_a.set()
