@@ -42,7 +42,8 @@ def get_pt_history_file() -> Path:
 
 def get_data_dir() -> Path:
     # used in testing, so must take precedence
-    if xdg := _get_env_path("XDG_DATA_HOME"):
+    # Relative values are invalid per the XDG spec.
+    if (xdg := _get_env_path("XDG_DATA_HOME")) and Path(xdg).is_absolute():
         return Path(xdg) / "gptme"
 
     # just a workaround for me personally
@@ -50,7 +51,9 @@ def get_data_dir() -> Path:
     if old.exists():
         return old
 
-    return Path(user_data_dir("gptme"))
+    path = Path(user_data_dir("gptme"))
+    # Older supported platformdirs versions accept relative XDG overrides.
+    return path if path.is_absolute() else old
 
 
 def get_state_dir() -> Path:
@@ -59,15 +62,18 @@ def get_state_dir() -> Path:
     Used for recovery artifacts and other state that should persist between
     invocations but is not important enough to back up — checkpoints, etc.
     """
-    if xdg := _get_env_path("XDG_STATE_HOME"):
+    # Relative values are invalid per the XDG spec.
+    if (xdg := _get_env_path("XDG_STATE_HOME")) and Path(xdg).is_absolute():
         return Path(xdg) / "gptme"
-    return Path(user_state_dir("gptme"))
+    path = Path(user_state_dir("gptme"))
+    # Older supported platformdirs versions accept relative XDG overrides.
+    return path if path.is_absolute() else Path("~/.local/state/gptme").expanduser()
 
 
 def get_logs_dir(*, create: bool = True) -> Path:
     """Get the conversation logs path, optionally without creating it."""
     if logs_home := _get_env_path("GPTME_LOGS_HOME"):
-        path = Path(logs_home)
+        path = Path(logs_home).expanduser()
     else:
         path = get_data_dir() / "logs"
     if create:
@@ -141,7 +147,7 @@ def get_workspace() -> Path:
     we're in a submodule and the parent repo root is returned instead.
     """
     if workspace := _get_env_path("GPTME_WORKSPACE"):
-        return Path(workspace)
+        return Path(workspace).expanduser()
 
     try:
         result = subprocess.run(

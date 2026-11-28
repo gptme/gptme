@@ -128,10 +128,12 @@ def test_configured_limits_are_not_mistaken_for_defaults(tmp_path, monkeypatch, 
 
 
 def test_interactive_frontend_resuming_autonomous_session_skips_complete(tmp_path):
-    """Greptile P1: a saved `interactive=False` must not enable `complete` in the TUI.
+    """A saved autonomous conversation must not enable `complete` in the TUI.
 
     The TUI always resumes with ``interactive=True``, but the persisted chat
     config still describes the autonomous run that created the conversation.
+    ``stream``/``interactive``/``no_confirm`` describe the current run, not the
+    conversation, so the resume takes this run's value.
     """
     from gptme.config import setup_config_from_cli
     from gptme.tools import clear_tools, get_tools, init_tools
@@ -142,9 +144,13 @@ def test_interactive_frontend_resuming_autonomous_session_skips_complete(tmp_pat
     setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=False)
     config = setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=True)
     assert config.chat is not None
-    # Premise: the stale value survives the resume (it equals the field default,
-    # so the CLI value is not treated as an override).
-    assert config.chat.interactive is False
+    # Run-mode fields are not inherited from the saved conversation: an
+    # interactive frontend resume is interactive even when the saved config
+    # came from an autonomous run.
+    assert config.chat.interactive is True
+    # The non-interactive 'complete' tool is appended to this run's tools only,
+    # never persisted into the saved conversation's tool boundary.
+    assert config.chat.tools is None
 
     clear_tools()
     init_tools(config.chat.tools, include_mcp=False, interactive=True)

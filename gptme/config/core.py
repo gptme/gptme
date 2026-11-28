@@ -257,6 +257,10 @@ def reload_config() -> Config:
     # Model provenance is runtime-only state: reloading the config files must not
     # erase which layer the session's already-resolved model came from.
     model_source = config._model_source if config is not None else None
+    # The conversation's ChatConfig and runtime env overrides are not stored
+    # in the files being reloaded, so carry them over as well.
+    chat = config.chat if config is not None else None
+    env_overrides = dict(config.env_overrides) if config is not None else {}
     if config is None:
         config = Config()
         _config_var.set(config)
@@ -267,6 +271,8 @@ def reload_config() -> Config:
         config = Config()
         _config_var.set(config)
     config._model_source = model_source
+    config.chat = chat
+    config.env_overrides = env_overrides
 
     # Clear tools cache so MCP tools are recreated with new config
     from gptme.tools import clear_tools  # fmt: skip

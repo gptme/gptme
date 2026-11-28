@@ -5,6 +5,7 @@ resolving precedence between CLI args, saved configs, env vars, and defaults.
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -96,6 +97,60 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
     return normalized
 
 
+def parse_tool_specs(specs: Iterable[str]) -> str | None:
+    """Parse ``--tools`` / ``TOOL_ALLOWLIST`` values into the internal spec string.
+
+    Each spec may itself be comma-separated. Returns ``None`` (use defaults),
+    ``""`` (``none``: disable all tools), ``"+a,b"`` (add to defaults),
+    ``"-a,b"`` (remove from defaults) or ``"a,b"`` (exact list). Every name in
+    ``+``/``-`` mode carries its own prefix, which is stripped here.
+
+    Raises:
+        ValueError: on ``none`` combined with other tools, mixed ``+``/``-``
+            syntax, or bare names mixed with ``-`` exclusions.
+    """
+    tools_list = [t.strip() for spec in specs for t in spec.split(",") if t.strip()]
+
+    if any(
+        t.startswith(("+", "-")) and t[1:].strip().lower() == "none" for t in tools_list
+    ):
+        raise ValueError("'none' must be used alone without a '+' or '-' prefix")
+
+    if any(t.lower() == "none" for t in tools_list):
+        non_none = [t for t in tools_list if t.lower() != "none"]
+        if non_none:
+            raise ValueError(
+                f"Cannot combine 'none' with other tools: {', '.join(non_none)}"
+            )
+        return ""
+
+    additive_mode = any(t.startswith("+") for t in tools_list)
+    exclusion_mode = any(t.startswith("-") for t in tools_list)
+    if additive_mode and exclusion_mode:
+        raise ValueError(
+            "Cannot mix '+tool' (additive) and '-tool' (exclusion) syntax. "
+            "Use one or the other."
+        )
+
+    if additive_mode:
+        additional_tools = [t for t in (t.removeprefix("+") for t in tools_list) if t]
+        # Just '+' means use defaults
+        return "+" + ",".join(additional_tools) if additional_tools else None
+
+    if exclusion_mode:
+        # Bare tool names mixed with '-' exclusion tools is ambiguous
+        bare_tools = [t for t in tools_list if not t.startswith("-")]
+        if bare_tools:
+            raise ValueError(
+                f"Cannot mix bare tool names ({', '.join(bare_tools)}) with '-tool' exclusion syntax. "
+                "Prefix all tools with '-' to exclude them."
+            )
+        excluded_tools = [t for t in (t.removeprefix("-") for t in tools_list) if t]
+        return "-" + ",".join(excluded_tools) if excluded_tools else None
+
+    return ",".join(tools_list) if tools_list else None
+
+
 def setup_config_from_cli(
     workspace: Path,
     logdir: Path,
@@ -104,7 +159,10 @@ def setup_config_from_cli(
     tool_format: "ToolFormat | None" = None,
     prune_tool_output: bool | None = None,
     no_confirm: bool | None = None,
-    stream: bool = True,
+    # None means the flag was not given: keep the conversation's saved value
+    # (or the default for a new conversation). An explicit --stream/--no-stream
+    # wins in either direction.
+    stream: bool | None = None,
     interactive: bool = True,
     agent_path: Path | None = None,
     allow_hosts: list[str] | None = None,
@@ -160,11 +218,39 @@ def setup_config_from_cli(
 
     # Handle tool allowlist with similar precedence
     resolved_tool_allowlist: list[str] | None = None
-    if tool_allowlist is not None:
+    # Saved tools of a resumed conversation; [] (saved --tools none) is a real
+    # choice and must stay distinct from None (never set).
+    saved_tools = existing_chat_config.tools if existing_chat_config else None
+    # TOOL_ALLOWLIST (env or [env]) is documented to accept the same syntax as
+    # --tools ("+x", "-x", "none"), so parse it with the same parser. It still
+    # ranks below the CLI flag and below a resumed conversation's tools.
+    allowlist_spec = tool_allowlist
+    if allowlist_spec is None and saved_tools is None:
+        if tools_env := config.get_env("TOOL_ALLOWLIST"):
+            if not any(token.strip() for token in tools_env.split(",")):
+                # A nonempty env value containing only separators selected no
+                # tools before the shared parser; it must not enable defaults.
+                allowlist_spec = ""
+            else:
+                try:
+                    allowlist_spec = parse_tool_specs([tools_env])
+                except ValueError as e:
+                    # TOOL_ALLOWLIST is ambient configuration (environment or
+                    # [env]) that can outlive the version which accepted it, so
+                    # a syntax error must not make every new conversation
+                    # unstartable. Warn and fall back to the default toolset,
+                    # matching how invalid [env] values are skipped. An explicit
+                    # --tools still fails hard (main.py raises UsageError).
+                    logger.warning(
+                        "Ignoring invalid TOOL_ALLOWLIST %r: %s. Using default tools.",
+                        tools_env,
+                        e,
+                    )
+    if allowlist_spec is not None:
         # Check for additive syntax (starts with '+')
-        if tool_allowlist.startswith("+"):
+        if allowlist_spec.startswith("+"):
             # Strip the '+' prefix and parse the additional tools
-            tool_list_str = tool_allowlist[1:]
+            tool_list_str = allowlist_spec[1:]
             additional_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
@@ -174,9 +260,9 @@ def setup_config_from_cli(
             for tool in additional_tools:
                 if tool not in resolved_tool_allowlist:
                     resolved_tool_allowlist.append(tool)
-        elif tool_allowlist.startswith("-"):
+        elif allowlist_spec.startswith("-"):
             # Exclusion syntax: start with defaults, remove specified tools
-            tool_list_str = tool_allowlist[1:]
+            tool_list_str = allowlist_spec[1:]
             excluded_tools = [
                 tool.strip() for tool in tool_list_str.split(",") if tool.strip()
             ]
@@ -195,6 +281,10 @@ def setup_config_from_cli(
                 for t in excluded_tools
                 if t not in default_tools and t not in TOOL_PRESETS
             ]
+            # Unknown exclusions warn like --tools does. Validating them here
+            # would force a plugin-discovery pass during config setup, which
+            # the TUI relies on not happening, and would turn a typo into a
+            # hard startup failure rather than the CLI flag's warning.
             if non_default:
                 logger.warning(
                     "Tool(s) %s are not in the default toolset and cannot be excluded",
@@ -203,22 +293,19 @@ def setup_config_from_cli(
             resolved_tool_allowlist = [
                 tool for tool in default_tools if tool not in excluded_tools
             ]
-        elif tool_allowlist == "":
+        elif allowlist_spec == "":
             # Explicitly empty: disable all tools (--tools none)
             resolved_tool_allowlist = []
         else:
             # Normal mode - CLI override replaces defaults
             resolved_tool_allowlist = [
-                tool.strip() for tool in tool_allowlist.split(",") if tool.strip()
+                tool.strip() for tool in allowlist_spec.split(",") if tool.strip()
             ]
-    elif existing_chat_config and existing_chat_config.tools is not None:
-        # When resuming, use saved conversation tools unless CLI override provided
-        resolved_tool_allowlist = existing_chat_config.tools
-    elif tools_env := config.get_env("TOOL_ALLOWLIST"):
-        # Fall back to env/config for new conversations or when no saved tools
-        resolved_tool_allowlist = [
-            tool.strip() for tool in tools_env.split(",") if tool.strip()
-        ]
+    elif saved_tools is not None:
+        # When resuming, use saved conversation tools unless CLI override provided.
+        # Copy: the non-interactive 'complete' append below must not mutate
+        # the saved config object.
+        resolved_tool_allowlist = list(saved_tools)
 
     # A preset is "selected" if the allowlist is a literal preset name.
     # Preset names are now persisted verbatim (not expanded) so that resumed
@@ -228,20 +315,6 @@ def setup_config_from_cli(
         and len(resolved_tool_allowlist) == 1
         and resolved_tool_allowlist[0] in TOOL_PRESETS
     )
-
-    # Automatically add 'complete' tool in non-interactive mode, except for
-    # exclusive named presets such as read-only audit mode.
-    # Leave unrestricted defaults as None, including when saved/resumed. Tool
-    # initialization adds complete without turning that default into an operator
-    # boundary (which would incorrectly disable ACP delegation).
-    if (
-        not interactive
-        and not tool_preset_selected
-        and resolved_tool_allowlist is not None
-    ):
-        if "complete" not in resolved_tool_allowlist:
-            resolved_tool_allowlist.append("complete")
-        logger.debug("Added 'complete' tool to allowlist for non-interactive mode")
 
     # Handle tool_format with similar precedence
     if tool_format is not None:
@@ -274,6 +347,18 @@ def setup_config_from_cli(
         # When resuming, use saved conversation agent unless CLI override provided
         resolved_agent_path = existing_chat_config.agent
 
+    # Run modes describe this run, not the conversation. Remember the
+    # conversation's own saved values so a resume does not rewrite them below.
+    saved_run_modes = (
+        (
+            existing_chat_config.stream,
+            existing_chat_config.interactive,
+            existing_chat_config.no_confirm,
+        )
+        if existing_chat_config is not None
+        else None
+    )
+
     # Create or load chat config with CLI overrides
     logdir.mkdir(parents=True, exist_ok=True)
     config.chat = ChatConfig.load_or_create(
@@ -281,7 +366,8 @@ def setup_config_from_cli(
         cli_config=ChatConfig(
             model=resolved_model,
             tool_format=resolved_tool_format,
-            stream=stream,
+            # Dataclass default: load_or_create then leaves a saved stream alone.
+            stream=ChatConfig().stream,
             interactive=interactive,
             no_confirm=resolved_no_confirm,
             workspace=workspace,
@@ -290,6 +376,17 @@ def setup_config_from_cli(
             context_budget=context_budget,
             agent_profile=agent_profile,
         ),
+    )
+    # stream/interactive/no_confirm describe this run, not the conversation.
+    # load_or_create only applies CLI values that differ from the dataclass
+    # defaults, so a plain interactive resume of a conversation started with
+    # --non-interactive would otherwise keep auto-confirming every tool.
+    # stream is only overridden when the flag was actually given.
+    config.chat = replace(
+        config.chat,
+        stream=config.chat.stream if stream is None else stream,
+        interactive=interactive,
+        no_confirm=resolved_no_confirm,
     )
 
     if prune_tool_output is not None:
@@ -302,7 +399,27 @@ def setup_config_from_cli(
     if config.chat.tools is None or tool_allowlist is not None:
         config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
 
-    # Save and set the final config
-    config.chat.save()
+    # Persist the user's tool boundary, not this run's completion mechanism.
+    # On resume, write the conversation's own run modes back: this run's modes
+    # are already applied in memory and were not requested as a change to the
+    # saved conversation.
+    persist_chat = config.chat
+    if saved_run_modes is not None:
+        persist_chat = replace(
+            config.chat,
+            stream=saved_run_modes[0],
+            interactive=saved_run_modes[1],
+            no_confirm=saved_run_modes[2],
+        )
+    persist_chat.save()
+    # Leave unrestricted defaults as None: tool initialization adds 'complete'
+    # without turning that default into an operator boundary (which would
+    # incorrectly disable ACP delegation). Only an explicit boundary is extended.
+    if not interactive and not tool_preset_selected and config.chat.tools is not None:
+        tools = config.chat.tools
+        if "complete" not in tools:
+            # Copy rather than mutate saved lists; preserve hint/glob filters.
+            config.chat = replace(config.chat, tools=[*tools, "complete"])
+        logger.debug("Added 'complete' tool to allowlist for non-interactive mode")
     set_config(config)
     return config

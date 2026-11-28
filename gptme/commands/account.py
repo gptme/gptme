@@ -129,7 +129,11 @@ def _setup_openrouter() -> None:
         print(f"OpenRouter OAuth failed: {e}")
         return
 
-    path = set_stored_api_key("openrouter", api_key)
+    try:
+        path = set_stored_api_key("openrouter", api_key)
+    except ValueError as e:
+        print(f"Could not store the OpenRouter key: {e}")
+        return
     _refresh_runtime_provider("openrouter", api_key)
     _set_default_model("openrouter")
     print(f"Stored OpenRouter key in {path}.")
@@ -149,7 +153,11 @@ def _setup_manual_provider(provider: str) -> None:
         print(f"{provider} API key validation failed: {message}")
         return
 
-    path = set_stored_api_key(provider, api_key)
+    try:
+        path = set_stored_api_key(provider, api_key)
+    except ValueError as e:
+        print(f"Could not store the {provider} key: {e}")
+        return
     _refresh_runtime_provider(provider, api_key)
     _set_default_model(provider)
     print(f"Stored {provider} key in {path}.")

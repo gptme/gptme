@@ -6,6 +6,7 @@ context files, and manages conversation resumption.
 
 import errno
 import logging
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Generator
@@ -235,12 +236,15 @@ def _is_config_secret_name(filename: str) -> bool:
 def _gptme_config_dirs() -> list[Path]:
     """gptme's resolved config/credential directories, wherever XDG puts them.
 
-    Uses the credential writer's own path helper, so a relocated (or empty,
-    hence cwd-relative) ``XDG_CONFIG_HOME`` is covered: such a store has no
-    ``.config`` part for ``_is_secret_bearing_path`` to match.
+    Uses the credential writer's own path helper, plus its legacy location:
+    older versions accepted empty/relative ``XDG_CONFIG_HOME`` values and
+    could leave secrets in a cwd-relative store without a ``.config`` part.
     """
+    legacy_dir = (
+        Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme"
+    )
     dirs = []
-    for d in (get_config_dir(), get_credentials_dir()):
+    for d in (get_config_dir(), get_credentials_dir(), legacy_dir):
         try:
             dirs.append(d.resolve())
         except (OSError, RuntimeError):
@@ -251,7 +255,7 @@ def _gptme_config_dirs() -> list[Path]:
 def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
     """Protect dedicated stores in full, and known secrets in cwd's source tree.
 
-    Empty XDG_CONFIG_HOME makes the credential writer use ``./gptme``. Do not
+    Older credential writers used ``./gptme`` for empty XDG_CONFIG_HOME. Do not
     suppress that entire source tree, but include config backups and cloud auth
     alongside provider/OAuth credentials. Compare components case-insensitively
     (conservatively even on Linux), and protect secret symlinks' backing paths.
@@ -276,7 +280,7 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
         dir_parts = parts(d)
         if path_parts[: len(dir_parts)] == dir_parts:
             # Only consider the source-tree exception for a matching store.
-            # This is deliberately process-relative, like the credential writer,
+            # This is deliberately process-relative, like the legacy writer,
             # not relative to the conversation's workspace.
             try:
                 source_parts = parts((Path.cwd() / "gptme").resolve())

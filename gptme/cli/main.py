@@ -879,6 +879,13 @@ def main(
     dispatch_suppressed = click.get_current_context().meta.get(
         "shortcut_dispatch_suppressed", False
     )
+    # Only an explicit --stream/--no-stream overrides a resumed conversation's
+    # saved setting; the click default is indistinguishable from "not given".
+    explicit_stream = (
+        stream
+        if ctx.get_parameter_source("stream") is not click.core.ParameterSource.DEFAULT
+        else None
+    )
 
     # Dispatch: `gptme search QUERY` → chats search (discoverability alias)
     if (
@@ -1011,70 +1018,14 @@ def main(
     ):
         # Not provided by user, use None to indicate "use defaults"
         tool_allowlist_str = None
-    elif tool_allowlist and any(
-        t.strip().lower() == "none" for spec in tool_allowlist for t in spec.split(",")
-    ):
-        # --tools none: disable all tools
-        all_specs = [
-            t.strip() for spec in tool_allowlist for t in spec.split(",") if t.strip()
-        ]
-        non_none = [t for t in all_specs if t.lower() != "none"]
-        if non_none:
-            raise click.UsageError(
-                f"Cannot combine 'none' with other tools: {', '.join(non_none)}"
-            )
-        tool_allowlist_str = ""
     elif tool_allowlist:
-        # User provided tools - flatten any comma-separated values and join
-        tools_list: list[str] = []
-        for tool_spec in tool_allowlist:
-            # Each tool_spec might be comma-separated
-            tools_list.extend(t.strip() for t in tool_spec.split(",") if t.strip())
+        # Shared with TOOL_ALLOWLIST so both accept the same +tool/-tool/none syntax
+        from ..config.cli_setup import parse_tool_specs
 
-        # Check if any tool starts with '+' (additive syntax)
-        additive_mode = any(t.startswith("+") for t in tools_list)
-        # Check if any tool starts with '-' (exclusion syntax)
-        exclusion_mode = any(t.startswith("-") for t in tools_list)
-
-        if additive_mode and exclusion_mode:
-            raise click.UsageError(
-                "Cannot mix '+tool' (additive) and '-tool' (exclusion) syntax. "
-                "Use one or the other."
-            )
-
-        if additive_mode:
-            # Strip '+' prefix from all tools
-            additional_tools = [t.removeprefix("+") for t in tools_list]
-            # Filter out empty strings (e.g., from '+' alone)
-            additional_tools = [t for t in additional_tools if t]
-
-            if additional_tools:
-                # Prefix with '+' to signal additive mode to config layer
-                tool_allowlist_str = "+" + ",".join(additional_tools)
-            else:
-                # Just '+' means use defaults
-                tool_allowlist_str = None
-        elif exclusion_mode:
-            # Guard: bare tool names mixed with '-' exclusion tools is ambiguous
-            bare_tools = [t for t in tools_list if not t.startswith("-")]
-            if bare_tools:
-                raise click.UsageError(
-                    f"Cannot mix bare tool names ({', '.join(bare_tools)}) with '-tool' exclusion syntax. "
-                    "Prefix all tools with '-' to exclude them."
-                )
-            # Strip '-' prefix from all tools
-            excluded_tools = [t.removeprefix("-") for t in tools_list]
-            # Filter out empty strings
-            excluded_tools = [t for t in excluded_tools if t]
-
-            if excluded_tools:
-                # Prefix with '-' to signal exclusion mode to config layer
-                tool_allowlist_str = "-" + ",".join(excluded_tools)
-            else:
-                tool_allowlist_str = None
-        else:
-            # Normal mode - replace defaults with specified tools
-            tool_allowlist_str = ",".join(tools_list) if tools_list else None
+        try:
+            tool_allowlist_str = parse_tool_specs(tool_allowlist)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
     else:
         # User explicitly provided empty list (e.g., no -t flags with multiple=True)
         tool_allowlist_str = None
@@ -1276,7 +1227,7 @@ def main(
                     tool_format=tool_format,
                     prune_tool_output=prune_tool_output,
                     no_confirm=no_confirm or None,
-                    stream=stream,
+                    stream=explicit_stream,
                     interactive=interactive,
                     agent_path=Path(agent_path) if agent_path else None,
                     context_budget=context_budget,
@@ -1427,7 +1378,7 @@ def main(
             tool_format=tool_format,
             prune_tool_output=prune_tool_output,
             no_confirm=no_confirm or None,
-            stream=stream,
+            stream=explicit_stream,
             interactive=interactive,
             agent_path=Path(agent_path) if agent_path else None,
             allow_hosts=allow_hosts_list,

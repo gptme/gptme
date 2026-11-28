@@ -313,6 +313,7 @@ jobs:
       run: |
         uv run pytest -v `
           tests/test_dirs.py `
+          tests/test_cmd_init_junctions.py `
           tests/test_logmanager_locking.py `
           tests/test_file_publication.py `
           tests/test_tools_patch.py::test_execute_patch `

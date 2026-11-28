@@ -1485,18 +1485,22 @@ def test_load_context_files_handles_source_resolution_error(
 def test_load_context_files_protects_process_cwd_store_from_other_workspace(
     tmp_path, monkeypatch
 ):
-    from gptme.credentials import set_stored_api_key
     from gptme.tools.autocompact import _load_context_files
 
     process_cwd = tmp_path / "host"
     process_cwd.mkdir()
     monkeypatch.chdir(process_cwd)
     monkeypatch.setenv("XDG_CONFIG_HOME", "")
-    credential = set_stored_api_key("openai", "synthetic-test-key")
-    assert credential.resolve() == process_cwd.resolve() / "gptme" / "credentials.toml"
-    (process_cwd / "gptme" / "resume.py").write_text("# ordinary source\n")
+    # Older versions wrote here; new writes use ~/.config instead. Keep
+    # protecting credentials left behind without hiding ordinary source.
+    store = process_cwd / "gptme"
+    store.mkdir()
+    (store / "credentials.toml").write_text(
+        '[providers]\nopenai = "synthetic-test-key"\n'
+    )
+    (store / "resume.py").write_text("# ordinary source\n")
     # The workspace is a parent of cwd, not cwd itself. Protection must use
-    # the writer's process-relative store while preserving ordinary source.
+    # the legacy writer's process-relative store while preserving ordinary source.
     assert _load_context_files(
         ["host/gptme/credentials.toml", "host/gptme/resume.py"], workspace=tmp_path
     ) == [("host/gptme/resume.py", "# ordinary source\n")]

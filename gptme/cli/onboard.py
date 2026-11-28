@@ -30,9 +30,15 @@ from ..config.user import (
     get_default_model_source,
     get_user_config_paths,
 )
-from ..llm import list_available_providers
+from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
+from ..llm import PROVIDER_API_KEYS, list_available_providers
 from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
-from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
+from ..llm.validate import (
+    OAUTH_PROVIDERS,
+    PROVIDER_DOCS,
+    ApiKeyValidationStatus,
+    validate_api_key_status,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -79,6 +85,12 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         for provider, source in list_available_providers():
             if provider in OAUTH_PROVIDERS:
                 results[provider] = (True, source)
+            elif (
+                source == STORED_CREDENTIALS_SOURCE
+                and not results.get(provider, (False,))[0]
+            ):
+                # Keys saved by `/account setup` live in credentials.toml.
+                results[provider] = (True, f"({STORED_CREDENTIALS_SOURCE})")
     except (OSError, ValueError) as e:
         logger.warning(
             "OAuth credential check failed: %s — run `gptme auth` to re-authenticate", e
@@ -130,13 +142,15 @@ def _test_provider(provider: str) -> tuple[bool, str]:
             return True, "OAuth credentials found (not validated during onboarding)"
         return False, f"Not authenticated (run gptme auth {provider})"
 
-    env_var = PROVIDER_ENV_VARS.get(provider)
-    if not env_var:
-        return False, f"Unknown provider: {provider}"
+    # Detection also lists any provider with a key in credentials.toml (e.g.
+    # moonshot), so look that key up before rejecting a provider as unknown.
+    env_var = PROVIDER_ENV_VARS.get(provider) or PROVIDER_API_KEYS.get(provider)
+    api_key: str | None = None
 
     # Check env var first, then config file
-    api_key = os.environ.get(env_var)
-    if not api_key:
+    if env_var:
+        api_key = os.environ.get(env_var)
+    if env_var and not api_key:
         try:
             from ..config import get_config
 
@@ -144,9 +158,19 @@ def _test_provider(provider: str) -> tuple[bool, str]:
         except Exception:
             pass
     if not api_key:
+        try:
+            api_key = get_stored_api_key(provider)
+        except (OSError, ValueError):
+            api_key = None
+    if not api_key:
+        if not env_var:
+            return False, f"Unknown provider: {provider}"
         return False, f"No API key found (set {env_var})"
 
-    return validate_api_key(api_key, provider)
+    status, message = validate_api_key_status(api_key, provider)
+    if status == ApiKeyValidationStatus.UNSUPPORTED:
+        return True, message or "API key found (not validated during onboarding)"
+    return status != ApiKeyValidationStatus.INVALID, message
 
 
 def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None:
