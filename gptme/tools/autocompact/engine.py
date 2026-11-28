@@ -484,9 +484,17 @@ def auto_compact_log(
         if reasoning_strip_age_threshold is not None:
             distance_from_end = log_length - idx - 1
             if distance_from_end >= reasoning_strip_age_threshold:
-                stripped_content, reasoning_saved = strip_reasoning(
-                    msg.content, model.model
-                )
+                if output := (msg.metadata or {}).get("responses_output"):
+                    from ...llm.responses_phase import strip_responses_reasoning
+
+                    stripped_content = strip_responses_reasoning(msg.content, output)
+                    reasoning_saved = len_tokens(msg.content, model.model) - len_tokens(
+                        stripped_content, model.model
+                    )
+                else:
+                    stripped_content, reasoning_saved = strip_reasoning(
+                        msg.content, model.model
+                    )
                 if reasoning_saved > 0:
                     msg = msg.replace(content=stripped_content)
                     reasoning_tokens_saved += reasoning_saved

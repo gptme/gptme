@@ -11,7 +11,6 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from ..message import _strip_think_sig
 from ..tools.base import ToolUse, find_json_end, toolcall_re
 from ..tools.native_names import native_tool_name
 from .openai_responses import _obj_get
@@ -27,15 +26,58 @@ if TYPE_CHECKING:
     )
 
 
-def _prose(content: str) -> str:
-    """Normalize only prose; never apply reasoning regexes to native JSON."""
-    if re.search(r"<think(?:ing)?>", content):
-        from ..context.compress import remove_reasoning
+_THINK_SIG = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
-        # Retain separators around native calls without duplicating whitespace
-        # already preserved inside code. Interrupted reasoning is not replayable.
-        content = remove_reasoning(content, drop_unclosed=True, preserve_edges=True)
-    return _strip_think_sig(content)
+
+def _reasoning_spans(content: str, *, drop_unclosed: bool) -> Iterator[tuple[int, int]]:
+    """Use the shared fence scan while retaining offsets for item replay."""
+    from ..context.compress import _reasoning_segments
+
+    offset = text_start = 0
+    for kind, segment in _reasoning_segments(content, drop_unclosed=drop_unclosed):
+        if kind != "text":
+            for sig in _THINK_SIG.finditer(content, text_start, offset):
+                yield sig.span()
+            if kind == "reasoning":
+                yield offset, offset + len(segment)
+            text_start = offset + len(segment)
+        offset += len(segment)
+    for sig in _THINK_SIG.finditer(content, text_start, offset):
+        yield sig.span()
+
+
+def _normalize_prose(
+    parts: list[str], separator: str = "", *, drop_unclosed: bool = False
+) -> Iterator[str]:
+    """Scan rendered prose but return text using only the original item spans."""
+    content = separator.join(parts)
+    spans = _reasoning_spans(content, drop_unclosed=drop_unclosed)
+    span = next(spans, None)
+    start = 0
+    for part in parts:
+        end = start + len(part)
+        cursor = start
+        kept = []
+        while span is not None and span[0] < end:
+            lo, hi = span
+            # Keep the shared fence scan, but do not pair literal markers
+            # across items. A signature may consume trailing separator space.
+            if start <= lo and lo + len(content[lo:hi].rstrip()) <= end:
+                kept.append(content[cursor:lo])
+                cursor = min(hi, end)
+            span = next(spans, None)
+        kept.append(content[cursor:end])
+        yield "".join(kept)
+        start = end + len(separator)
+
+
+def _prose(content: str) -> str:
+    """Preserve the normal compactor's edge handling for a single item."""
+    from ..context.compress import remove_reasoning
+
+    if re.search(r"<think(?:ing)?>", content) and not _THINK_SIG.search(content):
+        return remove_reasoning(content, drop_unclosed=True, preserve_edges=True)
+    return next(_normalize_prose([content], drop_unclosed=True))
 
 
 def _native_parts(content: str) -> tuple[list[str], list[ToolUse], list[str]] | None:
@@ -65,6 +107,83 @@ def _digest(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def _strip_prose_around_calls(prose: list[str], raw_calls: list[str]) -> str | None:
+    normalized = list(_normalize_prose(prose))
+    if normalized == prose:
+        return None
+    leading = prose[0][: len(prose[0]) - len(prose[0].lstrip())]
+    trailing = prose[-1][len(prose[-1].rstrip()) :]
+    stripped = "".join(
+        text + (raw_calls[i] if i < len(raw_calls) else "")
+        for i, text in enumerate(normalized)
+    )
+    # Drop line breaks exposed at the edges by reasoning removal while
+    # retaining original edge whitespace and any indentation on visible text.
+    return (
+        leading
+        + stripped.removeprefix(leading).removesuffix(trailing).strip("\r\n")
+        + trailing
+    )
+
+
+def _stripped_content(
+    content: str, prose: list[str], raw_calls: list[str]
+) -> str | None:
+    """Choose one compaction result without changing or hiding any native call."""
+    from ..context.compress import remove_reasoning
+
+    # Prefer the normal compactor's output. Its whitespace cleanup must not
+    # change literal native arguments or make a call disappear from replay.
+    if any(re.search(r"<think(?:ing)?>", part) for part in prose):
+        stripped = remove_reasoning(content)
+        parts = _native_parts(stripped)
+        if stripped != content and parts is not None and parts[2] == raw_calls:
+            return stripped
+
+    # Literal tags in native JSON can make the whole-message strip unsafe.
+    # Strip only the original prose slices, keep the calls byte-for-byte, and
+    # check that they are still parsed as calls before authorizing the digest.
+    safe = _strip_prose_around_calls(prose, raw_calls)
+    if safe is not None:
+        parts = _native_parts(safe)
+        if parts is not None and parts[2] == raw_calls:
+            return safe
+    return None
+
+
+def strip_responses_reasoning(
+    content: str, output: ResponsesOutput | None = None
+) -> str:
+    """Apply a reasoning-only edit, preserving visible text in saved phase anchors."""
+    if (parts := _native_parts(content)) is not None:
+        prose, _, raw_calls = parts
+        if (stripped := _stripped_content(content, prose, raw_calls)) is not None and (
+            output is None or replay_responses_output(stripped, output) is not None
+        ):
+            return stripped
+    return content
+
+
+def _comparison_text(text: str) -> str:
+    # Streaming can normalize the spelling of thinking tags. The exact digest
+    # still guards edits, and replay uses the captured item's original spelling.
+    text = text.replace("<thinking>", "<think>").replace("</thinking>", "</think>")
+    return re.sub(r"\n\n\n+", "\n\n", text).strip()
+
+
+def _replay_arguments(call: ToolUse, raw_call: str) -> str:
+    match = toolcall_re.match(raw_call)
+    if match is not None:
+        arguments = match[3]
+        try:
+            json.loads(arguments)
+        except json.JSONDecodeError:
+            pass  # Keep supporting legacy arguments accepted by JSON repair.
+        else:
+            return arguments
+    return json.dumps(call.kwargs or {})
+
+
 def replay_responses_output(
     content: str, output: object
 ) -> list[dict[str, Any]] | None:
@@ -89,12 +208,26 @@ def replay_responses_output(
     parts = _native_parts(content)
     if parts is None:
         return None
-    text_parts, calls, _ = parts
+    text_parts, calls, raw_calls = parts
     # Calls and kwargs come from UNCHANGED current content. Strip reasoning only
     # after removing their spans, so literal tags/signatures in JSON survive.
     # Comparison only: normalize the same blank-line runs as each item below.
     # Replay text, current native kwargs and the exact edit digest stay untouched.
-    remaining = re.sub(r"\n\n\n+", "\n\n", _prose("".join(text_parts))).strip()
+    # Keep single-item replay's established treatment of interrupted thinking.
+    # With multiple message items an unmatched literal opener cannot consume a
+    # later answer. This also rejects older stored anchors missing that text.
+    message_count = sum(
+        isinstance(item, dict) and item.get("type") == "message" for item in captured
+    )
+    remaining = [
+        _comparison_text(
+            "".join(_normalize_prose(text_parts, drop_unclosed=message_count == 1))
+        )
+    ]
+    # Flattening erases boundaries between adjacent provider text items.
+    # Also compare the unstripped text against the already-normalized anchors.
+    if message_count > 1:
+        remaining.insert(0, _comparison_text("".join(text_parts)))
     items: list[dict[str, Any]] = []
     call_index = 0
     for item in captured:
@@ -106,12 +239,14 @@ def replay_responses_output(
                 return None
             # Item whitespace is retained in replay, while display separators
             # and reasoning-strip whitespace are not item content.
-            text = _prose(text)
-            match = re.sub(r"\n\n\n+", "\n\n", text).strip()
-            remaining = remaining.lstrip()
-            if not remaining.startswith(match):
+            match = _comparison_text(text)
+            remaining = [
+                candidate[len(match) :]
+                for candidate in map(str.lstrip, remaining)
+                if candidate.startswith(match)
+            ]
+            if not remaining:
                 return None
-            remaining = remaining[len(match) :]
             message: dict[str, Any] = {"role": "assistant", "content": text}
             if "phase" in item:
                 if not isinstance(item["phase"], str):
@@ -124,18 +259,22 @@ def replay_responses_output(
             ):
                 return None
             call = calls[call_index]
-            call_index += 1
             items.append(
                 {
                     "type": "function_call",
                     "call_id": call.call_id,
                     "name": native_tool_name(call.tool),
-                    "arguments": json.dumps(call.kwargs or {}),
+                    "arguments": _replay_arguments(call, raw_calls[call_index]),
                 }
             )
+            call_index += 1
         else:
             return None
-    return items if not remaining.strip() and call_index == len(calls) else None
+    return (
+        items
+        if call_index == len(calls) and any(not text.strip() for text in remaining)
+        else None
+    )
 
 
 class ResponsesPhaseCapture:
@@ -188,7 +327,11 @@ class ResponsesPhaseCapture:
             yield event
 
     def metadata(
-        self, metadata: MessageMetadata | None, content: str
+        self,
+        metadata: MessageMetadata | None,
+        content: str,
+        *,
+        prose_separator: str = "",
     ) -> MessageMetadata | None:
         ordered = [item for _, item in sorted(self.items.items())]
         if not any(item["type"] == "message" and "phase" in item for item in ordered):
@@ -201,13 +344,19 @@ class ResponsesPhaseCapture:
         prose, parsed_calls, raw_calls = parts
         calls = [call.call_id for call in parsed_calls]
         filtered: list[ResponsesTextItem | ResponsesCallItem] = []
+        text_items = [item["text"] for item in ordered if item["type"] == "message"]
+        normalized = (
+            iter([_prose(text_items[0])])
+            if len(text_items) == 1
+            else _normalize_prose(text_items, prose_separator)
+        )
         for item in ordered:
             if item["type"] == "function_call":
                 if item["call_id"] not in calls:
                     continue
                 calls.remove(item["call_id"])
             else:
-                item = {**item, "text": _prose(item["text"])}
+                item = {**item, "text": next(normalized)}
             filtered.append(item)
         output: ResponsesOutput = {
             "content_digest": _digest(content),
@@ -215,15 +364,10 @@ class ResponsesPhaseCapture:
         }
         # Allow a prose-only reasoning-strip edit, never a transform of argument
         # strings. Every native span is copied byte-for-byte into this anchor.
-        if any(re.search(r"<think(?:ing)?>", text) for text in prose):
-            from ..context.compress import remove_reasoning
-
-            # Hash exactly what autocompact produces from the whole message,
-            # and only if every native span survives it byte-for-byte.
-            stripped = remove_reasoning(content)
-            stripped_parts = _native_parts(stripped)
-            if stripped_parts is not None and stripped_parts[2] == raw_calls:
-                output["reasoning_stripped_digest"] = _digest(stripped)
+        if (stripped := _stripped_content(content, prose, raw_calls)) is not None:
+            output["reasoning_stripped_digest"] = _digest(stripped)
+            if replay_responses_output(stripped, output) is None:
+                del output["reasoning_stripped_digest"]
         if replay_responses_output(content, output) is None:
             return metadata
         return {**(metadata or {}), "responses_output": output}

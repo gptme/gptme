@@ -1,6 +1,7 @@
 """Offline output -> persistence -> next-request phase regressions (#4616)."""
 
 import base64
+import hashlib
 import json
 from collections.abc import Generator, Iterator
 from pathlib import Path
@@ -166,8 +167,12 @@ def _generate(
     )
 
 
-def _prepare(msg: Message, provider: str) -> list[dict[str, Any]]:
-    messages = [msg, Message("system", "ok", call_id="call_1")]
+def _prepare(
+    msg: Message, provider: str, *, with_call: bool = True
+) -> list[dict[str, Any]]:
+    messages = [msg]
+    if with_call:
+        messages.append(Message("system", "ok", call_id="call_1"))
     if provider == "subscription":
         return _messages_to_responses_input(messages)[1]
     shell = get_tool("shell")
@@ -421,7 +426,11 @@ def test_phase_strip_digest_matches_autocompact_across_calls() -> None:
 
 def test_phase_strip_digest_never_covers_changed_arguments() -> None:
     from gptme.context import strip_reasoning
-    from gptme.llm.responses_phase import ResponsesPhaseCapture
+    from gptme.llm.responses_phase import (
+        ResponsesPhaseCapture,
+        replay_responses_output,
+        strip_responses_reasoning,
+    )
 
     raw_call = '@shell(call_1): {"command":"echo <think>keep</think>"}'
     content = "<think>private</think>Run\n" + raw_call
@@ -431,8 +440,14 @@ def test_phase_strip_digest_never_covers_changed_arguments() -> None:
     metadata = capture.metadata(None, content)
     assert metadata is not None
     output = metadata["responses_output"]
-    assert strip_reasoning(content)[0] != content
-    assert "reasoning_stripped_digest" not in output
+    unsafe, _ = strip_reasoning(content)
+    assert unsafe != content
+    assert replay_responses_output(unsafe, output) is None
+    safe = strip_responses_reasoning(content)
+    assert safe == "Run\n" + raw_call
+    replay = replay_responses_output(safe, output)
+    assert replay is not None
+    assert replay[1]["arguments"] == '{"command":"echo <think>keep</think>"}'
 
 
 def test_adjacent_phased_messages_survive_preparation(
@@ -527,6 +542,213 @@ def test_buffered_tool_output_keeps_original_item_order() -> None:
         "final_answer",
         "function_call_output",
     ]
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("source", ["terminal", "both"])
+@pytest.mark.parametrize("with_call", [False, True])
+def test_split_fence_roundtrip(
+    monkeypatch: pytest.MonkeyPatch, provider: str, source: str, with_call: bool
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    before = "```xml\n<think>literal example\n"
+    closer = "</think>\n<thinking>also literal</thinking>\n```\n"
+    after = closer + "<thinking>private plan</thinking>Done"
+    arguments = """{ "command": "printf '<think>literal argument</think>'" }"""
+    items = [_message(before, "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": arguments,
+            }
+        )
+    items.append(_message(after, "final_answer", 2))
+    msg = _reload(_generate(monkeypatch, provider, items, source), "toml")
+    assert (msg.metadata or {}).get("responses_output") is not None
+    assert "private plan" not in json.dumps(msg.metadata)
+
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    outside = (
+        "<think>private plan</think>"
+        if source == "both" and provider != "sdk_nonstream"
+        else "<thinking>private plan</thinking>"
+    )
+    assert compacted.content == msg.content.replace(outside, "")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider, with_call=with_call)
+        assert _prepare(compacted, replay_provider, with_call=with_call) == replay
+        assert [i.get("phase", i.get("type")) for i in replay] == (
+            ["commentary", "function_call", "final_answer", "function_call_output"]
+            if with_call
+            else ["commentary", "final_answer"]
+        )
+        assert replay[0]["content"] == before
+        assert replay[2 if with_call else 1]["content"] == closer + "Done"
+        if with_call:
+            assert replay[1]["arguments"] == arguments
+        for original in ("Done", "literal argument") if with_call else ("Done",):
+            edited = msg.replace(content=msg.content.replace(original, "edited"))
+            assert all(
+                "phase" not in i
+                for i in _prepare(edited, replay_provider, with_call=with_call)
+            )
+
+
+@pytest.mark.parametrize("with_call", [False, True])
+def test_nonstream_fence_closer_uses_display_separator(
+    monkeypatch: pytest.MonkeyPatch, with_call: bool
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    before = "```xml\n<think>literal example</think>\n"
+    closer = "```"
+    reasoning = "<think>private plan</think>"
+    arguments = '{ "command": "printf literal" }'
+    items = [_message(before, "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": arguments,
+            }
+        )
+    items.extend(
+        [
+            _message(closer, "commentary", 2),
+            _message(reasoning + "Done", "final_answer", 3),
+        ]
+    )
+    msg = _reload(_generate(monkeypatch, "sdk_nonstream", items, "terminal"), "toml")
+    assert f"{closer}\n{reasoning}Done" in msg.content
+    assert (msg.metadata or {}).get("responses_output") is not None
+    assert "private plan" not in json.dumps(msg.metadata)
+
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    assert compacted.content == msg.content.replace(reasoning, "")
+    for provider in ("subscription", "sdk"):
+        replay = _prepare(msg, provider, with_call=with_call)
+        assert _prepare(compacted, provider, with_call=with_call) == replay
+        assert [item.get("phase", item.get("type")) for item in replay] == (
+            [
+                "commentary",
+                "function_call",
+                "commentary",
+                "final_answer",
+                "function_call_output",
+            ]
+            if with_call
+            else ["commentary", "commentary", "final_answer"]
+        )
+        assert replay[0]["content"] == before
+        assert replay[2 if with_call else 1]["content"] == closer
+        assert replay[3 if with_call else 2]["content"] == "Done"
+        if with_call:
+            assert replay[1]["arguments"] == arguments
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+def test_unmatched_tag_in_early_item_keeps_final_answer(
+    monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    first = "I'll grep for the `<think>` tag.\n"
+    last = "Final answer: 42."
+    arguments = '{"command": "ls"}'
+    items = [
+        _message(first, "commentary"),
+        {
+            "type": "function_call",
+            "name": "shell",
+            "call_id": "call_1",
+            "arguments": arguments,
+        },
+        _message(last, "final_answer", 2),
+    ]
+    msg = _reload(_generate(monkeypatch, provider, items, "terminal"), "toml")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider)
+        prose = "".join(
+            item["content"] for item in replay if item.get("role") == "assistant"
+        )
+        assert first.strip() in prose
+        assert last in prose
+        call = next(item for item in replay if item.get("type") == "function_call")
+        assert json.loads(call["arguments"]) == {"command": "ls"}
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("with_call", [False, True])
+def test_literal_tag_pair_across_items_keeps_both_messages(
+    monkeypatch: pytest.MonkeyPatch, provider: str, with_call: bool
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    first, last = "The `<think>` tag opens.\n", "The `</think>` tag closes."
+    arguments = '{"command": "ls"}'
+    items = [_message(first, "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": arguments,
+            }
+        )
+    items.append(_message(last, "final_answer", len(items)))
+    msg = _reload(_generate(monkeypatch, provider, items, "terminal"), "toml")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider, with_call=with_call)
+        assert replay[0]["content"] == first
+        assert replay[0]["phase"] == "commentary"
+        if with_call:
+            assert replay[1]["type"] == "function_call"
+            assert replay[1]["arguments"] == arguments
+        assert replay[2 if with_call else 1]["content"] == last
+        assert replay[2 if with_call else 1]["phase"] == "final_answer"
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    assert compacted.content == msg.content
+
+
+def test_replay_rejects_preexisting_truncated_multi_item_anchor() -> None:
+    from gptme.llm.responses_phase import replay_responses_output
+
+    content = "Mention the `<think>` tag.\nThe final answer is 42."
+    old_anchor = {
+        "content_digest": hashlib.sha256(content.encode()).hexdigest(),
+        "items": [
+            {"type": "message", "text": "Mention the `", "phase": "commentary"},
+            {"type": "message", "text": "", "phase": "final_answer"},
+        ],
+    }
+    assert replay_responses_output(content, old_anchor) is None
+
+
+def test_opt_in_compaction_keeps_unmatched_tag_and_following_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    text = "Use the `<think>` tag for reasoning. Then run the tests."
+    msg = _generate(
+        monkeypatch, "sdk_nonstream", [_message(text, "final_answer")], "terminal"
+    )
+    assert (msg.metadata or {}).get("responses_output") is not None
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    assert compacted.content == text
 
 
 def test_rejected_call_not_reinstated_and_no_opaque_data() -> None:
