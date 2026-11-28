@@ -1,5 +1,6 @@
 import re
 from bisect import bisect_left
+from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
@@ -117,132 +118,172 @@ class Codeblock:
         return list(_extract_codeblocks(markdown, streaming=streaming))
 
 
-def _find_heredoc_terminator(
-    line: str,
-    in_single: bool = False,
-    in_double: bool = False,
-    in_ansi_c: bool = False,
-) -> tuple[str | None, bool, bool, bool]:
-    """Return ``(terminator | None, in_single, in_double, in_ansi_c)``.
+_SHELL_OPERATORS = ";&|()<>"
+_HEREDOC_WORD = re.compile(
+    r"""(?:\$'(?:[^'\\]|\\.)*'|[^ \t;&|()<>'"\\$]+|\$(?!['"])|'[^']*'|\$?"(?:[^"\\]|\\.)*"|\\.)+"""
+)
+_HEREDOC_WORD_PART = re.compile(
+    r"""\$'((?:[^'\\]|\\.)*)'|'([^']*)'|\$?"((?:[^"\\]|\\.)*)"|\\(.)|."""
+)
+_DOUBLE_QUOTE_ESCAPE = re.compile(r'\\([$\x60"\\])')
+_ANSI_C_ESCAPE = re.compile(
+    r"""\\([0-7]{1,3}|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|U[0-9a-fA-F]{1,8}|c[\x20-\x7e]|.)"""
+)
+_ANSI_C_SIMPLE = dict(zip(r"""abefnrtvE\'"?""", "\a\b\x1b\f\n\r\t\v\x1b\\'\"?"))
+_ARITHMETIC_KEYWORD = re.compile(
+    r"(?:^|[ \t;&|()])(?:if|elif|while|until|for|then|do|else)\Z"
+)
 
-    The quote-state parameters let callers carry per-character quote state
-    across lines so that a multiline single-quoted string (e.g.
-    ``s='\\n<< EOF\\n'``) is not misidentified as a heredoc opener on the
-    continuation line.  Returns the end-of-line quote state so callers can
-    pass it into the next invocation.
 
-    ``in_ansi_c`` tracks bash ANSI-C quoting (``$'...'``), where backslash
-    escapes *are* processed (unlike POSIX single quotes).  Without this,
-    ``x=$'a\\'b'`` is scanned as POSIX ``'...'`` and leaves ``in_single``
-    set, so a later closing fence is treated as quoted content.
+def _decode_ansi_c_quote(value: str) -> str:
+    """Decode Bash's $'...' word part without executing a shell."""
+    raw = bytearray()
+    pos = 0
+    for match in _ANSI_C_ESCAPE.finditer(value):
+        raw.extend(value[pos : match.start()].encode())
+        escape = match[1]
+        if escape in _ANSI_C_SIMPLE:
+            raw.extend(_ANSI_C_SIMPLE[escape].encode())
+        elif escape[0] in "01234567":
+            raw.append(int(escape, 8) & 0xFF)
+        elif escape.startswith("x") and len(escape) > 1:
+            raw.append(int(escape[1:], 16))
+        elif escape.startswith(("u", "U")) and len(escape) > 1:
+            point = int(escape[1:], 16)
+            if point <= 0x10FFFF and not 0xD800 <= point <= 0xDFFF:
+                raw.extend(chr(point).encode())
+            else:
+                raw.extend(match[0].encode())
+        elif escape.startswith("c") and len(escape) == 2:
+            raw.append(127 if escape[1] == "?" else ord(escape[1]) & 31)
+        else:
+            raw.extend(match[0].encode())
+        pos = match.end()
+    raw.extend(value[pos:].encode())
+    return raw.partition(b"\0")[0].decode(errors="surrogateescape")
 
-    Only recognizes ``<<`` operators at top-level (outside quoted strings,
-    outside comments, and not backslash-escaped): a heredoc operator is
-    shell syntax and never occurs inside a quoted literal or a ``#``
-    comment, so ``echo "a << b"`` and ``# see a << b`` are correctly
-    ignored while ``cat << 'EOF' > file.md`` is recognized. A backslash
-    escapes the next character (matching shell quoting rules), so
-    ``echo \\# not-a-comment`` and escaped quotes inside a double-quoted
-    string don't desync the quote tracker. The terminator word accepts any
-    run of non-whitespace, non-quote, non-backslash characters (bash
-    heredoc words aren't restricted to ``\\w``, e.g. ``<<'END-TAG'``), with
-    an optional single leading quote-or-backslash consumed but not part of
-    the terminator (``<<'EOF'``, ``<<"EOF"``, and ``<<\\EOF`` all use the
-    plain word ``EOF``). A ``<<<`` here-string takes one inline value and
-    never opens a multi-line body, so it's explicitly not matched here -
-    otherwise the capture group would swallow the third ``<`` as part of
-    the (bogus) terminator and heredoc state would never close. A ``<<``
-    inside ``$((...))`` arithmetic expansion is always a bit-shift, and a
-    ``<<`` whose right operand is a bare integer literal is too, so both
-    are rejected to avoid minting a phantom terminator that could swallow
-    later fences.
-    """
-    i = 0
-    n = len(line)
-    # Iterate over ALL characters so that a quote at the very end of a line
-    # (e.g. ``s='``) updates in_single/in_double for the caller to carry to the
-    # next line.  The old ``while i < n - 1`` guard was safe for the ``<<``
-    # look-ahead but silently skipped trailing quote characters.
-    while i < n:
-        c = line[i]
-        if in_ansi_c:
-            # ANSI-C $'...' : backslash escapes the next char, including quotes.
-            if c == "\\":
+
+@dataclass(frozen=True)
+class _Heredoc:
+    delimiter: str
+    strip_tabs: bool
+    quoted: bool
+
+
+@dataclass
+class _ShellFenceState:
+    """Track the shell syntax that can make Markdown fence lines literal."""
+
+    quote: str = ""
+    arithmetic_depth: int = 0
+    in_word: bool = False
+    continued: bool = False
+    heredocs: deque[_Heredoc] = field(default_factory=deque)
+    heredoc_fragments: list[str] = field(default_factory=list)
+
+    def consume_heredoc_line(self, line: str) -> bool:
+        """Consume one body line, including the terminator itself."""
+        if not self.heredocs or self.quote or self.arithmetic_depth or self.continued:
+            return False
+        heredoc = self.heredocs[0]
+        if not heredoc.quoted and _line_ends_with_continuation(line):
+            self.heredoc_fragments.append(line[:-1])
+            return True
+        if self.heredoc_fragments:
+            self.heredoc_fragments.append(line)
+            line = "".join(self.heredoc_fragments)
+            self.heredoc_fragments.clear()
+        if (line.lstrip("\t") if heredoc.strip_tabs else line) == heredoc.delimiter:
+            self.heredocs.popleft()
+        return True
+
+    def scan(self, line: str, *, allow_heredoc: bool) -> None:
+        if not self.continued and not self.quote and not self.arithmetic_depth:
+            self.in_word = False
+        self.continued = False
+        i = 0
+        while i < len(line):
+            char = line[i]
+            if char == "\\" and self.quote != "'":
+                if i + 1 == len(line):
+                    self.continued = True
+                else:
+                    self.in_word = True
                 i += 2
                 continue
-            if c == "'":
-                in_ansi_c = False
+            if self.quote:
+                if char == self.quote[-1]:
+                    self.quote = ""
+                i += 1
+                continue
+            if char == "#" and not self.in_word and not self.arithmetic_depth:
+                break
+            if line.startswith("$'", i):
+                self.quote = "$'"
+                self.in_word = True
+                i += 2
+                continue
+            if char in "'\"":
+                self.quote = char
+            elif self.arithmetic_depth:
+                if char == "(":
+                    self.arithmetic_depth += 1
+                elif char == ")":
+                    self.arithmetic_depth -= 1
+            elif line.startswith("$((", i) or (
+                line.startswith("((", i)
+                and (not self.in_word or _ARITHMETIC_KEYWORD.search(line, 0, i))
+            ):
+                self.arithmetic_depth = 2
+                self.in_word = True
+                i += 3 if char == "$" else 2
+                continue
+            elif line.startswith("<<<", i):
+                self.in_word = False
+                i += 3
+                continue
+            elif line.startswith("<<", i):
+                i += 2
+                if allow_heredoc:
+                    i = self._read_heredoc(line, i)
+                self.in_word = False
+                continue
+            elif char in " \t" or char in _SHELL_OPERATORS:
+                self.in_word = False
+                i += 1
+                continue
+            self.in_word = True
             i += 1
-            continue
-        if c == "\\" and not in_single:
-            # Backslash escapes the next char outside single quotes (bash
-            # doesn't allow escaping inside single quotes at all).
-            i += 2
-            continue
+
+    def _read_heredoc(self, line: str, start: int) -> int:
+        strip_tabs = line.startswith("-", start)
+        start += strip_tabs
+        while start < len(line) and line[start] in " \t":
+            start += 1
+        word = _HEREDOC_WORD.match(line, start)
         if (
-            c == "$"
-            and not in_single
-            and not in_double
-            and i + 1 < n
-            and line[i + 1] == "'"
+            word is None
+            or line[start] == "#"
+            or line[word.end() : word.end() + 1] in ("'", '"', "\\")
         ):
-            # Start of ANSI-C quoting: $'...'
-            in_ansi_c = True
-            i += 2
-            continue
-        if c == "'" and not in_double:
-            in_single = not in_single
-        elif c == '"' and not in_single:
-            in_double = not in_double
-        elif (
-            c == "#"
-            and not in_single
-            and not in_double
-            and (i == 0 or line[i - 1].isspace())
-        ):
-            # Start of a shell comment - nothing after it is executable syntax.
-            return None, in_single, in_double, in_ansi_c
-        elif (
-            c == "$"
-            and not in_single
-            and not in_double
-            and i + 2 < n
-            and line[i + 1 : i + 3] == "(("
-        ):
-            # `$((...))` arithmetic expansion: `<<` inside is always a
-            # bit-shift, never a heredoc. Skip to the matching `))` so a
-            # shift like `$((1 << 3))` can't mint a phantom terminator.
-            j = line.find("))", i + 2)
-            i = (j + 2) if j != -1 else n
-            continue
-        elif (
-            c == "<"
-            and i + 1 < n  # guard: need line[i+1] for the look-ahead
-            and line[i + 1] == "<"
-            and not in_single
-            and not in_double
-            and (i == 0 or line[i - 1] != "<")
-        ):
-            if i + 2 < n and line[i + 2] == "<":
-                # `<<<` here-string, not a heredoc operator - skip past it.
-                i += 2
-                continue
-            m = re.match(r"<<-?\s*['\"\\]?([^\s'\"\\]+)", line[i:])
-            if m:
-                term = m.group(1)
-                if term.lstrip("+-").isdigit():
-                    # `<< N` with an integer N is an arithmetic bit-shift
-                    # (`x << 2`, `1 << 3`), not a heredoc opener. A bare
-                    # integer heredoc delimiter is effectively never written
-                    # in real shell, so reject it rather than mint a phantom
-                    # terminator that could swallow later fences.
-                    i += 2
-                    continue
-                # At the heredoc opener, quote state is always unquoted (the
-                # guard above requires not in_single and not in_double).
-                return term, False, False, False
-        i += 1
-    return None, in_single, in_double, in_ansi_c
+            return start
+
+        parts = []
+        quoted = False
+        for part in _HEREDOC_WORD_PART.finditer(word.group()):
+            ansi, single, double, escaped = part.groups()
+            if ansi is not None:
+                parts.append(_decode_ansi_c_quote(ansi))
+            elif single is not None:
+                parts.append(single)
+            elif double is not None:
+                # Parse locale quotes like Bash without a message catalog.
+                parts.append(_DOUBLE_QUOTE_ESCAPE.sub(r"\1", double))
+            else:
+                parts.append(escaped if escaped is not None else part.group())
+            quoted |= any(value is not None for value in part.groups())
+        self.heredocs.append(_Heredoc("".join(parts), strip_tabs, quoted))
+        return word.end()
 
 
 def _line_ends_with_continuation(line: str) -> bool:
@@ -399,10 +440,10 @@ _EXEC_LANGS = frozenset(
         "py",  # python tool block type, executed like ipython
     }
 )
-# Shell languages that support heredoc syntax (``<<``). IPython/Python's
-# ``<<`` is always the bitwise left-shift operator — there is no heredoc
-# syntax in Python — so ipython is excluded from heredoc state tracking.
+# Keep shell quote tracking for executable shell tags. Heredocs use Bourne
+# shell syntax, which other executable tags such as fish and PowerShell lack.
 _SHELL_LANGS = _EXEC_LANGS - {"ipython", "py"}
+_HEREDOC_LANGS = frozenset({"shell", "sh", "bash", "zsh", "ksh"})
 
 
 def _line_fence_states(
@@ -447,8 +488,7 @@ def _line_fence_states(
     fence_len = 0
     outer_lang = ""
     ipy_td = ipy_ts = ipy_s = ipy_d = False
-    qs_single = qs_double = qs_ansi = False
-    heredoc_terminator: str | None = None
+    shell = _ShellFenceState()
     # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
     ambiguous_fence_kept = False
     after_triple_closer = False
@@ -464,15 +504,12 @@ def _line_fence_states(
                 depth = 1
                 ambiguous_fence_kept = False
                 ipy_td = ipy_ts = ipy_s = ipy_d = False
-                qs_single = qs_double = qs_ansi = False
-                heredoc_terminator = None
+                shell = _ShellFenceState()
                 continue
             states.append((0, False, ""))
             continue
 
-        # A confirmed heredoc body is verbatim shell input, including fences
-        # and thinking tags. Do not apply ambiguous markdown recovery to it.
-        if heredoc_terminator is not None and line.strip() != heredoc_terminator:
+        if shell.consume_heredoc_line(line):
             states.append((depth, False, outer_lang))
             continue
 
@@ -489,8 +526,7 @@ def _line_fence_states(
                 depth = 1
                 ambiguous_fence_kept = False
                 ipy_td = ipy_ts = ipy_s = ipy_d = False
-                qs_single = qs_double = qs_ansi = False
-                heredoc_terminator = None
+                shell = _ShellFenceState()
                 continue
             if rest.startswith(("<think>", "<thinking>")):
                 states.append((1, True, outer_lang))
@@ -499,20 +535,8 @@ def _line_fence_states(
                 outer_lang = ""
                 continue
 
-        # Carry exactly the same shell/Python string state as extraction. In
-        # particular, heredoc body quotes do not change the outer shell state.
         if outer_lang in _SHELL_LANGS:
-            if heredoc_terminator is None:
-                candidate, qs_single, qs_double, qs_ansi = _find_heredoc_terminator(
-                    line, qs_single, qs_double, qs_ansi
-                )
-                if candidate is not None and any(
-                    later.strip() == candidate for later in lines[i + 1 : i + 201]
-                ):
-                    heredoc_terminator = candidate
-            elif line.strip() == heredoc_terminator:
-                heredoc_terminator = None
-                qs_single = qs_double = qs_ansi = False
+            shell.scan(line, allow_heredoc=outer_lang in _HEREDOC_LANGS)
         elif outer_lang in ("ipython", "py"):
             ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
                 line, ipy_td, ipy_ts, ipy_s, ipy_d
@@ -535,7 +559,7 @@ def _line_fence_states(
                 )
             )
             if is_outer_close or (is_bare_fence and depth > 1):
-                if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
+                if shell.quote or ipy_td or ipy_ts:
                     states.append((depth, False, outer_lang))
                     continue
                 next_has_content = i + 1 < len(lines) and bool(lines[i + 1].strip())
@@ -560,9 +584,7 @@ def _line_fence_states(
                     depth == 1
                     and next_has_content
                     and not next_is_fence
-                    and (
-                        outer_lang not in _EXEC_LANGS or heredoc_terminator is not None
-                    )
+                    and outer_lang not in _EXEC_LANGS
                 ):
                     # Match extraction's bounded nested-fence lookahead. Without
                     # a confirmed inner closer, non-streaming keeps this fence
@@ -633,11 +655,7 @@ def _line_fence_states(
                             == len(thinking_closer_lines[opener_close])
                         ):
                             next_line = opener_line
-                    if heredoc_terminator is None and next_line.startswith(
-                        ("<think>", "<thinking>")
-                    ):
-                        # Heredoc payload tags are literal shell content, not
-                        # evidence that the preceding tool fence has closed.
+                    if next_line.startswith(("<think>", "<thinking>")):
                         # Only this branch reads `nested_example_continues`.
                         # Scanning the remaining suffix on every bare fence
                         # made large Markdown quadratic even when no thinking
@@ -748,9 +766,7 @@ def _line_fence_states(
                 if (
                     depth == 1
                     and streaming
-                    and (
-                        outer_lang not in _EXEC_LANGS or heredoc_terminator is not None
-                    )
+                    and outer_lang not in _EXEC_LANGS
                     and not (i + 1 < len(lines) - 1 and not lines[i + 1].strip())
                 ):
                     states.append((depth, True, outer_lang))
@@ -1124,17 +1140,7 @@ def _extract_codeblocks(
             # heuristic. After such a guess, a final fence before prose is no
             # longer a trustworthy closer (it may merge several blocks).
             ambiguous_fence_kept = False
-            # For exec langs: track heredoc state so embedded fences inside a heredoc
-            # body (e.g. a shell script writing a markdown file) are treated as literal
-            # content and never as block closers.
-            heredoc_terminator: str | None = None
-            # Cross-line quote state for the heredoc scanner: a shell single-quoted
-            # string can span multiple lines (e.g. ``s='\n<< EOF\n'``).  Without
-            # carrying in_single/in_double across lines, the ``<< EOF`` on the
-            # continuation line is misidentified as a heredoc opener.
-            _qs_in_single: bool = False
-            _qs_in_double: bool = False
-            _qs_in_ansi_c: bool = False
+            shell = _ShellFenceState()
             # For IPython blocks: track whether we are inside a Python triple-quoted
             # string (``"""`` or ``'''``).  A bare fence inside such a string is
             # literal Python source, not a markdown block delimiter.
@@ -1149,12 +1155,7 @@ def _extract_codeblocks(
             while i < len(lines):
                 line = lines[i]
 
-                # Confirmed heredoc payload is literal, even when it resembles
-                # a joined fence or has no later markdown outer closer.
-                if (
-                    heredoc_terminator is not None
-                    and line.strip() != heredoc_terminator
-                ):
+                if shell.consume_heredoc_line(line):
                     content_lines.append(line)
                     i += 1
                     continue
@@ -1198,46 +1199,8 @@ def _extract_codeblocks(
                         reprocess_current_line = True
                         break
 
-                # Update heredoc state for exec langs before fence detection.
-                # A heredoc body may contain literal fence lines (e.g. a shell script
-                # writing a markdown file via cat << EOF).  Track open/close so the
-                # fence-termination logic below can distinguish them from block closers.
-                #
-                # A candidate terminator is only trusted once it's confirmed to appear
-                # alone on a later line within a bounded window. Without this check, an
-                # unrelated unquoted `<<` (e.g. an arithmetic shift `x << 2`, or ipython
-                # `x << 2`) sets a phantom terminator that never matches anything, so
-                # heredoc state would stay "open" for the rest of the message -
-                # permanently disabling the bare-fence-is-a-closer rule and swallowing
-                # every block that follows. The window can't stop at the next bare
-                # fence: a real heredoc body legitimately contains fence-like lines
-                # (that's the case this tracking exists to handle), so a fence-bounded
-                # scan would break on the very heredocs it's meant to support. A wide
-                # but finite window instead bounds both the false-confirm blast radius
-                # (an unrelated standalone line matching the candidate far later in the
-                # message) and the O(n^2) worst case on very large documents.
                 if lang in _SHELL_LANGS:
-                    if heredoc_terminator is None:
-                        candidate, _qs_in_single, _qs_in_double, _qs_in_ansi_c = (
-                            _find_heredoc_terminator(
-                                line, _qs_in_single, _qs_in_double, _qs_in_ansi_c
-                            )
-                        )
-                        _confirm_window = lines[i + 1 : i + 1 + 200]
-                        if candidate is not None and any(
-                            later.strip() == candidate for later in _confirm_window
-                        ):
-                            heredoc_terminator = candidate
-                    elif line.strip() == heredoc_terminator:
-                        heredoc_terminator = None
-                        # Heredoc body is verbatim text — it doesn't affect the
-                        # outer shell's quote state.  A heredoc opener always
-                        # appears outside any quoted string (the not-in_single /
-                        # not-in_double guards ensure this), so restoring to
-                        # unquoted after the body closes is always correct.
-                        _qs_in_single = False
-                        _qs_in_double = False
-                        _qs_in_ansi_c = False
+                    shell.scan(line, allow_heredoc=lang in _HEREDOC_LANGS)
                 elif lang in ("ipython", "py"):
                     # Update triple-quoted-string state line-by-line so that
                     # bare fences inside ``"""..."""`` or ``'''...'''`` are
@@ -1283,9 +1246,7 @@ def _extract_codeblocks(
                         # triple-quoted string is literal content, not a markdown
                         # delimiter (same rationale as heredoc bodies).
                         if (
-                            _qs_in_single
-                            or _qs_in_double
-                            or _qs_in_ansi_c
+                            shell.quote
                             or _ipython_in_triple_double
                             or _ipython_in_triple_single
                         ):
@@ -1360,15 +1321,9 @@ def _extract_codeblocks(
                         elif (
                             next_has_content
                             and not next_is_fence
-                            and (
-                                lang not in _EXEC_LANGS
-                                or heredoc_terminator is not None
-                            )
+                            and lang not in _EXEC_LANGS
                         ):
                             # Next line has content - check if this is a real nested block.
-                            # For exec langs outside a heredoc: bare fence is always a
-                            # closer (no triple-backtick syntax).  Inside a heredoc the
-                            # fence is literal content, so apply the look-ahead as normal.
                             if nesting_depth > 1:
                                 # We're already nested, this opens another level
                                 nesting_depth += 1
@@ -1521,10 +1476,7 @@ def _extract_codeblocks(
                             # from no-block to an oversized block.
                             if (
                                 lang in _EXEC_LANGS
-                                and heredoc_terminator is None
-                                and not _qs_in_single
-                                and not _qs_in_double
-                                and not _qs_in_ansi_c
+                                and not shell.quote
                                 and not _ipython_in_triple_double
                                 and not _ipython_in_triple_single
                             ):
