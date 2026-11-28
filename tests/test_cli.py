@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 import json
 import os
@@ -384,8 +385,8 @@ def test_read_stdin_does_not_truncate_chunks_separated_by_subtimeout(monkeypatch
 
     Regression test for the Greptile-flagged concern: the previous 50ms inner
     sub-timeout could silently drop chunks from pipelines that write in bursts
-    with inter-chunk gaps slightly above 50ms. The new sub-timeout (100ms via
-    `_STDIN_PIPE_INTER_CHUNK_TIMEOUT`) bridges typical small producer gaps.
+    with inter-chunk gaps slightly above 50ms. `_read_stdin` now reads until
+    EOF, so producer gaps of any length are bridged.
     """
     read_fd, write_fd = os.pipe()
     read_file = os.fdopen(read_fd)
@@ -405,6 +406,342 @@ def test_read_stdin_does_not_truncate_chunks_separated_by_subtimeout(monkeypatch
         assert cli._read_stdin() == "first second third"
     finally:
         writer.join()
+        read_file.close()
+
+
+def test_read_stdin_preserves_multibyte_across_chunk_boundary(monkeypatch):
+    """Multibyte UTF-8 characters straddling 4096-byte read boundaries must not corrupt."""
+    # Place a 4-byte emoji at byte 4095 (split 1+3 across the first 4096-byte boundary)
+    # and a 3-byte CJK character at byte 8190 (split 2+1 across the second boundary).
+    first_segment = "a" * 4095 + "🚀"
+    assert len(first_segment.encode("utf-8")) == 4099
+    second_segment = "b" * (8190 - 4099) + "中" + "tail"
+    payload = first_segment + second_segment
+    payload_bytes = payload.encode("utf-8")
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    def _writer():
+        view = memoryview(payload_bytes)
+        offset = 0
+        while offset < len(view):
+            offset += os.write(write_fd, view[offset:])
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == payload
+        assert "\ufffd" not in result
+    finally:
+        writer.join()
+        read_file.close()
+
+
+def test_read_stdin_reads_until_eof_across_long_pause(monkeypatch):
+    """A producer pausing longer than 100ms (or grace period) must not lose later input."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.2)
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    os.write(write_fd, b"part1\n")
+
+    def _writer():
+        time.sleep(0.3)
+        os.write(write_fd, b"part2\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        assert cli._read_stdin() == "part1\npart2\n"
+    finally:
+        writer.join()
+        read_file.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "set_blocking"), reason="os.set_blocking is POSIX-only"
+)
+def test_read_stdin_nonblocking_pipe_preserves_delayed_chunks(monkeypatch):
+    """Non-blocking stdin hitting EAGAIN between chunks must wait and keep decoder state."""
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(read_fd, False)
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    emoji_bytes = "🚀".encode()
+    os.write(write_fd, b"part1\n" + emoji_bytes[:2])
+
+    def _writer():
+        time.sleep(0.04)
+        os.write(write_fd, emoji_bytes[2:] + b"part2\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == "part1\n🚀part2\n"
+        assert "\ufffd" not in result
+    finally:
+        writer.join()
+        read_file.close()
+
+
+def test_read_stdin_select_fallback_idle_pipe_returns_empty(monkeypatch):
+    """When select() is unsupported on pipes (e.g. Windows), an idle pipe must still time out."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.05)
+
+    def _unsupported_select(*_args, **_kwargs):
+        raise OSError("select on pipe not supported")
+
+    monkeypatch.setattr(cli.select, "select", _unsupported_select)
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    watchdog_fired = False
+    write_closed = False
+    close_lock = threading.Lock()
+
+    def _close_write_end():
+        nonlocal write_closed
+        with close_lock:
+            if not write_closed:
+                write_closed = True
+                os.close(write_fd)
+
+    def _watchdog():
+        nonlocal watchdog_fired
+        watchdog_fired = True
+        _close_write_end()
+
+    timer = threading.Timer(0.5, _watchdog)
+    timer.start()
+    start = time.monotonic()
+    try:
+        result = cli._read_stdin()
+        elapsed = time.monotonic() - start
+        assert not watchdog_fired, "stdin read blocked past watchdog on idle pipe"
+        assert result == ""
+        assert elapsed < 0.4
+    finally:
+        timer.cancel()
+        _close_write_end()
+        read_file.close()
+
+
+def test_read_stdin_select_fallback_reads_piped_data(monkeypatch):
+    """When select() is unsupported on pipes, real piped input is still read until EOF."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.2)
+
+    def _unsupported_select(*_args, **_kwargs):
+        raise OSError("select on pipe not supported")
+
+    monkeypatch.setattr(cli.select, "select", _unsupported_select)
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    emoji_bytes = "🚀".encode()
+    os.write(write_fd, b"hello " + emoji_bytes[:2])
+
+    def _writer():
+        time.sleep(0.03)
+        os.write(write_fd, emoji_bytes[2:] + b" world\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == "hello 🚀 world\n"
+        assert "\ufffd" not in result
+    finally:
+        writer.join()
+        read_file.close()
+
+
+def test_read_stdin_select_fallback_timeout_does_not_swallow_late_input(monkeypatch):
+    """After a select-fallback timeout on an idle pipe, late bytes must stay readable."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.05)
+
+    def _unsupported_select(*_args, **_kwargs):
+        raise OSError("select on pipe not supported")
+
+    monkeypatch.setattr(cli.select, "select", _unsupported_select)
+
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    write_closed = False
+    try:
+        assert cli._read_stdin() == ""
+        if hasattr(os, "get_blocking"):
+            assert os.get_blocking(read_fd) is True
+
+        os.write(write_fd, b"late input\n")
+        os.close(write_fd)
+        write_closed = True
+
+        # Give any lingering reader thread a chance to consume the late bytes.
+        time.sleep(0.02)
+        assert cli.sys.stdin.read() == "late input\n"
+    finally:
+        if not write_closed:
+            os.close(write_fd)
+        read_file.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "set_blocking"), reason="os.set_blocking is POSIX-only"
+)
+def test_read_stdin_select_fallback_nonblocking_pipe_preserves_chunks(monkeypatch):
+    """Select fallback on an already non-blocking pipe preserves mode and decoder state."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.2)
+
+    def _unsupported_select(*_args, **_kwargs):
+        raise OSError("select on pipe not supported")
+
+    monkeypatch.setattr(cli.select, "select", _unsupported_select)
+
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(read_fd, False)
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    emoji_bytes = "🚀".encode()
+
+    def _writer():
+        time.sleep(0.02)
+        os.write(write_fd, b"hello " + emoji_bytes[:2])
+        time.sleep(0.03)
+        os.write(write_fd, emoji_bytes[2:] + b" world\n")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        result = cli._read_stdin()
+        assert result == "hello 🚀 world\n"
+        assert "\ufffd" not in result
+        assert os.get_blocking(read_fd) is False
+    finally:
+        writer.join()
+        read_file.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "set_blocking"), reason="os.set_blocking is POSIX-only"
+)
+def test_read_stdin_nonblocking_spurious_select_readability_respects_grace_period(
+    monkeypatch,
+):
+    """Spurious select readiness on an idle non-blocking pipe must still time out."""
+    monkeypatch.setattr(cli, "_STDIN_PIPE_GRACE_PERIOD", 0.05)
+
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(read_fd, False)
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    calls = 0
+
+    def _spurious_select(rlist, _wlist, _xlist, _timeout=None):
+        nonlocal calls
+        calls += 1
+        return (rlist, [], []) if calls == 1 else ([], [], [])
+
+    monkeypatch.setattr(cli.select, "select", _spurious_select)
+
+    try:
+        assert cli._read_stdin() == ""
+        assert calls >= 2
+
+        # If data arrives during the remaining grace period after a spurious wakeup,
+        # _wait_for_fd_readable returns True and the loop retries to read it.
+        calls = 0
+
+        def _spurious_then_ready_select(rlist, _wlist, _xlist, _timeout=None):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                os.write(write_fd, b"arrived\n")
+                os.close(write_fd)
+            return (rlist, [], [])
+
+        monkeypatch.setattr(cli.select, "select", _spurious_then_ready_select)
+        assert cli._read_stdin() == "arrived\n"
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(write_fd)
+        read_file.close()
+
+
+def test_read_stdin_error_and_timeout_propagation(monkeypatch):
+    """OSErrors return cleanly while TimeoutError (e.g. SIGALRM) propagates."""
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    try:
+        # 1. TimeoutError from select() in _read_stdin and _wait_for_fd_readable propagates
+        def _timeout_select(*_args, **_kwargs):
+            raise TimeoutError("alarm")
+
+        monkeypatch.setattr(cli.select, "select", _timeout_select)
+        with pytest.raises(TimeoutError):
+            cli._read_stdin()
+        with pytest.raises(TimeoutError):
+            cli._wait_for_fd_readable(read_fd, 0.05)
+
+        # 2. TimeoutError during select-fallback read propagates
+        def _unsupported_select(*_args, **_kwargs):
+            raise OSError("select unsupported")
+
+        def _timeout_read(*_args, **_kwargs):
+            raise TimeoutError("alarm")
+
+        monkeypatch.setattr(cli.select, "select", _unsupported_select)
+        monkeypatch.setattr(cli.os, "read", _timeout_read)
+        with pytest.raises(TimeoutError):
+            cli._read_stdin()
+
+        # 3. OSError during select-fallback probe returns empty cleanly
+        def _failing_read(*_args, **_kwargs):
+            raise OSError("bad read")
+
+        monkeypatch.setattr(cli.os, "read", _failing_read)
+        assert cli._read_stdin() == ""
+
+        # 4. Mid-stream OSError returns decoded prefix; mid-stream TimeoutError propagates
+        monkeypatch.setattr(
+            cli.select, "select", lambda rlist, _w, _x, _t=None: (rlist, [], [])
+        )
+        chunks_or_errors: list[bytes | Exception] = [b"partial ", OSError("read error")]
+
+        def _seq_read(*_args, **_kwargs):
+            item = chunks_or_errors.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        monkeypatch.setattr(cli.os, "read", _seq_read)
+        assert cli._read_stdin() == "partial "
+
+        chunks_or_errors[:] = [b"partial ", TimeoutError("alarm")]
+        with pytest.raises(TimeoutError):
+            cli._read_stdin()
+    finally:
+        os.close(write_fd)
         read_file.close()
 
 
