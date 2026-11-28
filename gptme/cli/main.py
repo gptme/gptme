@@ -366,6 +366,19 @@ class CommaSeparatedChoice(click.ParamType):
                 else set()
             )
             if check not in self._choice_set and check not in extra_choices:
+                # A managed subprocess child receives its allowlist from the
+                # parent, which cannot see this workspace's plugins or
+                # credentials (#5379). Defer unknown bare names to the child's
+                # own toolchain init, which skips tools it cannot find. Only
+                # the replacement list the parent sends is affected; an
+                # interactive `--tools` stays strict.
+                if (
+                    matched_prefix is None
+                    and param is not None
+                    and param.name == "tool_allowlist"
+                    and os.environ.get("GPTME_SUBAGENT_AGENT_ID")
+                ):
+                    continue
                 self.fail(
                     f"invalid choice: {part}. (choose from {', '.join(self.choices)})",
                     param,

@@ -61,6 +61,62 @@ def test_managed_child_skips_an_unavailable_permitted_tool(child_tools, monkeypa
         assert _normalize_tool_allowlist(["shell", "morph"]) == ["shell"]
 
 
+def test_managed_child_skips_a_tool_it_cannot_discover(child_tools, monkeypatch):
+    """A parent-only plugin is unknown here, not merely unavailable (#5379)."""
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "abc")
+
+    def strict(items, **_):
+        if items == ["shell"]:
+            return [SHELL]
+        raise ValueError(f"Tool '{items[0]}' not found")
+
+    with patch("gptme.config.cli_setup.get_toolchain", side_effect=strict):
+        assert _normalize_tool_allowlist(["shell", "parent_only_plugin"]) == ["shell"]
+
+
+def _tools_command():
+    """The real `--tools` option type, on a throwaway command."""
+    import click
+
+    from gptme.cli.main import CommaSeparatedChoice, _known_tool_names
+
+    @click.command()
+    @click.option(
+        "-t",
+        "--tools",
+        "tool_allowlist",
+        multiple=True,
+        type=CommaSeparatedChoice(
+            lambda: _known_tool_names() + ["none"],
+            allow_prefixes=["+", "-", "hint:"],
+            lenient_prefixes=["+"],
+        ),
+    )
+    def cmd(tool_allowlist):
+        click.echo(",".join(tool_allowlist))
+
+    return cmd
+
+
+def test_managed_child_parses_a_name_it_cannot_discover(monkeypatch):
+    """Parse-time choices must not reject a parent-sent unknown name (#5379)."""
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "abc")
+    result = CliRunner().invoke(_tools_command(), ["-t", "parent_only_plugin"])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "parent_only_plugin"
+
+
+def test_interactive_session_still_rejects_an_unknown_named_tool(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.delenv("GPTME_SUBAGENT_AGENT_ID", raising=False)
+    result = CliRunner().invoke(_tools_command(), ["-t", "parent_only_plugin"])
+    assert result.exit_code == 2
+    assert "invalid choice" in result.output
+
+
 def test_interactive_session_still_rejects_an_unavailable_named_tool(
     child_tools, monkeypatch
 ):

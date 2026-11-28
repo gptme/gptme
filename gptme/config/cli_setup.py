@@ -16,6 +16,7 @@ from ..tools import get_available_tools, get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
+    is_hint_pattern,
     matching_allowlist_tools,
 )
 from ..tools._allowlist import is_tool_file_path as _is_tool_file_path
@@ -90,11 +91,17 @@ def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
             continue
 
         # A managed subprocess subagent gets its allowlist from the parent, which
-        # cannot see this workspace's dependencies or credentials. A permitted
-        # tool that is unavailable here is skipped, not a startup failure.
-        # Skipping only narrows the allowlist; it never adds a tool.
+        # cannot see this workspace's dependencies, credentials or plugins. A
+        # permitted tool that this workspace does not discover, or discovers but
+        # cannot run, is skipped, not a startup failure. Skipping only narrows
+        # the allowlist; it never adds a tool.
         if os.environ.get("GPTME_SUBAGENT_AGENT_ID"):
             matched = matching_allowlist_tools(item, get_available_tools())
+            if not matched and not is_hint_pattern(item):
+                logger.warning(
+                    "Tool '%s' is not available in this workspace, skipping", item
+                )
+                continue
             if matched and not any(tool.is_available for tool in matched):
                 logger.warning("Tool '%s' is unavailable here, skipping", item)
                 continue
