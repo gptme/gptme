@@ -274,7 +274,9 @@ def _subprocess_tools_arg(
                 tool.name, profile_tools, tool.hints
             ):
                 continue
-            if tool.is_available and tool.name not in tools:
+            # Availability is decided by the child, which may have
+            # dependencies or credentials the parent's workspace lacks (#5379).
+            if tool.name not in tools:
                 tools.append(tool.name)
     for tool_name in _SUBAGENT_SIGNAL_TOOLS:
         if tool_name not in tools:

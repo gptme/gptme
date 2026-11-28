@@ -35,7 +35,10 @@ def test_subprocess_arg_keeps_slash_qualified_mcp_name():
     )
 
 
-def test_subprocess_glob_skips_unavailable_optional_tools():
+def test_subprocess_glob_leaves_optional_tool_availability_to_the_child(
+    monkeypatch,
+):
+    from gptme.config.cli_setup import _normalize_tool_allowlist
     from gptme.tools.base import ToolSpec
     from gptme.tools.subagent.execution import _subprocess_tools_arg
 
@@ -47,8 +50,13 @@ def test_subprocess_glob_skips_unavailable_optional_tools():
         "gptme.tools.subagent.execution.get_available_tools", return_value=tools
     ):
         names = _subprocess_tools_arg(None, ["*"]).split(",")
+    # The parent sends it (#5379); a child that also lacks it skips it at
+    # startup instead of failing.
     assert "shell" in names
-    assert "tts" not in names
+    assert "tts" in names
+    monkeypatch.setenv("GPTME_SUBAGENT_AGENT_ID", "abc")
+    with patch("gptme.config.cli_setup.get_available_tools", return_value=tools):
+        assert "tts" not in (_normalize_tool_allowlist(["shell", "tts"]) or [])
 
 
 def test_thread_child_counts_xml_from_message_metadata(tmp_path):

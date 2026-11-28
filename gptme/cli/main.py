@@ -344,9 +344,10 @@ class CommaSeparatedChoice(click.ParamType):
             # Allow file paths (e.g. path/to/tool.py) to pass through
             if check.endswith(".py") or "/" in check or "\\" in check:
                 continue
-            # MCP tools are discovered only after configuration is loaded.
-            # Accept exact qualified names without additive (+) syntax, which
-            # would widen a restricted subprocess child's toolset to defaults.
+            # MCP tools are discovered only after configuration is loaded, so
+            # accept exact qualified names here, bare or additive
+            # (`+server.tool`). Additive syntax is not a widening path: a
+            # restricted subprocess child is only ever sent a replacement list.
             from ..tools._allowlist import is_mcp_allowlist_entry
 
             if (
