@@ -56,16 +56,15 @@ def _normalize_prose(
     start = 0
     for part in parts:
         end = start + len(part)
-        # A removed span can end in the separator before this item.
-        while span is not None and span[1] <= start:
-            span = next(spans, None)
         cursor = start
         kept = []
         while span is not None and span[0] < end:
-            kept.append(content[cursor : span[0]])
-            cursor = span[1]
-            if cursor > end:
-                break
+            lo, hi = span
+            # Keep the shared fence scan, but do not pair literal markers
+            # across items. A signature may consume trailing separator space.
+            if start <= lo and lo + len(content[lo:hi].rstrip()) <= end:
+                kept.append(content[cursor:lo])
+                cursor = min(hi, end)
             span = next(spans, None)
         kept.append(content[cursor:end])
         yield "".join(kept)
@@ -152,11 +151,15 @@ def _stripped_content(
     return None
 
 
-def strip_responses_reasoning(content: str) -> str:
-    """Apply the same reasoning-only edit that phase replay can validate."""
+def strip_responses_reasoning(
+    content: str, output: ResponsesOutput | None = None
+) -> str:
+    """Apply a reasoning-only edit, preserving visible text in saved phase anchors."""
     if (parts := _native_parts(content)) is not None:
         prose, _, raw_calls = parts
-        if (stripped := _stripped_content(content, prose, raw_calls)) is not None:
+        if (stripped := _stripped_content(content, prose, raw_calls)) is not None and (
+            output is None or replay_responses_output(stripped, output) is not None
+        ):
             return stripped
     return content
 
@@ -216,9 +219,15 @@ def replay_responses_output(
     message_count = sum(
         isinstance(item, dict) and item.get("type") == "message" for item in captured
     )
-    remaining = _comparison_text(
-        "".join(_normalize_prose(text_parts, drop_unclosed=message_count == 1))
-    )
+    remaining = [
+        _comparison_text(
+            "".join(_normalize_prose(text_parts, drop_unclosed=message_count == 1))
+        )
+    ]
+    # Flattening erases boundaries between adjacent provider text items.
+    # Also compare the unstripped text against the already-normalized anchors.
+    if message_count > 1:
+        remaining.insert(0, _comparison_text("".join(text_parts)))
     items: list[dict[str, Any]] = []
     call_index = 0
     for item in captured:
@@ -231,10 +240,13 @@ def replay_responses_output(
             # Item whitespace is retained in replay, while display separators
             # and reasoning-strip whitespace are not item content.
             match = _comparison_text(text)
-            remaining = remaining.lstrip()
-            if not remaining.startswith(match):
+            remaining = [
+                candidate[len(match) :]
+                for candidate in map(str.lstrip, remaining)
+                if candidate.startswith(match)
+            ]
+            if not remaining:
                 return None
-            remaining = remaining[len(match) :]
             message: dict[str, Any] = {"role": "assistant", "content": text}
             if "phase" in item:
                 if not isinstance(item["phase"], str):
@@ -258,7 +270,11 @@ def replay_responses_output(
             call_index += 1
         else:
             return None
-    return items if not remaining.strip() and call_index == len(calls) else None
+    return (
+        items
+        if call_index == len(calls) and any(not text.strip() for text in remaining)
+        else None
+    )
 
 
 class ResponsesPhaseCapture:
@@ -350,6 +366,8 @@ class ResponsesPhaseCapture:
         # strings. Every native span is copied byte-for-byte into this anchor.
         if (stripped := _stripped_content(content, prose, raw_calls)) is not None:
             output["reasoning_stripped_digest"] = _digest(stripped)
+            if replay_responses_output(stripped, output) is None:
+                del output["reasoning_stripped_digest"]
         if replay_responses_output(content, output) is None:
             return metadata
         return {**(metadata or {}), "responses_output": output}

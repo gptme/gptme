@@ -685,6 +685,42 @@ def test_unmatched_tag_in_early_item_keeps_final_answer(
         assert json.loads(call["arguments"]) == {"command": "ls"}
 
 
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("with_call", [False, True])
+def test_literal_tag_pair_across_items_keeps_both_messages(
+    monkeypatch: pytest.MonkeyPatch, provider: str, with_call: bool
+) -> None:
+    from gptme.tools.autocompact.engine import auto_compact_log
+
+    first, last = "The `<think>` tag opens.\n", "The `</think>` tag closes."
+    arguments = '{"command": "ls"}'
+    items = [_message(first, "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": arguments,
+            }
+        )
+    items.append(_message(last, "final_answer", len(items)))
+    msg = _reload(_generate(monkeypatch, provider, items, "terminal"), "toml")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider, with_call=with_call)
+        assert replay[0]["content"] == first
+        assert replay[0]["phase"] == "commentary"
+        if with_call:
+            assert replay[1]["type"] == "function_call"
+            assert replay[1]["arguments"] == arguments
+        assert replay[2 if with_call else 1]["content"] == last
+        assert replay[2 if with_call else 1]["phase"] == "final_answer"
+    compacted = list(
+        auto_compact_log([msg], limit=10_000, reasoning_strip_age_threshold=0)
+    )[0]
+    assert compacted.content == msg.content
+
+
 def test_replay_rejects_preexisting_truncated_multi_item_anchor() -> None:
     from gptme.llm.responses_phase import replay_responses_output
 
