@@ -53,9 +53,57 @@ def test_parse_github_url_issue():
 
 
 def test_parse_github_url_invalid():
-    """Test parsing non-GitHub URLs."""
+    """Test parsing non-GitHub and invalid URLs."""
     assert parse_github_url("https://example.com") is None
     assert parse_github_url("https://github.com/owner") is None
+    assert parse_github_url("https://github.com/owner/repo/issues/new") is None
+    assert (
+        parse_github_url("https://github.com/owner/repo/issues/new?template=bug.md")
+        is None
+    )
+    assert parse_github_url("https://github.com/owner/repo/issues/new/choose") is None
+    assert parse_github_url("https://github.com/owner/repo/pull/new") is None
+    assert parse_github_url("https://github.com/owner/repo/issues/abc") is None
+    assert parse_github_url("https://github.com/owner/repo/pull/123abc") is None
+    assert parse_github_url("https://github.com/owner/repo/issues/²") is None
+    assert parse_github_url("https://github.com.evil.com/owner/repo/issues/1") is None
+    assert parse_github_url("https://github.com@evil.com/owner/repo/issues/1") is None
+    assert parse_github_url("https://github.com:44x/team/project/pull/42") is None
+    assert parse_github_url("https://github.com:99999/owner/repo/issues/1") is None
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://www.github.com/owner/repo/issues/456",
+            {"owner": "owner", "repo": "repo", "type": "issues", "number": "456"},
+        ),
+        (
+            "https://www.github.com/owner/repo/pull/123",
+            {"owner": "owner", "repo": "repo", "type": "pull", "number": "123"},
+        ),
+        (
+            "https://GITHUB.COM/owner/repo/issues/789",
+            {"owner": "owner", "repo": "repo", "type": "issues", "number": "789"},
+        ),
+        (
+            "https://github.com:443/owner/repo/pull/42",
+            {"owner": "owner", "repo": "repo", "type": "pull", "number": "42"},
+        ),
+        (
+            "https://github.com/owner/repo/pull/42/files",
+            {"owner": "owner", "repo": "repo", "type": "pull", "number": "42"},
+        ),
+        (
+            "https://github.com/owner/repo/issues/42#issuecomment-1",
+            {"owner": "owner", "repo": "repo", "type": "issues", "number": "42"},
+        ),
+    ],
+)
+def test_parse_github_url_variants(url: str, expected: dict[str, str]):
+    """Test parsing www, uppercase, port, subpath, and fragment GitHub URLs."""
+    assert parse_github_url(url) == expected
 
 
 # --- Tests for transform_github_url ---
@@ -335,6 +383,68 @@ def test_get_repo_from_git_remote_non_github():
     ):
         result = _get_repo_from_git_remote()
     assert result is None
+
+
+@pytest.mark.parametrize(
+    "remote_url",
+    [
+        "git@github.com:o/r.git",
+        "git@github.com:o/r",
+        "git@github.com:o/r.git/",
+        "git@github.com:o/r/",
+        "git@www.github.com:o/r.git",
+        "git@GITHUB.COM:o/r.git",
+        "https://github.com/o/r.git",
+        "https://github.com/o/r",
+        "https://github.com/o/r.git/",
+        "https://github.com/o/r/",
+        "https://www.github.com/o/r.git",
+        "https://www.github.com/o/r.git/",
+        "https://GITHUB.COM/o/r.git",
+        "https://github.com:443/o/r.git",
+        "https://ghp_secret123@github.com/o/r.git",
+        "https://x-access-token:ghs_secret@github.com/o/r.git",
+        "https://token@www.github.com/o/r.git/",
+        "ssh://git@github.com/o/r.git",
+        "ssh://git@github.com/o/r.git/",
+        "ssh://git@github.com:22/o/r.git",
+        "ssh://git@www.github.com/o/r.git",
+        "git://github.com/o/r.git",
+    ],
+)
+def test_get_repo_from_git_remote_supported_formats(remote_url: str):
+    """Supported GitHub remote formats parse to (owner, repo)."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote(remote_url),
+    ):
+        assert _get_repo_from_git_remote() == ("o", "r")
+
+
+@pytest.mark.parametrize(
+    "remote_url",
+    [
+        "https://gitlab.com/o/r.git",
+        "https://github.com.evil.com/o/r.git",
+        "git@github.com.evil.com:o/r.git",
+        "https://github.com@evil.com/o/r.git",
+        "https://github.com/o/.git",
+        "git@github.com:o/.git",
+        "https://github.com/o/r/extra.git",
+        "./mirrors/cache@github.com:team/project.git",
+        "/srv/mirrors/git@github.com:team/project.git",
+        "mirrors/cache@github.com:team/project.git",
+        "https://github.com:44x/o/r.git",
+        "ssh://git@github.com:99999/o/r.git",
+    ],
+)
+def test_get_repo_from_git_remote_rejected_formats(remote_url: str):
+    """Non-GitHub, lookalike, and malformed remote URLs return None."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote(remote_url),
+    ):
+        assert _get_repo_from_git_remote() is None
 
 
 @pytest.mark.slow

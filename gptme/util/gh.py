@@ -315,6 +315,17 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
         return "⚠️ CI status unavailable (could not obtain a complete check listing; retry)."
 
 
+_GITHUB_HOSTS = ("github.com", "www.github.com")
+
+
+def _extract_github_owner_repo(path: str) -> tuple[str, str] | None:
+    """Extract ``(owner, repo)`` from a GitHub remote path."""
+    path_parts = path.strip("/").removesuffix(".git").split("/")
+    if len(path_parts) == 2 and all(path_parts):
+        return path_parts[0], path_parts[1]
+    return None
+
+
 def _get_repo_from_git_remote(
     workspace: Path | None = None,
 ) -> tuple[str, str] | None:
@@ -334,20 +345,18 @@ def _get_repo_from_git_remote(
         )
         remote_url = result.stdout.strip()
 
-        # Handle SSH format: git@github.com:owner/repo.git
-        if remote_url.startswith("git@github.com:"):
-            path = remote_url[len("git@github.com:") :]
-            path = path.removesuffix(".git")
-            parts = path.split("/")
-            if len(parts) == 2:
-                return parts[0], parts[1]
+        # Handle SCP-style SSH format: git@github.com:owner/repo.git
+        if "://" not in remote_url and ":" in remote_url:
+            host_part, path = remote_url.split(":", 1)
+            host = host_part.rsplit("@", 1)[-1].lower()
+            if "/" not in host_part and host in _GITHUB_HOSTS:
+                return _extract_github_owner_repo(path)
 
-        # Handle HTTPS format: https://github.com/owner/repo.git
+        # Handle URL formats: https://, ssh://, git:// (including tokens, ports, www.)
         parsed = urllib.parse.urlparse(remote_url)
-        if parsed.netloc == "github.com":
-            path_parts = parsed.path.strip("/").removesuffix(".git").split("/")
-            if len(path_parts) == 2:
-                return path_parts[0], path_parts[1]
+        _ = parsed.port  # validate port if present (raises ValueError on invalid port)
+        if parsed.hostname in _GITHUB_HOSTS:
+            return _extract_github_owner_repo(parsed.path)
     except (
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
@@ -422,11 +431,19 @@ def parse_github_url(url: str) -> dict[str, str] | None:
     """
     try:
         parsed = urllib.parse.urlparse(url)
-        if parsed.netloc != "github.com":
+        _ = parsed.port  # validate port if present (raises ValueError on invalid port)
+        if parsed.hostname not in _GITHUB_HOSTS:
             return None
 
         path_parts = parsed.path.strip("/").split("/")
-        if len(path_parts) >= 4 and path_parts[2] in ["issues", "pull"]:
+        if (
+            len(path_parts) >= 4
+            and path_parts[0]
+            and path_parts[1]
+            and path_parts[2] in ("issues", "pull")
+            and path_parts[3].isascii()
+            and path_parts[3].isdigit()
+        ):
             return {
                 "owner": path_parts[0],
                 "repo": path_parts[1],
@@ -462,7 +479,7 @@ def transform_github_url(url: str) -> str:
     and fetch the wrong file.
     """
     parsed = urllib.parse.urlparse(url)
-    if parsed.hostname not in ("github.com", "www.github.com"):
+    if parsed.hostname not in _GITHUB_HOSTS:
         return url
 
     # Leading "" from the root slash, so the view segment sits at index 3:
