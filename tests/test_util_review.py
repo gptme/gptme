@@ -3478,13 +3478,77 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.review_status == ReviewStatus.COMPLETE
         assert ReviewArtifact.from_dict(artifact.to_dict()).review_duration_s == 41.5
 
-    @pytest.mark.parametrize("bad", ["41.5", -1, True, None, [1]])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "41.5",
+            -1,
+            True,
+            None,
+            [1],
+            float("inf"),
+            float("-inf"),
+            float("nan"),
+            10**400,
+        ],
+    )
     def test_invalid_elapsed_s_is_dropped_not_fatal(self, bad):
         artifact = ReviewArtifact.from_dict(
             {**_local_review_artifact(), "elapsed_s": bad}
         )
         assert artifact.review_duration_s == 0.0
         assert artifact.review_status == ReviewStatus.COMPLETE
+
+    @pytest.mark.parametrize("elapsed", [0, 42, 1e308])
+    def test_finite_nonnegative_elapsed_s_is_preserved(
+        self, elapsed: int | float
+    ) -> None:
+        artifact = ReviewArtifact.from_dict(
+            {**_local_review_artifact(), "elapsed_s": elapsed}
+        )
+        assert artifact.review_duration_s == elapsed
+        assert artifact.review_status == ReviewStatus.COMPLETE
+
+    @pytest.mark.parametrize("elapsed_json", ["1e400", str(10**400)])
+    def test_extreme_elapsed_json_loads_and_serializes_strictly(
+        self, tmp_path: Path, elapsed_json: str
+    ) -> None:
+        path = tmp_path / "review.json"
+        raw = _local_review_artifact()
+        raw["elapsed_s"] = None
+        path.write_text(
+            json.dumps(raw).replace(
+                '"elapsed_s": null', f'"elapsed_s": {elapsed_json}'
+            ),
+            encoding="utf-8",
+        )
+
+        artifact = ReviewArtifact.load(path)
+        assert artifact.review_duration_s == 0.0
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        # A local producer's extreme number must not become Infinity in core JSON.
+        serialized = json.dumps(artifact.to_dict(), allow_nan=False)
+        assert ReviewArtifact.from_json(serialized).review_duration_s == 0.0
+        assert artifact.findings[0].body == raw["findings"][0]["body"]
+
+    @pytest.mark.parametrize("elapsed_json", ["1e400", str(10**400)])
+    def test_watch_accepts_empty_local_artifact_with_extreme_elapsed_s(
+        self, tmp_path: Path, elapsed_json: str
+    ) -> None:
+        raw = _local_review_artifact()
+        raw.update(elapsed_s=None, findings=[])
+        path = tmp_path / "review.json"
+        path.write_text(
+            json.dumps(raw).replace(
+                '"elapsed_s": null', f'"elapsed_s": {elapsed_json}'
+            ),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(
+            util_main, ["review", "watch", "--artifact", str(path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "no open findings" in result.output.lower()
 
     def test_diff_fingerprint_built_from_shas(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())

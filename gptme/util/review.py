@@ -57,6 +57,7 @@ Which one do you want?
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
@@ -1133,13 +1134,18 @@ class ReviewArtifact:
         # measure as ``review_duration_s``. Telemetry, so a bad value is dropped
         # rather than failing the artifact (as for ``model``/``engine``).
         elapsed_raw = d.get("elapsed_s", 0.0)
-        review_duration_s = (
-            float(elapsed_raw)
-            if isinstance(elapsed_raw, int | float)
-            and not isinstance(elapsed_raw, bool)
-            and elapsed_raw >= 0
-            else 0.0
-        )
+        try:
+            review_duration_s = (
+                float(elapsed_raw)
+                if isinstance(elapsed_raw, int | float)
+                and not isinstance(elapsed_raw, bool)
+                and elapsed_raw >= 0
+                else 0.0
+            )
+        except OverflowError:
+            review_duration_s = 0.0
+        if not math.isfinite(review_duration_s):
+            review_duration_s = 0.0
 
         rejected_raw = d.get("rejected_findings", [])
         rejected_findings = (
