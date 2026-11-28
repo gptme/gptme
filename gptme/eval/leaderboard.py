@@ -995,16 +995,24 @@ def compute_rate_trends(
         key = (r["model"], r["format"])
         model_fmt_daily[key][r["_date"]][r["test"]] = r["passed"]
 
-    # Pick best format per model (same logic as aggregate_results)
+    # Pick the format whose series survives the daily minimum. Selecting by
+    # distinct test count (as the leaderboard does) lets a format with many
+    # sparse days win while every one of its days is then dropped by
+    # `min_tests`, hiding a model that has a qualifying complete run in another
+    # format (#5322). Rank by qualifying days first, then by distinct test
+    # count so the tie-break still prefers the richer format.
     best_fmt: dict[str, str] = {}
-    fmt_test_counts: dict[tuple[str, str], int] = {}
+    fmt_scores: dict[tuple[str, str], tuple[int, int]] = {}
     for (model, fmt), daily in model_fmt_daily.items():
         all_tests: set[str] = set()
+        qualifying_days = 0
         for tests in daily.values():
             all_tests.update(tests.keys())
-        fmt_test_counts[(model, fmt)] = len(all_tests)
+            if len(tests) >= min_tests:
+                qualifying_days += 1
+        fmt_scores[(model, fmt)] = (qualifying_days, len(all_tests))
         current = best_fmt.get(model)
-        if current is None or len(all_tests) > fmt_test_counts.get((model, current), 0):
+        if current is None or fmt_scores[(model, fmt)] > fmt_scores[(model, current)]:
             best_fmt[model] = fmt
 
     # Build daily rates for each model using best format
