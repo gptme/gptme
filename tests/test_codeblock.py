@@ -2706,6 +2706,31 @@ def test_adjacent_fences_bare_multifence_content_line():
     assert "more code" in blocks[0].content
 
 
+@pytest.mark.parametrize("closer_length", [4, 5])
+@pytest.mark.parametrize("lang", ["shell", "bash", "ipython", "py"])
+def test_exec_lang_accepts_closer_longer_than_opener(
+    lang: str, closer_length: int
+) -> None:
+    """An exec-lang block closes on a bare fence at least as long as its opener.
+
+    CommonMark lets a closing fence be longer than the opening one. For exec
+    langs a bare fence at depth 1 is never a nested opener (shell/ipython have
+    no triple-backtick syntax), so a longer closer must still close the block
+    (gptme/gptme#5199 defect 7). A longer fence followed by content stays literal
+    content — see test_adjacent_fences_bare_multifence_content_line.
+    """
+    markdown = f"```{lang}\nls -la\n" + "`" * closer_length + "\n"
+    assert [
+        (block.lang, block.content) for block in Codeblock.iter_from_markdown(markdown)
+    ] == [(lang, "ls -la")]
+
+
+def test_nonexec_block_rejects_closer_longer_than_opener() -> None:
+    """A save block keeps the exact-width rule: a longer bare fence is not a closer."""
+    markdown = "```save a.md\nhello\n````\n"
+    assert list(Codeblock.iter_from_markdown(markdown)) == []
+
+
 def test_fence_preserved_in_extraction():
     """Codeblock.fence should reflect the original fence length (3+)."""
     # Triple backticks (default)
