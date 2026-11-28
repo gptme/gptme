@@ -425,7 +425,9 @@ empty ``additionalContext`` on no match so the hook stays silent.
 Pass ``--dedup-session`` to deliver each entry at most once per session: the
 ``session_id`` comes from the hook payload (or ``--session-id`` for plain text),
 and delivered entry paths are kept in the gptme state directory, keyed by a hash
-of the id and pruned after a week. Wrappers that need a different policy can
+of the id and pruned after a week. For plain-text prompts, ``--dedup-session``
+without a session id is a usage error (pass ``--session-id``); with
+``--prompt -`` a missing id only warns and the entries are still delivered. Wrappers that need a different policy can
 call ``gptme.memory.match.match_memories`` and ``filter_unseen`` themselves and
 apply their own injection budget to the returned entries, scores, and
 ``matched_by`` reasons. ``-k`` (default 5) and ``--body-chars``
