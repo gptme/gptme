@@ -85,6 +85,7 @@ from ..logmanager import (
 from ..logmanager import conversations as conversations_module
 from ..logmanager.fork import copy_messages_for_fork as _copy_messages_for_fork
 from ..logmanager.metadata import (
+    METADATA_READ_ERRORS,
     read_metadata,
     update_metadata,
     validate_metadata_patch,
@@ -3123,6 +3124,7 @@ def api_conversation_metadata_get(conversation_id: str):
         200: ConversationMetadataResponse,
         400: ErrorResponse,
         404: ErrorResponse,
+        409: ErrorResponse,
     },
     tags=["conversations"],
 )
@@ -3143,7 +3145,23 @@ def api_conversation_metadata_patch(conversation_id: str):
     with SessionManager.conversation_lock(conversation_id):
         if not (logdir / "conversation.jsonl").is_file():
             return _conversation_not_found(conversation_id)
-        meta = update_metadata(logdir, req_json)
+        try:
+            meta = update_metadata(logdir, req_json)
+        except METADATA_READ_ERRORS:
+            # The sidecar exists but cannot be read: refuse to overwrite it and
+            # tell the client why, instead of escaping as an opaque 500.
+            logger.exception("Conversation metadata is unreadable: %s", conversation_id)
+            return (
+                flask.jsonify(
+                    {
+                        "error": (
+                            "Conversation metadata is unreadable; "
+                            "fix or remove metadata.toml before editing"
+                        )
+                    }
+                ),
+                409,
+            )
     _invalidate_conversations_cache()
     return flask.jsonify(meta.to_dict())
 

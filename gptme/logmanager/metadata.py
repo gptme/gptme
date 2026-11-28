@@ -18,6 +18,11 @@ import tomlkit
 
 METADATA_FILENAME = "metadata.toml"
 
+# Failures that mean the sidecar exists but cannot be read or parsed. Editing
+# must never overwrite it, and callers (the server) should surface them instead
+# of crashing.
+METADATA_READ_ERRORS = (OSError, ValueError, tomlkit.exceptions.TOMLKitError)
+
 
 @dataclass
 class ConversationMetadata:
@@ -46,6 +51,18 @@ def _coerce(data: dict[str, Any]) -> ConversationMetadata:
     return meta
 
 
+def _load_document(path: Path) -> tomlkit.TOMLDocument:
+    """Load the sidecar for editing.
+
+    A missing sidecar yields an empty document; any other read/parse failure
+    propagates so an edit cannot overwrite data it could not read.
+    """
+    try:
+        return tomlkit.parse(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return tomlkit.document()
+
+
 def read_metadata(logdir: Path, *, strict: bool = False) -> ConversationMetadata:
     """Read the sidecar, tolerating unreadable files unless editing with strict=True.
 
@@ -54,14 +71,11 @@ def read_metadata(logdir: Path, *, strict: bool = False) -> ConversationMetadata
     """
     path = logdir / METADATA_FILENAME
     try:
-        data = tomlkit.parse(path.read_text(encoding="utf-8")).unwrap()
-    except FileNotFoundError:
-        return ConversationMetadata()
-    except (OSError, ValueError, tomlkit.exceptions.TOMLKitError):
+        return _coerce(_load_document(path).unwrap())
+    except METADATA_READ_ERRORS:
         if strict:
             raise
         return ConversationMetadata()
-    return _coerce(data)
 
 
 def validate_metadata_patch(patch: dict[str, Any]) -> str | None:
@@ -100,25 +114,27 @@ def validate_metadata_patch(patch: dict[str, Any]) -> str | None:
 def update_metadata(logdir: Path, patch: dict[str, Any]) -> ConversationMetadata:
     """Apply a validated partial update and write the sidecar atomically.
 
-    ``null`` clears a field back to its default.
+    Only the fields named in ``patch`` are touched: keys this version does not
+    know about (a newer gptme field, or data another tool stored) and fields
+    that parse but fail coercion survive an unrelated edit. ``null`` removes a
+    field so it reads back as its default.
     """
     if error := validate_metadata_patch(patch):
         raise ValueError(error)
-    meta = read_metadata(logdir, strict=True)
-    defaults = ConversationMetadata()
+    path = logdir / METADATA_FILENAME
+    doc = _load_document(path)
     for key, value in patch.items():
-        setattr(meta, key, getattr(defaults, key) if value is None else value)
-
-    doc = tomlkit.document()
-    for key, value in meta.to_dict().items():
-        if value is not None:  # TOML has no null
+        if value is None:  # TOML has no null; absence means the default
+            doc.pop(key, None)
+        else:
             doc[key] = value
+
     fd, tmp = tempfile.mkstemp(dir=logdir, prefix=".metadata-", suffix=".toml")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(tomlkit.dumps(doc))
-        os.replace(tmp, logdir / METADATA_FILENAME)
+        os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return meta
+    return _coerce(doc.unwrap())

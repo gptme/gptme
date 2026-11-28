@@ -69,6 +69,51 @@ class TestMetadata:
         assert sidecar.read_bytes() == contents
         assert not list(tmp_path.glob(".metadata-*"))
 
+    def test_patch_preserves_unknown_and_mistyped_sidecar_fields(self, tmp_path):
+        """An unrelated edit must not drop keys this version does not know."""
+        from gptme.logmanager.metadata import METADATA_FILENAME, update_metadata
+
+        sidecar = tmp_path / METADATA_FILENAME
+        sidecar.write_text(
+            'color = "red"\ntags = "work"\ndescription = "keep me"\n',
+            encoding="utf-8",
+        )
+        meta = update_metadata(tmp_path, {"starred": True})
+
+        assert meta.starred is True
+        assert meta.description == "keep me"
+        # `tags = "work"` is mistyped, so it reads as the default list...
+        assert meta.tags == []
+        text = sidecar.read_text(encoding="utf-8")
+        # ...but an unrelated edit must not overwrite it or drop `color`.
+        assert 'tags = "work"' in text
+        assert 'color = "red"' in text
+
+    def test_patch_clears_field_by_removing_the_key(self, tmp_path):
+        from gptme.logmanager.metadata import METADATA_FILENAME, update_metadata
+
+        sidecar = tmp_path / METADATA_FILENAME
+        sidecar.write_text('starred = true\ndescription = "x"\n', encoding="utf-8")
+        meta = update_metadata(tmp_path, {"description": None})
+
+        assert meta.description is None
+        assert "description" not in sidecar.read_text(encoding="utf-8")
+
+    def test_patch_unreadable_sidecar_is_409_json(self, client: FlaskClient):
+        from gptme.dirs import get_logs_dir
+        from gptme.logmanager.metadata import METADATA_FILENAME
+
+        cid = _create_conv(client)
+        sidecar = get_logs_dir() / cid / METADATA_FILENAME
+        sidecar.write_bytes(b'description = "unterminated')
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/metadata", json={"starred": True}
+        )
+        assert resp.status_code == 409, resp.data
+        assert "error" in resp.get_json()
+        # The unreadable file is left untouched.
+        assert sidecar.read_bytes() == b'description = "unterminated'
+
     def test_defaults(self, client: FlaskClient):
         cid = _create_conv(client)
         resp = client.get(f"/api/v2/conversations/{cid}/metadata")
