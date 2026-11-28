@@ -761,6 +761,12 @@
 <dd><p>Default agent profile to apply to new conversations that don’t specify a system prompt. Useful for specialized deployments such as the computer-use Docker container where every session should use the ‘computer-use’ backend-selection policy. Must be a valid profile name (e.g. ‘computer-use’, ‘browser-use’). Can also be set via the GPTME_SERVER_DEFAULT_PROFILE environment variable.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-voice">
+<span class="sig-name descname"><span class="pre">--voice</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-serve-voice" title="Link to this definition">#</a></dt>
+<dd><p>Enable realtime voice: start a gptme-voice sidecar for each realtime provider with an API key (OPENAI_API_KEY, XAI_API_KEY). Requires gptme-voice. Can also be set via GPTME_SERVER_VOICE=1.</p>
+</dd></dl>
+
 <p class="rubric">Environment variables</p>
 <dl class="std envvar" id="gptme-server-serve-host-gptme-server-host">
 <dt class="sig sig-object std">
