@@ -46,7 +46,7 @@ _SCOUT_SENTINEL = "<!-- gptme-context-scout -->"
 # not a new coding task).
 _MIN_USER_MESSAGE_WORDS = 20
 
-# Maximum number of paths the scout may return; excess paths are silently dropped.
+# Maximum number of unique advertised files returned by the scout.
 _MAX_SCOUT_FILES = 20
 
 # Cap cumulative injected content so a handful of large files cannot blow the
@@ -213,18 +213,21 @@ def scout_files(
 
     # Parse response: one path per line, ignore blank lines and comments
     raw_text = response.content if isinstance(response.content, str) else ""
-    candidate_lines = [line.strip() for line in raw_text.splitlines()]
-    candidate_lines = [ln for ln in candidate_lines if ln and not ln.startswith("#")]
 
     files: list[_AdvertisedFile] = []
     seen: set[Path] = set()
-    for line in candidate_lines[:_MAX_SCOUT_FILES]:
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
         selected = _select_advertised_path(line, workspace, advertised)
         if selected is None or selected.path in seen:
             logger.debug("context-scout: ignoring non-candidate path: %s", line)
             continue
         seen.add(selected.path)
         files.append(selected)
+        if len(files) >= _MAX_SCOUT_FILES:
+            break
 
     logger.debug("context-scout found %d relevant file(s)", len(files))
     return files
