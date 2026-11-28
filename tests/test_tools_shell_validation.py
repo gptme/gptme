@@ -64,6 +64,42 @@ class TestFindQuotes:
         regions = _find_quotes("echo 'hello\\nworld'")
         assert len(regions) == 1
 
+    def test_escaped_quote_in_ansi_c_string(self):
+        # In $'...' a backslash escapes the quote, so the string ends later.
+        cmd = r"echo $'a\'b' c"
+        assert _find_quotes(cmd) == [(6, 12)]
+
+    def test_ansi_c_ending_in_escaped_backslash(self):
+        cmd = r"echo $'a\\' 'b'"
+        assert _find_quotes(cmd) == [(6, 11), (12, 15)]
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            r"echo $$'a\' b",  # $$ is the PID; the quote after it is plain
+            r"echo \$'a\' b",  # an escaped dollar starts no ANSI-C string
+        ],
+    )
+    def test_plain_single_quote_after_a_literal_dollar(self, cmd):
+        start = cmd.index("'")
+        assert _find_quotes(cmd) == [(start, start + 4)]
+
+    def test_dollar_pair_split_by_line_continuation_is_pid(self):
+        # Bash deletes the continued newline, so this is ``$$`` (the PID)
+        # followed by a plain single-quoted string.
+        cmd = "echo $\\\n$'a\\' ; git add . ; echo 'x'"
+        assert _find_quotes(cmd) == [(9, 13), (33, 36)]
+
+    def test_ansi_c_string_after_continued_dollar(self):
+        # ``$`` + continued newline + ``'`` is an ANSI-C string once the
+        # continuation is removed.
+        cmd = "echo $\\\n'a\\'b' c"
+        assert _find_quotes(cmd) == [(8, 14)]
+
+    def test_dollar_quote_inside_double_quotes_is_literal(self):
+        cmd = 'echo "$\'" x'
+        assert _find_quotes(cmd) == [(5, 9)]
+
     def test_empty_quotes(self):
         regions = _find_quotes("echo '' \"\"")
         assert len(regions) == 2
@@ -305,6 +341,18 @@ class TestIsAllowlisted:
 
 
 # ── is_denylisted ────────────────────────────────────────────────────
+
+
+def test_ansi_c_escaped_quote_does_not_hide_later_commands():
+    cmd = "echo $'\\'' ; git add . ; echo $'\\''"
+    assert is_denylisted(cmd)[0]
+
+
+def test_ansi_c_dollar_split_by_line_continuation_does_not_hide_later_commands():
+    # ``$\<newline>$'...'`` is ``$$`` (the PID) plus a plain string once bash
+    # removes the continued newline, so ``git add .`` stays executable.
+    cmd = "echo $\\\n$'a\\' ; git add . ; echo 'x'"
+    assert is_denylisted(cmd)[0]
 
 
 class TestIsDenylisted:
@@ -1620,6 +1668,52 @@ class TestCommandSubstitution:
     def test_escaped_dollar_paren_allowlisted(self):
         """An escaped dollar sign makes the command-substitution syntax literal."""
         assert is_allowlisted(r"echo \$(date)")
+
+    def test_ansi_c_escaped_quote_does_not_hide_substitution(self):
+        """A ``$'...'`` escaped quote must not swallow a following ``$(id)``.
+
+        ``_has_command_substitution`` used to run a private quote scanner that
+        read ``$'...'`` as a plain single-quoted string, closed it at the
+        escaped quote, and then treated ``$(id)`` as quoted.
+        """
+        assert not is_allowlisted(r"echo $'\'' $(id) #'")
+
+    def test_ansi_c_escaped_quote_does_not_hide_comment_marker(self):
+        """A ``#`` inside ``$'...'`` is literal text, not a shell comment.
+
+        ``_blank_shell_comments`` used to blank ``' ; python x.py`` as a
+        comment, hiding ``python`` from the allowlist check.
+        """
+        assert not is_allowlisted(r"echo $'\' # ' ; python x.py")
+
+    def test_escaped_space_before_hash_does_not_start_comment(self):
+        """An escaped space joins the word, so ``#`` there is literal.
+
+        ``echo \\ #$(id)`` runs ``$(id)``; treating ``#`` as a comment made
+        the substitution scanner skip it and auto-approved the command.
+        """
+        assert not is_allowlisted("echo \\ #$(id)")
+
+    def test_hash_in_unquoted_heredoc_body_does_not_start_comment(self):
+        """A ``#`` line in an unquoted heredoc body is data that still expands.
+
+        ``cat <<EOF\\n#$(id)\\nEOF`` runs ``$(id)``; comment classification
+        used to hide it from the substitution scanner.
+        """
+        assert not is_allowlisted("cat <<EOF\n#$(id)\nEOF\n")
+
+    def test_hash_in_quoted_heredoc_body_still_requires_confirmation(self):
+        """A quoted delimiter makes the body literal; being conservative is ok.
+
+        Bash does not expand ``$(id)`` here, but the scanner cannot yet tell
+        quoted from unquoted delimiters, so it falls through to confirmation
+        rather than auto-approving. Stricter, never wider.
+        """
+        assert not is_allowlisted("cat <<'EOF'\n$(id)\nEOF\n")
+
+    def test_hash_after_unescaped_space_still_a_comment(self):
+        """The normal comment case must stay allowlisted (no false positive)."""
+        assert is_allowlisted("echo hi # $(id)")
 
 
 # ── P3: Pipe-to-shell regex close-paren gap ─────────────────────────────────
