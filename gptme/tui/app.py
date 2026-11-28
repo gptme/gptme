@@ -529,7 +529,7 @@ def _split_markdown_tool_calls(content: str) -> list[tuple[bool, str]]:
     language tag) and splits the raw content at those boundaries so they can be
     rendered as collapsible sections instead of inline code fences.
     """
-    from ..codeblock import Codeblock
+    from ..codeblock import _JOINED_FENCE, Codeblock
     from ..tools.base import ToolUse as _ToolUse
 
     # Collect (start_line, codeblock) pairs for tool-call codeblocks.
@@ -568,9 +568,7 @@ def _split_markdown_tool_calls(content: str) -> list[tuple[bool, str]]:
             adjacent_opening = (
                 closing_line_idx < len(lines)
                 and lines[closing_line_idx].startswith(cb.fence)
-                and bool(
-                    re.match(r"^`{3,}\S", lines[closing_line_idx][len(cb.fence) :])
-                )
+                and _JOINED_FENCE.match(lines[closing_line_idx][len(cb.fence) :])
             )
             i = closing_line_idx if adjacent_opening else closing_line_idx + 1
         else:

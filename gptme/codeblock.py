@@ -404,6 +404,9 @@ _EXEC_LANGS = frozenset(
 # syntax in Python — so ipython is excluded from heredoc state tracking.
 _SHELL_LANGS = _EXEC_LANGS - {"ipython", "py"}
 
+# A bare run cannot be both a closer and a tagged opener.
+_JOINED_FENCE = re.compile(r"^`{3,}[^`\s]")
+
 
 def _line_fence_states(
     text: str, streaming: bool = False
@@ -478,7 +481,7 @@ def _line_fence_states(
 
         if depth == 1 and line.startswith("`" * fence_len):
             rest = line[fence_len:]
-            if re.match(r"^`{3,}\S", rest):
+            if _JOINED_FENCE.match(rest):
                 rest_match = re.match(r"^(`{3,})", rest)
                 if not rest_match:
                     states.append((1, False, outer_lang))
@@ -543,16 +546,16 @@ def _line_fence_states(
                     re.match(r"^`{3,}", lines[i + 1])
                 )
                 # Mirror extraction: a longer bare fence for an exec-lang block
-                # is a closer only when nothing follows it (blank/EOF or another
-                # fence). With more non-fence content after it, it stays literal
-                # content, so both walkers agree and the fence does not
-                # prematurely close.
+                # stays literal if ordinary content follows. A standalone
+                # thinking opener starts a new Markdown section rather than
+                # continuing the command.
                 if (
                     outer_lang in _EXEC_LANGS
                     and line_fence_len > fence_len
                     and depth == 1
                     and next_has_content
                     and not next_is_fence
+                    and lines[i + 1].strip() not in ("<think>", "<thinking>")
                 ):
                     states.append((depth, False, outer_lang))
                     continue
@@ -890,7 +893,7 @@ def _outer_closer_scan(
         # Extraction splits a closer joined to the next opener ("``````shell")
         # into both: the line closes the open block, then opens a tagged one.
         rest = line[outer_fence_len:]
-        joined = bool(re.match(r"^`{3,}\S", rest))
+        joined = bool(_JOINED_FENCE.match(rest))
         # Extraction also accepts a closer concatenated with a reasoning tag.
         # It closes the outer block but does not open another fenced block.
         thinking_close = rest.startswith(("<think>", "<thinking>"))
@@ -1164,16 +1167,7 @@ def _extract_codeblocks(
                 # next block, e.g. "``````shell" instead of "```\n```shell".
                 if nesting_depth == 1 and line.startswith("`" * fence_len):
                     rest = line[fence_len:]
-                    # Only treat as adjacent fences when the remainder starts a new fence
-                    # followed immediately by a non-whitespace character (e.g. a language
-                    # tag like "shell"). The `{3,}` quantifier is greedy: it consumes all
-                    # leading backticks in `rest`, so if `rest` consists solely of backticks
-                    # (e.g. rest="```" from a content line like "``````") `\S` has no char
-                    # left to match and the guard correctly falls through. Only when the
-                    # backtick run is followed by a non-whitespace char (a language tag or
-                    # similar) does this match — preventing false splits on bare-backtick
-                    # content lines.
-                    if re.match(r"^`{3,}\S", rest):
+                    if _JOINED_FENCE.match(rest):
                         yield Codeblock(
                             lang,
                             "\n".join(content_lines),
@@ -1309,8 +1303,9 @@ def _extract_codeblocks(
                         )
 
                         # A bare fence *longer* than the opener is a closer for an
-                        # exec-lang block only when nothing follows it (blank/EOF or
-                        # another fence). When more content follows, the line is a
+                        # exec-lang block at a Markdown boundary (blank, EOF,
+                        # another fence, or a standalone thinking opener).
+                        # When ordinary content follows, the line is a
                         # literal content line of backticks, not a delimiter — see
                         # test_adjacent_fences_bare_multifence_content_line. An
                         # exact-width fence keeps the existing "always a closer for
@@ -1321,6 +1316,7 @@ def _extract_codeblocks(
                             and nesting_depth == 1
                             and next_has_content
                             and not next_is_fence
+                            and lines[i + 1].strip() not in ("<think>", "<thinking>")
                         ):
                             content_lines.append(line)
                             i += 1
