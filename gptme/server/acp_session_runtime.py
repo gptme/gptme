@@ -414,6 +414,11 @@ class AcpSessionRuntime:
         tearing the loop down under it would fail a start that is about to
         succeed. The check and the teardown share ``_start_state_lock`` so a
         new start cannot slip in between them.
+
+        Holding the lock across the teardown cannot deadlock: ``_begin_start``
+        and ``_end_start`` only run on a caller's loop, never on the runtime
+        loop that ``_stop_loop`` joins. ``prompt`` uses the same counter because
+        its lazy start enters through the same path.
         """
         with self._start_state_lock:
             if self._session_id is not None:
