@@ -25,6 +25,7 @@ def compact_for_overflow(manager: LogManager) -> list[Message]:
     config = CompressionConfig(
         logdir=manager.logdir,
         keep_head=_get_keep_head(),
+        source_logfile=manager.logfile,
     )
     from .engine import _has_reasoning_block
 
