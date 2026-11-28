@@ -387,7 +387,7 @@ class TestJSONRuntimeSuppression:
         set_output_format("json")
         mock_config = SimpleNamespace(
             chat=None,
-            user=SimpleNamespace(models=SimpleNamespace(default=None)),
+            user=SimpleNamespace(models=SimpleNamespace(default=None), env={}),
             get_env=lambda key, default=None: None,
         )
         monkeypatch.setattr(gptme_init, "get_config", lambda: mock_config)
