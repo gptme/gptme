@@ -49,6 +49,7 @@ from gptme.tools.base import ToolUse
         "declare -rx",
         "declare -x | grep TOKEN",
         "shopt -os xtrace",
+        "shopt -so xtrace",
         "shopt -o -s xtrace",
         "export",
         "declare",

@@ -98,6 +98,10 @@ class TestIsSecretPath:
             ".env.development",
             ".env.production.local",
             ".env.test.local",
+            # A template suffix only exempts the exact ending; trailing junk
+            # after it is still a secret-bearing environment file.
+            ".env.aws.example.bak",
+            ".env.production.example.local",
         ],
     )
     def test_dot_env_environment_variants(self, name):
