@@ -189,13 +189,14 @@ def _has_pending_tool_calls(messages: list[Message]) -> bool:
 
 def _prune_attempts(now: float) -> None:
     """Drop cooldown/latch entries for conversations we no longer need to track."""
+    # Another conversation may prune the same keys before we remove them.
     # The failure latch is bounded independently: its keys need not overlap the
     # cooldown map, so it must not be gated behind the cooldown map's size.
     if len(_failed_summarize) > _MAX_TRACKED_CONVERSATIONS:
         for key in list(_failed_summarize)[
             : len(_failed_summarize) - _MAX_TRACKED_CONVERSATIONS
         ]:
-            del _failed_summarize[key]
+            _failed_summarize.pop(key, None)
     if len(_last_autocompact_attempt) <= _MAX_TRACKED_CONVERSATIONS:
         return
     # Prefer entries past the cooldown window; if that is not enough (a burst
@@ -203,13 +204,13 @@ def _prune_attempts(now: float) -> None:
     cutoff = now - _autocompact_min_interval
     for key, (last_time, _) in list(_last_autocompact_attempt.items()):
         if last_time < cutoff:
-            del _last_autocompact_attempt[key]
+            _last_autocompact_attempt.pop(key, None)
     overflow = len(_last_autocompact_attempt) - _MAX_TRACKED_CONVERSATIONS
     if overflow > 0:
         for key, _ in sorted(
             _last_autocompact_attempt.items(), key=lambda item: item[1][0]
         )[:overflow]:
-            del _last_autocompact_attempt[key]
+            _last_autocompact_attempt.pop(key, None)
 
 
 def _get_compacted_name(conversation_name: str) -> str:
