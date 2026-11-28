@@ -861,10 +861,14 @@ def find_secret_reach(
                     for reached in _shallow_files(
                         path, budget, follow_file_symlinks=grep.dereference
                     ):
+                        # Recursion results are concrete names grep will read, so
+                        # their link targets count whatever spelling produced the
+                        # search root (including the implicit "." root of a
+                        # recursive grep with no FILE operand).
                         if (
                             (
                                 is_secret(os.path.abspath(reached))
-                                or (scanned and links_to_secret(reached))
+                                or links_to_secret(reached)
                             )
                             and grep
                             and _selected(grep, reached, path)

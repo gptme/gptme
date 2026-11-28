@@ -698,10 +698,33 @@ def test_recursive_dereference_reads_protected_file_symlinks(
     (directory / ".env").symlink_to(tmp_path / "payload.txt")
     assert _find_secret_path_in_cmd(f"grep {option} TOKEN .") is not None
     assert _find_secret_path_in_cmd(f"grep {option} ABSENT .") is None
+    # The implicit "." root of a recursive grep without a FILE operand must be
+    # resolved exactly like an explicit one.
+    assert _find_secret_path_in_cmd(f"grep {option} TOKEN") is not None
+    assert _find_secret_path_in_cmd(f"grep {option} ABSENT") is None
     assert _find_secret_path_in_cmd("grep -r TOKEN .") is None
     assert _find_secret_path_in_cmd("grep -R --directories=skip TOKEN .") is None
     assert _find_secret_path_in_cmd("grep -Rq TOKEN .") is None
     assert _find_secret_path_in_cmd("grep -R --exclude='[.]env' TOKEN .") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -R synthetic",
+        "grep -R -f pats.txt",
+        "grep --dereference-recursive synthetic",
+    ],
+)
+def test_recursive_dereference_resolves_links_from_implicit_root(
+    linked_workspace: Path, command: str
+) -> None:
+    # A recursive grep with no FILE operand searches ".": an innocuously named
+    # link under that root must still be resolved to its credential target.
+    (linked_workspace / "pats.txt").write_text("synthetic\n")
+    assert _find_secret_path_in_cmd(command, linked_workspace) is not None
+    # Without dereferencing, grep reads the link itself, not the target.
+    assert _find_secret_path_in_cmd("grep -r synthetic", linked_workspace) is None
 
 
 def test_recursive_dereference_does_not_follow_directory_symlinks(
