@@ -19,7 +19,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import islice
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, BinaryIO
 
 import tomlkit
@@ -472,6 +472,28 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
     )
 
 
+def _conversation_dir(logs_dir: PurePath, conv_id: str) -> PurePath | None:
+    """Return ``logs_dir / conv_id`` only if it is the direct child named ``conv_id``.
+
+    Path-like ids ('x/', '../y') would resolve outside the single logs-dir
+    child they claim to name, e.g. letting /delete remove arbitrary dirs.
+    Joining also honours Windows drive prefixes ('D:x' replaces ``logs_dir``,
+    'C:x' collapses to ``logs_dir / 'x'``), so the joined result is checked
+    structurally as well.
+    """
+    from ..util.conversation_ids import is_valid_conversation_lookup
+
+    # Lookup, not naming: an existing directory may legitimately contain '..'
+    # in its name (e.g. 'draft..notes'), and the structural check below is what
+    # keeps the join inside logs_dir.
+    if not is_valid_conversation_lookup(conv_id):
+        return None
+    conv_dir = logs_dir / conv_id
+    if conv_dir.parent != logs_dir or conv_dir.name != conv_id:
+        return None
+    return conv_dir
+
+
 def get_conversation_meta_direct(
     conv_id: str,
     *,
@@ -484,11 +506,24 @@ def get_conversation_meta_direct(
     access instead of O(N_conversations) — suitable for partial cache updates
     where only one conversation changed.
 
-    Returns None when the conversation directory or JSONL file does not exist.
+    Returns None when the conversation directory or JSONL file does not exist,
+    or when ``conv_id`` is not a valid conversation id.
     """
+    from ..util.conversation_ids import is_valid_conversation_lookup
+
+    # Reject ids that cannot name a direct child before get_logs_dir(), which
+    # may create directories (and raise) as a side effect; _conversation_dir()
+    # still checks the join structurally. Naming rules are deliberately not
+    # applied here: the TUI can create 'draft..notes', and a lookup must still
+    # find the conversation it created.
+    if not is_valid_conversation_lookup(conv_id):
+        return None
     if logs_dir is None:
         logs_dir = get_logs_dir()
-    conv_fn = logs_dir / conv_id / "conversation.jsonl"
+    conv_dir = _conversation_dir(logs_dir, conv_id)
+    if conv_dir is None:
+        return None
+    conv_fn = Path(conv_dir) / "conversation.jsonl"
     if not conv_fn.exists():
         return None
     return _meta_from_file(conv_fn, detail=detail)
@@ -512,7 +547,12 @@ def get_conversations(
         conv_id = conv_fn.parent.name
         if not include_test and _is_test_conversation_id(conv_id):
             continue
-        yield _meta_from_file(conv_fn, detail=detail)
+        try:
+            meta = _meta_from_file(conv_fn, detail=detail)
+        except FileNotFoundError:
+            # Deleted by another process after the directory scan.
+            continue
+        yield meta
 
 
 def get_user_conversations(

@@ -2,10 +2,14 @@
 Session management commands: log, undo, edit, rename, fork, delete, exit, restart, clear.
 """
 
+import os
+import re
 import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..logmanager import LogManager
     from ..message import Message
 
@@ -97,6 +101,28 @@ def _complete_delete(partial: str, prev_args: list[str]) -> list[tuple[str, str]
     return completions
 
 
+def _is_current_conversation(logdir: "Path", conv_id: str) -> bool:
+    """Whether ``conv_id`` names the active conversation's directory.
+
+    Compares the directories, not just the names: on case-insensitive
+    filesystems (macOS, Windows) 'My-Conv' names the same directory as
+    'my-conv', and a symlinked alias points at it too.
+    """
+    if logdir.name == conv_id:
+        return True
+    from ..dirs import get_logs_dir
+    from ..logmanager.conversations import _conversation_dir
+    from ..util.conversation_ids import is_valid_conversation_lookup
+
+    if not is_valid_conversation_lookup(conv_id):
+        return False
+    try:
+        conv_dir = _conversation_dir(get_logs_dir(), conv_id)
+        return conv_dir is not None and os.path.samefile(conv_dir, logdir)
+    except OSError:
+        return False
+
+
 @command("delete", aliases=["rm"], completer=_complete_delete)
 def cmd_delete(ctx: CommandContext) -> None:
     """Delete a conversation by ID.
@@ -105,14 +131,74 @@ def cmd_delete(ctx: CommandContext) -> None:
         /delete           - List recent conversations with their IDs
         /delete <id>      - Delete the conversation with the given ID
         /delete --force <id> - Delete without confirmation
+        /delete <id> --force - Same, with the flag after the id
     """
-    from ..logmanager import delete_conversation, list_conversations  # fmt: skip
+    from ..logmanager import (  # fmt: skip
+        delete_conversation,
+        get_conversation_by_id,
+        list_conversations,
+    )
 
-    # Check for --force flag
-    force = "--force" in ctx.args or "-f" in ctx.args
-    args = [a for a in ctx.args if a not in ("--force", "-f")]
+    # ``ctx.args`` is whitespace-split, so it loses the exact separators inside
+    # a conversation name. Parse the raw remainder instead: consume at most one
+    # leading ``--force``/``-f`` token, then keep the rest verbatim as the id.
+    # A chat whose name merely contains or starts with a flag stays intact.
+    # A flag is a whitespace-delimited token at either edge, as it was when
+    # ``ctx.args`` carried it; any Unicode whitespace separates it, so
+    # ``/delete --force\xa0old-chat`` and a multi-line trailing flag both work.
+    force = False
+    raw = ctx.full_args.lstrip()
+    # Every leading flag token is consumed (``/delete --force -f <id>`` kept
+    # working while ctx.args still carried the flags), then the id is verbatim.
+    while True:
+        for flag in ("--force", "-f"):
+            if raw == flag:
+                force, raw = True, ""
+                break
+            if raw.startswith(flag) and raw[len(flag)].isspace():
+                force, raw = True, raw[len(flag) :].lstrip()
+                break
+        else:
+            break
+        if not raw:
+            break
+    # Also accept flags after the id (``/delete old-chat --force``), which
+    # earlier versions accepted. Only the edges are parsed, so a name that
+    # contains a flag keeps it.
+    #
+    # The TUI creates conversation directories without applying the naming
+    # rules (``gptme-tui -n "draft "`` mkdirs the name as given), so a chat id
+    # may legitimately end with whitespace. The exact remainder is therefore the
+    # first candidate; trimmed forms are fallbacks that never skip the prompt.
+    candidates = [raw]
+    body = raw
+    while True:
+        stripped = body.rstrip()
+        for flag in ("--force", "-f"):
+            if stripped == flag:
+                force, body = True, ""
+                break
+            if stripped.endswith(flag) and (
+                len(stripped) == len(flag) or stripped[-len(flag) - 1].isspace()
+            ):
+                force = True
+                body = stripped[: -len(flag)]
+                break
+        else:
+            break
+        if not body:
+            break
+    # Before a consumed trailing flag, one whitespace character is the separator.
+    separated = body[:-1] if body != raw else body
+    for candidate in (separated, body, body.rstrip()):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    conv_id = next(
+        (c for c in candidates if get_conversation_by_id(c, detail=False) is not None),
+        candidates[-1],
+    )
 
-    if not args:
+    if not conv_id:
         # List conversations to help user find the ID
         conversations = list_conversations(limit=10)
         if not conversations:
@@ -128,19 +214,43 @@ def cmd_delete(ctx: CommandContext) -> None:
         print("\nNote: Cannot delete the current conversation.")
         return
 
-    conv_id = args[0]
-
     # Prevent deleting current conversation
-    if ctx.manager.logdir.name == conv_id:
+    if _is_current_conversation(ctx.manager.logdir, conv_id):
         print("❌ Cannot delete the current conversation.")
         print("   Start a new conversation first, then delete this one.")
         return
 
-    # Confirm deletion unless --force
-    if not force:
-        response = input(
-            f"Delete conversation '{conv_id}'? This cannot be undone. [y/N] "
-        )
+    # --force skips the prompt only when the id is exactly what was typed: the
+    # flags, one separator character next to the id, and the id. An id reached
+    # by trimming whitespace is a guess (``draft\xa0`` -> ``draft``), so ask.
+    flag = r"(?:--force|-f)"
+    # Leading whitespace after the command name is never part of the id: the
+    # parser lstrips ``ctx.full_args`` before reading it. The fullmatch has to
+    # ignore it too, or ``/delete  old --force`` (two spaces) silently drops the
+    # explicit flag and prompts.
+    typed_exactly = re.fullmatch(
+        rf"[ \t]*(?:(?:{flag}\s+)*{flag}\s)?{re.escape(conv_id)}"
+        rf"(?:\s(?:{flag}\s+)*{flag}\s*)?",
+        ctx.full_args,
+    )
+    # A flag token the trailing loop consumed can also be part of the id itself
+    # (a chat named ``old --force``). When the untrimmed input wins the
+    # candidate match, the flag the parser saw is embedded in the id, so it
+    # must not also grant force: the confirmation prompt is the only
+    # unambiguous path. ``body != raw`` means the loop stripped a trailing
+    # flag token from ``raw``.
+    force_in_id = conv_id == raw and body != raw
+    if not (force and typed_exactly and not force_in_id):
+        # repr() makes a stray or non-breaking space in the id visible
+        try:
+            response = input(
+                f"Delete conversation {conv_id!r}? This cannot be undone. [y/N] "
+            )
+        except (KeyboardInterrupt, EOFError):
+            # No interactive stdin (scripted or piped session): the confirmation
+            # cannot be answered, so cancel instead of raising out of the command.
+            print("\nCancelled (no input to confirm; pass --force to skip it).")
+            return
         confirmed = response.lower().strip() in ("y", "yes")
         if not confirmed:
             print("Cancelled.")

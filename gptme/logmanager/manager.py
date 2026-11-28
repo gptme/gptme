@@ -1236,11 +1236,11 @@ class LogManager:
             self._branches[self.current_branch] = reconciled_branch
 
     def undo(self, n: int = 1, quiet=False) -> None:
-        """Removes the last message from the log."""
-        undid = self.log[-1] if self.log else None
-        if undid and undid.content.startswith("/undo"):
-            self.log = self.log.pop()
+        """Removes the last ``n`` messages from the log.
 
+        A trailing ``/undo`` command line counts like any other message: the
+        command wrapper auto-undoes it before ``cmd_undo`` runs.
+        """
         # don't save backup branch if undoing a command
         if self.log and not self.log[-1].content.startswith("/"):
             self._save_backup_branch(type="undo")

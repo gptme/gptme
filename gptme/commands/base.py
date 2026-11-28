@@ -279,10 +279,21 @@ def handle_cmd(
     # is_message_command but carries no command name. Fall back to an empty
     # name so it lands in the unknown-command path below instead of crashing
     # on empty-list unpacking.
-    name, *args = [s for s in re.split(r"[\n\s]", cmd) if s] or [""]
-    # Split args off at the same whitespace that ended the name (incl. newline).
-    name_and_args = re.split(r"\s", cmd.lstrip(), maxsplit=1)
-    full_args = name_and_args[1] if len(name_and_args) > 1 else ""
+    # The command name ends at the first whitespace character; Unicode
+    # whitespace is a valid separator after the name (``/undo\xa01``). Exactly
+    # that one character is consumed, so a payload keeps any whitespace that
+    # follows it (``/shell \nprintf hello``). Positional args keep the legacy
+    # Unicode split; a handler that needs an exact remainder (``/delete``)
+    # reads ``full_args`` instead, so a Unicode space inside a name survives
+    # without changing how every other command sees its arguments.
+    stripped_cmd = cmd.lstrip()
+    sep = re.search(r"\s", stripped_cmd)
+    if sep is None:
+        name, full_args = stripped_cmd, ""
+    else:
+        name = stripped_cmd[: sep.start()]
+        full_args = stripped_cmd[sep.end() :]
+    args = [s for s in re.split(r"\s+", full_args) if s]
 
     # Check if command is registered
     if name in _command_registry:

@@ -682,22 +682,27 @@ def test_undo_on_empty_log():
     assert len(log.log) == 0
 
 
-def test_undo_early_return_persists_to_disk(tmp_path: Path, monkeypatch):
-    """Regression: undo() must persist when early-return path fires (log only had /undo command)."""
+def test_undo_lone_command_message_persists_to_disk(tmp_path: Path, monkeypatch):
+    """Undoing a log whose only message is a command line removes it on disk.
+
+    A trailing '/undo' line is an ordinary message to undo(); undoing again on
+    the now-empty log takes the "Nothing to undo" early return and must keep
+    the (empty) log persisted.
+    """
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
-    logdir = tmp_path / "logs" / "test-undo-early-return"
+    logdir = tmp_path / "logs" / "test-undo-lone-command"
     log = LogManager(logdir=logdir)
-    # A log whose only content is an /undo command message
     log.append(Message("user", "/undo"))
     assert len(log.log) == 1
 
-    # undo() strips the /undo msg, sees empty log, and takes the early-return path
     log.undo(quiet=True)
     assert len(log.log) == 0
+    assert len(LogManager.load(logdir).log) == 0
 
-    # Reload from disk — the strip must survive
-    reloaded = LogManager.load(logdir)
-    assert len(reloaded.log) == 0
+    # Empty log: early-return path
+    log.undo(quiet=True)
+    assert len(log.log) == 0
+    assert len(LogManager.load(logdir).log) == 0
 
 
 def test_undo_persists_to_disk(tmp_path: Path, monkeypatch):
@@ -1639,3 +1644,630 @@ def test_event_replay_matches_transcript_after_a_merged_append(tmp_path: Path):
     transcript = Log.read_jsonl(tmp_path / "conversation.jsonl")
     assert [m.content for m in transcript] == expected
     assert _recovered_contents(tmp_path) == expected
+
+
+def test_slash_undo_removes_exactly_one_message(tmp_path: Path):
+    """`/undo` through the command path drops the command line plus one message.
+
+    The command wrapper already auto-undoes the `/undo` line; a special case in
+    `LogManager.undo` popped it a second time, so each `/undo` lost an extra
+    message (and `/undo 3` removed four).
+    """
+    from gptme.commands import execute_cmd
+
+    manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
+    for role, content in [
+        ("user", "q1"),
+        ("assistant", "a1"),
+        ("user", "q2"),
+        ("assistant", "a2"),
+    ]:
+        manager.append(Message(role, content, quiet=True))  # type: ignore[arg-type]
+    cmd = Message("user", "/undo", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert [m.content for m in manager.log] == ["q1", "a1", "q2"]
+    assert [m.content for m in Log.read_jsonl(manager.logfile)] == ["q1", "a1", "q2"]
+
+
+@pytest.mark.parametrize("conv_id", ["current-conv/", "../outside/important"])
+def test_delete_conversation_rejects_path_like_ids(
+    tmp_path: Path, monkeypatch, conv_id: str
+):
+    """Path-like ids neither bypass the current-conversation guard nor escape logs."""
+    from gptme.logmanager import delete_conversation
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    for d in (logs / "current-conv", tmp_path / "outside" / "important"):
+        d.mkdir(parents=True)
+        Log([Message("user", "hi")]).write_jsonl(d / "conversation.jsonl")
+
+    assert delete_conversation(conv_id) is False
+    assert (logs / "current-conv").exists()
+    assert (tmp_path / "outside" / "important").exists()
+
+
+def test_get_conversations_skips_conversation_deleted_during_listing(
+    tmp_path: Path, monkeypatch
+):
+    """A conversation removed after the directory scan is skipped, not a crash."""
+    import shutil
+
+    from gptme.logmanager import conversations
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    for name in ("keep", "gone"):
+        (logs / name).mkdir(parents=True)
+        Log([Message("user", name)]).write_jsonl(logs / name / "conversation.jsonl")
+
+    real_files = conversations._conversation_files
+
+    def files_then_delete():
+        files = list(real_files())
+        shutil.rmtree(logs / "gone")
+        return files
+
+    monkeypatch.setattr(conversations, "_conversation_files", files_then_delete)
+    assert [c.id for c in conversations.get_conversations()] == ["keep"]
+
+
+@pytest.mark.parametrize("conv_id", ["D:evil", "C:evil", "c:evil"])
+def test_conversation_dir_rejects_windows_drive_prefixes(conv_id: str):
+    """A drive-prefixed id must not replace or collapse the logs dir on join."""
+    from pathlib import PureWindowsPath
+
+    from gptme.logmanager.conversations import _conversation_dir
+
+    logs = PureWindowsPath("C:/Users/u/logs")
+    assert _conversation_dir(logs, conv_id) is None
+    assert _conversation_dir(logs, "ok-conv") == logs / "ok-conv"
+
+
+@pytest.mark.parametrize("conv_id", ["../evil", "x/y", "a\\b", ".", ""])
+def test_conversation_meta_direct_invalid_id_skips_logs_dir(conv_id: str, monkeypatch):
+    """Invalid ids return None before get_logs_dir() can create dirs or raise."""
+    from gptme.logmanager import conversations
+
+    def _boom():
+        raise AssertionError("get_logs_dir() must not be called for invalid ids")
+
+    monkeypatch.setattr(conversations, "get_logs_dir", _boom)
+    assert conversations.get_conversation_meta_direct(conv_id) is None
+
+
+@pytest.mark.parametrize("alias", ["alias", "Draft..Notes"])
+def test_delete_refuses_alias_of_current_conversation(
+    tmp_path: Path, monkeypatch, capsys, requires_symlinks, alias: str
+):
+    """/delete compares directories, not names, before deleting.
+
+    On case-insensitive filesystems 'Current-Conv' is the active chat's
+    directory; a symlinked alias reproduces that on any filesystem. The
+    refusal message is what discriminates the guard: without it the command
+    reaches ``shutil.rmtree`` on the symlink, which fails with an unrelated
+    OSError and leaves both paths on disk either way, so checking that the
+    files survive proves nothing.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    (logs / alias).symlink_to(logs / "current-conv", target_is_directory=True)
+
+    cmd = Message("user", f"/delete --force {alias}", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    out = capsys.readouterr().out
+    assert "Cannot delete the current conversation." in out
+    assert "Deleted conversation" not in out
+    assert (logs / "current-conv" / "conversation.jsonl").exists()
+    assert (logs / alias).exists()
+
+
+def test_is_current_conversation_matches_names_and_refuses_unknown_ids(
+    tmp_path: Path, monkeypatch
+):
+    """The /delete guard answers on the name, then on the directory, then gives up."""
+    from gptme.commands.session import _is_current_conversation
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    logdir = logs / "current-conv"
+    logdir.mkdir(parents=True)
+
+    # Same name: no directory lookup needed.
+    assert _is_current_conversation(logdir, "current-conv") is True
+    # Invalid id: rejected before touching a path that does not name a child.
+    assert _is_current_conversation(logdir, "../evil") is False
+    # Valid but unknown id: samefile() fails, so it is not this conversation.
+    assert _is_current_conversation(logdir, "missing-conv") is False
+
+
+def test_conversation_dir_rejects_invalid_ids():
+    """A path-like id returns None rather than a joined path outside the logs dir."""
+    from pathlib import PurePosixPath
+
+    from gptme.logmanager.conversations import _conversation_dir
+
+    logs = PurePosixPath("/logs")
+    assert _conversation_dir(logs, "../evil") is None
+    assert _conversation_dir(logs, ".") is None
+    assert _conversation_dir(logs, "conv") == logs / "conv"
+
+    # A name that merely contains '..' is a legal single child: the TUI creates
+    # such directories, so a lookup must not hide them.
+    assert _conversation_dir(logs, "draft..notes") == logs / "draft..notes"
+
+
+def test_get_conversation_meta_direct_finds_names_with_embedded_dots(
+    tmp_path: Path,
+):
+    """A conversation the TUI can create is also readable by id."""
+    from gptme.logmanager.conversations import get_conversation_meta_direct
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    logdir = logs / "draft..notes"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+
+    meta = get_conversation_meta_direct("draft..notes", logs_dir=logs)
+    assert meta is not None
+    assert meta.id == "draft..notes"
+
+
+def test_get_conversation_meta_direct_finds_names_with_non_breaking_space(
+    tmp_path: Path,
+):
+    """A TUI-created chat with U+00A0 in its name is readable by id.
+
+    Regression: ``str.isprintable()`` is False for non-breaking space, so the
+    lookup rule hid the conversation from ``chats read`` even though the TUI
+    could create and list it.
+    """
+    from gptme.logmanager.conversations import get_conversation_meta_direct
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    conv_id = "draft\u00a0notes"
+    logdir = logs / conv_id
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+
+    meta = get_conversation_meta_direct(conv_id, logs_dir=logs)
+    assert meta is not None
+    assert meta.id == conv_id
+
+
+def test_delete_keeps_whitespace_in_conversation_id(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """/delete must use the whole id, not truncate it at whitespace.
+
+    Regression: the command tokenizer split on Unicode whitespace, and the
+    handler took ``args[0]``. ``/delete --force draft<NBSP>notes`` therefore
+    deleted a different chat called ``draft``.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("draft", "draft\u00a0notes", "my chat"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    cmd = Message("user", "/delete --force draft\u00a0notes", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft\u00a0notes" in out
+    assert not (logs / "draft\u00a0notes").exists()
+    # The prefix-named chat must survive: only the full id may be deleted.
+    assert (logs / "draft").exists()
+
+    # A regular space is part of the name too, not an argument separator.
+    cmd = Message("user", "/delete --force my chat", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert not (logs / "my chat").exists()
+
+
+def test_delete_preserves_exact_separators_in_conversation_id(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A forced delete must not collapse repeated spaces in the id.
+
+    Regression: joining whitespace-split tokens with single spaces made
+    ``two  spaces`` indistinguishable from ``two spaces`` and could delete the
+    wrong chat.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("two spaces", "two  spaces"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    cmd = Message("user", "/delete --force two  spaces", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert not (logs / "two  spaces").exists()
+    assert (logs / "two spaces").exists()
+
+
+def test_delete_prefers_the_exact_id_over_its_trimmed_form(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A forced delete must not trim a trailing space off the id.
+
+    Regression: the handler right-stripped the id, so a TUI-created chat named
+    ``draft\xa0`` (``gptme-tui -n "draft "`` creates the directory without
+    applying the naming rules) could not be targeted: ``/delete --force
+    draft\xa0`` removed ``draft`` instead.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("draft", "draft\u00a0"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    cmd = Message("user", "/delete --force draft\u00a0", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft\u00a0" in out
+    assert not (logs / "draft\u00a0").exists()
+    # Only the exact id may be deleted; the trimmed prefix must survive.
+    assert (logs / "draft").exists()
+
+    # With that chat gone, the same command only matches ``draft`` by trimming,
+    # so --force no longer applies: it asks, and "n" keeps the chat.
+    prompts: list[str] = []
+    answers = iter(["n", "y"])
+
+    def answer(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", answer)
+    for line in ("/delete --force draft\u00a0", "/delete --force  draft"):
+        cmd = Message("user", line, quiet=True)
+        manager.append(cmd)
+        execute_cmd(cmd, manager)
+        assert prompts[-1].startswith("Delete conversation 'draft'?")
+        # "n" for the first guess, "y" for the second.
+        assert (logs / "draft").exists() == (len(prompts) == 1)
+    assert len(prompts) == 2
+
+
+def test_delete_without_stdin_cancels_instead_of_raising(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A confirmation that cannot be answered cancels the delete, not crashes.
+
+    Piped or scripted sessions have no stdin to answer the prompt. Raising
+    ``EOFError`` out of the command aborted the whole session, so a delete that
+    needs confirmation (an id reached by trimming whitespace) has to fail safe.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    conv_dir = logs / "draft"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+
+    def no_stdin(prompt: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_stdin)
+    cmd = Message("user", "/delete --force draft ", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+    assert "pass --force" in out
+    assert (logs / "draft").exists()
+
+
+@pytest.mark.parametrize(
+    ("line", "deleted"),
+    [
+        ("/delete old --force", "old"),
+        ("/delete old  --force", "old "),
+        ("/delete old --force -f", "old"),
+        ("/delete -f --force old", "old"),
+        ("/delete --force old --force", "old"),
+        ("/delete old --force\n", "old"),
+        ("/delete    --force old", "old"),
+        # Leading whitespace after the command name is never part of the id, so
+        # an explicit trailing --force must still skip the prompt.
+        ("/delete  old --force", "old"),
+        ("/delete   old  --force", "old "),
+    ],
+)
+def test_delete_force_removes_exactly_the_typed_id(
+    tmp_path: Path, monkeypatch, line: str, deleted: str
+):
+    """One separator belongs to the flag; the rest of the whitespace is the id."""
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+    for name in ("old", "old "):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    def no_prompt(prompt: str) -> str:
+        raise AssertionError(f"unexpected prompt: {prompt}")
+
+    monkeypatch.setattr("builtins.input", no_prompt)
+    cmd = Message("user", line, quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert {p.name for p in logs.iterdir()} == {"current-conv", "old", "old "} - {
+        deleted
+    }
+
+
+def test_delete_accepts_force_after_the_id(tmp_path: Path, monkeypatch, capsys):
+    """A trailing --force still skips confirmation, as earlier versions did.
+
+    Regression: parsing the raw remainder only consumed a *leading* flag, so
+    ``/delete old-chat --force`` treated ``--force`` as part of the id,
+    prompted, and then reported the chat as missing.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("old-chat", "draft --force notes"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    # A flag at the end is a flag, not part of the name, and needs no prompt.
+    cmd = Message("user", "/delete old-chat --force", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: old-chat" in out
+    assert not (logs / "old-chat").exists()
+
+    # Several flag tokens are consumed, as they were when args carried them.
+    conv_dir = logs / "keep-flags"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+    cmd = Message("user", "/delete --force -f keep-flags", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: keep-flags" in out
+    assert not (logs / "keep-flags").exists()
+
+    # A Unicode space separates the flag from the id too.
+    conv_dir = logs / "nbsp-flag"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+    cmd = Message("user", "/delete --force\u00a0nbsp-flag", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: nbsp-flag" in out
+    assert not (logs / "nbsp-flag").exists()
+
+    # A newline is a separator too: the flag still applies.
+    conv_dir = logs / "multi-line"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+    )
+    cmd = Message("user", "/delete multi-line\n--force", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: multi-line" in out
+    assert not (logs / "multi-line").exists()
+
+    # A flag inside the name is still part of it.
+    cmd = Message("user", "/delete --force draft --force notes", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    out = capsys.readouterr().out
+    assert "Deleted conversation: draft --force notes" in out
+    assert not (logs / "draft --force notes").exists()
+
+
+def test_delete_asks_when_the_flag_token_is_part_of_the_id(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A trailing flag token that is part of the id must not grant force.
+
+    Regression: the trailing-flag loop set ``force`` from a token embedded in
+    the id, so a chat literally named ``old --force`` was ``rmtree``d without
+    confirmation on ``/delete old --force`` — the ``typed_exactly`` fullmatch
+    matched because ``re.escape(conv_id)`` already contained the flag.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "current-conv", create=True, lock=False)
+    manager.append(Message("user", "hi", quiet=True))
+
+    for name in ("old", "old --force", "draft -f"):
+        conv_dir = logs / name
+        conv_dir.mkdir()
+        (conv_dir / "conversation.jsonl").write_text(
+            '{"role": "user", "content": "hi"}\n', encoding="utf-8"
+        )
+
+    prompts: list[str] = []
+    answers = iter(["n", "y", "n", "y"])
+
+    def answer(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", answer)
+
+    # ``old --force`` exists, so the untrimmed input wins and the flag the
+    # user typed is embedded in it: ask, and "n" keeps both chats.
+    cmd = Message("user", "/delete old --force", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert prompts[-1].startswith("Delete conversation 'old --force'?")
+    assert (logs / "old --force").exists()
+    assert (logs / "old").exists()
+
+    # Confirming deletes the id the prompt named, not the trimmed guess.
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert not (logs / "old --force").exists()
+    assert (logs / "old").exists()
+
+    # Same collision for the short flag.
+    cmd = Message("user", "/delete draft -f", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert prompts[-1].startswith("Delete conversation 'draft -f'?")
+    assert (logs / "draft -f").exists()
+
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+    assert not (logs / "draft -f").exists()
+    assert (logs / "old").exists()
+
+
+def test_tool_payload_keeps_trailing_whitespace(tmp_path: Path, monkeypatch, capsys):
+    """A command's full_args reaches the handler verbatim, tail included.
+
+    Regression: ``cmd.strip()`` trimmed the payload before it was split off,
+    so a multi-line ``/shell`` script lost its trailing newline (and a
+    trailing backslash stopped continuing the line).
+    """
+    from gptme.commands import execute_cmd
+    from gptme.commands.base import _command_registry, command
+
+    seen: list[str] = []
+
+    @command("test-capture-full-args")
+    def _capture(ctx):
+        seen.append(ctx.full_args)
+
+    try:
+        manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
+        for line in (
+            "/test-capture-full-args echo hi\n",
+            "/test-capture-full-args \tprintf hello",
+        ):
+            cmd = Message("user", line, quiet=True)
+            manager.append(cmd)
+            execute_cmd(cmd, manager)
+    finally:
+        _command_registry.pop("test-capture-full-args", None)
+
+    # The trailing newline survives; whitespace after the single name
+    # separator is payload, not a delimiter. (A newline cannot be used for the
+    # second case: a multi-line message is not classified as a command.)
+    assert seen == ["echo hi\n", "\tprintf hello"]
+
+
+def test_arguments_still_split_on_unicode_whitespace(tmp_path: Path):
+    """Only the command name needs Unicode separators; args keep the legacy split.
+
+    ``/delete`` reconstructs its id from ``full_args``, so positional args do
+    not need an ASCII-only split. Keeping the legacy Unicode split means
+    ``/undo 2<NBSP>ignored`` still reads the count as 2.
+    """
+    from gptme.commands import execute_cmd
+
+    manager = LogManager.load(tmp_path / "conv", create=True, lock=False)
+    for role, content in [
+        ("user", "q1"),
+        ("assistant", "a1"),
+        ("user", "q2"),
+        ("assistant", "a2"),
+    ]:
+        manager.append(Message(role, content, quiet=True))  # type: ignore[arg-type]
+    cmd = Message("user", "/undo 2\u00a0ignored", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    assert [m.content for m in manager.log] == ["q1", "a1"]
+
+
+def test_unicode_space_after_command_name_still_separates(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """/undo<NBSP>1 parses as undo, not as an unknown command.
+
+    Regression: splitting the whole command on ASCII whitespace made the count
+    part of the command name when the separator was a Unicode space.
+    """
+    from gptme.commands import execute_cmd
+
+    logs = tmp_path / "logs"
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(logs))
+    manager = LogManager.load(logs / "conv", create=True, lock=False)
+    manager.append(Message("user", "first", quiet=True))
+    manager.append(Message("user", "second", quiet=True))
+
+    cmd = Message("user", "/undo\u00a01", quiet=True)
+    manager.append(cmd)
+    execute_cmd(cmd, manager)
+
+    out = capsys.readouterr().out
+    assert "Unknown command" not in out
