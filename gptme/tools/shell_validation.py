@@ -202,22 +202,36 @@ def strip_transparent_wrappers(cmd: str) -> str:
 def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     """Find all quoted regions in a command string.
 
-    Returns a list of (start, end) tuples for each quoted region.
+    Returns a list of (start, end) tuples for each quoted region. An ANSI-C
+    string (``$'...'``) starts at its quote and may contain escaped quotes.
     """
     quoted_regions = []
     in_single = False
     in_double = False
+    ansi_c = False
     start = -1
 
     i = 0
     while i < len(cmd):
         c = cmd[i]
 
-        # Handle escape sequences (only outside single quotes, since
-        # bash single-quoted strings treat backslashes as literal)
-        if c == "\\" and i + 1 < len(cmd) and not in_single:
+        # Handle escape sequences. Plain single-quoted strings treat
+        # backslashes as literal; ``$'...'`` strings do not.
+        if c == "\\" and i + 1 < len(cmd) and (ansi_c or not in_single):
             i += 2
             continue
+
+        if c == "$" and not in_single and not in_double:
+            following = cmd[i + 1 : i + 2]
+            if following == "$":
+                # ``$$`` is the shell PID, so a quote after it is a plain one.
+                i += 2
+                continue
+            if following == "'":
+                start = i + 1
+                in_single = ansi_c = True
+                i += 2
+                continue
 
         # Handle single quotes
         if c == "'" and not in_double:
@@ -226,7 +240,7 @@ def _find_quotes(cmd: str) -> list[tuple[int, int]]:
                 in_single = True
             else:
                 quoted_regions.append((start, i + 1))
-                in_single = False
+                in_single = ansi_c = False
 
         # Handle double quotes
         elif c == '"' and not in_single:
@@ -462,8 +476,8 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     nesting: list[str] = []
     scanned = 0
 
-    # ``_find_quotes`` reads ``$'a\'b'`` as plain single quotes and loses track
-    # after the escaped quote, so nothing past one can be trusted as nesting.
+    # Nesting is not modelled past an ANSI-C string with an escaped quote.
+    # Stopping there only makes validation stricter.
     ansi_c = re.search(r"\$'(?:[^'\\]|\\[^'])*\\'", cmd)
 
     for match in heredoc_pattern.finditer(cmd):

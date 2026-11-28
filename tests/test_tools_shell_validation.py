@@ -64,6 +64,30 @@ class TestFindQuotes:
         regions = _find_quotes("echo 'hello\\nworld'")
         assert len(regions) == 1
 
+    def test_escaped_quote_in_ansi_c_string(self):
+        # In $'...' a backslash escapes the quote, so the string ends later.
+        cmd = r"echo $'a\'b' c"
+        assert _find_quotes(cmd) == [(6, 12)]
+
+    def test_ansi_c_ending_in_escaped_backslash(self):
+        cmd = r"echo $'a\\' 'b'"
+        assert _find_quotes(cmd) == [(6, 11), (12, 15)]
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            r"echo $$'a\' b",  # $$ is the PID; the quote after it is plain
+            r"echo \$'a\' b",  # an escaped dollar starts no ANSI-C string
+        ],
+    )
+    def test_plain_single_quote_after_a_literal_dollar(self, cmd):
+        start = cmd.index("'")
+        assert _find_quotes(cmd) == [(start, start + 4)]
+
+    def test_dollar_quote_inside_double_quotes_is_literal(self):
+        cmd = 'echo "$\'" x'
+        assert _find_quotes(cmd) == [(5, 9)]
+
     def test_empty_quotes(self):
         regions = _find_quotes("echo '' \"\"")
         assert len(regions) == 2
@@ -305,6 +329,11 @@ class TestIsAllowlisted:
 
 
 # ── is_denylisted ────────────────────────────────────────────────────
+
+
+def test_ansi_c_escaped_quote_does_not_hide_later_commands():
+    cmd = "echo $'\\'' ; git add . ; echo $'\\''"
+    assert is_denylisted(cmd)[0]
 
 
 class TestIsDenylisted:
