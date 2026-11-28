@@ -72,13 +72,18 @@ jest.mock('@/utils/connectionConfig', () => ({
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 import { ModelPicker } from '../ModelPicker';
+import { useModels } from '@/hooks/useModels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 /** Wrap with TooltipProvider (required by ProviderIcon inside ModelItem). */
 function renderPicker(onSelect: (id: string) => void, value?: string) {
+  function Picker() {
+    const catalog = useModels();
+    return <ModelPicker catalog={catalog} onSelect={onSelect} value={value} />;
+  }
   return render(
     <TooltipProvider>
-      <ModelPicker onSelect={onSelect} value={value} />
+      <Picker />
     </TooltipProvider>
   );
 }

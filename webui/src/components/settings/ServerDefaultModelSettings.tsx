@@ -44,7 +44,13 @@ function OwnedDefaultModelSettings({ isConnected }: { isConnected: boolean }) {
       mounted.current = false;
     };
   }, []);
-  const { models, recommendedModels, isLoading: modelsLoading, error: modelsError } = useModels();
+  const {
+    models,
+    recommendedModels,
+    isLoading: modelsLoading,
+    error: modelsError,
+    refetch: refetchModels,
+  } = useModels();
   const {
     settings,
     isLoading: settingsLoading,
@@ -118,6 +124,7 @@ function OwnedDefaultModelSettings({ isConnected }: { isConnected: boolean }) {
       if (!mounted.current) return;
       setUserSelected(false);
       refetchSettings();
+      void refetchModels();
       toast.success(
         result.restart_required
           ? 'Default model saved. Restart the server to apply it.'

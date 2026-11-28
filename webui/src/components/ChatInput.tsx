@@ -40,6 +40,8 @@ import { AttachmentUploadError } from '@/utils/api';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
 import { ModelPicker } from '@/components/ModelPicker';
+import { ModelGallery } from '@/components/ModelGallery';
+import { Dialog } from '@/components/ui/dialog';
 import { ProviderIcon } from '@/components/ProviderIcon';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -350,13 +352,34 @@ const StreamingToggle: FC<{
 
 const ModelBadge: FC<{
   model: string;
-  models: { id: string; provider: string; model: string }[];
+  catalog: ReturnType<typeof useModels>;
   onModelChange: (model: string) => void;
   isDisabled: boolean;
   isLoading?: boolean;
-}> = ({ model, models, onModelChange, isDisabled, isLoading }) => {
+}> = ({ model, catalog, onModelChange, isDisabled, isLoading }) => {
   const [open, setOpen] = useState(false);
-  const modelInfo = models.find((m) => m.id === model);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const openingGallery = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { defaultModel, saveDefaultModel } = catalog;
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const handleSetDefault = async (id: string) => {
+    setSaving(true);
+    const { ok, restartRequired } = await saveDefaultModel(id);
+    setSaving(false);
+    if (ok) {
+      toast({
+        title: 'Default model updated',
+        description: restartRequired
+          ? 'Restart the gptme server for it to take full effect.'
+          : 'New chats will use this model.',
+      });
+    } else {
+      toast({ variant: 'destructive', title: 'Failed to set default model' });
+    }
+  };
+  const modelInfo = catalog.models.find((m) => m.id === model);
   const displayName = modelInfo?.model || model.split('/').pop() || model;
 
   // Show a skeleton pill while the conversation's chatConfig is still loading,
@@ -372,32 +395,84 @@ const ModelBadge: FC<{
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-5 max-w-[200px] rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
-          disabled={isDisabled}
-          data-testid="model-selector"
-          aria-label={`Model: ${displayName}`}
-        >
-          {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} size={10} />}
-          <span className="ml-1 truncate">{displayName}</span>
-          <ChevronDown className="ml-0.5 h-2 w-2 flex-shrink-0" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="start">
-        <ModelPicker
-          value={model}
-          onSelect={(id) => {
-            onModelChange(id);
-            setOpen(false);
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            ref={triggerRef}
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-5 max-w-[200px] rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
+            disabled={isDisabled}
+            data-testid="model-selector"
+            aria-label={`Model: ${displayName}`}
+          >
+            {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} size={10} />}
+            <span className="ml-1 truncate">{displayName}</span>
+            <ChevronDown className="ml-0.5 h-2 w-2 flex-shrink-0" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-80 p-0"
+          align="start"
+          onCloseAutoFocus={(event) => {
+            // Do not steal focus back from the dialog when moving between layers.
+            if (openingGallery.current) {
+              event.preventDefault();
+              openingGallery.current = false;
+            }
           }}
-        />
-        <SetDefaultModelFooter model={model} />
-      </PopoverContent>
-    </Popover>
+        >
+          <ModelPicker
+            catalog={catalog}
+            value={model}
+            onSelect={(id) => {
+              onModelChange(id);
+              setOpen(false);
+            }}
+          />
+          <div className="border-t p-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-full justify-start text-xs"
+              onClick={() => {
+                openingGallery.current = true;
+                setOpen(false);
+                setGalleryOpen(true);
+              }}
+            >
+              Browse all models
+            </Button>
+            <SetDefaultModelFooter
+              isDefault={defaultModel === model}
+              saving={saving}
+              onSave={() => void handleSetDefault(model)}
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Dialog open={galleryOpen} onOpenChange={setGalleryOpen}>
+        {galleryOpen && (
+          <ModelGallery
+            catalog={catalog}
+            value={model}
+            onSelect={(id) => {
+              onModelChange(id);
+              setGalleryOpen(false);
+            }}
+            onSetDefault={(id) => void handleSetDefault(id)}
+            defaultSaving={saving}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              triggerRef.current?.focus();
+            }}
+          />
+        )}
+      </Dialog>
+    </>
   );
 };
 
@@ -406,35 +481,18 @@ const ModelBadge: FC<{
  * Uses a Bookmark icon (not the Star used for favorites) so the two controls
  * are visually distinct: ⭐ = add to favorites, 🔖 = set as default model.
  */
-const SetDefaultModelFooter: FC<{ model: string }> = ({ model }) => {
-  const { defaultModel, saveDefaultModel } = useModels();
-  const { toast } = useToast();
-  const [saving, setSaving] = useState(false);
-  const isDefault = defaultModel === model;
-
-  const handleSetDefault = async () => {
-    setSaving(true);
-    const { ok, restartRequired } = await saveDefaultModel(model);
-    setSaving(false);
-    if (ok) {
-      toast({
-        title: 'Default model updated',
-        description: restartRequired
-          ? 'Restart the gptme server for it to take full effect.'
-          : 'New chats will use this model.',
-      });
-    } else {
-      toast({ variant: 'destructive', title: 'Failed to set default model' });
-    }
-  };
-
+const SetDefaultModelFooter: FC<{ isDefault: boolean; saving: boolean; onSave: () => void }> = ({
+  isDefault,
+  saving,
+  onSave,
+}) => {
   // Use Bookmark/BookmarkCheck (distinct from the Star used for favorites)
   // so users can tell the two controls apart at a glance.
   const DefaultIcon = isDefault ? BookmarkCheck : Bookmark;
   const title = isDefault ? 'This is already your default model' : 'Set as default for new chats';
 
   return (
-    <div className="border-t p-1">
+    <div>
       {/* Title lives on a non-disabled wrapper. Button uses
           `disabled:pointer-events-none`, so a title on the button itself
           cannot appear when this model is already the default. */}
@@ -446,7 +504,7 @@ const SetDefaultModelFooter: FC<{ model: string }> = ({ model }) => {
           className="h-7 w-full justify-start text-xs font-normal"
           disabled={isDefault || saving}
           data-testid="set-default-model"
-          onClick={() => void handleSetDefault()}
+          onClick={onSave}
         >
           <DefaultIcon
             className={`mr-2 h-3.5 w-3.5 ${isDefault ? 'fill-current text-primary' : ''}`}
@@ -755,11 +813,8 @@ export const ChatInput: FC<Props> = ({
   const sidebarSelectedAgent = use$(selectedAgent$);
 
   // Use dynamic models instead of static list
-  const {
-    models: modelInfos,
-    defaultModel: apiDefaultModel,
-    isLoading: isModelsLoading,
-  } = useModels();
+  const catalog = useModels();
+  const { models: modelInfos, defaultModel: apiDefaultModel, isLoading: isModelsLoading } = catalog;
 
   // Get conversation config to read the actual model.
   // chatConfig uses a three-value sentinel:
@@ -1745,7 +1800,7 @@ export const ChatInput: FC<Props> = ({
                     <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1 sm:gap-2">
                       <ModelBadge
                         model={effectiveModel}
-                        models={modelInfos}
+                        catalog={catalog}
                         onModelChange={(model: string) => {
                           setSelectedModel(model);
                           setHasExplicitModelSelection(true);
