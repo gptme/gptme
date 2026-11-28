@@ -1886,8 +1886,88 @@ def test_cancelled_start_keeps_a_waiting_start_alive(monkeypatch, tmp_path):
         assert second.result() is None
         assert runtime._client is clients[1]
         assert runtime.session_id == "sess-1"
+        # Neither start's bookkeeping leaked: the counter is balanced and the
+        # surviving start cleared the cancelled one's pending release.
+        assert runtime._starts_entering == 0
+        assert runtime._release_pending is False
 
     asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
+def test_cancelled_start_release_cannot_interleave_loop_finally(monkeypatch, tmp_path):
+    """The caller-side release and the loop-side ``finally`` are serialized.
+
+    A cancelled caller runs ``_release_after_failed_start`` on its own thread
+    while ``_start_impl`` may still be unwinding on the loop thread. If the
+    caller reads ``_starts_entering > 0`` and the loop then decrements the
+    counter and checks ``_release_pending`` before the caller sets it, neither
+    side stops the loop and its thread leaks. The read is stalled here until
+    the loop thread has had the chance to finish its ``finally``.
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    entered = threading.Event()
+    release = threading.Event()
+    decremented = threading.Event()
+    armed = threading.Event()
+    caller_ident = threading.get_ident()
+
+    class _StallingCounter:
+        """Data descriptor stalling the caller thread's counter read."""
+
+        def __get__(self, obj: Any, objtype: Any = None) -> Any:
+            if obj is None:
+                return self
+            value = obj.__dict__["_starts_entering_value"]
+            if armed.is_set() and value > 0 and threading.get_ident() == caller_ident:
+                # Give the loop thread its window. With the state lock held it
+                # cannot take it, so this times out and the read stays fresh.
+                decremented.wait(1.0)
+            return value
+
+        def __set__(self, obj: Any, value: int) -> None:
+            previous = obj.__dict__.get("_starts_entering_value", 0)
+            obj.__dict__["_starts_entering_value"] = value
+            if armed.is_set() and value < previous:
+                decremented.set()
+
+    class _GatedClient(_DummyClient):
+        async def __aenter__(self):
+            entered.set()
+            await asyncio.to_thread(release.wait, 10)
+            return self
+
+    monkeypatch.setattr(
+        mod.AcpSessionRuntime, "_starts_entering", _StallingCounter(), raising=False
+    )
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        armed.set()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        armed.clear()
+
+        thread = None
+        for _ in range(500):
+            thread = runtime._loop_thread
+            if thread is None:
+                break
+            await asyncio.sleep(0.01)
+        assert thread is None, "abandoned runtime loop was never stopped"
+        assert runtime._starts_entering == 0
+        assert runtime._release_pending is False
+        assert runtime._client is None
+
+    try:
+        asyncio.run(_scenario())
+    finally:
+        release.set()
 
 
 @pytest.mark.timeout(20)

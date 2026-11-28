@@ -213,8 +213,15 @@ class AcpSessionRuntime:
         # Starts are serialized on the runtime loop. ``_starts_entering``
         # counts callers inside a start on that loop (including ones waiting for
         # the lock), so a failed start only releases state when nobody else is
-        # entering. Both are only touched from the runtime loop.
+        # entering.
         self._start_lock: asyncio.Lock | None = None
+        # Guards ``_client``, ``_session_id``, ``_starts_entering``,
+        # ``_unstarted_client`` and ``_release_pending`` writes. A failed
+        # start's release runs on the caller thread while the start it raced
+        # may still be unwinding on the loop thread, so neither side can
+        # assume it owns these fields. Hold it only to read and decide: never
+        # across an await, a process wait or ``_loop_lock``.
+        self._state_lock = threading.Lock()
         self._starts_entering = 0
         # A start that failed but could not be reaped on the loop thread: the
         # client it left behind and whether the loop still needs stopping.
@@ -416,45 +423,59 @@ class AcpSessionRuntime:
         the whole runtime is torn down (child and loop). When one is, only the
         child this call left behind is reaped: the loop and the current handle
         belong to the start that is about to succeed.
+
+        Decisions are taken under ``_state_lock`` so they cannot interleave
+        with the loop-side ``finally`` in ``_start_impl``; the blocking work
+        (process waits, loop joins) runs after the lock is released.
         """
-        unstarted = self._unstarted_client
-        if unstarted is not None:
-            if self._starts_entering > 0 or self._session_id is not None:
-                self._reap_unstarted_client(unstarted)
-                self._unstarted_client = None
-                if self._client is unstarted:
+        reap: GptmeAcpClient | None = None
+        teardown = False
+        stop_loop = False
+        with self._state_lock:
+            unstarted = self._unstarted_client
+            if unstarted is not None:
+                if self._starts_entering > 0 or self._session_id is not None:
+                    # Another start owns the loop and the current handle.
+                    reap = unstarted
+                    self._unstarted_client = None
+                    if self._client is unstarted:
+                        self._client = None
+                elif self._client is unstarted:
+                    # Nobody else is entering: tear the whole runtime down.
+                    reap = unstarted
+                    self._unstarted_client = None
                     self._client = None
-            elif self._client is unstarted:
-                self._unstarted_client = None
-                self.terminate_subprocess_sync(graceful=False)
-                return
-        if self._session_id is not None:
-            return
-        if self._starts_entering > 0:
-            # A cancelled caller does not wait for the loop-side ``finally``,
-            # so this coroutine may still be unwinding. Stop the loop once it
-            # has decremented the counter (see ``_start_impl``).
-            self._release_pending = True
-            return
-        if self._client is None:
+                    self._session_id = None
+                    teardown = True
+            if not teardown and self._session_id is None:
+                if self._starts_entering > 0:
+                    # A cancelled caller does not wait for the loop-side
+                    # ``finally``, so that coroutine may still be unwinding.
+                    # It stops the loop once it has decremented the counter
+                    # (see ``_start_impl``).
+                    self._release_pending = True
+                elif self._client is None:
+                    stop_loop = True
+        if teardown:
+            # Retire the loop before reaping by pid, so its child watcher
+            # cannot race the synchronous waitpid over the same child.
+            self._stop_loop()
+        if reap is not None:
+            self._reap_unstarted_client(reap)
+        if stop_loop:
             self._stop_loop()
 
-    def _stop_abandoned_loop(self) -> None:
+    def _stop_abandoned_loop(self, unstarted: GptmeAcpClient | None) -> None:
         """Stop an abandoned runtime loop from the loop thread that owns it.
 
         Called from ``_start_impl``'s ``finally`` when the caller is gone, so it
-        cannot join the thread. Nulling the handle under the loop lock makes a
-        concurrent start create a fresh loop instead of submitting to this one.
+        cannot join the thread. The caller has already cleared the start state
+        under ``_state_lock`` and hands over the failed start's client, if any.
+        Nulling the handle under the loop lock makes a concurrent start create
+        a fresh loop instead of submitting to this one.
         """
-        self._release_pending = False
-        unstarted = self._unstarted_client
         if unstarted is not None:
             self._reap_unstarted_client(unstarted)
-            self._unstarted_client = None
-            if self._client is unstarted:
-                # The loop is going away; a stale handle would make the next
-                # start refuse to create a fresh loop.
-                self._client = None
         with self._loop_lock:
             loop = self._loop
             self._loop = None
@@ -501,20 +522,35 @@ class AcpSessionRuntime:
         lock = self._start_lock
         if lock is None:  # pragma: no cover - _run_on_loop creates it
             raise ConnectionError("ACP runtime loop is not running")
-        self._starts_entering += 1
+        with self._state_lock:
+            self._starts_entering += 1
         try:
             async with lock:
                 await self._start_entry()
         finally:
-            self._starts_entering -= 1
-            if (
-                self._release_pending
-                and self._starts_entering == 0
-                and self._session_id is None
-            ):
-                # A cancelled caller returned before this coroutine settled, so
-                # finish the release from the loop that owns it.
-                self._stop_abandoned_loop()
+            abandoned = False
+            unstarted: GptmeAcpClient | None = None
+            with self._state_lock:
+                self._starts_entering -= 1
+                if (
+                    self._release_pending
+                    and self._starts_entering == 0
+                    and self._session_id is None
+                ):
+                    # A cancelled caller returned before this coroutine
+                    # settled, so finish the release from the loop that owns
+                    # it. Claim the state now, so the caller-side release
+                    # cannot act on the same fields.
+                    abandoned = True
+                    self._release_pending = False
+                    unstarted = self._unstarted_client
+                    self._unstarted_client = None
+                    if unstarted is not None and self._client is unstarted:
+                        # The loop is going away; a stale handle would make
+                        # the next start refuse to create a fresh loop.
+                        self._client = None
+            if abandoned:
+                self._stop_abandoned_loop(unstarted)
 
     async def _start_entry(self) -> None:
         if self._client is not None and self._session_id is not None:
@@ -532,7 +568,8 @@ class AcpSessionRuntime:
         # then raise, and later setup (set_session_model) can fail after a live
         # child exists. start()'s _release_after_failed_start() uses this to
         # SIGKILL.
-        self._client = client
+        with self._state_lock:
+            self._client = client
         try:
             await client.__aenter__()
             session_id = await client.new_session(cwd=self.workspace)
@@ -566,19 +603,22 @@ class AcpSessionRuntime:
                 # Leave the handle reachable so the caller's release can still
                 # find and kill the child. A context manager cannot be exited
                 # twice, so the child is signalled by pid instead.
-                self._unstarted_client = client
+                with self._state_lock:
+                    self._unstarted_client = client
             else:
                 # An overlapping start may own the shared slot by now.
-                if self._client is client:
-                    self._client = None
-                    self._session_id = None
+                with self._state_lock:
+                    if self._client is client:
+                        self._client = None
+                        self._session_id = None
             raise
         # Publish the pair together. Starts are serialized, so no other start
         # can have replaced the early handle; publishing both at once keeps a
         # reader from seeing a client with a stale session id.
-        self._client = client
-        self._session_id = session_id
-        self._release_pending = False
+        with self._state_lock:
+            self._client = client
+            self._session_id = session_id
+            self._release_pending = False
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",
             self.command,
@@ -705,8 +745,9 @@ class AcpSessionRuntime:
         finally:
             # Clear references so the runtime is left in a consistent state.
             # Mirrors what close() does asynchronously; prevents accidental reuse.
-            self._client = None
-            self._session_id = None
+            with self._state_lock:
+                self._client = None
+                self._session_id = None
             self._stop_loop(join_timeout=1.0)
 
     def _close_on_loop_sync(self, timeout: float) -> bool:
@@ -790,8 +831,9 @@ class AcpSessionRuntime:
         # still be able to find and signal the subprocess.
         client = self._client
         await client.__aexit__(None, None, None)
-        self._client = None
-        self._session_id = None
+        with self._state_lock:
+            self._client = None
+            self._session_id = None
 
     async def __aenter__(self) -> AcpSessionRuntime:
         await self.start()
