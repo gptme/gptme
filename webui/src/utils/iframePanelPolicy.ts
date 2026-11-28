@@ -15,6 +15,20 @@ const SANDBOX_ALLOWLIST: ReadonlySet<string> = new Set<IframeSandboxToken>([
 ]);
 
 /**
+ * Return true when `value` contains an ASCII control character (0x00-0x1F or
+ * 0x7F). Browsers strip ASCII tabs and newlines before URL parsing, so values
+ * like `/\t/evil.com` or `/\r\\evil.com` would otherwise slip past leading
+ * `//` and `/\` guards and resolve as protocol-relative URLs.
+ */
+function hasAsciiControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/**
  * Origin of a base URL, or null when it is missing or malformed.
  */
 export function urlOrigin(value: string | null | undefined): string | null {
@@ -42,6 +56,7 @@ export function urlOrigin(value: string | null | undefined): string | null {
 export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
   if (typeof src !== 'string') return '';
   const value = src.trim();
+  if (hasAsciiControlChar(value)) return '';
   if (!baseUrl) return value;
   // "//host" is protocol-relative and "/\host" is a backslash variant; both are
   // absolute for policy purposes, so leave them for the allowlist to judge.
@@ -118,6 +133,10 @@ export function resolvePanelSrc(src: string, baseUrl?: string | null): string {
 export function isAllowedIframeSrc(src: string, allowedOrigin?: string | null): boolean {
   if (typeof src !== 'string' || src.trim() === '') return false;
   const value = src.trim();
+
+  if (hasAsciiControlChar(value)) {
+    return false;
+  }
 
   // Server-relative path: a single leading slash, not "//" (protocol-relative)
   // and not a backslash variant.

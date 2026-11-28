@@ -2237,10 +2237,11 @@ def api_conversation_post(conversation_id: str):
                 404,
             )
 
-        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(
-            sess.generating for sess in sessions
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+        ):
             return (
                 flask.jsonify(
                     {"error": "Cannot add message while generation is in progress"}
@@ -2460,7 +2461,7 @@ def api_conversation_edit_message(conversation_id: str, index: int):
         return flask.jsonify({"error": "files must be a list of strings"}), 400
 
     # Content or files required for edits, but optional for pure truncation
-    has_changes = (content and content.strip()) or files is not None
+    has_changes = content is not None or files is not None
     if not truncate and not has_changes:
         return flask.jsonify({"error": "content or files is required"}), 400
 
@@ -2477,10 +2478,11 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     # /step takes the same lock before reserving generation. Reload inside the
     # lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
-        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(
-            sess.generating for sess in sessions
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+        ):
             return (
                 flask.jsonify({"error": "Cannot edit while generation is in progress"}),
                 409,
@@ -2511,6 +2513,14 @@ def api_conversation_edit_message(conversation_id: str, index: int):
         )
         if (content_changed or files_changed) and msgs[index].role != "user":
             return flask.jsonify({"error": "Can only edit user messages"}), 400
+
+        # Reject edits that would leave a message with neither text nor attachments.
+        # Attachment-only edits (e.g. content="" with non-empty files) remain valid.
+        if content is not None or files is not None:
+            resulting_content = content if content is not None else msgs[index].content
+            resulting_files = files if files is not None else msgs[index].files
+            if not resulting_content.strip() and not resulting_files:
+                return flask.jsonify({"error": "content must not be empty"}), 400
 
         if content_changed or files_changed:
             replacements: dict = {}
@@ -2602,10 +2612,11 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     # /step takes the same lock before reserving generation. Reload inside the
     # lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
-        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(
-            sess.generating for sess in sessions
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+        ):
             return (
                 flask.jsonify(
                     {"error": "Cannot delete while generation is in progress"}
@@ -2726,10 +2737,11 @@ def api_conversation_fork(conversation_id: str):
     # config. /step takes the same lock before reserving generation. Reload inside
     # the lock so deletion between the existence check and lock acquisition is safe.
     with SessionManager.conversation_lock(conversation_id):
-        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(
-            sess.generating for sess in sessions
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+        ):
             return (
                 flask.jsonify({"error": "Cannot fork while generation is in progress"}),
                 409,
@@ -2857,10 +2869,11 @@ def api_conversation_delete(conversation_id: str):
                 404,
             )
 
-        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(
-            sess.generating for sess in sessions
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+        ):
             return (
                 flask.jsonify(
                     {"error": "Cannot delete while generation is in progress"}
@@ -2881,6 +2894,7 @@ def api_conversation_delete(conversation_id: str):
         # Evict before releasing the lock. If this runs after the lock
         # drops, a recreate of the same id can bind a new window that this
         # delayed end_session then deletes.
+        SessionManager.clear_pending_continuations(conversation_id)
         CostTracker.end_session(cost_session_id)
 
     SessionManager.remove_all_sessions_for_conversation(conversation_id)
@@ -3309,10 +3323,11 @@ def api_conversation_config_patch(conversation_id: str):
                 404,
             )
 
-        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
-        if any(
-            sess.generating for sess in sessions
-        ) or SessionManager.command_is_active(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+        ):
             return (
                 flask.jsonify(
                     {"error": "Cannot update config while generation is in progress"}

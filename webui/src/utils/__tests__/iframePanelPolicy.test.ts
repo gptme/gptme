@@ -26,6 +26,14 @@ describe('isAllowedIframeSrc', () => {
     expect(isAllowedIframeSrc('/\\evil.example.com')).toBe(false);
   });
 
+  it('rejects ASCII control characters that browsers strip before URL parsing', () => {
+    expect(isAllowedIframeSrc('/\t/evil.com/x')).toBe(false);
+    expect(isAllowedIframeSrc('/\n/evil.com/x')).toBe(false);
+    expect(isAllowedIframeSrc('/\r\\evil.com/x')).toBe(false);
+    expect(isAllowedIframeSrc('/preview/\x00app')).toBe(false);
+    expect(isAllowedIframeSrc('http://localhost:8080/\x7f')).toBe(false);
+  });
+
   it('rejects arbitrary external origins', () => {
     expect(isAllowedIframeSrc('https://evil.example.com')).toBe(false);
     expect(isAllowedIframeSrc('http://localhost.evil.com')).toBe(false);
@@ -122,6 +130,12 @@ describe('resolvePanelSrc', () => {
     // `%2f` is not decoded by `URL`, so the `..` only appears after decoding.
     expect(resolvePanelSrc('/api/v1/instances/abc/..%2f..%2fadmin', api)).toBe('');
     expect(resolvePanelSrc('/api/v1/instances/abc/..%2fadmin', api)).toBe('');
+  });
+
+  it('refuses srcs that contain ASCII control characters', () => {
+    expect(resolvePanelSrc('/\t/evil.com/x', api)).toBe('');
+    expect(resolvePanelSrc('/\n/evil.com/x', api)).toBe('');
+    expect(resolvePanelSrc('/\r\\evil.com/x', api)).toBe('');
   });
 
   it('produces a src that the allowlist then accepts', () => {

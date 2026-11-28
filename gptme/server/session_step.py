@@ -47,6 +47,7 @@ from .api_v2_common import (
 )
 from .session_models import (
     ConversationSession,
+    PendingToolContinuation,
     SessionManager,
     ToolExecution,
     ToolStatus,
@@ -778,7 +779,8 @@ async def _acp_step(
                                 )
                                 released = True
                 if released:
-                    SessionManager.retry_deferred_watch_wakes(conversation_id)
+                    if not _drain_pending_tool_continuations(conversation_id):
+                        SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise
 
         user_messages = [m for m in manager.log.messages if m.role == "user"]
@@ -913,7 +915,8 @@ async def _acp_step(
                     SessionManager.add_event(conversation_id, {"type": "step_complete"})
                     released = True
             if released:
-                SessionManager.retry_deferred_watch_wakes(conversation_id)
+                if not _drain_pending_tool_continuations(conversation_id):
+                    SessionManager.retry_deferred_watch_wakes(conversation_id)
     finally:
         current_conversation_id.reset(conversation_token)
         current_session_id.reset(session_token)
@@ -933,9 +936,11 @@ def _start_acp_step_thread(
     """Start an ACP-backed step unless another operation has reserved it."""
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if SessionManager.conversation_generating(
-                conversation_id
-            ) or SessionManager.command_is_active(conversation_id):
+            if (
+                SessionManager.conversation_generating(conversation_id)
+                or SessionManager.command_is_active(conversation_id)
+                or SessionManager.conversation_executing_tools(conversation_id)
+            ):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
@@ -1195,7 +1200,8 @@ def step(
                             )
                             released = True
             if released:
-                SessionManager.retry_deferred_watch_wakes(conversation_id)
+                if not _drain_pending_tool_continuations(conversation_id):
+                    SessionManager.retry_deferred_watch_wakes(conversation_id)
         raise
 
     # A new server session has no in-memory continuation flag. Recover it
@@ -1682,7 +1688,69 @@ def step(
                     session.step_seq,
                 )
         if released:
-            SessionManager.retry_deferred_watch_wakes(conversation_id)
+            if not _drain_pending_tool_continuations(conversation_id):
+                SessionManager.retry_deferred_watch_wakes(conversation_id)
+
+
+def _drain_pending_tool_continuations(conversation_id: str) -> bool:
+    """Start the next queued per-branch tool continuation if the conversation is idle."""
+    selected: PendingToolContinuation | None = None
+    continuation_seq: int | None = None
+    with SessionManager.conversation_lock(conversation_id):
+        if (
+            SessionManager.conversation_generating(conversation_id)
+            or SessionManager.command_is_active(conversation_id)
+            or SessionManager.conversation_executing_tools(conversation_id)
+        ):
+            return False
+        while True:
+            candidate = SessionManager.pop_pending_continuation(conversation_id)
+            if candidate is None:
+                return False
+            target = candidate.session
+            if SessionManager.get_session(target.id) is not target:
+                continue
+            with target.step_lock:
+                if (
+                    target.interrupted
+                    or target.step_seq != candidate.step_seq
+                    or target.pending_tools
+                    or target._executing_tools
+                ):
+                    continue
+                target.step_seq += 1
+                continuation_seq = target.step_seq
+                target.generating = True
+                target.generating_since = datetime.now(tz=timezone.utc)
+                selected = candidate
+                break
+
+    assert selected is not None and continuation_seq is not None
+    try:
+        started = _start_step_thread(
+            conversation_id,
+            selected.session,
+            selected.model,
+            selected.workspace,
+            branch=selected.branch,
+            reserved=True,
+            step_seq=continuation_seq,
+            max_tokens=selected.max_tokens,
+            temperature=selected.temperature,
+            top_p=selected.top_p,
+        )
+    except Exception:
+        with selected.session.step_lock:
+            if selected.session.step_seq == continuation_seq:
+                selected.session.generating = False
+                selected.session.generating_since = None
+        raise
+    if not started:
+        with selected.session.step_lock:
+            if selected.session.step_seq == continuation_seq:
+                selected.session.generating = False
+                selected.session.generating_since = None
+    return started
 
 
 def start_tool_execution(
@@ -1718,6 +1786,18 @@ def start_tool_execution(
     # still remain stale.
     my_seq = session.step_seq
 
+    # Mark the tool as executing before spawning the worker so DELETE and other
+    # mutation guards observe the conversation busy throughout the approval-to-
+    # worker handoff window (before the worker loads the log and claims the
+    # pending entry). Only pre-claim a tool that is still pending and not
+    # already claimed by another worker.
+    with SessionManager.conversation_lock(conversation_id):
+        preclaimed = (
+            tool_id in session.pending_tools and tool_id not in session._executing_tools
+        )
+        if preclaimed:
+            session._executing_tools.add(tool_id)
+
     # This function would ideally run asynchronously to not block the request
     # For simplicity, we'll run it in a thread
     @trace_function("api_v2.execute_tool", attributes={"component": "api_v2"})
@@ -1739,6 +1819,7 @@ def start_tool_execution(
         # sets this, and this worker runs in its own context.
         set_workspace_cwd(str(chat_config.workspace))
 
+        preclaimed_tool_id: str | None = tool_id if preclaimed else None
         try:
             # Prepare execution environment (config, tools, hooks, .env)
             prepare_execution_environment(
@@ -1771,6 +1852,13 @@ def start_tool_execution(
                     if tool_exec is not None:
                         session.remember_handled_tool(current_tool_id)
                         session._executing_tools.add(current_tool_id)
+                        if preclaimed_tool_id == current_tool_id:
+                            preclaimed_tool_id = None
+                    elif preclaimed_tool_id == current_tool_id:
+                        # Another thread (e.g. /interrupt) cleared pending_tools
+                        # before this worker could claim its pre-registered tool.
+                        session._executing_tools.discard(current_tool_id)
+                        preclaimed_tool_id = None
                 if tool_exec is None:
                     logger.warning(
                         f"Tool {current_tool_id} not found in pending tools "
@@ -1783,6 +1871,7 @@ def start_tool_execution(
                             if session.step_seq == my_seq:
                                 session.generating = False
                                 session.generating_since = None
+                    _drain_pending_tool_continuations(conversation_id)
                     return  # another thread claimed this tool; don't trigger auto-step
                 # The claim is registered above but the try/finally that releases
                 # it only starts below, so anything that raises in between (most
@@ -1840,7 +1929,8 @@ def start_tool_execution(
                     )
                     logger.info(f"Tool {current_tool_id} executing")
                 except BaseException:
-                    session._executing_tools.discard(current_tool_id)
+                    with SessionManager.conversation_lock(conversation_id):
+                        session._executing_tools.discard(current_tool_id)
                     raise
 
                 claimed_tool_id = current_tool_id
@@ -1973,12 +2063,21 @@ def start_tool_execution(
                             },
                         )
 
-                    # Chain to next pending auto-confirm tool (serial execution)
+                    # Chain to next pending auto-confirm tool (serial execution).
+                    # Pre-claim the next tool under conversation_lock before
+                    # finally releases claimed_tool_id so there is no unguarded
+                    # gap between chained auto-confirm tools.
                     next_auto_id: str | None = None
-                    for tid, texec in list(session.pending_tools.items()):
-                        if texec.auto_confirm:
-                            next_auto_id = tid
-                            break
+                    with SessionManager.conversation_lock(conversation_id):
+                        for tid, texec in list(session.pending_tools.items()):
+                            if (
+                                texec.auto_confirm
+                                and tid not in session._executing_tools
+                            ):
+                                next_auto_id = tid
+                                session._executing_tools.add(next_auto_id)
+                                preclaimed_tool_id = next_auto_id
+                                break
 
                     if next_auto_id is not None:
                         current_tool_id = next_auto_id
@@ -2020,6 +2119,7 @@ def start_tool_execution(
             # add and remove execution claims. This makes quiescence observation
             # and generation reservation one atomic state transition.
             start_continuation = False
+            queued_continuation = False
             continuation_seq: int | None = None
             with SessionManager.conversation_lock(conversation_id), session.step_lock:
                 owns_reservation = not reserved or session.step_seq == my_seq
@@ -2034,6 +2134,9 @@ def start_tool_execution(
                     if reserved or (
                         not SessionManager.conversation_generating(conversation_id)
                         and not SessionManager.command_is_active(conversation_id)
+                        and not SessionManager.conversation_executing_tools(
+                            conversation_id
+                        )
                     ):
                         # Advance step_seq BEFORE setting generating=True (Race 5).
                         # The originating step() finally block snapshots
@@ -2045,7 +2148,32 @@ def start_tool_execution(
                         continuation_seq = session.step_seq
                         session.generating = True
                         session.generating_since = datetime.now(tz=timezone.utc)
+                        # Any queued continuation for this same branch is
+                        # superseded by the continuation starting now.
+                        SessionManager.clear_pending_continuations(
+                            conversation_id, branch=branch
+                        )
                         start_continuation = True
+                    else:
+                        # Another session/operation currently owns the
+                        # conversation (e.g. a sibling tool on a different
+                        # branch, an active generation, or a command). Queue
+                        # this branch's follow-up so it runs once the
+                        # conversation goes idle instead of being dropped.
+                        SessionManager.queue_tool_continuation(
+                            conversation_id,
+                            PendingToolContinuation(
+                                session=session,
+                                model=model,
+                                workspace=chat_config.workspace,
+                                branch=branch,
+                                step_seq=session.step_seq,
+                                max_tokens=max_tokens,
+                                temperature=temperature,
+                                top_p=top_p,
+                            ),
+                        )
+                        queued_continuation = True
                 elif reserved:
                     session.generating = False
                     session.generating_since = None
@@ -2072,11 +2200,20 @@ def start_tool_execution(
                             session.generating = False
                             session.generating_since = None
                     raise
+            elif not queued_continuation:
+                # This worker exited without starting or queueing a continuation
+                # (e.g. another pending tool remains on this session). If the
+                # conversation is now idle, dispatch any sibling branch's queued
+                # follow-up.
+                _drain_pending_tool_continuations(conversation_id)
         except Exception as e:
             # An approval reserves dispatch before this worker starts. Startup
             # can fail before pop() claims the tool; then the still-pending call
             # must remain approvable (or skippable) after the problem is fixed.
             with SessionManager.conversation_lock(conversation_id):
+                if preclaimed_tool_id is not None:
+                    session._executing_tools.discard(preclaimed_tool_id)
+                    preclaimed_tool_id = None
                 if (
                     tool_id in session.pending_tools
                     and tool_id not in session._executing_tools
@@ -2104,6 +2241,11 @@ def start_tool_execution(
                         session.generating = False
                         session.generating_since = None
             raise
+        finally:
+            if preclaimed_tool_id is not None:
+                with SessionManager.conversation_lock(conversation_id):
+                    session._executing_tools.discard(preclaimed_tool_id)
+                    preclaimed_tool_id = None
 
     # Propagate ContextVars from the request context into the execution thread.
     ctx = contextvars.copy_context()
@@ -2114,6 +2256,9 @@ def start_tool_execution(
         thread.start()
     except Exception:
         release_writer()
+        if preclaimed:
+            with SessionManager.conversation_lock(conversation_id):
+                session._executing_tools.discard(tool_id)
         if reserved:
             with session.step_lock:
                 if session.step_seq == my_seq:
@@ -2174,12 +2319,15 @@ def _start_step_thread(
     # identifies that reservation explicitly to avoid rejecting itself.
     if not reserved:
         with SessionManager.conversation_lock(conversation_id), session.step_lock:
-            if SessionManager.conversation_generating(
-                conversation_id
-            ) or SessionManager.command_is_active(conversation_id):
+            if (
+                SessionManager.conversation_generating(conversation_id)
+                or SessionManager.command_is_active(conversation_id)
+                or SessionManager.conversation_executing_tools(conversation_id)
+            ):
                 return False
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
+            SessionManager.clear_pending_continuations(conversation_id, branch=branch)
             # Capture the epoch under the lock so step() doesn't need to sample
             # session.step_seq inside the thread (where a delay could give it
             # a stale or replacement epoch).

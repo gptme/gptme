@@ -4201,6 +4201,785 @@ def test_v2_mutations_rejected_while_conversation_command_is_active(
     assert "generation is in progress" in response.get_json()["error"]
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "json"),
+    [
+        ("POST", "", {"role": "user", "content": "INTERJECTED"}),
+        ("PATCH", "/messages/0", {"content": "updated"}),
+        ("DELETE", "/messages/0", None),
+        ("POST", "/fork?after_message=0", None),
+        ("DELETE", "", None),
+        ("PATCH", "/config", {"model": "openai/gpt-4o"}),
+    ],
+)
+def test_v2_mutations_rejected_while_tool_is_executing(
+    client: FlaskClient, method: str, path: str, json: dict | None
+):
+    """Conversation mutations must return 409 while a confirmed tool is executing."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session._executing_tools.add("tool-running-1")
+    try:
+        response = client.open(
+            f"/api/v2/conversations/{conversation_id}{path}", method=method, json=json
+        )
+    finally:
+        session._executing_tools.discard("tool-running-1")
+
+    assert response.status_code == 409
+    assert "generation is in progress" in response.get_json()["error"]
+
+
+def test_v2_step_and_rerun_rejected_while_tool_is_executing(client: FlaskClient):
+    """/step and /rerun must return 409 while any session is executing a tool."""
+    from gptme.server.session_models import SessionManager
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    other_session = SessionManager.create_session(conversation_id)
+    other_session._executing_tools.add("tool-running-sibling")
+    try:
+        step_resp = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id},
+        )
+        rerun_resp = client.post(
+            f"/api/v2/conversations/{conversation_id}/rerun",
+            json={"session_id": session_id},
+        )
+    finally:
+        other_session._executing_tools.discard("tool-running-sibling")
+        SessionManager.remove_session(other_session.id)
+
+    assert step_resp.status_code == 409
+    assert step_resp.get_json()["error"] == "Generation already in progress"
+    assert rerun_resp.status_code == 409
+    assert (
+        rerun_resp.get_json()["error"] == "Cannot rerun while generation is in progress"
+    )
+
+
+def test_v2_confirmed_tool_blocks_interjected_message_and_step(client: FlaskClient):
+    """Repro for #5138 defect #1: manually confirmed executing tool blocks POST and /step."""
+    import threading
+
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    convname = f"test-tool-guard-{random.randint(0, 1000000)}"
+    put_resp = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "prompt": "none",
+            "messages": [
+                {"role": "user", "content": "run command"},
+                {
+                    "role": "assistant",
+                    "content": "```shell\nsleep 3; echo TOOL_DONE\n```",
+                },
+            ],
+        },
+    )
+    assert put_resp.status_code == 200
+    session_id = put_resp.get_json()["session_id"]
+
+    rerun_resp = client.post(
+        f"/api/v2/conversations/{convname}/rerun",
+        json={"session_id": session_id},
+    )
+    assert rerun_resp.status_code == 200
+    tool_id = rerun_resp.get_json()["tool_ids"][0]
+
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def slow_execute(*_args, **_kwargs):
+        started.set()
+        release.wait(timeout=5)
+        yield Message("system", "Ran command: TOOL_DONE")
+
+    def mark_continuation(*_args, **_kwargs):
+        finished.set()
+        return True
+
+    with (
+        unittest.mock.patch(
+            "gptme.tools.base.ToolUse.execute", side_effect=slow_execute
+        ),
+        unittest.mock.patch(
+            "gptme.server.session_step._start_step_thread",
+            side_effect=mark_continuation,
+        ),
+        unittest.mock.patch("gptme.server.session_step._compact_after_tool_results"),
+    ):
+        try:
+            confirm_resp = client.post(
+                f"/api/v2/conversations/{convname}/tool/confirm",
+                json={
+                    "session_id": session_id,
+                    "tool_id": tool_id,
+                    "action": "confirm",
+                },
+            )
+            assert confirm_resp.status_code == 200
+            assert started.wait(timeout=3), "tool worker did not start"
+
+            post_resp = client.post(
+                f"/api/v2/conversations/{convname}",
+                json={"role": "user", "content": "INTERJECTED"},
+            )
+            step_resp = client.post(
+                f"/api/v2/conversations/{convname}/step",
+                json={"session_id": session_id, "model": "openai/gpt-4o"},
+            )
+
+            assert post_resp.status_code == 409
+            assert step_resp.status_code == 409
+        finally:
+            release.set()
+            if started.is_set():
+                finished.wait(timeout=3)
+            session = SessionManager.get_session(session_id)
+            if session is not None:
+                session.generating = False
+
+        assert finished.is_set(), "tool worker did not finish"
+
+    conv_data = client.get(f"/api/v2/conversations/{convname}").get_json()
+    assert conv_data is not None
+    contents = [m["content"] for m in conv_data["log"]]
+    assert any("TOOL_DONE" in c for c in contents)
+    assert all("INTERJECTED" not in c for c in contents)
+
+
+def test_v2_delete_rejected_during_approval_to_worker_handoff(client: FlaskClient):
+    """DELETE must 409 between manual tool approval and the worker loading the log."""
+    import threading
+
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    convname = f"test-handoff-delete-{random.randint(0, 1000000)}"
+    put_resp = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "prompt": "none",
+            "messages": [
+                {"role": "user", "content": "run command"},
+                {
+                    "role": "assistant",
+                    "content": "```shell\necho HANDOFF_OK\n```",
+                },
+            ],
+        },
+    )
+    assert put_resp.status_code == 200
+    session_id = put_resp.get_json()["session_id"]
+
+    rerun_resp = client.post(
+        f"/api/v2/conversations/{convname}/rerun",
+        json={"session_id": session_id},
+    )
+    assert rerun_resp.status_code == 200
+    tool_id = rerun_resp.get_json()["tool_ids"][0]
+
+    handoff_entered = threading.Event()
+    release_handoff = threading.Event()
+    finished = threading.Event()
+
+    def pause_before_load(*_args, **_kwargs):
+        handoff_entered.set()
+        release_handoff.wait(timeout=5)
+
+    def fast_execute(*_args, **_kwargs):
+        yield Message("system", "Ran command: HANDOFF_OK")
+
+    def mark_continuation(*_args, **_kwargs):
+        finished.set()
+        return True
+
+    with (
+        unittest.mock.patch(
+            "gptme.server.session_step.prepare_execution_environment",
+            side_effect=pause_before_load,
+        ),
+        unittest.mock.patch(
+            "gptme.tools.base.ToolUse.execute", side_effect=fast_execute
+        ),
+        unittest.mock.patch(
+            "gptme.server.session_step._start_step_thread",
+            side_effect=mark_continuation,
+        ),
+        unittest.mock.patch("gptme.server.session_step._compact_after_tool_results"),
+    ):
+        try:
+            confirm_resp = client.post(
+                f"/api/v2/conversations/{convname}/tool/confirm",
+                json={
+                    "session_id": session_id,
+                    "tool_id": tool_id,
+                    "action": "confirm",
+                },
+            )
+            assert confirm_resp.status_code == 200
+            assert handoff_entered.wait(timeout=3), "tool worker did not enter handoff"
+
+            # Worker has not reached LogManager.load or pending_tools.pop yet;
+            # DELETE must still see the conversation busy and return 409.
+            delete_resp = client.delete(f"/api/v2/conversations/{convname}")
+            assert delete_resp.status_code == 409
+            assert "generation is in progress" in delete_resp.get_json()["error"]
+        finally:
+            release_handoff.set()
+            if handoff_entered.is_set():
+                finished.wait(timeout=3)
+            session = SessionManager.get_session(session_id)
+            if session is not None:
+                session.generating = False
+
+        assert finished.is_set(), "tool worker did not finish"
+
+    conv_data = client.get(f"/api/v2/conversations/{convname}").get_json()
+    assert conv_data is not None
+    assert any("HANDOFF_OK" in m["content"] for m in conv_data["log"])
+
+
+def test_v2_two_branch_tool_continuations_preserve_first_branch_reply(
+    v2_conv, monkeypatch
+):
+    """When two sessions run tools on different branches, both branches get replies."""
+    import threading
+
+    import gptme.server.session_step as step_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_a = SessionManager.get_session(v2_conv["session_id"])
+    assert session_a is not None
+    session_b = SessionManager.create_session(conversation_id)
+
+    tool_a_id = "tool-branch-main"
+    tool_b_id = "tool-branch-alt"
+    session_a.pending_tools[tool_a_id] = ToolExecution(
+        tool_id=tool_a_id,
+        tooluse=ToolUse("shell", [], "echo main", call_id="call-main"),
+        branch="main",
+    )
+    session_b.pending_tools[tool_b_id] = ToolExecution(
+        tool_id=tool_b_id,
+        tooluse=ToolUse("shell", [], "echo alt", call_id="call-alt"),
+        branch="alt",
+    )
+
+    real_load = LogManager.load.__func__  # type: ignore[attr-defined]
+
+    @classmethod  # type: ignore[misc]
+    def load_any_branch(cls, logdir, branch="main", **kwargs):
+        return real_load(cls, logdir, branch="main", **kwargs)
+
+    tool_b_started = threading.Event()
+    release_tool_b = threading.Event()
+    all_done = threading.Event()
+    started_continuations: list[tuple[str, str]] = []
+    continuation_threads: list[threading.Thread] = []
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        if self.call_id == "call-alt":
+            tool_b_started.set()
+            release_tool_b.wait(timeout=5)
+            yield Message("system", "alt result")
+        else:
+            yield Message("system", "main result")
+
+    def fake_start_step_thread(
+        conv_id, sess, model, workspace, branch="main", **kwargs
+    ):
+        started_continuations.append((sess.id, branch))
+
+        def finish_step() -> None:
+            with sess.step_lock:
+                sess.generating = False
+                sess.generating_since = None
+            drain = getattr(step_mod, "_drain_pending_tool_continuations", None)
+            if drain is not None:
+                drain(conv_id)
+            if len(started_continuations) >= 2:
+                all_done.set()
+
+        t = threading.Thread(target=finish_step, daemon=True)
+        continuation_threads.append(t)
+        t.start()
+        return True
+
+    monkeypatch.setattr(LogManager, "load", load_any_branch)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda **kw: None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._compact_after_tool_results",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+    monkeypatch.setattr(step_mod, "_start_step_thread", fake_start_step_thread)
+
+    t_b: threading.Thread | None = None
+    t_a: threading.Thread | None = None
+    try:
+        t_b = step_mod.start_tool_execution(
+            conversation_id,
+            session_b,
+            tool_b_id,
+            None,
+            "openai/mock-model",
+            ChatConfig(),
+            branch="alt",
+        )
+        assert tool_b_started.wait(timeout=3), "alt tool did not start"
+
+        t_a = step_mod.start_tool_execution(
+            conversation_id,
+            session_a,
+            tool_a_id,
+            None,
+            "openai/mock-model",
+            ChatConfig(),
+            branch="main",
+        )
+        t_a.join(timeout=3)
+        assert not t_a.is_alive(), "main tool did not finish"
+
+        # While alt tool is still running, main must wait instead of overlapping.
+        assert started_continuations == []
+
+        release_tool_b.set()
+        t_b.join(timeout=3)
+        assert not t_b.is_alive(), "alt tool did not finish"
+
+        assert all_done.wait(timeout=3), (
+            f"Expected both branches to continue, got {started_continuations}"
+        )
+        for t in continuation_threads:
+            t.join(timeout=3)
+    finally:
+        release_tool_b.set()
+        if t_a is not None:
+            t_a.join(timeout=3)
+        if t_b is not None:
+            t_b.join(timeout=3)
+        for t in continuation_threads:
+            t.join(timeout=3)
+        SessionManager.remove_session(session_b.id)
+        clear_pending = getattr(SessionManager, "clear_pending_continuations", None)
+        if clear_pending is not None:
+            clear_pending(conversation_id)
+
+    assert started_continuations == [
+        (session_b.id, "alt"),
+        (session_a.id, "main"),
+    ]
+
+
+def test_v2_two_branch_tool_continuations_end_to_end_step_finally(
+    client: FlaskClient, monkeypatch
+):
+    """Real step() completion drains a sibling branch's queued tool continuation."""
+    import threading
+
+    import gptme.server.session_step as step_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    convname = f"test-two-branch-e2e-{random.randint(0, 1000000)}"
+    put_resp = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "prompt": "none",
+            "messages": [
+                {"role": "user", "content": "run tools"},
+            ],
+        },
+    )
+    assert put_resp.status_code == 200
+    session_a = SessionManager.get_session(put_resp.get_json()["session_id"])
+    assert session_a is not None
+    session_b = SessionManager.create_session(convname)
+
+    # Create a real second branch in the conversation log.
+    manager = LogManager.load(convname, lock=False)
+    alt_logfile = manager.logdir / "branches" / "alt.jsonl"
+    alt_logfile.parent.mkdir(parents=True, exist_ok=True)
+    alt_logfile.write_text(manager.logfile.read_text())
+
+    tool_a_id = "tool-e2e-main"
+    tool_b_id = "tool-e2e-alt"
+    session_a.pending_tools[tool_a_id] = ToolExecution(
+        tool_id=tool_a_id,
+        tooluse=ToolUse("shell", [], "echo main", call_id="call-e2e-main"),
+        branch="main",
+    )
+    session_b.pending_tools[tool_b_id] = ToolExecution(
+        tool_id=tool_b_id,
+        tooluse=ToolUse("shell", [], "echo alt", call_id="call-e2e-alt"),
+        branch="alt",
+    )
+
+    tool_b_started = threading.Event()
+    release_tool_b = threading.Event()
+    both_replied = threading.Event()
+    step_branches: list[str] = []
+    active_steps = 0
+    max_concurrent_steps = 0
+    step_count_lock = threading.Lock()
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        if self.call_id == "call-e2e-alt":
+            tool_b_started.set()
+            release_tool_b.wait(timeout=5)
+            yield Message("system", "alt tool output")
+        else:
+            yield Message("system", "main tool output")
+
+    def fake_stream(messages, model, *args, **kwargs):
+        nonlocal active_steps, max_concurrent_steps
+        # Identify branch from the tool output persisted on that branch.
+        joined = "\n".join(m.content for m in messages)
+        branch_tag = "alt" if "alt tool output" in joined else "main"
+        with step_count_lock:
+            active_steps += 1
+            max_concurrent_steps = max(max_concurrent_steps, active_steps)
+            step_branches.append(branch_tag)
+        try:
+            yield f"Reply for {branch_tag}"
+        finally:
+            with step_count_lock:
+                active_steps -= 1
+                if len(step_branches) >= 2:
+                    both_replied.set()
+
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda **kw: None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._compact_after_tool_results",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+    monkeypatch.setattr("gptme.server.session_step._stream", fake_stream)
+
+    t_b: threading.Thread | None = None
+    t_a: threading.Thread | None = None
+    try:
+        t_b = step_mod.start_tool_execution(
+            convname,
+            session_b,
+            tool_b_id,
+            None,
+            "local/test",
+            ChatConfig(model="local/test", stream=True),
+            branch="alt",
+        )
+        assert tool_b_started.wait(timeout=3), "alt tool did not start"
+
+        t_a = step_mod.start_tool_execution(
+            convname,
+            session_a,
+            tool_a_id,
+            None,
+            "local/test",
+            ChatConfig(model="local/test", stream=True),
+            branch="main",
+        )
+        t_a.join(timeout=3)
+        assert not t_a.is_alive(), "main tool did not finish"
+        assert step_branches == []
+
+        release_tool_b.set()
+        t_b.join(timeout=3)
+        assert not t_b.is_alive(), "alt tool did not finish"
+
+        assert both_replied.wait(timeout=5), (
+            f"Expected replies on both branches, got {step_branches}"
+        )
+        # Wait until both step threads finish writing and releasing generating.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and SessionManager.conversation_generating(
+            convname
+        ):
+            time.sleep(0.02)
+    finally:
+        release_tool_b.set()
+        if t_a is not None:
+            t_a.join(timeout=3)
+        if t_b is not None:
+            t_b.join(timeout=3)
+        SessionManager.remove_session(session_b.id)
+        clear_pending = getattr(SessionManager, "clear_pending_continuations", None)
+        if clear_pending is not None:
+            clear_pending(convname)
+
+    assert step_branches == ["alt", "main"]
+    assert max_concurrent_steps == 1
+    main_msgs = [
+        m.content
+        for m in LogManager.load(convname, branch="main", lock=False).log.messages
+    ]
+    alt_msgs = [
+        m.content
+        for m in LogManager.load(convname, branch="alt", lock=False).log.messages
+    ]
+    assert "Reply for main" in main_msgs
+    assert "Reply for alt" in alt_msgs
+
+
+def test_v2_same_branch_two_session_tools_coalesce_to_one_continuation(
+    v2_conv, monkeypatch
+):
+    """Two sessions running tools on the same branch must produce one continuation."""
+    import threading
+
+    import gptme.server.session_step as step_mod
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_a = SessionManager.get_session(v2_conv["session_id"])
+    assert session_a is not None
+    session_b = SessionManager.create_session(conversation_id)
+
+    tool_a_id = "tool-same-branch-a"
+    tool_b_id = "tool-same-branch-b"
+    session_a.pending_tools[tool_a_id] = ToolExecution(
+        tool_id=tool_a_id,
+        tooluse=ToolUse("shell", [], "echo a", call_id="call-same-a"),
+        branch="main",
+    )
+    session_b.pending_tools[tool_b_id] = ToolExecution(
+        tool_id=tool_b_id,
+        tooluse=ToolUse("shell", [], "echo b", call_id="call-same-b"),
+        branch="main",
+    )
+
+    tool_b_started = threading.Event()
+    release_tool_b = threading.Event()
+    started_continuations: list[tuple[str, str]] = []
+    continuation_threads: list[threading.Thread] = []
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        if self.call_id == "call-same-b":
+            tool_b_started.set()
+            release_tool_b.wait(timeout=5)
+            yield Message("system", "b result")
+        else:
+            yield Message("system", "a result")
+
+    def fake_start_step_thread(
+        conv_id, sess, model, workspace, branch="main", **kwargs
+    ):
+        started_continuations.append((sess.id, branch))
+
+        def finish_step() -> None:
+            with sess.step_lock:
+                sess.generating = False
+                sess.generating_since = None
+            drain = getattr(step_mod, "_drain_pending_tool_continuations", None)
+            if drain is not None:
+                drain(conv_id)
+
+        t = threading.Thread(target=finish_step, daemon=True)
+        continuation_threads.append(t)
+        t.start()
+        return True
+
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda **kw: None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._compact_after_tool_results",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+    monkeypatch.setattr(step_mod, "_start_step_thread", fake_start_step_thread)
+
+    t_b: threading.Thread | None = None
+    t_a: threading.Thread | None = None
+    try:
+        t_b = step_mod.start_tool_execution(
+            conversation_id,
+            session_b,
+            tool_b_id,
+            None,
+            "openai/mock-model",
+            ChatConfig(),
+            branch="main",
+        )
+        assert tool_b_started.wait(timeout=3)
+
+        t_a = step_mod.start_tool_execution(
+            conversation_id,
+            session_a,
+            tool_a_id,
+            None,
+            "openai/mock-model",
+            ChatConfig(),
+            branch="main",
+        )
+        t_a.join(timeout=3)
+        assert started_continuations == []
+
+        release_tool_b.set()
+        t_b.join(timeout=3)
+        for t in continuation_threads:
+            t.join(timeout=3)
+    finally:
+        release_tool_b.set()
+        if t_a is not None:
+            t_a.join(timeout=3)
+        if t_b is not None:
+            t_b.join(timeout=3)
+        for t in continuation_threads:
+            t.join(timeout=3)
+        SessionManager.remove_session(session_b.id)
+        clear_pending = getattr(SessionManager, "clear_pending_continuations", None)
+        if clear_pending is not None:
+            clear_pending(conversation_id)
+
+    assert started_continuations == [(session_b.id, "main")]
+
+
+def test_drain_pending_tool_continuations_releases_reservation_on_dispatch_failure(
+    v2_conv: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failed _start_step_thread dispatch must roll back the drained session reservation."""
+    import gptme.server.session_step as step_mod
+    from gptme.server.session_models import PendingToolContinuation, SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    def queue_continuation() -> int:
+        seq = session.step_seq
+        SessionManager.queue_tool_continuation(
+            conversation_id,
+            PendingToolContinuation(
+                session=session,
+                model="openai/mock-model",
+                workspace=Path("/tmp"),
+                branch="alt",
+                step_seq=seq,
+            ),
+        )
+        return seq
+
+    def raise_on_start(*_args: object, **_kwargs: object) -> bool:
+        raise RuntimeError("step thread spawn failed")
+
+    try:
+        # 1) Exception from _start_step_thread releases reservation and re-raises.
+        seq_before = queue_continuation()
+        monkeypatch.setattr(step_mod, "_start_step_thread", raise_on_start)
+        with pytest.raises(RuntimeError, match="step thread spawn failed"):
+            step_mod._drain_pending_tool_continuations(conversation_id)
+        assert session.step_seq == seq_before + 1
+        assert session.generating is False
+        assert session.generating_since is None
+
+        # 2) False return from _start_step_thread releases reservation and returns False.
+        seq_before = queue_continuation()
+        monkeypatch.setattr(
+            step_mod, "_start_step_thread", lambda *_args, **_kwargs: False
+        )
+        assert step_mod._drain_pending_tool_continuations(conversation_id) is False
+        assert session.step_seq == seq_before + 1
+        assert session.generating is False
+        assert session.generating_since is None
+    finally:
+        with session.step_lock:
+            session.generating = False
+            session.generating_since = None
+        SessionManager.clear_pending_continuations(conversation_id)
+
+
+def test_v2_pending_tool_does_not_block_message_post(client: FlaskClient):
+    """A pending (unconfirmed) tool must not trigger the executing-tool 409 guard."""
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+
+    session.pending_tools["pending-1"] = ToolExecution(
+        tool_id="pending-1",
+        tooluse=ToolUse("shell", [], "echo hi"),
+    )
+    try:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Follow-up while tool is pending"},
+        )
+    finally:
+        session.pending_tools.pop("pending-1", None)
+
+    assert response.status_code == 200
+
+
+def test_start_step_threads_rejected_while_tool_is_executing(v2_conv):
+    """Direct step starters must not reserve while a tool is executing."""
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import _start_acp_step_thread, _start_step_thread
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    session._executing_tools.add("tool-running-direct")
+    try:
+        assert (
+            _start_step_thread(
+                conversation_id,
+                session,
+                "openai/mock-model",
+                Path("/tmp"),
+                reserved=False,
+            )
+            is False
+        )
+        assert (
+            _start_acp_step_thread(
+                conversation_id=conversation_id,
+                session=session,
+                workspace=Path("/tmp"),
+                reserved=False,
+            )
+            is False
+        )
+        assert session.generating is False
+    finally:
+        session._executing_tools.discard("tool-running-direct")
+
+
 def test_v2_conversation_delete_rechecks_existence_under_lock(client: FlaskClient):
     """A DELETE serialized behind another deletion should return 404, not 500."""
     from gptme.dirs import get_logs_dir
@@ -4794,6 +5573,174 @@ def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "content must be a string"}
+
+
+@pytest.mark.parametrize("blank_content", ["", "   ", "\t\n "])
+@pytest.mark.parametrize("query", ["", "?truncate=1"])
+def test_v2_edit_message_rejects_blank_content(
+    client: FlaskClient, blank_content: str, query: str
+):
+    """PATCH /messages/<i> must reject blank content with or without ?truncate=1."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Original message"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "assistant", "content": "Assistant reply"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Original message"
+    )
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}{query}",
+        json={"content": blank_content},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "content must not be empty"}
+
+    # Original message and subsequent messages must remain intact
+    after = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert after is not None
+    assert len(after["log"]) == len(before["log"])
+    assert after["log"][user_index]["content"] == "Original message"
+
+
+def test_v2_edit_message_rejects_blank_content_with_empty_files(client: FlaskClient):
+    """PATCH /messages/<i> must reject blank content when resulting files are empty."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Original message"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Original message"
+    )
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"content": "   ", "files": []},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "content must not be empty"}
+
+
+def test_v2_edit_message_allows_attachment_only_edits(client: FlaskClient):
+    """PATCH /messages/<i> allows blank content when attachments remain on the message."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Original message"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Original message"
+    )
+
+    # Clearing text while providing attachments succeeds (WebUI edit payload).
+    resp1 = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"content": "", "files": ["attachments/first.txt"]},
+    )
+    assert resp1.status_code == 200
+    conv1 = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conv1 is not None
+    assert conv1["log"][user_index]["content"] == ""
+    assert conv1["log"][user_index]["files"] == ["attachments/first.txt"]
+
+    # Replacing an attachment on a textless message succeeds.
+    resp2 = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"content": "", "files": ["attachments/second.txt"]},
+    )
+    assert resp2.status_code == 200
+    conv2 = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conv2 is not None
+    assert conv2["log"][user_index]["content"] == ""
+    assert conv2["log"][user_index]["files"] == ["attachments/second.txt"]
+
+    # Clearing text without resending files keeps existing attachments.
+    assert (
+        client.patch(
+            f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+            json={"content": "Temporary caption"},
+        ).status_code
+        == 200
+    )
+    resp3 = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"content": ""},
+    )
+    assert resp3.status_code == 200
+    conv3 = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conv3 is not None
+    assert conv3["log"][user_index]["content"] == ""
+    assert conv3["log"][user_index]["files"] == ["attachments/second.txt"]
+
+    # Removing the final attachment from a textless message is rejected.
+    resp4 = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"files": []},
+    )
+    assert resp4.status_code == 400
+    assert resp4.get_json() == {"error": "content must not be empty"}
+
+
+def test_v2_edit_message_pure_truncate_keeps_content(client: FlaskClient):
+    """PATCH /messages/<i>?truncate=1 with no content still truncates cleanly."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "user", "content": "Keep me"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "assistant", "content": "Drop me"},
+        ).status_code
+        == 200
+    )
+
+    before = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert before is not None
+    user_index = next(
+        i for i, m in enumerate(before["log"]) if m["content"] == "Keep me"
+    )
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}?truncate=1",
+        json={},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert len(data["log"]) == user_index + 1
+    assert data["log"][user_index]["content"] == "Keep me"
 
 
 @pytest.mark.parametrize(
