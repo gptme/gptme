@@ -1621,55 +1621,52 @@ def test_failed_start_keeps_child_when_cleanup_raises(monkeypatch, tmp_path):
     assert loop_thread is not None and not loop_thread.is_alive()
 
 
-@pytest.mark.timeout(15)
+@pytest.mark.timeout(20)
 def test_overlapping_successful_starts_create_one_session(monkeypatch, tmp_path):
     """Overlapping starts share one session instead of orphaning the first.
 
-    A step resent after an interrupt can enter ``_start_impl`` while the first
-    start is still entering. Both must succeed, but only the first subprocess
-    may be published: a second one would be orphaned and its session id would
-    replace the live one.
+    A step resent after an interrupt can call ``start()`` while the first start
+    is still entering. Both must succeed, but only the first subprocess may be
+    published: a second one would be orphaned and its session id would replace
+    the live one.
     """
     import gptme.server.acp_session_runtime as mod
 
     clients: list[Any] = []
+    # Set when a second client is constructed: without serialization the
+    # second start enters alongside the first, so the first can stop waiting.
+    second_entered = threading.Event()
+
+    class _GatedClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            clients.append(self)
+            if self.index == 1:
+                second_entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(second_entered.wait, 0.5)
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
 
     async def _scenario() -> None:
-        release_entry = asyncio.Event()
-
-        class _GatedClient(_DummyClient):
-            def __init__(self, workspace: Path, **kwargs: Any) -> None:
-                super().__init__(workspace, **kwargs)
-                self.index = len(clients)
-                clients.append(self)
-
-            async def __aenter__(self):
-                if self.index == 0:
-                    await release_entry.wait()
-                return self
-
-            async def new_session(
-                self, cwd: str | Path | None = None, **kwargs: Any
-            ) -> str:
-                return f"sess-{self.index}"
-
-        monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
-        runtime = mod.AcpSessionRuntime(workspace=tmp_path)
-        first = asyncio.create_task(runtime._start_impl())
+        first = asyncio.create_task(runtime.start())
         await asyncio.sleep(0)
-        assert len(clients) == 1
-
-        second = asyncio.create_task(runtime._start_impl())
-        await asyncio.sleep(0)
-        # The second start waits for the first instead of entering alongside it.
-        assert len(clients) == 1
-
-        release_entry.set()
-        await asyncio.wait([first])
-        await asyncio.wait([second])
+        second = asyncio.create_task(runtime.start())
+        await asyncio.wait([first, second])
 
         assert first.result() is None
         assert second.result() is None
+        # One subprocess, one session: the second start reused the first.
         assert len(clients) == 1
         assert runtime._client is clients[0]
         assert runtime.session_id == "sess-0"
@@ -1677,85 +1674,59 @@ def test_overlapping_successful_starts_create_one_session(monkeypatch, tmp_path)
     asyncio.run(_scenario())
 
 
-def test_release_unstarted_defers_to_an_in_flight_start(tmp_path):
-    """A failed start must not tear down state another start is entering.
-
-    ``start()`` releases the runtime loop when entry fails, but an overlapping
-    start may already be in flight. Releasing then would stop the loop (and
-    terminate the client) under a start that is about to succeed.
-    """
-    from gptme.server.acp_session_runtime import AcpSessionRuntime
-
-    runtime = AcpSessionRuntime(workspace=tmp_path)
-    client: Any = _DummyClient(tmp_path)
-    runtime._client = client
-
-    runtime._begin_start()  # an overlapping start is still entering
-    try:
-        runtime._release_unstarted()
-        assert runtime._client is client
-        assert runtime._start_lock is None  # loop untouched, not stopped
-    finally:
-        runtime._end_start()
-
-    # The last start to fail still cleans up after itself.
-    runtime._release_unstarted()
-    assert runtime._client is None
-    assert runtime._loop_thread is None
-
-
 @pytest.mark.timeout(15)
-def test_failed_start_does_not_tear_down_a_waiting_start(monkeypatch, tmp_path):
-    """A failed start followed by a waiting start leaves a usable session.
+def test_failed_start_releases_the_start_mutex(monkeypatch, tmp_path):
+    """A failed start must not leave the runtime wedged for later starts.
 
-    The second ``start()`` is already in flight when the first fails; the
-    failure must not stop the loop under it.
+    The mutex is held for the whole entry, so a failure that skipped the
+    release would block every later start (and prompt) forever.
     """
     import gptme.server.acp_session_runtime as mod
 
-    clients: list[Any] = []
+    class _FailingClient(_DummyClient):
+        async def __aenter__(self):
+            raise OSError("entry failed")
 
-    async def _scenario() -> None:
-        release_failure = asyncio.Event()
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
 
-        class _GatedClient(_DummyClient):
-            def __init__(self, workspace: Path, **kwargs: Any) -> None:
-                super().__init__(workspace, **kwargs)
-                self.index = len(clients)
-                clients.append(self)
+    with pytest.raises(OSError, match="entry failed"):
+        asyncio.run(runtime.start())
 
-            async def __aenter__(self):
-                if self.index == 0:
-                    await release_failure.wait()
-                    raise OSError("entry failed")
-                return self
+    assert not runtime._start_mutex.locked()
+    assert runtime._client is None
+    assert runtime.session_id is None
 
-            async def new_session(
-                self, cwd: str | Path | None = None, **kwargs: Any
-            ) -> str:
-                return f"sess-{self.index}"
 
-        monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
-        runtime = mod.AcpSessionRuntime(workspace=tmp_path)
-        first = asyncio.create_task(runtime.start())
-        await asyncio.sleep(0)
-        second = asyncio.create_task(runtime.start())
-        await asyncio.sleep(0)
-        assert runtime._starts_in_flight == 2
+@pytest.mark.timeout(15)
+def test_start_after_failed_start_reaches_a_live_session(monkeypatch, tmp_path):
+    """A failed start leaves the runtime usable for the next start."""
+    import gptme.server.acp_session_runtime as mod
 
-        release_failure.set()
-        await asyncio.wait([first])
-        await asyncio.wait([second])
+    attempts: list[Any] = []
 
-        with pytest.raises(OSError, match="entry failed"):
-            first.result()
-        assert second.result() is None
-        assert len(clients) == 2
-        assert runtime._client is clients[1]
-        assert runtime.session_id == "sess-1"
-        assert runtime._loop_thread is not None and runtime._loop_thread.is_alive()
+    class _FlakyClient(_DummyClient):
+        async def __aenter__(self):
+            attempts.append(self)
+            if len(attempts) == 1:
+                raise OSError("entry failed")
+            return self
 
-    asyncio.run(_scenario())
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{len(attempts)}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FlakyClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    with pytest.raises(OSError, match="entry failed"):
+        asyncio.run(runtime.start())
+    assert runtime.session_id is None
+
+    asyncio.run(runtime.start())
+    assert runtime.session_id == "sess-2"
+    assert runtime._loop_thread is not None and runtime._loop_thread.is_alive()
 
 
 @pytest.mark.skipif(

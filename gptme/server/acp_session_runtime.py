@@ -210,13 +210,10 @@ class AcpSessionRuntime:
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
 
-        # Starts are serialized on the runtime loop so two overlapping calls
-        # cannot both enter the subprocess. ``_starts_in_flight`` counts callers
-        # still entering one (created before the lock is acquired), so a failed
-        # start only tears down shared state when nobody else is starting.
-        self._start_lock: asyncio.Lock | None = None
-        self._start_state_lock = threading.Lock()
-        self._starts_in_flight = 0
+        # Serializes entry (and the teardown of a failed entry) across callers,
+        # which may run on different event loops. Held for the whole start, so a
+        # failure can never tear down a session another start owns.
+        self._start_mutex = threading.Lock()
 
         # Dedicated event loop owning the ACP transport (see module docstring).
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -318,8 +315,6 @@ class AcpSessionRuntime:
             self._loop = None
             self._loop_thread = None
             self._loop_calls = None
-            # The start lock is bound to the loop that just went away.
-            self._start_lock = None
         if calls is not None:
             # Reject new work and release accepted callers now, even if a
             # blocked callback prevents the loop thread from finishing. This
@@ -394,13 +389,11 @@ class AcpSessionRuntime:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def _begin_start(self) -> None:
-        with self._start_state_lock:
-            self._starts_in_flight += 1
-
-    def _end_start(self) -> None:
-        with self._start_state_lock:
-            self._starts_in_flight -= 1
+    async def _acquire_start_mutex(self) -> None:
+        """Take the start mutex without blocking the caller's event loop."""
+        if self._start_mutex.acquire(blocking=False):
+            return
+        await asyncio.to_thread(self._start_mutex.acquire)
 
     def _release_unstarted(self) -> None:
         """Stop the dedicated loop if start never produced a usable session.
@@ -409,48 +402,28 @@ class AcpSessionRuntime:
         whose entry failed would otherwise leak that daemon thread (and any
         child that entry spawned before raising).
 
-        Only the last caller to leave a failed start may release shared state:
-        an overlapping start may still be entering and owns the client, and
-        tearing the loop down under it would fail a start that is about to
-        succeed. The check and the teardown share ``_start_state_lock`` so a
-        new start cannot slip in between them.
-
-        Holding the lock across the teardown cannot deadlock: ``_begin_start``
-        and ``_end_start`` only run on a caller's loop, never on the runtime
-        loop that ``_stop_loop`` joins. ``prompt`` uses the same counter because
-        its lazy start enters through the same path.
+        Callers hold ``_start_mutex``, so no overlapping start can be entering
+        while this runs: the teardown cannot take a session another start owns.
         """
-        with self._start_state_lock:
-            if self._session_id is not None:
-                return
-            if self._starts_in_flight > 0:
-                return
-            if self._client is not None:
-                self.terminate_subprocess_sync(graceful=False)
-            else:
-                self._stop_loop()
+        if self._session_id is not None:
+            return
+        if self._client is not None:
+            self.terminate_subprocess_sync(graceful=False)
+        else:
+            self._stop_loop()
 
     async def start(self) -> None:
         """Start ACP subprocess and create ACP session if not already started."""
-        self._begin_start()
+        await self._acquire_start_mutex()
         try:
             await self._run_on_loop(self._start_impl)
         except BaseException:
-            self._end_start()
             self._release_unstarted()
             raise
-        self._end_start()
+        finally:
+            self._start_mutex.release()
 
     async def _start_impl(self) -> None:
-        # Serialize the whole entry: overlapping starts would otherwise each
-        # spawn a subprocess and the later one would orphan the earlier
-        # session (and a failing one could clear a slot it does not own).
-        if self._start_lock is None:
-            self._start_lock = asyncio.Lock()
-        async with self._start_lock:
-            await self._start_locked()
-
-    async def _start_locked(self) -> None:
         if self._client is not None and self._session_id is not None:
             return
 
@@ -527,17 +500,21 @@ class AcpSessionRuntime:
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
-        self._begin_start()
+        if self._client is not None and self._session_id is not None:
+            return await self._run_on_loop(self._prompt_impl, message, max_tokens)
+        # A lazy start enters through ``_start_impl``; take the same mutex so it
+        # is serialized with an explicit ``start()`` and a failure cannot tear
+        # down the loop under one.
+        await self._acquire_start_mutex()
         try:
-            result = await self._run_on_loop(self._prompt_impl, message, max_tokens)
+            return await self._run_on_loop(self._prompt_impl, message, max_tokens)
         except BaseException:
-            self._end_start()
-            # Lazy start goes through this path too; a failed entry must not
-            # leak the dedicated loop of a runtime that never became ready.
+            # A failed entry must not leak the dedicated loop of a runtime that
+            # never became ready.
             self._release_unstarted()
             raise
-        self._end_start()
-        return result
+        finally:
+            self._start_mutex.release()
 
     async def _prompt_impl(
         self, message: str, max_tokens: int | None
