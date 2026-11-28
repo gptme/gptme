@@ -95,6 +95,32 @@ def test_force_rejects_mount_point_reparse_tag(tmp_path, monkeypatch, linked_par
     assert (tasks / "README.md").read_text() == "preserve me\n"
 
 
+def test_force_rejects_existing_junction_with_missing_child(tmp_path, monkeypatch):
+    """A pre-existing junction component is rejected even when its child does
+    not exist yet and ``is_symlink()`` reports False (as it does on Windows)."""
+    from types import SimpleNamespace
+
+    target = tmp_path / "proj"
+    github = target / ".github"
+    github.mkdir(parents=True)
+    assert not (github / "workflows").exists()
+    original_lstat = Path.lstat
+    resolved_github = github.resolve()
+
+    def junction_lstat(path, *args, **kwargs):
+        result = original_lstat(path, *args, **kwargs)
+        if path == resolved_github:
+            return SimpleNamespace(st_mode=result.st_mode, st_reparse_tag=0xA0000003)
+        return result
+
+    monkeypatch.setattr(Path, "lstat", junction_lstat)
+    assert not github.is_symlink()
+    result = CliRunner().invoke(main, [str(target), "--force", "--ci"])
+    assert result.exit_code != 0
+    assert "junction directory" in result.output
+    assert not (github / "workflows").exists()
+
+
 @pytest.mark.parametrize("copy_instructions", [False, True])
 def test_scaffold_uses_utf8_on_legacy_locale(tmp_path, monkeypatch, copy_instructions):
     """Model Windows' cp1252 default even when tests run on a UTF-8 host."""

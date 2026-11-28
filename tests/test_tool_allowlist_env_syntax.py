@@ -80,12 +80,23 @@ def test_empty_tool_allowlist_does_not_enable_defaults(
     assert ChatConfig.from_logdir(logdir).tools == []
 
 
-def test_tool_allowlist_env_rejects_mixed_syntax(tmp_path, monkeypatch):
-    monkeypatch.setenv("TOOL_ALLOWLIST", "-shell,save")
+@pytest.mark.parametrize("value", ["-shell,save", "+form,-shell", "none,shell"])
+def test_tool_allowlist_env_warns_on_invalid_syntax(
+    tmp_path, monkeypatch, caplog, value
+):
+    """An ambient TOOL_ALLOWLIST with invalid syntax must not make every new
+    conversation unstartable; it warns and falls back to the default toolset,
+    like other invalid [env] values. The explicit --tools flag still raises."""
+    monkeypatch.setenv("TOOL_ALLOWLIST", value)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    with pytest.raises(ValueError, match="TOOL_ALLOWLIST"):
-        setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+    with caplog.at_level("WARNING", logger="gptme.config.cli_setup"):
+        config = setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+    assert config.chat is not None
+    assert "Ignoring invalid TOOL_ALLOWLIST" in caplog.text
+    # None means "unrestricted defaults", i.e. the value was ignored rather
+    # than turned into an operator tool boundary.
+    assert config.chat.tools is None
 
 
 @pytest.mark.parametrize("value", ["-SHELL", "-shel", "-save,-shel"])

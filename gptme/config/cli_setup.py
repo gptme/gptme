@@ -227,16 +227,25 @@ def setup_config_from_cli(
     allowlist_spec = tool_allowlist
     if allowlist_spec is None and saved_tools is None:
         if tools_env := config.get_env("TOOL_ALLOWLIST"):
-            try:
+            if not any(token.strip() for token in tools_env.split(",")):
                 # A nonempty env value containing only separators selected no
                 # tools before the shared parser; it must not enable defaults.
-                allowlist_spec = (
-                    parse_tool_specs([tools_env])
-                    if any(token.strip() for token in tools_env.split(","))
-                    else ""
-                )
-            except ValueError as e:
-                raise ValueError(f"Invalid TOOL_ALLOWLIST: {e}") from e
+                allowlist_spec = ""
+            else:
+                try:
+                    allowlist_spec = parse_tool_specs([tools_env])
+                except ValueError as e:
+                    # TOOL_ALLOWLIST is ambient configuration (environment or
+                    # [env]) that can outlive the version which accepted it, so
+                    # a syntax error must not make every new conversation
+                    # unstartable. Warn and fall back to the default toolset,
+                    # matching how invalid [env] values are skipped. An explicit
+                    # --tools still fails hard (main.py raises UsageError).
+                    logger.warning(
+                        "Ignoring invalid TOOL_ALLOWLIST %r: %s. Using default tools.",
+                        tools_env,
+                        e,
+                    )
     if allowlist_spec is not None:
         # Check for additive syntax (starts with '+')
         if allowlist_spec.startswith("+"):

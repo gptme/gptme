@@ -187,16 +187,21 @@ def _create_directory(path: Path, *, target: Path) -> None:
     current = target
     for part in path.relative_to(target).parts:
         current = current / part
-        if current.is_symlink():
+        # One lstat per component decides both the symlink and the junction
+        # case. Checking ``is_symlink()`` first would need a second stat and
+        # would leave the reparse-tag test looking conditional on it.
+        try:
+            component_stat = current.lstat()
+        except FileNotFoundError:
+            # The component does not exist yet, so it cannot be a link.
+            continue
+        if stat.S_ISLNK(component_stat.st_mode):
             raise click.ClickException(
                 f"Refusing to write through symlink directory: {current}"
             )
-        try:
-            reparse_tag = getattr(current.lstat(), "st_reparse_tag", 0)
-        except FileNotFoundError:
-            continue
         # Path.is_junction() only exists on Python 3.12+. lstat exposes this
         # tag on Windows on every supported Python, including 3.11.
+        reparse_tag = getattr(component_stat, "st_reparse_tag", 0)
         if reparse_tag == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003):
             raise click.ClickException(
                 f"Refusing to write through junction directory: {current}"
