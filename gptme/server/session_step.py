@@ -11,6 +11,7 @@ import asyncio
 import atexit
 import contextvars
 import hashlib
+import json
 import logging
 import os
 import re
@@ -661,6 +662,39 @@ def _acp_prompts(messages: list[Message]) -> list[Message]:
     return [m for m in messages if m.role == "user" and not _is_voice_call_turn(m)]
 
 
+def _acp_prompt_with_history(messages: list[Message], prompt: Message) -> str:
+    """Frame the visible prefix as context for the first new ACP turn."""
+    history: list[dict[str, str]] = []
+    for message in messages:
+        if message is prompt:
+            break
+        if (
+            message.role in ("user", "assistant")
+            and not message.hide
+            and not message.ui_only
+            and not _is_voice_call_turn(message)
+        ):
+            history.append({"role": message.role, "content": message.content})
+    if not history:
+        return prompt.content
+
+    recent = []
+    remaining = 16_000
+    for entry in reversed(history[-24:]):
+        content = entry["content"]
+        if not remaining:
+            break
+        recent.append({**entry, "content": content[-remaining:]})
+        remaining -= min(len(content), remaining)
+    return (
+        "Previous conversation for reference only. Do not repeat old requests "
+        "or actions. Respond to the current request below.\n"
+        + json.dumps(list(reversed(recent)), ensure_ascii=False)
+        + "\n\nCurrent request:\n"
+        + prompt.content
+    )
+
+
 def _acp_prompt_key(m: Message) -> str:
     """Timestamp plus a digest of the content, the base of a prompt's ID.
 
@@ -1015,7 +1049,8 @@ async def _acp_step(
                 session.acp_last_user_msg_index = _acp_answered_cursor(
                     manager.log.messages
                 )
-                answered_indices = _acp_answered_indices(manager.log.messages)
+                transcript = manager.log.messages
+                answered_indices = _acp_answered_indices(transcript)
             pending_user_messages = [
                 (i, m) for i, m in enumerate(user_messages) if i not in answered_indices
             ]
@@ -1046,9 +1081,14 @@ async def _acp_step(
                     manager = LogManager.load(conversation_id, lock=False)
                     _set_acp_prompt_sent(manager, prompt_id, True)
                     manager.write()
+                prompt = (
+                    _acp_prompt_with_history(transcript, user_msg)
+                    if session.acp_send_history
+                    else user_msg.content
+                )
                 try:
                     text, _raw = await acp_runtime.prompt(
-                        user_msg.content, max_tokens=effective_max_tokens
+                        prompt, max_tokens=effective_max_tokens
                     )
                 except Exception:
                     # A prompt that failed on its own is retried by a later step;
@@ -1087,6 +1127,7 @@ async def _acp_step(
                     session.acp_last_user_msg_index = _acp_answered_cursor(
                         manager.log.messages
                     )
+                    session.acp_send_history = False
                     final_msg = msg
 
             if post_msgs := trigger_hook(

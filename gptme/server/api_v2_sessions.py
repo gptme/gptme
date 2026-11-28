@@ -572,6 +572,7 @@ def api_conversation_step(conversation_id: str):
 
             session.use_acp = True
             session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
+            session.acp_send_history = True
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
         # Claim a new generation epoch before dispatch. If later setup fails,
