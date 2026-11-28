@@ -651,6 +651,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operation-hooks">File Operation Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-lifecycle-hooks">Session Lifecycle Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#generation-hooks">Generation Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#declared-but-unfired-hook-types">Declared But Unfired Hook Types</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="pst-show_toc_level nav section-nav flex-column">
@@ -719,9 +720,9 @@
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">TURN_PRE</span></code>: Once per submitted user prompt, before the turn starts</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">STEP_PRE</span></code>: Before each generation/tool-execution step within a turn</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">STEP_POST</span></code>: After each step completes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">STEP_POST</span></code>: <em>Not fired yet</em> (see <a class="reference internal" href="#unfired-hook-types"><span class="std std-ref">Declared But Unfired Hook Types</span></a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TURN_POST</span></code>: After the whole turn completes</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_TRANSFORM</span></code>: Rewrite assistant message content before persistence/display</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_TRANSFORM</span></code>: <em>Deprecated, never fired</em> (see <a class="reference internal" href="#unfired-hook-types"><span class="std std-ref">Declared But Unfired Hook Types</span></a>)</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">TURN_PRE</span></code> is the clean “user prompt submitted” surface. <code class="docutils literal notranslate"><span class="pre">STEP_PRE</span></code> may run
 multiple times inside one turn if the assistant keeps calling tools.</p>
@@ -732,7 +733,7 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code>: Before executing any tool; a hook can deny the call
 (see <a class="reference internal" href="#pre-execution-deny-seam"><span class="std std-ref">The Pre-Execution Deny Seam</span></a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code>: After executing any tool</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>: Transform tool execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>: <em>Deprecated, never fired</em> (see <a class="reference internal" href="#unfired-hook-types"><span class="std std-ref">Declared But Unfired Hook Types</span></a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code>: Blocking confirmation/deny decision before execution
 (see <a class="reference internal" href="#confirmation-hooks-and-deny-decisions"><span class="std std-ref">Confirmation Hooks and Deny Decisions</span></a>)</p></li>
 </ul>
@@ -742,8 +743,8 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_PRE</span></code>: Before saving or appending to a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_POST</span></code>: After successfully saving or appending to a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_PRE</span></code>: Before patching a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_POST</span></code>: After patching a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_PRE</span></code>: Before <code class="docutils literal notranslate"><span class="pre">patch</span></code> or <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> writes a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_POST</span></code>: After <code class="docutils literal notranslate"><span class="pre">patch</span></code> or <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> wrote a file</p></li>
 </ul>
 <p>For <code class="docutils literal notranslate"><span class="pre">save</span></code> and <code class="docutils literal notranslate"><span class="pre">append</span></code>, PRE receives the requested <code class="docutils literal notranslate"><span class="pre">content</span></code> before
 newline normalization. POST receives the content passed to the text writer,
@@ -757,6 +758,14 @@ creation prompts and hooks. Hook messages are propagated to the conversation.</p
 file, and POST only after a successful write and close. Refused or failed writes
 do not emit POST. These are notification hooks, not a veto, rollback, or
 transaction API; hook failures retain the registry’s normal error handling.</p>
+<p>The patch hooks take the same arguments as the save hooks, so one function can
+be registered for both. <code class="docutils literal notranslate"><span class="pre">content</span></code> is the full patched file text (LF line
+endings), and POST always receives <code class="docutils literal notranslate"><span class="pre">created=False</span></code>. <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> fires PRE
+for every file once the whole batch has resolved and before anything is written,
+then POST for every file after the batch is published. Patches rejected during
+validation or aborted before PRE dispatch fire neither hook. A staging or write
+failure after PRE dispatch may emit PRE, but never POST; PRE is not proof that a
+write succeeded. This also applies when <code class="docutils literal notranslate"><span class="pre">patch_many</span></code> rolls back publication.</p>
 </section>
 <section id="session-lifecycle-hooks">
 <h3>Session Lifecycle Hooks<a class="headerlink" href="#session-lifecycle-hooks" title="Link to this heading">#</a></h3>
@@ -776,7 +785,21 @@ semantics and are not exposed through the shell adapter.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_PRE</span></code>: Before generating response</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_POST</span></code>: After generating response</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_INTERRUPT</span></code>: Interrupt generation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_CHUNK</span></code>: On each streamed response line</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GENERATION_INTERRUPT</span></code>: <em>Deprecated, never fired</em> (see <a class="reference internal" href="#unfired-hook-types"><span class="std std-ref">Declared But Unfired Hook Types</span></a>)</p></li>
+</ul>
+</section>
+<section id="declared-but-unfired-hook-types">
+<span id="unfired-hook-types"></span><h3>Declared But Unfired Hook Types<a class="headerlink" href="#declared-but-unfired-hook-types" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">gptme.hooks.UNFIRED_HOOK_TYPES</span></code> lists the hook types gptme declares but never
+triggers, each with a reason. Registering a hook for one of them logs a warning,
+because the hook will not run:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">STEP_POST</span></code>: not wired in any loop yet. Use <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code> (after
+each tool) or <code class="docutils literal notranslate"><span class="pre">TURN_POST</span></code> (after the turn).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_TRANSFORM</span></code>, <code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>, <code class="docutils literal notranslate"><span class="pre">GENERATION_INTERRUPT</span></code>: deprecated.
+They were never implemented, have no defined signature, and will be removed.
+Use <code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code> to inspect or deny a tool call.</p></li>
 </ul>
 </section>
 </section>
@@ -1453,6 +1476,7 @@ If not provided, defaults will be loaded from env/config.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operation-hooks">File Operation Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-lifecycle-hooks">Session Lifecycle Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#generation-hooks">Generation Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#declared-but-unfired-hook-types">Declared But Unfired Hook Types</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a><ul class="pst-show_toc_level nav section-nav flex-column">
