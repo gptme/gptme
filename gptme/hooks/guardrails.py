@@ -230,7 +230,12 @@ def _is_secret_spelling(expanded: str, exempt_under: str | None = None) -> bool:
     # but not .envrc or templates such as .env.example and
     # .env.production.example. The template exemption is scoped to this branch so
     # it cannot mask a non-.env name that happens to end in a template suffix.
-    if basename == ".env" or basename.startswith(".env."):
+    # Named variants too: prod.env, .env-staging, .env_local.
+    if (
+        basename == ".env"
+        or basename.startswith((".env.", ".env-", ".env_"))
+        or (basename.endswith(".env") and len(basename) > len(".env"))
+    ):
         return not basename.endswith(_ENV_TEMPLATE_SUFFIXES)
     return False
 
