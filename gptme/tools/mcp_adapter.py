@@ -720,6 +720,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             command=server_info.command,
             args=server_info.args,
             url=server_info.url,
+            transport=server_info.transport,
         )
 
     # Apply config overrides. Save originals first so a failed connection can
@@ -732,6 +733,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             "url": server_config.url,
             "env": dict(server_config.env or {}),
             "headers": dict(server_config.headers or {}),
+            "transport": server_config.transport,
         }
         if "command" in config_override:
             server_config.command = config_override["command"]
@@ -743,6 +745,8 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             server_config.env = config_override["env"]
         if "headers" in config_override:
             server_config.headers = config_override["headers"]
+        if "transport" in config_override:
+            server_config.transport = config_override["transport"]
 
     # Persist onto a writable layer. Config.mcp is a merged copy, so appending
     # there is a no-op and connect() would later raise "No MCP server config
@@ -775,9 +779,10 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             "url": owned.url,
             "env": dict(owned.env or {}),
             "headers": dict(owned.headers or {}),
+            "transport": owned.transport,
         }
     if owned is not None and config_override:
-        for _f in ("command", "args", "url", "env", "headers"):
+        for _f in ("command", "args", "url", "env", "headers", "transport"):
             if _f in config_override:
                 setattr(owned, _f, config_override[_f])
     # The owning layer supplies the server entry, but the highest MCP layer
