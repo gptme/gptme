@@ -500,11 +500,9 @@ class AcpSessionRuntime:
         self, message: str, max_tokens: int | None = None
     ) -> tuple[str, Any]:
         """Send prompt to ACP session and return extracted text + raw response."""
-        if self._client is not None and self._session_id is not None:
-            return await self._run_on_loop(self._prompt_impl, message, max_tokens)
-        # A lazy start enters through ``_start_impl``; take the same mutex so it
-        # is serialized with an explicit ``start()`` and a failure cannot tear
-        # down the loop under one.
+        # The mutex covers the lazy start and any teardown of it, so a prompt
+        # never reads or runs on a client another caller is releasing. It also
+        # keeps two prompts off one ACP session, which would interleave.
         await self._acquire_start_mutex()
         try:
             return await self._run_on_loop(self._prompt_impl, message, max_tokens)
