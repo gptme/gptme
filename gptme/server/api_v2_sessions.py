@@ -347,6 +347,92 @@ def api_conversation_events(conversation_id: str):
     )
 
 
+def _publish_tool_state(conversation_id: str) -> None:
+    """Publish the authoritative approval snapshot to every live viewer.
+
+    A viewer that never made the request that changed the batch (another
+    client's Skip, for example) has no HTTP response to reconcile from, so the
+    snapshot has to reach the shared stream. Materializing the tool values
+    matters: tool registration mutates ``pending_tools`` without this lock.
+    """
+    with SessionManager.conversation_lock(conversation_id):
+        sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "tool_state",
+                "generating": SessionManager._conversation_busy(
+                    conversation_id, sessions
+                ),
+                "pending_tools": [
+                    tool.to_pending_dict()
+                    for owner in sessions
+                    for tool in list(owner.pending_tools.values())
+                    if tool.status == ToolStatus.PENDING
+                    and not tool.auto_confirm
+                    and tool.tool_id not in owner.handled_tools
+                ],
+            },
+        )
+
+
+def _has_queued_execution(conversation_id: str) -> bool:
+    """Whether a pending tool is still owed an execution.
+
+    True for auto-confirmed tools and for approved calls their worker has not
+    claimed yet. Caller holds ``conversation_lock``.
+    """
+    return any(
+        tool.auto_confirm or tool_id in owner.handled_tools
+        for owner in SessionManager.get_sessions_for_conversation(conversation_id)
+        for tool_id, tool in list(owner.pending_tools.items())
+    )
+
+
+def _discard_pending_approvals(conversation_id: str) -> bool:
+    """Drop the unanswered approvals that a new user turn supersedes.
+
+    The user sent a message or reran instead of answering, and A2A turns queue
+    approvals that no client may ever answer, so rejecting the new turn would
+    block the conversation. Dropping them all keeps a batch from being split
+    across turns; a late approval gets the "already handled" receipt. Caller
+    holds ``conversation_lock`` and has ruled out queued executions.
+    """
+    discarded = False
+    for owner in SessionManager.get_sessions_for_conversation(conversation_id):
+        for tool_id in list(owner.pending_tools):
+            owner.pending_tools.pop(tool_id, None)
+            owner.remember_handled_tool(tool_id)
+            discarded = True
+    return discarded
+
+
+@sessions_api.route(
+    "/api/v2/conversations/<string:conversation_id>/events/refresh", methods=["POST"]
+)
+@require_auth
+@api_doc(
+    summary="Refresh approval state on the live stream (V2)",
+    description="Queue a tool_state snapshot without replacing the event stream or its cursor.",
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[CONVERSATION_ID_PARAM],
+    tags=["sessions"],
+)
+def api_conversation_refresh_events(conversation_id: str):
+    """Queue an authoritative tool snapshot without interrupting live delivery."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    # Capture and publish under the same lock as tool claims and interrupts.
+    # The existing stream delivers prior results, this snapshot, and subsequent
+    # changes in order; a replacement stream would lose events in its gap.
+    _publish_tool_state(conversation_id)
+    return flask.jsonify({"status": "queued"})
+
+
 @sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/step", methods=["POST"]
 )
@@ -506,6 +592,10 @@ def api_conversation_step(conversation_id: str):
             conversation_id
         ) or SessionManager.command_is_active(conversation_id):
             return flask.jsonify({"error": "Generation already in progress"}), 409
+        if _has_queued_execution(conversation_id):
+            return flask.jsonify(
+                {"error": "Cannot step while tools are waiting to run"}
+            ), 409
         chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
         effort_provided = req_json.get("reasoning_effort") is not None
         if effort_provided:
@@ -572,6 +662,8 @@ def api_conversation_step(conversation_id: str):
 
             session.use_acp = True
             session.acp_runtime = AcpSessionRuntime(workspace=chat_config.workspace)
+        # Only now that the request is valid: a rejected step keeps approvals.
+        superseded = _discard_pending_approvals(conversation_id)
         session.generating = True
         session.generating_since = datetime.now(tz=timezone.utc)
         # Claim a new generation epoch before dispatch. If later setup fails,
@@ -580,6 +672,8 @@ def api_conversation_step(conversation_id: str):
         session.interrupted = False
         session.step_seq += 1
         step_seq = session.step_seq
+        if superseded:
+            _publish_tool_state(conversation_id)
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -890,45 +984,105 @@ def api_conversation_tool_confirm(conversation_id: str):
                 default_model.full if default_model else "anthropic"
             )
 
-            session.generating = True
-            session.generating_since = datetime.now(tz=timezone.utc)
-            # Advance step_seq before capturing the epoch so that any
-            # concurrent tool worker whose my_seq equals the pre-skip value
-            # sees a mismatch and stands down (same protocol as /step and
-            # /interrupt + rerun).
-            session.step_seq += 1
-            skip_step_seq = session.step_seq
-            try:
-                current_tool.status = ToolStatus.SKIPPED
-                session.finish_skill_turn("abandoned")
-                session.pending_tools.pop(tool_id)
-                session.remember_handled_tool(tool_id)
+            # Skipping a tool resolves one call of the current assistant turn;
+            # it is not a new generation. The turn's tool phase is complete
+            # only once no tool of this epoch is pending or executing, and the
+            # continuation elected then is the turn's single reply. Advancing
+            # ``step_seq`` here made a later-approved sibling start a second
+            # reply for the same turn, and re-tagging the batch (an earlier
+            # attempt) moved tools away from workers already dispatched for
+            # them, so the last worker could never deliver its result.
+            skip_step_seq: int | None = None
+            current_tool.status = ToolStatus.SKIPPED
+            session.finish_skill_turn("abandoned")
+            session.pending_tools.pop(tool_id)
+            session.remember_handled_tool(tool_id)
 
-                # Persist the skip before the continuation can load the log.
-                tool_name = current_tool.tooluse.tool
-                msg = Message(
-                    "system",
-                    f"User chose not to execute this {tool_name} tool. "
-                    "Do not re-suggest the same action unless explicitly requested.",
-                )
-                manager = LogManager.load(
-                    conversation_id, branch=current_tool.branch, lock=False
-                )
-                _append_and_notify(manager, session, msg)
-                manager.write()
+            # Persist the skip before the continuation can load the log.
+            tool_name = current_tool.tooluse.tool
+            msg = Message(
+                "system",
+                f"User chose not to execute this {tool_name} tool. "
+                "Do not re-suggest the same action unless explicitly requested.",
+            )
+            manager = LogManager.load(
+                conversation_id, branch=current_tool.branch, lock=False
+            )
+            _append_and_notify(manager, session, msg)
+            manager.write()
 
-                resolve_hook_confirmation(tool_id, action, req_json.get("content"))
-            except Exception:
-                session.generating = False
-                session.generating_since = None
-                raise
-            # A peer wake may have promoted this session to the conversation
-            # writer. Pin it before unlocking, as request_peer_wake does, so a
-            # session removal in the dispatch gap cannot close the writer lock
-            # before the continuation worker pins ownership.
-            if session.writer_manager is not None:
-                session._writer_workers += 1
-                writer_pinned = True
+            resolve_hook_confirmation(tool_id, action, req_json.get("content"))
+            # Same epoch rules the tool workers use to elect a continuation:
+            # a tool from an older epoch is already excluded there, so it must
+            # not block this reply either.
+            own_pending = any(
+                tool.step_seq is None or tool.step_seq == session.step_seq
+                for tool in session.pending_tools.values()
+            )
+            own_executing = any(
+                seq == session.step_seq
+                for seq in session._executing_tool_epochs.values()
+            )
+            if not own_pending and not own_executing:
+                # The turn's tool phase is over, so this skip elects the
+                # turn's reply. That *is* a generation boundary: advance the
+                # epoch (as the pre-7e61bc skip always did) so a worker that
+                # already released its claim and is between its release and
+                # its own election cannot start a second reply for the same
+                # turn. Siblings of this epoch no longer exist, which is what
+                # makes the advance safe here but not before.
+                session.step_seq += 1
+                skip_step_seq = session.step_seq
+                # The skip is a user decision to continue this turn, so it
+                # clears a previous interrupt exactly like a new user turn
+                # (/step, A2A, /rerun). Without this, step() returns at its
+                # entry guard before the release finally and the session stays
+                # generating until the stuck sweep.
+                session.interrupted = False
+                session.generating = True
+                session.generating_since = datetime.now(tz=timezone.utc)
+                # A peer wake may have promoted this session to the conversation
+                # writer. Pin it before unlocking, as request_peer_wake does, so a
+                # session removal in the dispatch gap cannot close the writer lock
+                # before the continuation worker pins ownership.
+                if session.writer_manager is not None:
+                    session._writer_workers += 1
+                    writer_pinned = True
+            else:
+                # Workers claim pending tools under this lock. Materialize the
+                # response here so a claim cannot invalidate its dict iterator.
+                pending_tools = [
+                    tool.to_pending_dict()
+                    for tool in session.pending_tools.values()
+                    if tool.status == ToolStatus.PENDING
+                    and not tool.auto_confirm
+                    and tool.tool_id not in session.handled_tools
+                ]
+
+        if skip_step_seq is None:
+            # A sibling of the same batch still owns the turn. Whoever finishes
+            # or approves last elects the continuation, so the model sees both
+            # that result and the skip notice exactly once.
+            #
+            # Report the remaining approvals and the fact that no reply started:
+            # the client clears its approval card and marks the chat busy when
+            # it sends the skip, so without this it waits on a generation that
+            # starts only when another tool of the batch resolves.
+            #
+            # Publish the same snapshot to the conversation stream as well:
+            # every other viewer of this conversation has no HTTP response to
+            # reconcile from, and the skip's message_added does not touch their
+            # approval card. Without it the remaining approvals stay hidden
+            # there and the turn cannot continue from that viewer.
+            _publish_tool_state(conversation_id)
+            return flask.jsonify(
+                {
+                    "status": "ok",
+                    "message": f"Tool {action}ed",
+                    "continuation_started": False,
+                    "pending_tools": pending_tools,
+                }
+            )
 
         # Worker pinning takes step_lock; never dispatch while holding it.
         try:
@@ -952,6 +1106,16 @@ def api_conversation_tool_confirm(conversation_id: str):
                         session.generating_since = None
             if writer_pinned:
                 session.release_writer_worker()
+
+        # A skipped tool whose reply could not be dispatched leaves the turn
+        # unowned; the page must stop waiting instead of holding the chat busy.
+        return flask.jsonify(
+            {
+                "status": "ok",
+                "message": f"Tool {action}ed",
+                "continuation_started": continuation_dispatched,
+            }
+        )
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
 
@@ -1018,6 +1182,11 @@ def api_conversation_rerun(conversation_id: str):
                 {"error": "Cannot rerun while generation is in progress"}
             ), 409
 
+        if _has_queued_execution(conversation_id):
+            return flask.jsonify(
+                {"error": "Cannot rerun while tools are waiting to run"}
+            ), 409
+
         # Load conversation and find the last assistant message
         try:
             manager = LogManager.load(conversation_id, lock=False)
@@ -1059,6 +1228,13 @@ def api_conversation_rerun(conversation_id: str):
             default_model.full if default_model else "anthropic"
         )
 
+        # A manual rerun authorizes a new turn too. Clear the stale interrupt
+        # and revoke old workers before tagging any new approvals, even when
+        # no tool is auto-confirmed. Otherwise the last manual worker refuses
+        # to continue after an earlier interrupt.
+        superseded = _discard_pending_approvals(conversation_id)
+        session.interrupted = False
+        session.step_seq += 1
         for tooluse in tooluses:
             tool_id = str(uuid.uuid4())
             tool_exec = ToolExecution(
@@ -1067,6 +1243,7 @@ def api_conversation_rerun(conversation_id: str):
                 workspace=chat_config.workspace,
                 auto_confirm=session.auto_confirm_count > 0,
                 assistant_msg_timestamp=last_assistant.timestamp,
+                step_seq=session.step_seq,
             )
             session.pending_tools[tool_id] = tool_exec
 
@@ -1092,10 +1269,6 @@ def api_conversation_rerun(conversation_id: str):
         # _start_step_thread (reserved=True) when it starts the continuation, or
         # releases it itself if the continuation is not needed.
         if first_auto_id is not None:
-            # Rerun starts a new user-authorized generation chain. Clear the old
-            # interrupt marker and advance the generation epoch before queueing it.
-            session.interrupted = False
-            session.step_seq += 1
             session.generating = True
             session.generating_since = datetime.now(tz=timezone.utc)
             start_tool_execution(
@@ -1107,6 +1280,9 @@ def api_conversation_rerun(conversation_id: str):
                 chat_config,
                 reserved=True,
             )
+        # Other viewers may still show a card from the replaced batch.
+        if superseded:
+            _publish_tool_state(conversation_id)
 
         return flask.jsonify(
             {

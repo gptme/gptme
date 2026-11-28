@@ -1,3 +1,5 @@
+import time
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -65,6 +67,7 @@ def test_a2a_send_message_and_get_task(client, monkeypatch, tmp_path):
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         msg = Message("assistant", "A2A response")
@@ -142,6 +145,7 @@ def test_a2a_failed_task_persists_after_session_gc(client, monkeypatch, tmp_path
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         # Simulate a step-thread crash: emit an error event, then stop.
         session_step_module.SessionManager.add_event(
@@ -212,6 +216,7 @@ def test_a2a_reports_failure_released_between_read_and_idle_check(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         session.generating = True
         real_read_events = session.read_events
@@ -273,6 +278,7 @@ def test_a2a_final_drain_respects_blocking_timeout(client, monkeypatch, tmp_path
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         # The step is idle, but another holder (a deferred watch wake whose
         # disk write stalls) owns step_lock.
@@ -335,6 +341,7 @@ def test_a2a_final_drain_timeout_still_reports_posted_error(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         session.generating = False
         real_read_events = session.read_events
@@ -404,6 +411,7 @@ def test_a2a_unlimited_blocking_timeout_does_not_fail_idle_step(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         session.generating = False
 
@@ -529,6 +537,7 @@ def test_a2a_send_message_writes_origin_marker(client, monkeypatch, tmp_path):
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         manager.append(Message("assistant", "A2A response"))
@@ -615,6 +624,7 @@ def test_a2a_step_complete_on_first_read_returns_completed(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         manager.append(Message("assistant", "first-read response"))
@@ -698,6 +708,7 @@ def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
         branch="main",
         auto_confirm=False,
         stream=True,
+        new_user_turn=False,
     ):
         manager = LogManager.load(conversation_id, lock=False)
         manager.append(Message("assistant", "late response"))
@@ -880,3 +891,808 @@ def test_a2a_crash_failure_survives_gc_while_transcript_write_stalls(
         for worker in workers:
             worker.join(5)
             assert not worker.is_alive()
+
+
+def _guarded_fake_step(session, seen: list[bool]):
+    """Mirror step()'s entry guard: an interrupted step returns without releasing."""
+
+    def fake_step(*args, **kwargs):
+        seen.append(session.interrupted)
+        with session.step_lock:
+            if session.interrupted:
+                return
+            session.generating = False
+
+    return fake_step
+
+
+@pytest.fixture
+def v2_conv(client):
+    convname = f"test-a2a-interrupt-{time.monotonic_ns()}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"prompt": "You are an AI assistant for testing."},
+    )
+    assert response.status_code == 200
+    return {
+        "conversation_id": convname,
+        "session_id": response.get_json()["session_id"],
+    }
+
+
+def test_a2a_step_after_interrupt_releases_reservation(v2_conv, monkeypatch):
+    """A new A2A request after an interrupt must not leave the session stuck generating.
+
+    Exercises the real ``step()`` (only the provider call is stubbed) so the
+    assertion covers the actual release path: a fake ``step()`` that clears
+    ``generating`` itself would pass even if the worker left the session busy.
+    """
+    import gptme.server.session_step as step_mod
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.interrupted = True
+    calls: list[int] = []
+
+    def fake_chat_complete(*args, **kwargs):
+        calls.append(1)
+        return "A2A response", None
+
+    monkeypatch.setattr(step_mod, "_chat_complete", fake_chat_complete)
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "10")
+
+    a2a_api._run_task_blocking(v2_conv["conversation_id"], session)
+
+    assert calls == [1]
+    assert not session.generating
+    assert not session.interrupted
+
+
+def test_tool_continuation_reservation_keeps_interrupt(v2_conv, monkeypatch):
+    """Only a new user turn clears an interrupt; a continuation must still stop."""
+    import gptme.server.session_step as step_mod
+    from gptme.server.session_models import SessionManager
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.interrupted = True
+    seen: list[bool] = []
+    monkeypatch.setattr(step_mod, "step", _guarded_fake_step(session, seen))
+
+    assert step_mod._start_step_thread(
+        conversation_id=v2_conv["conversation_id"],
+        session=session,
+        model="openai/mock-model",
+        workspace=Path.cwd(),
+    )
+    deadline = time.monotonic() + 5
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert seen == [True]
+    assert session.interrupted
+
+
+def test_step_interrupted_before_registration_leaves_no_approvals(
+    v2_conv, client, monkeypatch
+):
+    """An interrupt during auto-naming must not be followed by tool registration.
+
+    Registering canceled calls would leave approvals under a revoked epoch, and
+    the pending-batch guard would then reject every later /step and rerun.
+    """
+    import threading
+
+    import gptme.server.session_step as step_mod
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    url = f"/api/v2/conversations/{v2_conv['conversation_id']}/interrupt"
+    interrupts: list[int] = []
+
+    def interrupt_during_naming(*args, **kwargs):
+        # A real interrupt arrives on another request thread.
+        request = threading.Thread(
+            target=lambda: interrupts.append(
+                client.application.test_client()
+                .post(url, json={"session_id": session.id})
+                .status_code
+            )
+        )
+        request.start()
+        request.join(timeout=5)
+
+    worker_done = threading.Event()
+    real_step = step_mod.step
+
+    def tracked_step(*args, **kwargs):
+        try:
+            real_step(*args, **kwargs)
+        finally:
+            worker_done.set()
+
+    monkeypatch.setattr(step_mod, "step", tracked_step)
+    monkeypatch.setattr(step_mod, "_try_auto_name_and_notify", interrupt_during_naming)
+    monkeypatch.setattr(
+        step_mod,
+        "_chat_complete",
+        lambda *args, **kwargs: ("```shell\npwd\n```", None),
+    )
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "10")
+    cursor = session.events_count
+
+    a2a_api._run_task_blocking(v2_conv["conversation_id"], session)
+
+    # The caller returns on the interrupt; the revoked worker is still unwinding.
+    assert worker_done.wait(timeout=5)
+    assert interrupts == [200]
+    assert not session.pending_tools
+    events, _ = session.read_events(cursor)
+    assert "tool_pending" not in [event["type"] for event in events]
+    assert not session.generating
+
+
+def test_stale_tool_worker_does_not_start_continuation(v2_conv, monkeypatch):
+    """A tool queued before an interrupt must not resume after a newer turn cleared it.
+
+    The A2A turn clears ``session.interrupted``. A tool worker that was queued
+    before the interrupt still holds the old epoch, so it must not elect a
+    continuation on top of the newer turn: that would emit an unsolicited model
+    turn after the client already saw TASK_STATE_COMPLETED (and make the session
+    busy again).
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.interrupted = False  # a newer A2A turn already cleared it
+    session.generating = False
+
+    def execute(code, args, kwargs):
+        # The interrupt and the newer turn both land while this tool runs.
+        session.step_seq += 1
+        session.interrupted = False
+        return Message("system", "late tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+
+    tool_exec = ToolExecution(
+        tool_id="tool-stale", tooluse=ToolUse("test_tool", [], None)
+    )
+    session.pending_tools[tool_exec.tool_id] = tool_exec
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        tool_exec.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert session.step_seq == 6  # the fake tool really ran
+    assert continuation.call_count == 0
+    assert not session.generating
+
+
+def test_rerun_continuation_ignores_stale_executing_tool(v2_conv, monkeypatch):
+    """A rerun must not lose its reply because a tool from the previous turn still runs.
+
+    Only outstanding tools from the current generation epoch block a reply. A
+    stale worker cannot start one (``owns_epoch``), so waiting on it would drop
+    the rerun's continuation entirely.
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 6
+    session.interrupted = False
+    session.generating = True  # /rerun reserved this epoch
+    session._executing_tools.add("old-tool")
+    session._executing_tool_epochs["old-tool"] = 5
+
+    def execute(code, args, kwargs):
+        return Message("system", "rerun tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+
+    tool_exec = ToolExecution(
+        tool_id="rerun-tool",
+        tooluse=ToolUse("test_tool", [], None),
+        step_seq=6,
+    )
+    session.pending_tools[tool_exec.tool_id] = tool_exec
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        tool_exec.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+        reserved=True,
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert continuation.call_count == 1
+    kwargs = continuation.call_args.kwargs
+    assert kwargs["reserved"] is True
+    assert kwargs["step_seq"] == 7
+
+
+def test_tool_chain_does_not_steal_a_newer_epoch_tool(v2_conv, monkeypatch):
+    """An older worker must not chain to a tool a newer generation queued.
+
+    If it did, it would re-tag the tool to its own epoch and the newer turn
+    would reply before that tool's result was saved.
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.interrupted = False
+    session.generating = False
+
+    def execute(code, args, kwargs):
+        # The newer generation starts while this older tool runs.
+        session.step_seq = 6
+        return Message("system", "old tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    continuation = unittest.mock.Mock()
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+
+    old_tool = ToolExecution(
+        tool_id="old-tool",
+        tooluse=ToolUse("test_tool", [], None),
+        auto_confirm=True,
+        step_seq=5,
+    )
+    new_tool = ToolExecution(
+        tool_id="new-tool",
+        tooluse=ToolUse("test_tool", [], None),
+        auto_confirm=True,
+        step_seq=6,
+    )
+    session.pending_tools[old_tool.tool_id] = old_tool
+    session.pending_tools[new_tool.tool_id] = new_tool
+
+    thread = start_tool_execution(
+        conversation_id,
+        session,
+        old_tool.tool_id,
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert session.step_seq == 6  # the fake tool really ran
+    assert new_tool.tool_id in session.pending_tools
+    assert session.pending_tools[new_tool.tool_id].step_seq == 6
+    assert continuation.call_count == 0
+
+
+def _skip_tool(client, v2_conv, tool_id: str, monkeypatch, dispatches: list[dict]):
+    """POST the real skip route with continuation dispatch captured."""
+    import gptme.server.api_v2_sessions as sessions_mod
+
+    def fake_start_step_thread(*args, **kwargs):
+        dispatches.append(kwargs)
+        return True
+
+    monkeypatch.setattr(sessions_mod, "_start_step_thread", fake_start_step_thread)
+    return client.post(
+        f"/api/v2/conversations/{v2_conv['conversation_id']}/tool/confirm",
+        json={
+            "session_id": v2_conv["session_id"],
+            "tool_id": tool_id,
+            "action": "skip",
+        },
+    )
+
+
+def test_skip_does_not_reply_while_a_batch_sibling_is_pending(
+    v2_conv, client, monkeypatch
+):
+    """Skipping one call must not answer the turn while a sibling still waits.
+
+    The skip resolves a single tool call of the current assistant turn; it is
+    not a new generation. The turn's tool phase is complete only once no tool
+    of that epoch is pending or executing. Advancing the epoch here made a
+    later-approved sibling start a second reply for the same turn.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    session.pending_tools["keeper"] = ToolExecution(
+        tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    assert response.status_code == 200
+    assert "skip-me" not in session.pending_tools
+    assert "keeper" in session.pending_tools
+    assert session.step_seq == 5, "a skip is a tool decision, not a new epoch"
+    assert dispatches == [], "the pending sibling still owns the turn"
+    assert not session.generating
+
+
+def test_skip_does_not_strand_an_executing_sibling_worker(v2_conv, client, monkeypatch):
+    """A skip must leave a running same-epoch worker able to deliver its result.
+
+    Re-tagging the batch to a new epoch (an earlier attempt) moved tools away
+    from workers already dispatched for them: the last worker could not start a
+    continuation (epoch mismatch) and its result never got a model turn.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    session._executing_tools.add("running-sibling")
+    session._executing_tool_epochs["running-sibling"] = 5
+    try:
+        dispatches: list[dict] = []
+        response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+        assert response.status_code == 200
+        assert session.step_seq == 5, "the running sibling still owns epoch 5"
+        assert dispatches == [], "the running worker will elect the reply itself"
+        assert session._executing_tool_epochs["running-sibling"] == 5
+    finally:
+        session._executing_tools.discard("running-sibling")
+        session._executing_tool_epochs.pop("running-sibling", None)
+
+
+def test_skip_advances_epoch_when_it_elects_the_reply(v2_conv, client, monkeypatch):
+    """The skip that starts the turn's reply must revoke older workers.
+
+    A worker can save its result and leave ``_executing_tool_epochs`` before it
+    elects its continuation. If the skip elected under the same epoch, both it
+    and that worker could start a reply for one turn. Advancing the epoch here
+    (safe: no same-epoch tool remains) makes the stale worker's election fail.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    assert response.status_code == 200
+    assert session.step_seq == 6, "electing the reply is a generation boundary"
+    assert len(dispatches) == 1
+    assert dispatches[0]["step_seq"] == 6
+    assert dispatches[0]["reserved"] is True
+    assert response.get_json()["continuation_started"] is True
+
+
+def test_skip_clears_interrupt_before_dispatching_the_reply(
+    v2_conv, client, monkeypatch
+):
+    """A skip that elects the reply must not leave a stale interrupt flag.
+
+    ``/rerun`` with only manual tools registers pending calls but does not
+    clear ``interrupted``. Skipping the last one then reserved and dispatched
+    ``step()``, whose entry guard returned before the release ``finally``, so
+    the session stayed generating until the stuck sweep.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = True
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    assert response.status_code == 200
+    assert session.interrupted is False
+    assert session.generating is True
+    assert len(dispatches) == 1
+
+
+def test_skip_reports_deferred_reply_and_remaining_approvals(
+    v2_conv, client, monkeypatch
+):
+    """A deferred skip must tell the client no reply started and what remains.
+
+    The page clears its approval card and marks the chat busy when it sends the
+    skip. If the server defers the reply to a sibling, a bare ``Tool skipped``
+    leaves the page waiting on a generation that has not started, with the next
+    approval hidden.
+    """
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    session.pending_tools["approved"] = ToolExecution(
+        tool_id="approved", tooluse=ToolUse("shell", [], "echo approved"), step_seq=5
+    )
+    session.remember_handled_tool("approved")
+    session.pending_tools["automatic"] = ToolExecution(
+        tool_id="automatic",
+        tooluse=ToolUse("shell", [], "echo auto"),
+        step_seq=5,
+        auto_confirm=True,
+    )
+    session.pending_tools["keeper"] = ToolExecution(
+        tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
+    )
+
+    dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, dispatches)
+
+    body = response.get_json()
+    assert response.status_code == 200
+    assert dispatches == []
+    assert body["continuation_started"] is False
+    assert [tool["tool_id"] for tool in body["pending_tools"]] == ["keeper"]
+
+
+def test_approving_a_sibling_after_a_skip_yields_one_reply(
+    v2_conv, client, monkeypatch
+):
+    """The batch produces exactly one reply, and it includes the sibling result.
+
+    End-to-end: skip one call, then approve the other. The approval worker is
+    the last owner of the epoch, so it must start the turn's single
+    continuation; the skip must not have started one first.
+    """
+    import unittest.mock
+
+    from gptme.config import ChatConfig
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    session.step_seq = 5
+    session.generating = False
+    session.interrupted = False
+    session.pending_tools["skip-me"] = ToolExecution(
+        tool_id="skip-me", tooluse=ToolUse("shell", [], "echo skipped"), step_seq=5
+    )
+    keeper = ToolExecution(
+        tool_id="keeper", tooluse=ToolUse("shell", [], "echo kept"), step_seq=5
+    )
+    session.pending_tools["keeper"] = keeper
+
+    skip_dispatches: list[dict] = []
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, skip_dispatches)
+    assert response.status_code == 200
+    assert skip_dispatches == []
+
+    def execute(code, args, kwargs):
+        return Message("system", "kept tool output")
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    import gptme.server.session_step as step_mod
+
+    continuation = unittest.mock.Mock(return_value=True)
+    monkeypatch.setattr(step_mod, "_start_step_thread", continuation)
+
+    thread = start_tool_execution(
+        v2_conv["conversation_id"],
+        session,
+        "keeper",
+        None,
+        "openai/mock-model",
+        ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    assert continuation.call_count == 1, "exactly one reply for the whole batch"
+    assert continuation.call_args.kwargs["step_seq"] == 6
+    assert session.pending_tools == {}
+    assert session.step_seq == 6
+
+
+def test_deferred_skip_snapshots_approvals_before_worker_can_claim(
+    v2_conv, client, monkeypatch
+):
+    """A worker cannot mutate the approvals dict while skip serializes it."""
+    import threading
+
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.tools import ToolUse
+
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    for tool_id in ("skip-me", "keeper"):
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id, tooluse=ToolUse("shell", [], "echo test")
+        )
+
+    original = ToolExecution.to_pending_dict
+    claims: list[bool] = []
+
+    def serialize(tool):
+        def claim():
+            lock = SessionManager.conversation_lock(v2_conv["conversation_id"])
+            acquired = lock.acquire(blocking=False)
+            claims.append(acquired)
+            if acquired:
+                try:
+                    session.pending_tools.pop(tool.tool_id)
+                finally:
+                    lock.release()
+
+        worker = threading.Thread(target=claim)
+        worker.start()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        return original(tool)
+
+    monkeypatch.setattr(ToolExecution, "to_pending_dict", serialize)
+    response = _skip_tool(client, v2_conv, "skip-me", monkeypatch, [])
+    assert response.status_code == 200
+    # The deferred skip serializes twice now: once for its HTTP response and
+    # once for the snapshot it publishes to every other viewer. Neither pass
+    # may be claimable by a worker.
+    assert claims and not any(claims), "a worker claimed during serialization"
+    assert [t["tool_id"] for t in response.json["pending_tools"]] == ["keeper"]
+
+
+@pytest.mark.parametrize("skip_while_running", [False, True])
+def test_manual_rerun_after_interrupt_continues_once(
+    v2_conv, client, monkeypatch, skip_while_running
+):
+    """Approving a rerun after interrupt must resume regardless of skip order."""
+    import threading
+    from unittest.mock import Mock
+
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools.base import ToolSpec
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "role": "assistant",
+            "content": "```shell\necho first\n```\n```shell\necho second\n```",
+        },
+    )
+    assert response.status_code == 200
+    session.generating = True
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/interrupt",
+        json={"session_id": v2_conv["session_id"]},
+    )
+    assert response.status_code == 200
+    assert session.interrupted
+    interrupted_seq = session.step_seq
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/rerun",
+        json={"session_id": v2_conv["session_id"]},
+    )
+    assert response.status_code == 200
+    first_id, second_id = response.json["tool_ids"]
+    started = threading.Event()
+    finish = threading.Event()
+    workers = []
+
+    def execute(code, args, kwargs):
+        started.set()
+        assert finish.wait(timeout=5)
+        return Message("system", "rerun output")
+
+    def start(*args, **kwargs):
+        thread = start_tool_execution(*args, **kwargs)
+        workers.append(thread)
+        return thread
+
+    monkeypatch.setattr(
+        "gptme.tools.get_tool",
+        lambda name: ToolSpec(name="test_tool", desc="test", execute=execute),
+    )
+    monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    monkeypatch.setattr("gptme.server.api_v2_sessions.start_tool_execution", start)
+    continuation = Mock(return_value=True)
+    monkeypatch.setattr("gptme.server.session_step._start_step_thread", continuation)
+    skip_dispatches: list[dict] = []
+    try:
+        if not skip_while_running:
+            response = _skip_tool(
+                client, v2_conv, second_id, monkeypatch, skip_dispatches
+            )
+            assert response.status_code == 200
+            assert response.json["continuation_started"] is False
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/tool/confirm",
+            json={
+                "session_id": v2_conv["session_id"],
+                "tool_id": first_id,
+                "action": "confirm",
+            },
+        )
+        assert response.status_code == 200
+        assert started.wait(timeout=5)
+        if skip_while_running:
+            response = _skip_tool(
+                client, v2_conv, second_id, monkeypatch, skip_dispatches
+            )
+            assert response.status_code == 200
+            assert response.json["continuation_started"] is False
+    finally:
+        finish.set()
+        for worker in workers:
+            worker.join(timeout=5)
+            assert not worker.is_alive()
+
+    assert skip_dispatches == []
+    assert continuation.call_count == 1
+    assert not session.interrupted
+    assert session.step_seq == interrupted_seq + 2  # rerun, then reply
+    assert not session.pending_tools
+
+
+def test_a2a_turn_leaving_approvals_does_not_block_webui_step(
+    v2_conv, client, monkeypatch
+):
+    """End-to-end: an A2A turn that calls a tool must not block the web UI.
+
+    ``_run_task_blocking`` starts the step with ``auto_confirm=False``, so a
+    reply containing a tool call leaves it awaiting confirmation in
+    ``session.pending_tools``. That state must not make the next web-UI
+    ``/step`` (the user replying instead of approving) fail with 409.
+    """
+    import unittest.mock
+
+    import gptme.server.session_step as step_mod
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session = SessionManager.get_session(v2_conv["session_id"])
+    assert session is not None
+
+    def fake_chat_complete(*args, **kwargs):
+        return "Checking the working directory.\n\n```shell\npwd\n```\n", None
+
+    monkeypatch.setattr(step_mod, "_chat_complete", fake_chat_complete)
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda cfg: "openai/mock-model")
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "10")
+
+    a2a_api._run_task_blocking(conversation_id, session)
+
+    # The A2A turn's tool call is left awaiting confirmation, as documented.
+    assert session.pending_tools, "A2A turn with a tool call left no approval"
+    assert not any(tool.auto_confirm for tool in session.pending_tools.values())
+    stale_ids = set(session.pending_tools)
+
+    # Replying from the web UI must supersede the unanswered batch, not 409.
+    with unittest.mock.patch(
+        "gptme.server.api_v2_sessions._start_step_thread"
+    ) as start:
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session.id, "model": "openai/mock-model"},
+        )
+
+    assert response.status_code == 200
+    start.assert_called_once()
+    assert not (stale_ids & set(session.pending_tools))
+    late = client.post(
+        f"/api/v2/conversations/{conversation_id}/tool/confirm",
+        json={
+            "session_id": session.id,
+            "tool_id": min(stale_ids),
+            "action": "confirm",
+        },
+    )
+    assert late.get_json()["message"] == "Tool already handled"

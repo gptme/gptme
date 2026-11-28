@@ -316,6 +316,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       callbacks.onConnectionState?.({ status: 'connected' });
       callbacks.onConnected?.();
     },
+    refreshEventState: async () => {},
     closeEventStream: (conversationId) => {
       eventCallbacks.delete(conversationId);
     },
@@ -516,7 +517,11 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       pendingInitialSteps.delete(logfile);
       savePendingInitialSteps(pendingInitialSteps);
     },
-    confirmTool: async () => false,
+    confirmTool: async () => ({
+      alreadyHandled: false,
+      continuationStarted: true,
+      pendingTools: [],
+    }),
     respondToElicitation: async () => {},
     deleteConversation: async () => {},
     patchConversationMetadata: async () => {},

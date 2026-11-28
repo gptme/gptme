@@ -75,6 +75,9 @@ export function useConversation(conversationId: string, serverId?: string) {
   // Stop during the new-chat handshake: onConnected / onMessageStart must not
   // restart generation after the user already cancelled the pending initial step.
   const stopRequestedRef = useRef(false);
+  // True from a local Stop until the stream shows newer server state. Only
+  // snapshots in that window can restore canceled approvals.
+  const stopUnsettledRef = useRef(false);
   const generationEpochRef = useRef(0);
   const generationChainRef = useRef<Promise<void> | null>(null);
   // Deferred step: set when post-persistence 409 retries exhaust; fired by onStepComplete.
@@ -385,6 +388,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         api
           .subscribeToEvents(conversationId, {
             onMessageStart: () => {
+              conversation$?.toolGenerationRevision.set((value) => (value ?? 0) + 1);
               if (conversation$?.pendingElicitation.peek()) {
                 setPendingElicitation(conversationId, null);
               }
@@ -431,6 +435,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onMessageComplete: (message) => {
+              updateConversation(conversationId, {
+                toolStateRevision: (conversation$?.toolStateRevision.peek() ?? 0) + 1,
+              });
               messageJustCompleted.current = true;
               lastCompletedMessageRef.current = message;
 
@@ -547,6 +554,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               addMessage(conversationId, message);
             },
             onToolPending: (toolId, tooluse, auto_confirm) => {
+              stopUnsettledRef.current = false;
               if (messageJustCompleted.current) {
                 messageJustCompleted.current = false;
                 // Keep generating true as we're continuing with tool execution
@@ -583,6 +591,11 @@ export function useConversation(conversationId: string, serverId?: string) {
               });
             },
             onToolExecuting: (toolId) => {
+              // A sibling may start while Skip has temporarily hidden the card.
+              // Even without a matching card, its event supersedes the HTTP snapshot.
+              updateConversation(conversationId, {
+                toolStateRevision: (conversation$?.toolStateRevision.peek() ?? 0) + 1,
+              });
               // Agent resumed: any elicitation was answered (possibly in another viewer).
               if (conversation$?.pendingElicitation.peek()) {
                 setPendingElicitation(conversationId, null);
@@ -607,6 +620,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onToolComplete: (toolId, durationMs, success) => {
+              updateConversation(conversationId, {
+                toolStateRevision: (conversation$?.toolStateRevision.peek() ?? 0) + 1,
+              });
               const executingTool = conversation$?.executingTool.get();
               if (!executingTool) {
                 console.warn(
@@ -626,6 +642,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
+              stopUnsettledRef.current = false;
               conversation$?.disconnectedGenerationPrompt.set(undefined);
               conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
               conversation$?.generationPrompt.set(undefined);
@@ -817,6 +834,16 @@ export function useConversation(conversationId: string, serverId?: string) {
                   break;
               }
             },
+            onToolState: (state) => {
+              if (stopUnsettledRef.current) return;
+              setPendingTool(conversationId, null, null);
+              const next = state.pendingTools[0];
+              setGenerating(conversationId, state.generating);
+              if (next) {
+                setPendingTool(conversationId, next.tool_id, next.tooluse);
+                setGenerating(conversationId, false);
+              }
+            },
             onReconnectState: (state) => {
               const recovery = conversation$?.disconnectedGenerationPrompt.peek();
               const log = conversation$?.data.log.peek() ?? [];
@@ -936,6 +963,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   const beginGeneration = () => {
     generationEpochRef.current += 1;
     stopRequestedRef.current = false;
+    stopUnsettledRef.current = false;
     return generationEpochRef.current;
   };
 
@@ -1282,14 +1310,56 @@ export function useConversation(conversationId: string, serverId?: string) {
       setPendingTool(conversationId, null, null);
     }
     const confirmedToolId = pendingTool.id;
+    const toolGenerationRevision = conversation$?.toolGenerationRevision.peek();
+    const revision = conversation$?.toolStateRevision.peek();
+    const generationRevision = conversation$?.generationRevision.peek();
+    const generationEpoch = generationEpochRef.current;
+    const owner = conversation$?.serverId.peek();
+    const clientGeneration = conversation$?.streamClientGeneration.peek();
+    const ownsTurn = () =>
+      conversation$?.toolGenerationRevision.peek() === toolGenerationRevision &&
+      conversation$?.generationRevision.peek() === generationRevision &&
+      generationEpochRef.current === generationEpoch &&
+      conversation$?.serverId.peek() === owner &&
+      conversation$?.streamClientGeneration.peek() === clientGeneration;
+    const isCurrent = () => conversation$?.toolStateRevision.peek() === revision && ownsTurn();
+    const refreshApprovals = () => {
+      void api.refreshEventState(conversationId)?.catch((error) => {
+        console.error('Error refreshing tool approvals:', error);
+      });
+    };
     const confirmOnce = async (): Promise<void> => {
       try {
-        const alreadyHandled = await api.confirmTool(
+        const { alreadyHandled, continuationStarted, pendingTools } = await api.confirmTool(
           conversationId,
           confirmedToolId,
           action,
           options
         );
+        if (!isCurrent()) {
+          // Sibling events invalidate the HTTP snapshot, not the turn. A
+          // duplicate receipt still proves this exact approval is gone.
+          if (ownsTurn()) {
+            if (alreadyHandled && conversation$?.pendingTool.peek()?.id === confirmedToolId) {
+              setPendingTool(conversationId, null, null);
+            }
+            if (
+              !conversation$?.pendingTool.peek() &&
+              ((action === 'skip' && !continuationStarted) || alreadyHandled)
+            ) {
+              refreshApprovals();
+            }
+          } else if (action === 'skip' && !continuationStarted) {
+            // A generation boundary can land between the request and this
+            // deferred response: Skip clears the card optimistically, and the
+            // skipped tool's own step_complete then bumps generationRevision.
+            // Drop the stale snapshot, but not the server's remaining
+            // approvals — without a refresh the batch stays hidden here and
+            // the turn cannot continue.
+            refreshApprovals();
+          }
+          return;
+        }
         // Normally onToolExecuting owns the transition. A duplicate may arrive
         // after completion, with no new event forthcoming; clear only that ID.
         if (
@@ -1298,13 +1368,23 @@ export function useConversation(conversationId: string, serverId?: string) {
         ) {
           setPendingTool(conversationId, null, null);
         }
+        if (action === 'skip' && !alreadyHandled && !continuationStarted) {
+          // The server deferred this turn's reply to a sibling tool, so no
+          // generation started. It returns what still awaits approval; restore
+          // that card instead of leaving the page busy on a reply that will
+          // only start when another tool of the batch resolves.
+          const next = pendingTools[0];
+          if (next) {
+            setGenerating(conversationId, false);
+            setPendingTool(conversationId, next.tool_id, next.tooluse);
+          }
+        }
         if (action === 'skip' && alreadyHandled) {
           // No continuation was dispatched for this duplicate. Reconcile with
           // the server instead of waiting for an event that may already have
           // passed, or declaring an actually running peer continuation idle.
-          const revision = conversation$?.generationRevision.peek();
           const sessions = await api.getSessions();
-          if (conversation$?.generationRevision.peek() === revision) {
+          if (isCurrent()) {
             setGenerating(
               conversationId,
               sessions.some(
@@ -1314,6 +1394,13 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
       } catch (error) {
+        // A newer event or owner has already settled this request's UI state.
+        // Still preserve the rejection contract for non-Skip approvals.
+        if (!isCurrent()) {
+          if (action !== 'skip') throw error;
+          if (ownsTurn() && !conversation$?.pendingTool.peek()) refreshApprovals();
+          return;
+        }
         console.error('Error confirming tool:', error);
 
         // A rejected Skip never started its continuation; release its reservation
@@ -1349,6 +1436,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     // without a session id yet. The API interrupt is best-effort and no-ops
     // until a session exists.
     stopRequestedRef.current = true;
+    stopUnsettledRef.current = true;
     conversation$?.disconnectedGenerationPrompt.set(undefined);
     conversation$?.generationRevision.set((value) => (value ?? 0) + 1);
     conversation$?.generationPrompt.set(undefined);

@@ -259,6 +259,7 @@ class BaseEvent(TypedDict):
 
     type: Literal[
         "connected",
+        "tool_state",
         "ping",
         "message_added",
         "generation_started",
@@ -286,6 +287,13 @@ class ConnectedEvent(BaseEvent):
     latest_user_timestamp: NotRequired[str | None]
     pending_tools: NotRequired[list]
     pending_elicitations: NotRequired[list["ElicitPendingEvent"]]
+
+
+class ToolStateEvent(BaseEvent):
+    """Authoritative approval snapshot delivered on the existing event stream."""
+
+    generating: bool
+    pending_tools: list
 
 
 class PingEvent(BaseEvent):
@@ -430,6 +438,7 @@ class ConversationEditedEvent(BaseEvent):
 # Union type for all possible events
 EventType = (
     ConnectedEvent
+    | ToolStateEvent
     | PingEvent
     | MessageAddedEvent
     | GenerationStartedEvent

@@ -10,7 +10,7 @@ import {
   type PendingElicitation,
 } from '@/stores/conversations';
 import { useConversation } from '../useConversation';
-import { ApiClientError } from '@/utils/api';
+import { ApiClientError, type ToolConfirmResult } from '@/utils/api';
 import type { Message } from '@/types/conversation';
 import { request } from 'node:http';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -49,13 +49,27 @@ describe('useConversation', () => {
   const interruptGenerationApi = jest.fn().mockResolvedValue(undefined);
   const editMessageApi = jest.fn();
   const rerunTools = jest.fn().mockResolvedValue(undefined);
-  const confirmToolApi = jest.fn().mockResolvedValue(undefined);
+  const confirmed: ToolConfirmResult = {
+    alreadyHandled: false,
+    continuationStarted: true,
+    pendingTools: [],
+  };
+  const duplicate: ToolConfirmResult = {
+    ...confirmed,
+    alreadyHandled: true,
+    continuationStarted: false,
+  };
+  const confirmToolApi = jest.fn().mockResolvedValue(confirmed);
   const respondToElicitationApi = jest.fn().mockResolvedValue(undefined);
   const closeEventStream = jest.fn();
   const getChatConfig = jest.fn().mockResolvedValue(null);
   let eventHandlers:
     | {
         onConnected?: () => void;
+        onToolState?: (state: {
+          generating: boolean;
+          pendingTools: ToolConfirmResult['pendingTools'];
+        }) => void;
         onReconnectState?: (state: {
           generating: boolean;
           latestUserTimestamp?: string;
@@ -67,6 +81,7 @@ describe('useConversation', () => {
           pendingElicitations?: { id: string; type: string; prompt: string; options?: string[] }[];
         }) => void;
         onMessageStart?: () => void;
+        onMessageComplete?: (message: Message) => void;
         onMessageAdded?: (message: Message) => void;
         onStepComplete?: () => void;
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
@@ -92,6 +107,7 @@ describe('useConversation', () => {
     confirmTool: confirmToolApi,
     respondToElicitation: respondToElicitationApi,
     closeEventStream,
+    refreshEventState: jest.fn(),
     getConversation: jest.fn(),
     reconcileLateUploadOrder: jest.fn().mockResolvedValue(undefined),
     getChatConfig,
@@ -110,7 +126,7 @@ describe('useConversation', () => {
     interruptGenerationApi.mockReset().mockResolvedValue(undefined);
     editMessageApi.mockReset().mockResolvedValue({ log: [], branches: {} });
     rerunTools.mockReset().mockResolvedValue(undefined);
-    confirmToolApi.mockReset().mockResolvedValue(undefined);
+    confirmToolApi.mockReset().mockResolvedValue(confirmed);
     respondToElicitationApi.mockReset().mockResolvedValue(undefined);
     closeEventStream.mockClear();
     getChatConfig.mockReset().mockResolvedValue(null);
@@ -469,7 +485,7 @@ describe('useConversation', () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());
     act(() => eventHandlers!.onToolPending!('done', { tool: 'shell' }, false));
-    confirmToolApi.mockResolvedValue(true);
+    confirmToolApi.mockResolvedValue(duplicate);
     await act(async () => {
       await result.current.confirmTool('confirm');
     });
@@ -477,13 +493,83 @@ describe('useConversation', () => {
     act(() => eventHandlers!.onToolPending!('old', { tool: 'shell' }, false));
     confirmToolApi.mockImplementationOnce(async () => {
       eventHandlers!.onToolPending!('new', { tool: 'shell' }, false);
-      return true;
+      return duplicate;
     });
     await act(async () => {
       await result.current.confirmTool('confirm');
     });
     expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('new');
   });
+
+  it('clears a stale duplicate confirmation after sibling completion', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('done', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    let confirming!: Promise<void>;
+    act(() => {
+      confirming = result.current.confirmTool('confirm');
+    });
+    act(() => eventHandlers!.onToolComplete!('sibling', 1, true));
+    await act(async () => {
+      finish(duplicate);
+      await confirming;
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+  });
+
+  it.each(['progress', 'stop', 'generation'])(
+    'reconciles a failed Skip overtaken by %s',
+    async (event) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onToolPending!('approval', { tool: 'shell' }, false));
+      let fail!: (error: Error) => void;
+      confirmToolApi.mockReturnValueOnce(
+        new Promise((_, reject) => {
+          fail = reject;
+        })
+      );
+      let skipping!: Promise<void>;
+      act(() => {
+        skipping = result.current.confirmTool('skip');
+      });
+      await act(async () => {
+        if (event === 'progress') eventHandlers!.onToolExecuting!('sibling');
+        if (event === 'stop') await result.current.interruptGeneration();
+        if (event === 'generation') eventHandlers!.onMessageStart!();
+      });
+      await act(async () => {
+        fail(new ApiClientError('Busy', 409));
+        await skipping;
+      });
+      if (event === 'progress') {
+        expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+        act(() =>
+          eventHandlers!.onToolState!({
+            generating: true,
+            pendingTools: [
+              {
+                tool_id: 'approval',
+                tooluse: { tool: 'shell', args: [], content: 'pwd' },
+                auto_confirm: false,
+              },
+            ],
+          })
+        );
+        expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('approval');
+        expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(false);
+      } else {
+        expect(primaryClient.refreshEventState).not.toHaveBeenCalled();
+      }
+    }
+  );
 
   it('reports a genuine missing approval without blind retries', async () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
@@ -494,6 +580,29 @@ describe('useConversation', () => {
       await expect(result.current.confirmTool('confirm')).rejects.toThrow('Tool not found');
     });
     expect(confirmToolApi).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects failed approval even when a sibling event overtakes it', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('approval', { tool: 'shell' }, false));
+    let reject!: (error: Error) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise((_, fail) => {
+        reject = fail;
+      })
+    );
+    let confirming!: Promise<void>;
+    act(() => {
+      confirming = result.current.confirmTool('confirm');
+    });
+    act(() => eventHandlers!.onToolComplete!('sibling', 1, true));
+    await act(async () => {
+      const rejected = expect(confirming).rejects.toThrow('Approval failed');
+      reject(new ApiClientError('Approval failed', 500));
+      await rejected;
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('approval');
   });
 
   it('retries generation without reposting a saved user message', async () => {
@@ -1672,6 +1781,7 @@ describe('useConversation', () => {
     act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false));
     (primaryClient.confirmTool as jest.Mock).mockImplementationOnce(async () => {
       eventHandlers!.onStepComplete!();
+      return confirmed;
     });
     await act(async () => {
       await result.current.confirmTool('skip');
@@ -1694,9 +1804,9 @@ describe('useConversation', () => {
     const { result } = renderHook(() => useConversation('chat-placeholder'));
     await waitFor(() => expect(eventHandlers).toBeDefined());
     act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false));
-    let finish!: () => void;
+    let finish!: (value: ToolConfirmResult) => void;
     (primaryClient.confirmTool as jest.Mock).mockReturnValueOnce(
-      new Promise<void>((resolve) => {
+      new Promise<ToolConfirmResult>((resolve) => {
         finish = resolve;
       })
     );
@@ -1712,7 +1822,7 @@ describe('useConversation', () => {
     act(() => eventHandlers!.onStepComplete!());
     expect(conv$.isGenerating.get()).toBe(false);
     await act(async () => {
-      finish();
+      finish(confirmed);
       await skipping;
     });
     expect(conv$.isGenerating.get()).toBe(false);
@@ -1732,7 +1842,7 @@ describe('useConversation', () => {
       act(() =>
         eventHandlers!.onToolPending!('skip-tool', { tool: 'shell', content: 'pwd' }, false)
       );
-      confirmToolApi.mockResolvedValueOnce(true);
+      confirmToolApi.mockResolvedValueOnce(duplicate);
       await act(async () => {
         await result.current.confirmTool('skip');
       });
@@ -1740,6 +1850,318 @@ describe('useConversation', () => {
       expect(conv$.pendingTool.get()).toBeNull();
     }
   );
+
+  const deferredSkip: ToolConfirmResult = {
+    alreadyHandled: false,
+    continuationStarted: false,
+    pendingTools: [
+      {
+        tool_id: 'sibling',
+        tooluse: { tool: 'shell', args: [], content: 'pwd' },
+        auto_confirm: false,
+      },
+    ],
+  };
+
+  it('restores the next manual approval when Skip defers the reply', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    confirmToolApi.mockResolvedValueOnce(deferredSkip);
+    await act(async () => {
+      await result.current.confirmTool('skip');
+    });
+    const conv$ = conversations$.get('chat-placeholder')!;
+    expect(conv$.pendingTool.get()?.id).toBe('sibling');
+    expect(conv$.isGenerating.get()).toBe(false);
+  });
+
+  it.each([
+    'interrupt',
+    'local stop',
+    'generation',
+    'tool pending',
+    'tool executing',
+    'tool complete',
+    'message complete',
+    'reconnect',
+    'error',
+  ])('does not restore a deferred Skip snapshot after newer %s', async (event) => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise<ToolConfirmResult>((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    await act(async () => {
+      if (event === 'interrupt') eventHandlers!.onInterrupted!();
+      if (event === 'local stop') await result.current.interruptGeneration();
+      if (event === 'generation') eventHandlers!.onMessageStart!();
+      if (event === 'tool pending')
+        eventHandlers!.onToolPending!('new-tool', { tool: 'shell' }, false);
+      if (event === 'tool executing') eventHandlers!.onToolExecuting!('sibling');
+      if (event === 'tool complete') eventHandlers!.onToolComplete!('sibling', 1, true);
+      if (event === 'message complete') {
+        eventHandlers!.onMessageComplete!({ role: 'assistant', content: 'Finished' });
+        eventHandlers!.onStepComplete!();
+      }
+      if (event === 'reconnect')
+        eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] });
+      if (event === 'error') eventHandlers!.onError!('Disconnected');
+    });
+    const conv$ = conversations$.get('chat-placeholder')!;
+    const before = {
+      pendingId: conv$.pendingTool.peek()?.id,
+      generating: conv$.isGenerating.peek(),
+    };
+    await act(async () => {
+      finish(deferredSkip);
+      await skipping;
+    });
+    expect(conv$.pendingTool.get()?.id).toBe(before.pendingId);
+    expect(conv$.isGenerating.get()).toBe(before.generating);
+  });
+
+  it.each(['executing', 'complete'])(
+    'refreshes hidden approvals after sibling %s overtakes Skip',
+    async (event) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+      let finish!: (value: ToolConfirmResult) => void;
+      confirmToolApi.mockReturnValueOnce(
+        new Promise<ToolConfirmResult>((resolve) => {
+          finish = resolve;
+        })
+      );
+      let skipping!: Promise<void>;
+      act(() => {
+        skipping = result.current.confirmTool('skip');
+      });
+      act(() => {
+        if (event === 'executing') eventHandlers!.onToolExecuting!('running-sibling');
+        else eventHandlers!.onToolComplete!('running-sibling', 1, true);
+      });
+      await act(async () => {
+        finish(deferredSkip);
+        await skipping;
+      });
+      expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+      // The old HTTP payload is never restored. The ordered tool snapshot
+      // reveals the third tool, without reconnecting or losing live results.
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+      act(() =>
+        eventHandlers!.onToolState!({
+          generating: false,
+          pendingTools: [
+            {
+              tool_id: 'third-tool',
+              tooluse: { tool: 'shell', args: [], content: 'pwd' },
+              auto_confirm: false,
+            },
+          ],
+        })
+      );
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('third-tool');
+      expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(false);
+    }
+  );
+
+  it('refreshes approvals when a generation boundary overtakes a deferred Skip', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise<ToolConfirmResult>((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    // Skip clears the card optimistically, so the skipped tool's own
+    // step_complete now closes the turn and bumps generationRevision.
+    act(() => eventHandlers!.onStepComplete!());
+    await act(async () => {
+      finish(deferredSkip);
+      await skipping;
+    });
+    // The stale snapshot must not be restored, but the server still holds the
+    // remaining approval: without a refresh it stays hidden forever.
+    expect(primaryClient.refreshEventState).toHaveBeenCalledWith('chat-placeholder');
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    act(() =>
+      eventHandlers!.onToolState!({
+        generating: false,
+        pendingTools: [
+          {
+            tool_id: 'elder-tool',
+            tooluse: { tool: 'shell', args: [], content: 'pwd' },
+            auto_confirm: false,
+          },
+        ],
+      })
+    );
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('elder-tool');
+  });
+
+  it.each(['interrupted event', 'newer approval'])(
+    'applies approval snapshots again after Stop once an %s arrives',
+    async (settledBy) => {
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      act(() => eventHandlers!.onToolPending!('canceled', { tool: 'shell' }, false));
+      await act(async () => {
+        await result.current.interruptGeneration();
+      });
+      const snapshot = (id: string) => ({
+        generating: false,
+        pendingTools: [
+          {
+            tool_id: id,
+            tooluse: { tool: 'shell', args: [], content: 'pwd' },
+            auto_confirm: false,
+          },
+        ],
+      });
+      // Queued before the server handled Stop: must not touch the stopped UI.
+      act(() => eventHandlers!.onToolState!(snapshot('stale')));
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('canceled');
+
+      // Another viewer reruns two tools and skips the one displayed here.
+      act(() => {
+        if (settledBy === 'interrupted event') eventHandlers!.onInterrupted!();
+        else eventHandlers!.onToolPending!('skipped', { tool: 'shell' }, false);
+      });
+      act(() => eventHandlers!.onToolState!(snapshot('remaining')));
+      expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('remaining');
+    }
+  );
+
+  it('ignores a late Skip failure after a new approval arrives', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    let reject!: (error: Error) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise((_, fail) => {
+        reject = fail;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    act(() => eventHandlers!.onToolPending!('new-tool', { tool: 'shell' }, false));
+    await act(async () => {
+      reject(new ApiClientError('Busy', 409));
+      await skipping;
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()?.id).toBe('new-tool');
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('ignores duplicate Skip reconciliation overtaken by a new generation', async () => {
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    confirmToolApi.mockResolvedValueOnce(duplicate);
+    let finish!: (sessions: object[]) => void;
+    primaryClient.getSessions = jest.fn().mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    await act(async () => {
+      skipping = result.current.confirmTool('skip');
+    });
+    expect(primaryClient.getSessions).toHaveBeenCalledTimes(1);
+    act(() => eventHandlers!.onMessageStart!());
+    await act(async () => {
+      finish([]);
+      await skipping;
+    });
+    expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(true);
+  });
+
+  it('ignores a delayed Skip snapshot after switching the same conversation ID to another server', async () => {
+    const newClient = makeClient(jest.fn().mockResolvedValue(undefined));
+    newClient.getConversation.mockResolvedValue({
+      id: 'chat-placeholder',
+      name: 'Server B',
+      log: [],
+      logfile: 'chat-placeholder',
+      branches: {},
+      workspace: '.',
+    });
+    mockedUseApi.mockReturnValue({
+      getClient: (id: string) => (id === 'server-b' ? newClient : primaryClient),
+      isConnected$: observable(true),
+    } as unknown as ReturnType<typeof useApi>);
+    const { result, rerender } = renderHook(
+      ({ owner }) => useConversation('chat-placeholder', owner),
+      { initialProps: { owner: 'server-a' } }
+    );
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise<ToolConfirmResult>((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    rerender({ owner: 'server-b' });
+    await waitFor(() =>
+      expect(conversations$.get('chat-placeholder')!.data.name.get()).toBe('Server B')
+    );
+    await act(async () => {
+      finish(deferredSkip);
+      await skipping;
+    });
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(false);
+  });
+
+  it('uses shared event state when Skip comes from a second hook instance', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => setConnectionStatus('chat-placeholder', 'connected'));
+    const firstHandlers = eventHandlers!;
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    act(() => firstHandlers.onToolPending!('skip-tool', { tool: 'shell' }, false));
+    let finish!: (value: ToolConfirmResult) => void;
+    confirmToolApi.mockReturnValueOnce(
+      new Promise<ToolConfirmResult>((resolve) => {
+        finish = resolve;
+      })
+    );
+    let skipping!: Promise<void>;
+    act(() => {
+      skipping = result.current.confirmTool('skip');
+    });
+    act(() => firstHandlers.onMessageStart!());
+    await act(async () => {
+      finish(deferredSkip);
+      await skipping;
+    });
+    expect(subscribeToEvents).toHaveBeenCalledTimes(1);
+    expect(conversations$.get('chat-placeholder')!.pendingTool.get()).toBeNull();
+    expect(conversations$.get('chat-placeholder')!.isGenerating.get()).toBe(true);
+  });
 
   it('releases the Skip reservation when confirmation fails', async () => {
     const conv$ = conversations$.get('chat-placeholder')!;
@@ -2295,6 +2717,7 @@ describe('useConversation', () => {
           timestamp: 'refusal',
         });
         eventHandlers!.onError!('Error code: 402 - Payment required');
+        return confirmed;
       });
       await act(async () => {
         await result.current.confirmTool(action);

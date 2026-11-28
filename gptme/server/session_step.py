@@ -1511,38 +1511,46 @@ def step(
         # With break_on_tooluse=False, a single assistant message may contain
         # multiple tool uses that must execute serially.
         first_auto_id: str | None = None
-        for tooluse in tooluses:
-            # Create a tool execution record
-            tool_id = str(uuid.uuid4())
+        # An interrupt can land after the reply commits (auto-naming above makes
+        # an LLM call). It revokes this epoch and clears pending_tools, so check
+        # and register under one lock hold: approvals registered afterwards would
+        # block every later /step and rerun.
+        with session.step_lock:
+            if session.step_seq != my_step_seq or session.interrupted:
+                return
+            for tooluse in tooluses:
+                # Create a tool execution record
+                tool_id = str(uuid.uuid4())
 
-            tool_exec = ToolExecution(
-                tool_id=tool_id,
-                tooluse=tooluse,
-                workspace=workspace,
-                auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
-                branch=branch,
-                assistant_msg_timestamp=msg.timestamp,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
-            session.pending_tools[tool_id] = tool_exec
+                tool_exec = ToolExecution(
+                    tool_id=tool_id,
+                    tooluse=tooluse,
+                    workspace=workspace,
+                    auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
+                    branch=branch,
+                    assistant_msg_timestamp=msg.timestamp,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    step_seq=my_step_seq,
+                )
+                session.pending_tools[tool_id] = tool_exec
 
-            # Notify about pending tool
-            SessionManager.add_event(
-                conversation_id,
-                {
-                    "type": "tool_pending",
-                    **tool_exec.to_pending_dict(),
-                },
-            )
+                # Notify about pending tool
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "tool_pending",
+                        **tool_exec.to_pending_dict(),
+                    },
+                )
 
-            # Track the first auto-confirm tool; decrement counter for all
-            if tool_exec.auto_confirm:
-                if session.auto_confirm_count > 0:
-                    session.auto_confirm_count -= 1
-                if first_auto_id is None:
-                    first_auto_id = tool_id
+                # Track the first auto-confirm tool; decrement counter for all
+                if tool_exec.auto_confirm:
+                    if session.auto_confirm_count > 0:
+                        session.auto_confirm_count -= 1
+                    if first_auto_id is None:
+                        first_auto_id = tool_id
 
         # A tool-free response ends the invocation only after prior tools have
         # drained. TURN_POST and generation_complete happen before this boundary.
@@ -1773,7 +1781,16 @@ def start_tool_execution(
                     tool_exec = session.pending_tools.pop(current_tool_id, None)
                     if tool_exec is not None:
                         session.remember_handled_tool(current_tool_id)
+                        # Adopt a tool queued under an older epoch (e.g. one
+                        # approved after an interrupt), but never steal one a
+                        # newer generation owns: it must stay tagged with that
+                        # epoch so the newer reply waits for its result.
+                        if tool_exec.step_seq is None or tool_exec.step_seq <= my_seq:
+                            tool_exec.step_seq = my_seq
                         session._executing_tools.add(current_tool_id)
+                        session._executing_tool_epochs[current_tool_id] = (
+                            tool_exec.step_seq
+                        )
                 if tool_exec is None:
                     logger.warning(
                         f"Tool {current_tool_id} not found in pending tools "
@@ -1844,6 +1861,7 @@ def start_tool_execution(
                     logger.info(f"Tool {current_tool_id} executing")
                 except BaseException:
                     session._executing_tools.discard(current_tool_id)
+                    session._executing_tool_epochs.pop(current_tool_id, None)
                     raise
 
                 claimed_tool_id = current_tool_id
@@ -1976,10 +1994,15 @@ def start_tool_execution(
                             },
                         )
 
-                    # Chain to next pending auto-confirm tool (serial execution)
+                    # Chain to the next pending auto-confirm tool (serial
+                    # execution). Only tools this worker's epoch may own: a
+                    # newer generation's tool must not be pulled into an older
+                    # chain, or that generation's reply would miss its result.
                     next_auto_id: str | None = None
                     for tid, texec in list(session.pending_tools.items()):
-                        if texec.auto_confirm:
+                        if texec.auto_confirm and (
+                            texec.step_seq is None or texec.step_seq <= my_seq
+                        ):
                             next_auto_id = tid
                             break
 
@@ -1995,6 +2018,7 @@ def start_tool_execution(
                     # bookkeeping state as quiescent.
                     with SessionManager.conversation_lock(conversation_id):
                         session._executing_tools.discard(claimed_tool_id)
+                        session._executing_tool_epochs.pop(claimed_tool_id, None)
 
             # Compact after tool results, before the continuation provider call.
             # Serialize with the same conversation lock as tool-result appends
@@ -2025,15 +2049,40 @@ def start_tool_execution(
             start_continuation = False
             continuation_seq: int | None = None
             with SessionManager.conversation_lock(conversation_id), session.step_lock:
-                owns_reservation = not reserved or session.step_seq == my_seq
-                if session.interrupted or not owns_reservation:
+                # A worker only owns the current generation epoch while the
+                # ``step_seq`` it captured at queue time is still current.
+                # ``interrupted`` alone is not enough: an interrupt bumps
+                # ``step_seq``, but a later turn (A2A ``SendMessage`` or /step)
+                # clears ``interrupted``. Without the epoch check a tool queued
+                # before that interrupt would then elect a continuation on top
+                # of the newer turn, replaying an answer the client already saw
+                # (or resurrecting a task that was reported completed).
+                owns_epoch = session.step_seq == my_seq
+                # Only outstanding tools from *this* epoch block the reply.
+                # A tool left over from an older epoch is already excluded by
+                # ``owns_epoch`` when it finishes, so waiting on it here would
+                # drop the current epoch's reply (e.g. a /rerun that finishes
+                # while a manually approved tool from the previous turn still
+                # runs).
+                # An untagged tool predates epoch tracking; treat it as ours so
+                # a legacy/out-of-band pending tool still blocks the reply
+                # rather than being silently skipped.
+                own_pending = any(
+                    tool.step_seq is None or tool.step_seq == my_seq
+                    for tool in session.pending_tools.values()
+                )
+                own_executing = any(
+                    seq == my_seq for seq in session._executing_tool_epochs.values()
+                )
+                quiescent = not own_pending and not own_executing
+                if session.interrupted or not owns_epoch:
                     logger.debug(
                         "Skipping tool continuation: interrupted=%s, seq %d→%d",
                         session.interrupted,
                         my_seq,
                         session.step_seq,
                     )
-                elif not session.pending_tools and not session._executing_tools:
+                elif quiescent:
                     if reserved or (
                         not SessionManager.conversation_generating(conversation_id)
                         and not SessionManager.command_is_active(conversation_id)
@@ -2162,6 +2211,7 @@ def _start_step_thread(
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
+    new_user_turn: bool = False,
 ) -> bool:
     """Start a step unless another operation has already reserved it.
 
@@ -2170,6 +2220,12 @@ def _start_step_thread(
     route). It is passed into ``step()`` so the finally block's compare-and-clear
     uses the epoch sampled under the lock rather than inside the spawned thread
     (where a delay could cause it to see a later epoch).
+
+    ``new_user_turn`` marks a fresh user request (A2A ``SendMessage``). Like the
+    /step route, it clears a previous interrupt when it reserves; otherwise
+    ``step()`` would see the stale flag, return before releasing, and leave the
+    session stuck generating. Tool continuations leave it False so an
+    interrupt still stops them.
     """
 
     # Direct callers (tool continuations and A2A) share /step's atomic
@@ -2188,6 +2244,11 @@ def _start_step_thread(
             # path. Reusing the previous epoch would let a worker that already
             # released it (e.g. step()'s release-then-re-raise paths) mistake
             # this reservation for its own and clear it.
+            if new_user_turn:
+                session.interrupted = False
+            # Capture the epoch under the lock so step() doesn't need to sample
+            # session.step_seq inside the thread (where a delay could give it
+            # a stale or replacement epoch).
             if step_seq is None:
                 session.step_seq += 1
                 step_seq = claimed_seq = session.step_seq

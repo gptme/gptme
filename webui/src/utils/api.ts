@@ -438,6 +438,14 @@ export interface ToolCompleteEvent {
   success: boolean;
 }
 
+export interface ToolConfirmResult {
+  alreadyHandled: boolean;
+  /** Whether the server started a reply for this decision. */
+  continuationStarted: boolean;
+  /** Approvals still pending after this decision; the first is the next card. */
+  pendingTools: Array<{ tool_id: string; tooluse: ToolUse; auto_confirm: boolean }>;
+}
+
 export interface ToolConfirmationRequest {
   session_id: string;
   tool_id: string;
@@ -616,6 +624,14 @@ export class ApiClient {
     window.removeEventListener('online', wake);
     window.removeEventListener('focus', wake);
     document.removeEventListener('visibilitychange', wake);
+  }
+
+  /** Queue a snapshot on the live stream, preserving its cursor and messages. */
+  async refreshEventState(conversationId: string): Promise<void> {
+    if (!this.eventCallbacks.has(conversationId)) return;
+    await this.fetchJson(`${this.baseUrl}/api/v2/conversations/${conversationId}/events/refresh`, {
+      method: 'POST',
+    });
   }
 
   /** Re-open a stream the app still wants but whose connection gave up. */
@@ -1126,6 +1142,10 @@ export class ApiClient {
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
       onConnectionState?: (state: EventStreamConnectionState) => void;
+      onToolState?: (state: {
+        generating: boolean;
+        pendingTools: ToolConfirmResult['pendingTools'];
+      }) => void;
       onReconnectState?: (state: {
         generating: boolean;
         latestUserTimestamp?: string;
@@ -1407,6 +1427,13 @@ export class ApiClient {
 
           case 'ping':
             console.log(`[ApiClient] ping`);
+            break;
+
+          case 'tool_state':
+            callbacks.onToolState?.({
+              generating: data.generating ?? false,
+              pendingTools: data.pending_tools ?? [],
+            });
             break;
 
           case 'connected':
@@ -2376,7 +2403,7 @@ export class ApiClient {
       content?: string;
       count?: number;
     }
-  ): Promise<boolean> {
+  ): Promise<ToolConfirmResult> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
@@ -2401,18 +2428,25 @@ export class ApiClient {
 
         console.log(`[ApiClient] Sending tool confirmation request:`, request);
 
-        return this.fetchJson<{ status: string; message?: string }>(
-          `${this.baseUrl}/api/v2/conversations/${logfile}/tool/confirm`,
-          {
-            method: 'POST',
-            body: JSON.stringify(request),
-            signal: this.controller?.signal,
-          }
-        );
+        return this.fetchJson<{
+          status: string;
+          message?: string;
+          continuation_started?: boolean;
+          pending_tools?: ToolConfirmResult['pendingTools'];
+        }>(`${this.baseUrl}/api/v2/conversations/${logfile}/tool/confirm`, {
+          method: 'POST',
+          body: JSON.stringify(request),
+          signal: this.controller?.signal,
+        });
       });
 
       console.log(`[ApiClient] Tool confirmation successful`);
-      return result.message === 'Tool already handled';
+      return {
+        alreadyHandled: result.message === 'Tool already handled',
+        // Older servers omit the field; they always started the reply.
+        continuationStarted: result.continuation_started ?? true,
+        pendingTools: result.pending_tools ?? [],
+      };
     } catch (error) {
       console.error(`[ApiClient] Tool confirmation failed:`, error);
       if (error instanceof DOMException && error.name === 'AbortError') {

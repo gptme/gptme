@@ -1322,6 +1322,44 @@ describe('ApiClient event stream reconnection', () => {
     expect(onReconnectState.mock.calls.at(-1)![0].pendingElicitations).toBeUndefined();
   });
 
+  it('refreshes approvals without losing live messages or replacing the stream', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    const onToolState = jest.fn();
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', { ...callbacks, onToolState });
+    const stream = MockEventSource.instances[0];
+    stream.emitMessage({ type: 'connected', session_id: 's1' });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'queued' }),
+    });
+    const refresh = client.refreshEventState('conv-1');
+    stream.emitMessage({ type: 'message_added', message: { role: 'system', content: 'result' } });
+    await refresh;
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:5700/api/v2/conversations/conv-1/events/refresh',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(stream.close).not.toHaveBeenCalled();
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(callbacks.onMessageAdded).toHaveBeenCalledWith({ role: 'system', content: 'result' });
+    stream.emitMessage({
+      type: 'tool_state',
+      generating: false,
+      pending_tools: [
+        { tool_id: 'third', tooluse: { tool: 'shell', content: 'pwd' }, auto_confirm: false },
+      ],
+    });
+    expect(onToolState).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        generating: false,
+        pendingTools: [expect.objectContaining({ tool_id: 'third' })],
+      })
+    );
+    client.closeEventStream('conv-1');
+  });
+
   it('cancels pending reconnect timers when the stream is closed manually', async () => {
     const client = new ApiClient('http://127.0.0.1:5700');
     const callbacks = createSseCallbacks();

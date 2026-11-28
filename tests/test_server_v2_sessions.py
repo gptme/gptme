@@ -20,7 +20,7 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from flask.testing import FlaskClient  # fmt: skip
 
@@ -238,6 +238,101 @@ class TestInterruptNonexistentConversation:
 
 class TestStepEndpoint:
     """Test POST /api/v2/conversations/<id>/step validation."""
+
+    @pytest.mark.parametrize("peer_session", [False, True])
+    def test_step_supersedes_unanswered_approvals(
+        self, conv, client: FlaskClient, peer_session
+    ):
+        """Replying instead of approving (or after an A2A turn) must not block."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        owner = (
+            SessionManager.create_session(conv["conversation_id"])
+            if peer_session
+            else session
+        )
+        owner.pending_tools["approval"] = ToolExecution(
+            tool_id="approval", tooluse=ToolUse("shell", [], "pwd"), step_seq=5
+        )
+        session.step_seq = 5
+        cursor = session.events_count
+        url = f"/api/v2/conversations/{conv['conversation_id']}"
+        with patch("gptme.server.api_v2_sessions._start_step_thread") as start:
+            response = client.post(
+                f"{url}/step",
+                json={"session_id": session.id, "model": "openai/gpt-4o-mini"},
+            )
+        assert response.status_code == 200
+        start.assert_called_once()
+        assert not owner.pending_tools
+        events, _ = session.read_events(cursor)
+        snapshots = [event for event in events if event["type"] == "tool_state"]
+        assert cast("dict", snapshots[-1])["pending_tools"] == []
+        # The old batch cannot be revived into the new turn.
+        late = client.post(
+            f"{url}/tool/confirm",
+            json={"session_id": owner.id, "tool_id": "approval", "action": "confirm"},
+        )
+        assert late.get_json()["message"] == "Tool already handled"
+
+    @pytest.mark.parametrize("queued", ["auto", "approved"])
+    @pytest.mark.parametrize("endpoint", ["step", "rerun"])
+    def test_new_turn_preserves_queued_execution(
+        self, conv, client: FlaskClient, endpoint, queued
+    ):
+        """A tool already owed an execution must not be dropped or split."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        for tool_id in ("manual", queued):
+            session.pending_tools[tool_id] = ToolExecution(
+                tool_id=tool_id,
+                tooluse=ToolUse("shell", [], "pwd"),
+                auto_confirm=tool_id == "auto",
+            )
+        if queued == "approved":
+            session.remember_handled_tool(queued)
+        epoch = session.step_seq
+        try:
+            with patch("gptme.server.api_v2_sessions._start_step_thread") as start:
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/{endpoint}",
+                    json={"session_id": session.id, "model": "openai/gpt-4o-mini"},
+                )
+            assert response.status_code == 409
+            assert set(session.pending_tools) == {"manual", queued}
+            assert session.step_seq == epoch
+            start.assert_not_called()
+        finally:
+            session.pending_tools.clear()
+
+    def test_refresh_approvals_is_an_ordered_event(self, conv, client: FlaskClient):
+        """Refreshing approvals leaves the existing event cursor usable."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.pending_tools["approval"] = ToolExecution(
+            tool_id="approval", tooluse=ToolUse("shell", [], "pwd")
+        )
+        session.pending_tools["auto"] = ToolExecution(
+            tool_id="auto", tooluse=ToolUse("shell", [], "pwd"), auto_confirm=True
+        )
+        session.pending_tools["approved"] = ToolExecution(
+            tool_id="approved", tooluse=ToolUse("shell", [], "pwd")
+        )
+        session.remember_handled_tool("approved")
+        session._executing_tools.add("running")
+        cursor = session.events_count
+        SessionManager.add_event(conv["conversation_id"], {"type": "step_complete"})
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/events/refresh"
+        )
+        assert response.status_code == 200
+        events, _ = session.read_events(cursor)
+        assert [event["type"] for event in events] == ["step_complete", "tool_state"]
+        from gptme.server.api_v2_common import ToolStateEvent
+
+        snapshot = cast(ToolStateEvent, events[-1])
+        assert [tool["tool_id"] for tool in snapshot["pending_tools"]] == ["approval"]
+        assert snapshot["generating"] is True
 
     def test_missing_session_id(self, conv, client: FlaskClient):
         """Step without session_id returns 400."""
@@ -1793,16 +1888,16 @@ class TestToolConfirmEndpoint:
             "top_p": None,
         }
 
-    def test_skip_increments_step_seq_to_invalidate_stale_workers(
+    def test_skip_leaves_epoch_to_the_running_sibling_worker(
         self, conv, client: FlaskClient
     ):
-        """Skip must advance step_seq so concurrent tool workers stand down.
+        """Skip must not advance the epoch or reply while a sibling tool runs.
 
-        A concurrent auto-confirm tool worker captures my_seq at start_tool_execution
-        time. If skip does NOT increment step_seq, the worker's owns_reservation check
-        (session.step_seq == my_seq) still holds after skip fires, and the worker elects
-        its own continuation — producing duplicate LLM turns alongside the skip
-        continuation.
+        A skip decides one tool call of the current turn; the executing sibling
+        worker still owns the epoch and elects the turn's single continuation
+        when it finishes. Advancing step_seq here left that worker on an older
+        epoch, so it could never deliver its result, and the skip's own reply
+        went out before the result was in the log.
         """
         session = SessionManager.get_session(conv["session_id"])
         assert session is not None
@@ -1811,30 +1906,100 @@ class TestToolConfirmEndpoint:
         tool_exec = ToolExecution(
             tool_id=tool_id,
             tooluse=ToolUse("bash", [], "echo hi"),
+            step_seq=initial_step_seq,
         )
         session.pending_tools[tool_id] = tool_exec
-
-        with (
-            patch("gptme.server.api_v2_sessions._append_and_notify"),
-            patch("gptme.server.api_v2_sessions._start_step_thread", return_value=True),
-            patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
-        ):
-            response = client.post(
-                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
-                json={
-                    "session_id": conv["session_id"],
-                    "tool_id": tool_id,
-                    "action": "skip",
-                },
-            )
+        session._executing_tools.add("running-sibling")
+        session._executing_tool_epochs["running-sibling"] = initial_step_seq
+        try:
+            with (
+                patch("gptme.server.api_v2_sessions._append_and_notify"),
+                patch(
+                    "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+                ) as start_step,
+                patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
+            ):
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                    json={
+                        "session_id": conv["session_id"],
+                        "tool_id": tool_id,
+                        "action": "skip",
+                    },
+                )
+        finally:
+            session._executing_tools.discard("running-sibling")
+            session._executing_tool_epochs.pop("running-sibling", None)
 
         assert response.status_code == 200
-        # step_seq must have advanced so any stale tool worker with the old
-        # my_seq sees a mismatch and releases its reservation instead of
-        # electing a duplicate continuation.
-        assert session.step_seq == initial_step_seq + 1, (
-            "skip must increment step_seq to invalidate stale concurrent workers"
+        assert session.step_seq == initial_step_seq, (
+            "skip resolves a tool call; it does not revoke the sibling's epoch"
         )
+        assert start_step.call_count == 0, "the running sibling worker elects the reply"
+        assert not session.generating
+
+    def test_deferred_skip_publishes_approvals_to_other_viewers(
+        self, conv, client: FlaskClient
+    ):
+        """A deferred skip must reach every viewer's approval card.
+
+        Only the requesting viewer gets the HTTP ``pending_tools`` snapshot.
+        A second viewer of the same conversation receives just the skip's
+        ``message_added``, which does not update its approval card, so the
+        remaining approvals stayed hidden there and only that viewer could
+        resolve them. The snapshot therefore belongs on the shared stream.
+        """
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        viewer = SessionManager.create_session(conv["conversation_id"])
+        initial_step_seq = session.step_seq
+        skipped_id = str(uuid.uuid4())
+        pending_id = str(uuid.uuid4())
+        session.pending_tools[skipped_id] = ToolExecution(
+            tool_id=skipped_id,
+            tooluse=ToolUse("bash", [], "echo hi"),
+            step_seq=initial_step_seq,
+        )
+        session.pending_tools[pending_id] = ToolExecution(
+            tool_id=pending_id,
+            tooluse=ToolUse("bash", [], "echo bye"),
+            step_seq=initial_step_seq,
+        )
+        session._executing_tools.add("running-sibling")
+        session._executing_tool_epochs["running-sibling"] = initial_step_seq
+        viewer_cursor = viewer.events_count
+        try:
+            with (
+                patch("gptme.server.api_v2_sessions._append_and_notify"),
+                patch(
+                    "gptme.server.api_v2_sessions._start_step_thread", return_value=True
+                ),
+                patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
+            ):
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                    json={
+                        "session_id": conv["session_id"],
+                        "tool_id": skipped_id,
+                        "action": "skip",
+                    },
+                )
+        finally:
+            session._executing_tools.discard("running-sibling")
+            session._executing_tool_epochs.pop("running-sibling", None)
+
+        assert response.status_code == 200
+        body = cast(dict[str, Any], response.get_json())
+        assert body["continuation_started"] is False
+        assert [tool["tool_id"] for tool in body["pending_tools"]] == [pending_id]
+
+        events, _ = viewer.read_events(viewer_cursor)
+        snapshots = [event for event in events if event["type"] == "tool_state"]
+        assert len(snapshots) == 1, "the other viewer needs the authoritative snapshot"
+        from gptme.server.api_v2_common import ToolStateEvent
+
+        snapshot = cast(ToolStateEvent, snapshots[0])
+        assert [tool["tool_id"] for tool in snapshot["pending_tools"]] == [pending_id]
 
     def test_skip_preserves_tool_when_step_reserved_generation(
         self, conv, client: FlaskClient
@@ -2781,6 +2946,27 @@ class TestRerunEndpoint:
             for tool_id in data["tool_ids"]:
                 tool_exec = session.pending_tools[tool_id]
                 assert tool_exec.assistant_msg_timestamp is not None
+        finally:
+            session.pending_tools.clear()
+
+    def test_rerun_replaces_pending_approvals(self, conv, client: FlaskClient):
+        """A second rerun must not leave approvals from two turns live."""
+        conversation_id = conv["conversation_id"]
+        client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": "assistant", "content": "```shell\npwd\n```"},
+        )
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        url = f"/api/v2/conversations/{conversation_id}/rerun"
+        first = client.post(url, json={"session_id": session.id})
+        assert first.status_code == 200
+        old = set(session.pending_tools)
+        try:
+            second = client.post(url, json={"session_id": session.id})
+            assert second.status_code == 200
+            assert set(session.pending_tools) == set(second.get_json()["tool_ids"])
+            assert old.isdisjoint(session.pending_tools)
         finally:
             session.pending_tools.clear()
 
