@@ -708,6 +708,13 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     # Note: prompt and env are optional - defaults are used if missing
 
     prompt_data = config.pop("prompt", {})
+    if not isinstance(prompt_data, dict):
+        # A scalar ``prompt = 1`` parses as TOML but reaches
+        # ``_filter_known_fields`` as an int, where ``set(data)`` raises
+        # TypeError and crashes config loading (and onboarding). Treat it like
+        # the other section-type mismatches: warn and fall back to defaults.
+        logger.warning(f"[prompt] should be a table, got {type(prompt_data).__name__}")
+        prompt_data = {}
     prompt = UserPromptConfig(
         **_filter_known_fields(UserPromptConfig, prompt_data, "prompt")
     )
@@ -1084,6 +1091,13 @@ def _is_private_config(path: Path) -> bool:
 # first-run create inside set_config_value) does not deadlock on its own flock.
 _held_config_locks = threading.local()
 
+# flock(2) errors that mean the filesystem cannot lock at all (some FUSE and
+# network mounts), not that another writer holds the lock. Saving unlocked
+# with a warning beats making every config write fail there.
+_UNSUPPORTED_LOCK_ERRNOS = frozenset(
+    {errno.ENOLCK, errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS}
+)
+
 
 @contextmanager
 def _config_write_lock(path: str | Path) -> Iterator[None]:
@@ -1135,8 +1149,10 @@ def _config_write_lock(path: str | Path) -> Iterator[None]:
                 # where LOCK_EX needs a descriptor opened for writing. The
                 # read-only fallback above then fails with EBADF on exactly the
                 # shared NFS home it targets. Degrade to an unlocked save with
-                # a warning instead of aborting every config write there.
-                if not read_only_fallback:
+                # a warning instead of aborting every config write there. The
+                # same holds on either descriptor for a filesystem that does
+                # not support locking.
+                if not read_only_fallback and e.errno not in _UNSUPPORTED_LOCK_ERRNOS:
                     raise
                 logger.warning(
                     f"Could not take an exclusive lock on {lock_path} ({e}); "

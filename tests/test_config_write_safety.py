@@ -228,7 +228,7 @@ def test_onboard_saves_model_where_gptme_reads_it(config_file: Path) -> None:
             onboard,
             "get_config",
             return_value=SimpleNamespace(
-                user=SimpleNamespace(models=SimpleNamespace(default=None))
+                user=SimpleNamespace(models=SimpleNamespace(default=None), env={})
             ),
         ),
         patch("gptme.config.core.reload_config"),
@@ -251,7 +251,9 @@ def test_onboard_keeps_existing_default_when_declined(config_file: Path) -> None
             onboard,
             "get_config",
             return_value=SimpleNamespace(
-                user=SimpleNamespace(models=SimpleNamespace(default="anthropic/x"))
+                user=SimpleNamespace(
+                    models=SimpleNamespace(default="anthropic/x"), env={}
+                )
             ),
         ),
         patch.object(onboard.Confirm, "ask", return_value=False),
@@ -338,7 +340,9 @@ def test_onboard_updates_local_default_when_it_wins(config_file: Path) -> None:
             onboard,
             "get_config",
             return_value=SimpleNamespace(
-                user=SimpleNamespace(models=SimpleNamespace(default="anthropic/old"))
+                user=SimpleNamespace(
+                    models=SimpleNamespace(default="anthropic/old"), env={}
+                )
             ),
         ),
         patch.object(onboard.Confirm, "ask", return_value=True),
@@ -361,7 +365,9 @@ def test_onboard_reads_legacy_encoded_local_config(config_file: Path) -> None:
             onboard,
             "get_config",
             return_value=SimpleNamespace(
-                user=SimpleNamespace(models=SimpleNamespace(default="anthropic/old"))
+                user=SimpleNamespace(
+                    models=SimpleNamespace(default="anthropic/old"), env={}
+                )
             ),
         ),
         patch.object(onboard.Confirm, "ask", return_value=True),
@@ -1167,7 +1173,7 @@ def test_onboard_refuses_when_local_models_is_not_a_table(
             onboard,
             "get_config",
             return_value=SimpleNamespace(
-                user=SimpleNamespace(models=SimpleNamespace(default=None))
+                user=SimpleNamespace(models=SimpleNamespace(default=None), env={})
             ),
         ),
         patch.object(onboard, "set_config_value") as save,
@@ -1181,6 +1187,47 @@ def test_onboard_refuses_when_local_models_is_not_a_table(
     assert "config.local.toml" in out
     # The local file is left alone: its retained settings must survive.
     assert local.read_text(encoding="utf-8") == 'models = "oops"\n'
+
+
+def test_onboard_refuses_local_non_table_models_when_local_holds_the_default(
+    config_file: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The local file is the write target, so its own check cannot be skipped.
+
+    With ``[env].MODEL`` in config.local.toml the effective default is local,
+    which used to skip both non-table ``models`` checks. The writer then raised
+    ``ValueError: ... 'models' exists but is not a table`` after the user had
+    already confirmed the replacement.
+    """
+    from gptme.cli import onboard
+
+    local = config_file.with_name("config.local.toml")
+    original = 'models = "oops"\n\n[env]\nMODEL = "anthropic/old"\n'
+    local.write_text(original, encoding="utf-8")
+    # A process MODEL would outrank the user config and make the default
+    # non-local, hiding the branch under test.
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        patch.object(
+            onboard,
+            "get_config",
+            side_effect=lambda: SimpleNamespace(user=load_user_config()),
+        ),
+        patch.object(onboard, "set_config_value") as save,
+    ):
+        result = onboard._create_config("openai", "openai/y")
+
+    save.assert_not_called()
+    assert result is None
+    out = capsys.readouterr().out.replace("\n", "")
+    assert "not a table" in out
+    assert "config.local.toml" in out
+    assert local.read_text(encoding="utf-8") == original
 
 
 @pytest.mark.parametrize("shape", ["plain", "symlink"])
@@ -1263,3 +1310,219 @@ def test_onboard_recovered_symlinked_local_config_is_private(
     assert _mode(target) == 0o600
     # Recovering the local layer must not write built-in defaults into it.
     assert tomlkit.loads(target.read_text(encoding="utf-8")).unwrap() == {}
+
+
+@pytest.mark.parametrize("descriptor", ["writable", "read_only"])
+@pytest.mark.parametrize("err", ["ENOLCK", "EOPNOTSUPP", "ENOSYS"])
+def test_lock_unsupported_by_filesystem_saves_unlocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    descriptor: str,
+    err: str,
+) -> None:
+    """A filesystem that cannot lock at all must not fail every config save.
+
+    Some FUSE and network mounts answer flock(2) with ENOLCK, EOPNOTSUPP or
+    ENOSYS. That says nothing about another writer, so warn and save unlocked
+    on either descriptor rather than raising.
+    """
+    if user_mod.fcntl is None:
+        pytest.skip("posix flock only")
+    code = getattr(errno, err)
+    real_flock = user_mod.fcntl.flock
+
+    def unsupported_flock(fd: int, operation: int) -> None:
+        if operation == user_mod.fcntl.LOCK_EX:
+            raise OSError(code, os.strerror(code))
+        real_flock(fd, operation)
+
+    if descriptor == "read_only":
+        real_open = Path.open
+
+        def lock_writable_only(self: Path, mode: str = "r", *args: Any, **kwargs: Any):
+            if self.name.endswith(".lock") and mode == "a+b":
+                raise PermissionError(errno.EACCES, "Permission denied", str(self))
+            return real_open(self, mode, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", lock_writable_only)
+        (tmp_path / ".config.toml.lock").write_text("", encoding="utf-8")
+    monkeypatch.setattr(user_mod.fcntl, "flock", unsupported_flock)
+    path = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(path))
+
+    with caplog.at_level(logging.WARNING):
+        set_config_value("user.name", "new", reload=False)
+
+    assert "without it" in caplog.text
+    assert 'name = "new"' in path.read_text(encoding="utf-8")
+
+
+def test_other_lock_errors_on_writable_descriptor_still_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only "cannot lock here" errors degrade; a real I/O error still surfaces."""
+    if user_mod.fcntl is None:
+        pytest.skip("posix flock only")
+
+    def broken_flock(fd: int, operation: int) -> None:
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(user_mod.fcntl, "flock", broken_flock)
+    path = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(path))
+
+    with pytest.raises(OSError, match="Input/output error"):
+        set_config_value("user.name", "new", reload=False)
+    assert not path.exists()
+
+
+def test_onboard_refuses_when_main_models_is_not_a_table(
+    config_file: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A scalar `models` in config.toml used to escape as a ValueError."""
+    from gptme.cli import onboard
+
+    config_file.write_text('models = "oops"\n', encoding="utf-8")
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        patch.object(
+            onboard,
+            "get_config",
+            return_value=SimpleNamespace(
+                user=SimpleNamespace(models=SimpleNamespace(default=None), env={})
+            ),
+        ),
+    ):
+        result = onboard._create_config("openai", "openai/y")
+
+    assert result is None
+    out = capsys.readouterr().out.replace("\n", "")
+    assert "not a table" in out
+    assert "config.toml" in out
+    assert config_file.read_text(encoding="utf-8") == 'models = "oops"\n'
+
+
+def test_onboard_confirms_before_shadowing_user_env_model(
+    config_file: Path,
+) -> None:
+    """[models].default outranks the user config's [env].MODEL.
+
+    Saving a default without asking would silently replace the model the user
+    already chose through that variable.
+    """
+    from gptme.cli import onboard
+
+    config_file.write_text('[env]\nMODEL = "anthropic/old"\n', encoding="utf-8")
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        patch.object(
+            onboard,
+            "get_config",
+            return_value=SimpleNamespace(
+                user=SimpleNamespace(
+                    models=SimpleNamespace(default=None),
+                    env={"MODEL": "anthropic/old"},
+                )
+            ),
+        ),
+        patch.object(onboard.Confirm, "ask", return_value=False) as ask,
+        patch.object(onboard, "set_config_value") as save,
+    ):
+        result = onboard._create_config("openai", "openai/new")
+
+    assert result is None
+    save.assert_not_called()
+    assert "openai/new" in ask.call_args.args[0]
+
+
+def test_onboard_recovery_reports_a_config_that_is_still_invalid(
+    config_file: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """After moving a corrupt file, a surviving invalid config must not crash.
+
+    ``hooks = "x"`` parses as TOML but fails ``UserConfig`` with ValueError.
+    The re-read used to catch only TOMLKitError, so onboarding aborted with a
+    traceback after the corrupt file had already been moved.
+    """
+    from gptme.cli import onboard
+
+    config_file.write_text('[models\ndefault = "broken"\n', encoding="utf-8")
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        patch.object(
+            onboard,
+            "get_config",
+            side_effect=[
+                tomlkit.exceptions.TOMLKitError("corrupt"),
+                ValueError("hooks must be an object"),
+            ],
+        ),
+        patch.object(onboard.Confirm, "ask", return_value=True),
+        patch.object(onboard, "set_config_value") as save,
+    ):
+        result = onboard._create_config("openai", "openai/new")
+
+    assert result is None
+    save.assert_not_called()
+    out = capsys.readouterr().out.replace("\n", "")
+    assert "still invalid" in out
+    assert "hooks must be an object" in out
+    assert list(config_file.parent.glob("config.toml.corrupt-*"))
+
+
+def test_scalar_prompt_section_warns_instead_of_crashing(
+    config_file: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A top-level ``prompt = 1`` must not crash config loading with TypeError.
+
+    The scalar reaches ``_filter_known_fields`` as an int, where ``set(data)``
+    raised ``TypeError``. Like the other section-type mismatches, it now warns
+    and falls back to defaults instead of aborting every config load.
+    """
+    config_file.write_text("prompt = 1\n", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="gptme.config.user"):
+        config = load_user_config(str(config_file))
+
+    assert config.prompt.about_user is None
+    assert any("[prompt] should be a table" in r.message for r in caplog.records)
+
+
+def test_onboard_recovery_handles_a_scalar_prompt_in_surviving_config(
+    config_file: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Real files: a corrupt main config plus a local ``prompt = 1``.
+
+    Recovery moves the unparseable main file aside, then re-reads the surviving
+    local config. That re-read raised ``TypeError`` from the scalar prompt and
+    aborted onboarding with a traceback after the backup had already happened.
+    It must now complete and save.
+    """
+    from gptme.cli import onboard
+
+    local = config_file.with_name("config.local.toml")
+    local.write_text("prompt = 1\n", encoding="utf-8")
+    config_file.write_text('[models\ndefault = "broken"\n', encoding="utf-8")
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        # Real loader against the real files; the first read hits the corrupt
+        # main config, the re-read sees the surviving local file.
+        patch.object(
+            onboard,
+            "get_config",
+            side_effect=lambda: SimpleNamespace(user=load_user_config()),
+        ),
+        patch.object(onboard.Confirm, "ask", return_value=True),
+        patch("gptme.config.core.reload_config"),
+    ):
+        result = onboard._create_config("openai", "openai/new")
+
+    assert result == config_file
+    assert "Traceback" not in capsys.readouterr().out
+    assert load_user_config(str(config_file)).models.default == "openai/new"
+    assert list(config_file.parent.glob("config.toml.corrupt-*"))

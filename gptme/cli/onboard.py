@@ -329,20 +329,49 @@ def _back_up_corrupt_configs(paths: list[Path]) -> None:
                 console.print(f"[yellow]Moved corrupt config to: {backup}[/yellow]")
 
 
-def _local_config_sets_non_table_models(local_path: Path) -> bool:
-    """True when ``config.local.toml`` sets ``models`` to something but a table.
+def _config_sets_non_table_models(path: Path) -> bool:
+    """True when a user config sets ``models`` to something but a table.
 
-    A scalar or array ``models`` key replaces the whole ``[models]`` table on
-    merge, so a default saved to ``config.toml`` is discarded on the next load
-    while onboarding still reports success.
+    In ``config.local.toml`` a scalar or array ``models`` key replaces the whole
+    ``[models]`` table on merge, so a default saved to ``config.toml`` is
+    discarded on the next load while onboarding still reports success. In
+    ``config.toml`` itself the writer cannot add ``models.default`` under it.
     """
-    if not local_path.exists():
+    if not path.exists():
         return False
     try:
-        models = _load_config_doc(str(local_path)).unwrap().get("models")
+        models = _load_config_doc(str(path)).unwrap().get("models")
     except tomlkit.exceptions.TOMLKitError:
         return False
     return models is not None and not isinstance(models, dict)
+
+
+def _refuse_non_table_models(path: Path, shadows_main: bool) -> None:
+    console.print(f"\n[red]{path} sets `models` to a value that is not a table.[/red]")
+    if shadows_main:
+        reason = (
+            "It replaces the whole [models] table from config.toml, so a default "
+            "saved there would be discarded."
+        )
+    else:
+        reason = "A default model cannot be saved under it."
+    console.print(
+        f"{reason} Fix that entry to a [models] table and re-run onboarding.",
+        markup=False,
+    )
+
+
+def _current_default_model() -> tuple[str | None, bool]:
+    """Return the user config's effective default model and whether it is local.
+
+    ``[models].default`` outranks the user config's ``[env].MODEL``, so a
+    default saved by onboarding would silently shadow that variable. Count it
+    as the current default so the replacement is confirmed first.
+    """
+    user = get_config().user
+    current = user.models.default or user.env.get("MODEL") or None
+    in_local = get_default_model_source() == USER_CONFIG_SOURCE_LOCAL
+    return current, in_local
 
 
 def _create_config(provider: str, model: str | None = None) -> Path | None:
@@ -366,8 +395,7 @@ def _create_config(provider: str, model: str | None = None) -> Path | None:
             model = provider
 
     try:
-        current = get_config().user.models.default
-        in_local = get_default_model_source() == USER_CONFIG_SOURCE_LOCAL
+        current, in_local = _current_default_model()
     except tomlkit.exceptions.TOMLKitError:
         corrupt_paths = _get_corrupt_config_paths()
         if not corrupt_paths:
@@ -389,25 +417,34 @@ def _create_config(provider: str, model: str | None = None) -> Path | None:
         # the unparseable file aside, not to replace a default that was never
         # corrupt.
         try:
-            current = get_config().user.models.default
-            in_local = get_default_model_source() == USER_CONFIG_SOURCE_LOCAL
+            current, in_local = _current_default_model()
         except tomlkit.exceptions.TOMLKitError:
             current = None
             in_local = False
+        except ValueError as e:
+            # A surviving config parses but is not a valid user config (e.g.
+            # ``hooks`` set to a scalar). The corrupt files are already in
+            # their backups; say what is left instead of a traceback.
+            console.print(f"\n[red]The user config is still invalid: {e}[/red]")
+            console.print(
+                "Fix that setting and re-run onboarding. "
+                "The moved files are kept in the backups listed above.",
+                markup=False,
+            )
+            return None
 
     # config.local.toml overrides config.toml, so update it if it sets one.
     # Use the startup loader, which also accepts legacy-encoded files.
-    _, local_path = get_user_config_paths()
-    if not in_local and _local_config_sets_non_table_models(local_path):
-        console.print(
-            f"\n[red]{local_path} sets `models` to a value that is not a table.[/red]"
-        )
-        console.print(
-            "It replaces the whole [models] table from config.toml, so a default "
-            "saved there would be discarded. Fix that entry to a [models] table "
-            "and re-run onboarding.",
-            markup=False,
-        )
+    main_path, local_path = get_user_config_paths()
+    # The local file is also the write target when it sets the default (or
+    # ``[env].MODEL``), so its own non-table ``models`` must be refused on that
+    # path too: the writer would otherwise raise after the user confirmed the
+    # replacement.
+    if _config_sets_non_table_models(local_path):
+        _refuse_non_table_models(local_path, shadows_main=True)
+        return None
+    if not in_local and _config_sets_non_table_models(main_path):
+        _refuse_non_table_models(main_path, shadows_main=False)
         return None
 
     if current and current != model:
