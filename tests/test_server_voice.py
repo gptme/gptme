@@ -582,3 +582,23 @@ def test_tunnel_request_line_uses_explicit_query_and_injected_headers():
     assert "X-Gptme-Voice-Secret: real" in raw
     assert "forged" not in raw
     assert "sec-websocket-key: k" in raw.lower()
+
+
+def test_session_without_a_healthy_provider_reports_the_outage(
+    client: FlaskClient, manager, monkeypatch
+):
+    monkeypatch.setattr(manager.sidecars["openai"], "healthy", lambda: False)
+    conv = _new_conversation(client)
+    resp = client.post(f"/api/v2/conversations/{conv}/voice/session", json={})
+    assert resp.status_code == 503
+    assert "voice service not responding" in resp.get_json()["error"]
+
+
+def test_only_the_serving_process_starts_sidecars(monkeypatch):
+    from gptme.server.cli import _is_reloader_parent
+
+    monkeypatch.delenv("WERKZEUG_RUN_MAIN", raising=False)
+    assert _is_reloader_parent(debug=True)
+    assert not _is_reloader_parent(debug=False)
+    monkeypatch.setenv("WERKZEUG_RUN_MAIN", "true")
+    assert not _is_reloader_parent(debug=True)

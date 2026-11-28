@@ -20,6 +20,9 @@ import type { VoiceProviderStatus } from '@/types/api';
 
 // While voice is unavailable (e.g. sidecars still starting), check again this often.
 const UNAVAILABLE_REFETCH_MS = 15_000;
+// Still poll (slowly) while available: a sidecar can die or the server can
+// restart without voice, and the button should then disappear.
+const AVAILABLE_REFETCH_MS = 60_000;
 
 interface Props {
   /** Conversation the call is bound to. */
@@ -85,7 +88,8 @@ export function VoiceButton({ conversationId, serverId, startConversation }: Pro
     enabled: isConnected,
     staleTime: 30_000,
     retry: false,
-    refetchInterval: (query) => (query.state.data?.available ? false : UNAVAILABLE_REFETCH_MS),
+    refetchInterval: (query) =>
+      query.state.data?.available ? AVAILABLE_REFETCH_MS : UNAVAILABLE_REFETCH_MS,
   });
 
   const providers: VoiceProviderStatus[] = (status?.providers ?? []).filter((p) => p.available);

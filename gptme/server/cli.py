@@ -89,6 +89,15 @@ def _parse_tools_allowlist(tools: str | None) -> list[str] | None:
     return names
 
 
+def _is_reloader_parent(debug: bool) -> bool:
+    """Whether this is Werkzeug's reloader parent, which never serves requests.
+
+    Under ``--debug`` the reloader re-runs the CLI in a child process that
+    serves; the parent only watches files.
+    """
+    return debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+
+
 def _pid_alive(pid: int) -> bool:
     """Check if a PID is still alive on this host.
 
@@ -457,7 +466,8 @@ def serve(
 
     from .voice_api import init_voice, voice_enabled_from_env
 
-    if voice or voice_enabled_from_env():
+    # Only the serving process starts sidecars (not the reloader's parent).
+    if (voice or voice_enabled_from_env()) and not _is_reloader_parent(debug):
         from ..llm.models import get_default_model  # fmt: skip
 
         default_model = get_default_model()

@@ -411,6 +411,15 @@ def api_voice_session(conversation_id: str):
         return flask.jsonify({"error": "provider must be a string"}), 400
     status = _manager.status()
     provider = requested or status["default_provider"]
+    if provider is None:
+        # No healthy sidecar to default to: report the outage, not a bad request.
+        reasons = "; ".join(
+            f"{p['label']}: {p['reason']}" for p in status["providers"] if p["reason"]
+        )
+        return (
+            flask.jsonify({"error": f"no voice provider available ({reasons})"}),
+            503,
+        )
     if provider not in VOICE_PROVIDERS:
         return flask.jsonify({"error": f"unknown voice provider: {provider}"}), 400
     entry = next(p for p in status["providers"] if p["id"] == provider)
