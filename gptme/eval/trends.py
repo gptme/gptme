@@ -334,7 +334,7 @@ def format_diff(diffs: dict) -> str:
     return "\n".join(lines)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Track eval result trends over time")
     parser.add_argument(
         "--results-dir",
@@ -376,7 +376,11 @@ def main():
         default="table",
         help="Output format",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
 
     if not args.results_dir.is_dir():
         print(f"Results directory not found: {args.results_dir}", file=sys.stderr)

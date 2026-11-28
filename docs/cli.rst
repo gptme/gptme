@@ -113,11 +113,23 @@ default ``XDG_DATA_HOME``, this is:
     autoload -Uz compinit
     compinit
 
-Restart the shell after installation. These completions cover the Click-based
-entry points, including optional commands when their extras are installed.
-``gptme-wut``, ``gptme-convert``, and ``gptme-eval-trends`` currently use argparse
-and are not covered; ``gptme-acp`` is a stdio protocol transport, not an interactive
-CLI.
+Shortcuts complete like the command they dispatch to: ``gptme ch<Tab>`` suggests
+``chats``, and ``gptme chats l<Tab>`` completes from ``gptme-util chats``. Other
+prompt words complete as file paths.
+
+Restart the shell after installation. These completions cover every entry point,
+including optional commands when their extras are installed. ``gptme-wut``,
+``gptme-convert``, and ``gptme-eval-trends`` use argparse: their scripts are
+generated from the parser at install time and never run the command, so pressing
+Tab cannot capture a tmux pane, convert a file, or read eval results. Rerun the
+installer after upgrading gptme to pick up new options. ``gptme-acp`` is a stdio
+protocol transport, not an interactive CLI, and has no completion.
+
+On Bash 3.2, these argparse completions use Readline's native filename fallback
+when there are no generated matches. This preserves path quoting and directory
+completion, but can also suggest filenames for free-text values such as
+``gptme-eval-trends --model``. Bash 4 and newer limit filename handling to path
+arguments.
 
 Common invocations
 ------------------

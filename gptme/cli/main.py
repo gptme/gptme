@@ -29,7 +29,7 @@ import gptme
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..util.multiprompt import group_prompt_args as _group_prompt_args
-from .completion import complete_model, complete_tools
+from .completion import complete_model, complete_prompt, complete_tools
 
 # NOTE: keep module-level imports of the wider gptme package out of this file.
 # Importing gptme.cli.main should stay cheap: `gptme --help`, `--version`, and
@@ -41,6 +41,8 @@ from .completion import complete_model, complete_tools
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import FrameType
+
+    from click.shell_completion import CompletionItem
 
     from ..logmanager import ConversationMeta
     from ..profiles import Profile
@@ -101,6 +103,18 @@ class _DynamicHelpCommand(click.Command):
     """
 
     _help_expanded = False
+
+    def shell_complete(
+        self, ctx: click.Context, incomplete: str
+    ) -> list[CompletionItem]:
+        """Complete a dash token from gptme-util when the words dispatch to it."""
+        if incomplete.startswith("-"):
+            from .completion import complete_shortcut
+
+            delegated = complete_shortcut(ctx, incomplete)
+            if delegated is not None:
+                return delegated
+        return super().shell_complete(ctx, incomplete)
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         """Reject unknown leading options; keep utility arguments opaque to Click."""
@@ -653,6 +667,7 @@ def _same_env_executable(name: str) -> str | None:
     default=None,
     required=False,
     nargs=-1,
+    shell_complete=complete_prompt,
 )
 @click.option(
     "--name",

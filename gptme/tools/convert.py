@@ -39,6 +39,7 @@ from ..util.workspace import current_workspace
 from .base import Parameter, ToolSpec
 
 if TYPE_CHECKING:
+    import argparse
     from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
@@ -1396,7 +1397,7 @@ tool = ToolSpec(
 # ---------------------------------------------------------------------------
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -1430,7 +1431,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # list-formats subcommand
     sub.add_parser("list-formats", help="List supported conversion formats")
+    return parser
 
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.cmd == "check-tools":
