@@ -9,9 +9,12 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import click
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # Optional Playwright import — present only when the browser extra is installed.
 # Defined at module level so tests can patch `gptme.cli.cmd_computer.sync_playwright`.
@@ -20,6 +23,7 @@ try:
 except ImportError:  # pragma: no cover
     sync_playwright = cast(Any, None)
 
+from ..codeblock import Codeblock
 from ..dirs import get_logs_dir
 from ..logmanager import _gen_read_jsonl
 from ..tools._computer_gate import (
@@ -199,6 +203,32 @@ def _extract_block_calls(code: str, ts: str | None) -> list[dict]:
     return [r for _, _, r in sorted(found, key=lambda f: f[:2])]
 
 
+# Block languages the ipython tool executes (gptme/tools/python.py block_types).
+# Matched directly rather than through the loaded-tool registry: the audit reads
+# saved logs, so it must not depend on (or load) the current process's tools —
+# a TOOL_ALLOWLIST without ipython, or configured MCP servers, would otherwise
+# hide saved calls or start servers just to read a file.
+_IPYTHON_BLOCK_LANGS = frozenset({"ipython", "py"})
+
+
+def _saved_ipython_code(content: str) -> Iterator[str]:
+    """Code of every ipython call saved in a message, in any tool format.
+
+    Markdown blocks, XML ``<ipython>`` calls and native ``@ipython: {...}``
+    calls are all parsed without the loaded-tool registry.
+    """
+    for block in Codeblock.iter_from_markdown(content):
+        if block.lang.split(" ")[0] in _IPYTHON_BLOCK_LANGS and block.content:
+            yield block.content
+    for tu in ToolUse._iter_from_xml(content):
+        if tu.tool == "ipython" and tu.content:
+            yield tu.content
+    for tu in ToolUse.iter_from_content(content, tool_format_override="tool"):
+        code = (tu.kwargs or {}).get("code")
+        if tu._format == "tool" and tu.tool == "ipython" and isinstance(code, str):
+            yield code
+
+
 def _extract_computer_calls(messages) -> list[dict]:
     """Extract computer-use actions from a message list.
 
@@ -230,9 +260,8 @@ def _extract_computer_calls(messages) -> list[dict]:
         if msg.role != "assistant":
             continue
         ts = msg.timestamp.isoformat() if msg.timestamp else None
-        for tu in ToolUse.iter_from_content(msg.content):
-            if tu.is_runnable and tu.content:
-                records.extend(_extract_block_calls(tu.content, ts))
+        for code in _saved_ipython_code(msg.content):
+            records.extend(_extract_block_calls(code, ts))
     return records
 
 
