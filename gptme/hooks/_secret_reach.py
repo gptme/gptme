@@ -819,10 +819,11 @@ def find_secret_reach(
                 else [anchor(normalize(operand))]
             )
             for path in expanded:
-                globbed = operand in patterns
-                # A glob match is a concrete name, so its link target counts too.
+                # Set for glob matches and literal reader arguments alike. These
+                # are concrete names, so their link targets count too.
+                scanned = operand in patterns
                 if (
-                    globbed
+                    scanned
                     and (is_secret(os.path.abspath(path)) or links_to_secret(path))
                     and os.path.isfile(path)
                 ):
@@ -849,7 +850,7 @@ def find_secret_reach(
                         if (
                             (
                                 is_secret(os.path.abspath(reached))
-                                or (globbed and links_to_secret(reached))
+                                or (scanned and links_to_secret(reached))
                             )
                             and grep
                             and _selected(grep, reached, path)

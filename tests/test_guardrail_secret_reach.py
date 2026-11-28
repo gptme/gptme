@@ -1200,6 +1200,7 @@ def test_workspace_under_dev_is_still_checked(linked_workspace: Path) -> None:
         "cat <note*",
         "grep synthetic note*",
         "grep -r synthetic key*",
+        "grep -R synthetic .",
         "cat `echo notes.txt`",
         "cat -- -notes",
         "cat < -notes",
@@ -1223,6 +1224,7 @@ def test_linked_secret_behind_shell_syntax_is_detected(
     [
         "cat read*",
         "grep -r plain read*",
+        "grep -r synthetic .",
         "cat `echo readme`",
         "cat -- readme",
         "cat < readme",
