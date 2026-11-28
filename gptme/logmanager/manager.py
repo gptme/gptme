@@ -1859,18 +1859,25 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
     # not make the conversation (and every listing that reads it) unreadable.
     with open(path, encoding="utf-8", errors="replace") as file:
         for line in file:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                message = _message_from_json_line(line, path, _file_mtime)
-            except json.JSONDecodeError:
-                logger.warning(f"Skipping malformed JSON line in {path}")
-                continue
-            except (ValueError, TypeError, AttributeError, KeyError) as e:
-                logger.warning(f"Skipping invalid message line in {path}: {e}")
-                continue
-            yield message
+            message = _parse_jsonl_message(line, path, _file_mtime)
+            if message is not None:
+                yield message
+
+
+def _parse_jsonl_message(
+    line: str, path: PathLike, file_mtime: datetime
+) -> Message | None:
+    """Parse a transcript line, skipping rows the log reader cannot use."""
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        return _message_from_json_line(line, path, file_mtime)
+    except json.JSONDecodeError:
+        logger.warning(f"Skipping malformed JSON line in {path}")
+    except (ValueError, TypeError, AttributeError, KeyError) as e:
+        logger.warning(f"Skipping invalid message line in {path}: {e}")
+    return None
 
 
 def _message_from_json_line(line: str, path: PathLike, file_mtime: datetime) -> Message:

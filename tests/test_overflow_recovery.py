@@ -1,6 +1,9 @@
 """Overflow retries preserve views, whole turns, and the output boundary."""
 
 import importlib
+import json
+import re
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -10,6 +13,11 @@ from gptme.llm import mark_llm_reply_origin
 from gptme.logmanager import LogManager
 from gptme.message import Message
 from gptme.util.context_measurement import input_log_digest
+from gptme.util.master_context import (
+    MessageByteRange,
+    build_master_context_index,
+    recover_from_master_context,
+)
 
 
 def overflow() -> httpx.HTTPStatusError:
@@ -32,6 +40,71 @@ def history() -> list[Message]:
         Message("system", "More results " * 200),
         Message("user", "Continue"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("ignored_line", "newline"),
+    [
+        pytest.param(b"", b"\n", id="clean"),
+        pytest.param(b'{"role":"assistant","content":"torn\xff', b"\n", id="torn"),
+        pytest.param(b" \t", b"\r\n", id="blank-crlf"),
+        pytest.param(b"[]", b"\r", id="invalid-object-cr"),
+        pytest.param(
+            b'{"role":"user","content":"ignored","timestamp":"invalid"}',
+            b"\n",
+            id="invalid-timestamp",
+        ),
+    ],
+)
+def test_overflow_reference_recovers_original_tool_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ignored_line: bytes, newline: bytes
+) -> None:
+    from gptme.llm.models import get_model
+    from gptme.tools.autocompact.recovery import compact_for_overflow
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.engine.get_default_model", lambda: get_model("gpt-4")
+    )
+    output = "\n".join(f"résultat {i}: {i * 7919}" for i in range(1500))
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "Original task"),
+        Message("assistant", "Earlier response"),
+        Message("user", "Continue"),
+        Message("assistant", "```shell\nseq 1500\n```"),
+        Message("system", output),
+        Message("assistant", "Done"),
+    ]
+    lines = [json.dumps(m.to_dict(), ensure_ascii=False).encode() for m in messages]
+    if ignored_line:
+        lines.insert(2, ignored_line)
+    logfile = tmp_path / "conversation.jsonl"
+    original_bytes = newline.join(lines)
+    logfile.write_bytes(original_bytes)
+
+    manager = LogManager.load(tmp_path, lock=False)
+    assert manager.log.messages == messages
+    compacted = compact_for_overflow(manager)
+
+    stub = next(m.content for m in compacted if "Master context:" in m.content)
+    reference = re.search(
+        r"^Master context: (.+) \(bytes (\d+)-(\d+)\)$", stub, re.MULTILINE
+    )
+    assert reference is not None
+    path, start, end = reference.groups()
+    assert Path(path) == logfile
+    recovered = recover_from_master_context(
+        logfile, MessageByteRange(5, int(start), int(end))
+    )
+    assert recovered == output, f"Reference recovered {recovered[:60]!r}"
+
+    # Recover the adjacent valid messages too, including the unterminated last line.
+    index = build_master_context_index(logfile)
+    assert [entry.message_idx for entry in index] == list(range(len(messages)))
+    assert [recover_from_master_context(logfile, entry) for entry in index] == [
+        m.content for m in messages
+    ]
+    assert logfile.read_bytes() == original_bytes
 
 
 def cli_reply(manager: LogManager) -> Message:

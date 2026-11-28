@@ -10,6 +10,7 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..message import Message
@@ -103,24 +104,25 @@ def build_master_context_index(logfile: Path) -> list[MessageByteRange]:
     Returns:
         List of MessageByteRange objects mapping message indices to byte ranges
     """
-    index = []
+    from ..logmanager.manager import _parse_jsonl_message
+
+    index: list[MessageByteRange] = []
 
     try:
-        with open(logfile, "rb") as f:
+        # Recognize the same line endings as the log reader and preserve the
+        # original bytes (including invalid UTF-8) when counting offsets.
+        with logfile.open(encoding="utf-8", errors="surrogateescape", newline="") as f:
+            file_mtime = datetime.fromtimestamp(
+                logfile.stat().st_mtime, tz=timezone.utc
+            )
             byte_offset = 0
-            msg_idx = 0
-
             for line in f:
-                line_len = len(line)
-                index.append(
-                    MessageByteRange(
-                        message_idx=msg_idx,
-                        byte_start=byte_offset,
-                        byte_end=byte_offset + line_len,
-                    )
-                )
-                byte_offset += line_len
-                msg_idx += 1
+                raw_line = line.encode("utf-8", errors="surrogateescape")
+                byte_end = byte_offset + len(raw_line)
+                decoded = raw_line.decode("utf-8", errors="replace")
+                if _parse_jsonl_message(decoded, logfile, file_mtime) is not None:
+                    index.append(MessageByteRange(len(index), byte_offset, byte_end))
+                byte_offset = byte_end
 
     except FileNotFoundError:
         logger.warning(f"Master log not found: {logfile}")
