@@ -201,7 +201,10 @@ def test_version_verbose(runner: CliRunner):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="cannot remove an active cwd")
-def test_cli_reports_removed_cwd_with_explicit_workspace(tmp_path: Path) -> None:
+@pytest.mark.parametrize("extra_args", [(), ("--profile",)], ids=["plain", "profile"])
+def test_cli_reports_removed_cwd_with_explicit_workspace(
+    tmp_path: Path, extra_args: tuple[str, ...]
+) -> None:
     script = textwrap.dedent(
         """
         import os
@@ -217,12 +220,12 @@ def test_cli_reports_removed_cwd_with_explicit_workspace(tmp_path: Path) -> None
         cwd.rmdir()
         main([
             "-n", "-m", "mock/echo", "-w", str(root), "--name", "removed-cwd",
-            "--tools", "complete", "hi",
+            "--tools", "complete", *sys.argv[2:], "hi",
         ])
         """
     )
     result = subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path)],
+        [sys.executable, "-c", script, str(tmp_path), *extra_args],
         env={**os.environ, "HOME": str(tmp_path)},
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -233,6 +236,7 @@ def test_cli_reports_removed_cwd_with_explicit_workspace(tmp_path: Path) -> None
     assert result.returncode == 2, result.stderr
     assert "Current working directory no longer exists" in result.stderr
     assert "Traceback" not in result.stderr
+    assert "Profiling enabled" not in result.stdout
 
 
 def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner):
