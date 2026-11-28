@@ -971,6 +971,7 @@ describe('ApiClient event stream reconnection', () => {
     expect(callbacks.onReconnectState).toHaveBeenCalledWith({
       generating: false,
       pendingTools: [],
+      reconnectAttempt: 0,
     });
   });
 
@@ -1035,7 +1036,11 @@ describe('ApiClient event stream reconnection', () => {
     const onReconnectState = jest.fn();
     await client.subscribeToEvents('conv-1', { ...createSseCallbacks(), onReconnectState });
     MockEventSource.instances[0].emitMessage({ type: 'connected', session_id: 'session-1' });
-    expect(onReconnectState).toHaveBeenCalledWith({ generating: false, pendingTools: [] });
+    expect(onReconnectState).toHaveBeenCalledWith({
+      generating: false,
+      pendingTools: [],
+      reconnectAttempt: 0,
+    });
     client.closeEventStream('conv-1');
   });
 
@@ -1053,6 +1058,7 @@ describe('ApiClient event stream reconnection', () => {
       generating: true,
       latestUserTimestamp: '2026-11-19T23:00:00+00:00',
       pendingTools: [],
+      reconnectAttempt: 0,
     });
     client.closeEventStream('conv-1');
   });
@@ -1087,6 +1093,48 @@ describe('ApiClient event stream reconnection', () => {
 
     MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
     expect(client.sessions$.get('conv-1').get()).toBe('fresh');
+  });
+
+  it('restarts the fast retry budget when a dead stream is revived', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+    (callbacks.onConnectionState as jest.Mock).mockClear();
+
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+
+    // The slow counter that gave up says how long the outage lasted, not how
+    // many fast attempts the new connection gets: the first failure waits 1s
+    // instead of inheriting the multi-minute slow back-off.
+    MockEventSource.instances.at(-1)!.emitError();
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(callbacks.onConnectionState).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'reconnecting', retryInMs: 1000 })
+    );
+    client.dispose();
+  });
+
+  it('reports the outage length on the first handshake of a revived stream', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const onReconnectState = jest.fn();
+    const callbacks = { ...createSseCallbacks(), onReconnectState };
+    await client.subscribeToEvents('conv-1', callbacks);
+    await exhaustReconnectBudget(() => MockEventSource.instances.at(-1)!);
+    onReconnectState.mockClear();
+
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    MockEventSource.instances.at(-1)!.emitMessage({ type: 'connected', session_id: 'fresh' });
+
+    expect(onReconnectState).toHaveBeenCalledTimes(1);
+    // Zero would skip history recovery on this first revived handshake.
+    expect(onReconnectState.mock.calls[0][0].reconnectAttempt).toBeGreaterThan(0);
+    client.dispose();
   });
 
   // The pool swaps in a fresh client whenever the auth header changes (gptme.ai

@@ -6,6 +6,7 @@ import { getClientForServer } from '@/stores/serverClients';
 import {
   conversations$,
   initConversation,
+  replaceLog,
   setConnectionStatus,
   type PendingElicitation,
 } from '@/stores/conversations';
@@ -59,6 +60,7 @@ describe('useConversation', () => {
         onReconnectState?: (state: {
           generating: boolean;
           latestUserTimestamp?: string;
+          reconnectAttempt?: number;
           pendingTools: {
             tool_id: string;
             tooluse: { tool: string; content: string };
@@ -67,6 +69,8 @@ describe('useConversation', () => {
           pendingElicitations?: { id: string; type: string; prompt: string; options?: string[] }[];
         }) => void;
         onMessageStart?: () => void;
+        onToken?: (token: string) => void;
+        onMessageComplete?: (message: Message) => void;
         onMessageAdded?: (message: Message) => void;
         onStepComplete?: () => void;
         onToolPending?: (id: string, tooluse: any, auto: boolean) => void;
@@ -94,6 +98,7 @@ describe('useConversation', () => {
     closeEventStream,
     getConversation: jest.fn(),
     reconcileLateUploadOrder: jest.fn().mockResolvedValue(undefined),
+    resyncLogAfterReconnect: jest.fn().mockResolvedValue(undefined),
     getChatConfig,
     waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
   });
@@ -453,6 +458,191 @@ describe('useConversation', () => {
     act(() => eventHandlers!.onElicitPending!(elicitation));
     act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
     expect(conversations$.get('chat-placeholder')!.pendingElicitation.get()).toEqual(elicitation);
+  });
+
+  it('re-syncs the log on reconnect handshakes but not the first one (#5145)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const resync = primaryClient.resyncLogAfterReconnect as jest.Mock;
+    act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
+    expect(resync).not.toHaveBeenCalled();
+    act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
+    expect(resync).toHaveBeenCalledTimes(1);
+    expect(resync).toHaveBeenCalledWith('chat-placeholder');
+  });
+
+  it('discards an older page fetched before a reconnect resync replaced the window', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.logOffset.set(10);
+    conv$.hasMoreBefore.set(true);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    let resolvePage!: (data: unknown) => void;
+    (primaryClient.getConversation as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => (resolvePage = resolve))
+    );
+    let loading!: Promise<void>;
+    act(() => {
+      loading = result.current.loadOlderMessages();
+    });
+    // Resync replaced the window (bumping logRevision) while the page was in flight.
+    act(() => conv$.logRevision.set((revision) => revision + 1));
+    await act(async () => {
+      resolvePage({
+        log: [{ role: 'user', content: 'stale older', timestamp: '2026-06-06T00:00:00.000Z' }],
+        has_more: false,
+      });
+      await loading;
+    });
+    expect(conv$.data.log.get().map((message) => message.content)).not.toContain('stale older');
+    expect(conv$.logOffset.get()).toBe(10);
+  });
+
+  it('re-syncs when the first handshake follows a failed connection attempt (#5145)', async () => {
+    // The load succeeded but the first EventSource attempt failed before its
+    // handshake, so events persisted in between are never replayed.
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const resync = primaryClient.resyncLogAfterReconnect as jest.Mock;
+    act(() =>
+      eventHandlers!.onReconnectState!({
+        generating: false,
+        pendingTools: [],
+        reconnectAttempt: 1,
+      })
+    );
+    expect(resync).toHaveBeenCalledTimes(1);
+    expect(resync).toHaveBeenCalledWith('chat-placeholder');
+  });
+
+  it('rebinds streaming to the surviving reply when a merge drops the partial (#5158)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    act(() => eventHandlers!.onMessageStart!());
+    const conversation = conversations$.get('chat-placeholder')!;
+    const withPlaceholder = conversation.data.log.get();
+    expect(withPlaceholder.at(-1)?.role).toBe('assistant');
+
+    // A reconnect merge dropped or replaced the partial (its saved copy had
+    // already finished), so the tracked timestamp is gone from the log. Later
+    // tokens still belong to the reply being written.
+    act(() => {
+      replaceLog('chat-placeholder', [
+        withPlaceholder[0],
+        {
+          role: 'assistant',
+          content: 'Hello',
+          timestamp: '2026-11-25T00:00:05Z',
+          isComplete: false,
+        },
+      ]);
+    });
+    act(() => eventHandlers!.onToken!(' world'));
+
+    const log = conversations$.get('chat-placeholder')!.data.log.get();
+    expect(log.at(-1)?.content).toBe('Hello world');
+  });
+
+  it.each([true, false])(
+    'recovers a stream row with a prior start event=%s (#5158)',
+    async (sawStart) => {
+      renderHook(() => useConversation('chat-placeholder'));
+      await waitFor(() => expect(eventHandlers).toBeDefined());
+      if (sawStart) act(() => eventHandlers!.onMessageStart!());
+      const conversation = conversations$.get('chat-placeholder')!;
+      const prompt = conversation.data.log.get()[0];
+      const saved: Message = {
+        role: 'assistant',
+        content: 'Hello world',
+        timestamp: '2026-11-25T00:00:05Z',
+      };
+      const output: Message = {
+        role: 'system',
+        content: 'tool output',
+        timestamp: '2026-11-25T00:00:06Z',
+      };
+      // The old partial was superseded; the next generation_started was lost
+      // during the outage. Neither tokens nor completion may mutate saved.
+      act(() => replaceLog('chat-placeholder', [prompt, saved, output]));
+      act(() => eventHandlers!.onToken!('Next reply'));
+      expect(conversation.data.log.get().map((row) => row.content)).toEqual([
+        prompt.content,
+        saved.content,
+        output.content,
+        'Next reply',
+      ]);
+      act(() =>
+        eventHandlers!.onMessageComplete!({
+          role: 'assistant',
+          content: 'Next reply complete',
+          timestamp: '2026-11-25T00:00:07Z',
+        })
+      );
+      expect(conversation.data.log.get().map((row) => row.content)).toEqual([
+        prompt.content,
+        saved.content,
+        output.content,
+        'Next reply complete',
+      ]);
+    }
+  );
+
+  it('keeps distinct saved prompts sharing a timestamp and dedupes their replay (#5158)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const prompt = (content: string): Message => ({
+      role: 'user',
+      content,
+      timestamp: '2026-11-25T00:00:00.000Z',
+    });
+    act(() => {
+      eventHandlers!.onMessageAdded!(prompt('A'));
+      eventHandlers!.onMessageAdded!(prompt('B'));
+      eventHandlers!.onMessageAdded!(prompt('A'));
+    });
+    expect(
+      conversations$
+        .get('chat-placeholder')!
+        .data.log.get()
+        .slice(-2)
+        .map((row) => row.content)
+    ).toEqual(['A', 'B']);
+  });
+
+  it('keeps synthetic notices that share a timestamp but differ in content (#5158)', async () => {
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const timestamp = '2026-11-25T00:00:00.000Z';
+    const notice = (content: string): Message => ({
+      role: 'system',
+      content,
+      timestamp,
+      _synthetic: true,
+    });
+    act(() => {
+      eventHandlers!.onMessageAdded!(notice('subagent A finished'));
+      eventHandlers!.onMessageAdded!(notice('subagent B finished'));
+      // An identical replay (e.g. after a reconnect resync restored the row)
+      // still dedupes.
+      eventHandlers!.onMessageAdded!(notice('subagent A finished'));
+    });
+    const synthetic = conversations$
+      .get('chat-placeholder')!
+      .data.log.get()
+      .filter((message) => message._synthetic)
+      .map((message) => message.content);
+    expect(synthetic).toEqual(['subagent A finished', 'subagent B finished']);
+  });
+
+  it('re-syncs on the first handshake when re-subscribing a cached conversation (#5145)', async () => {
+    // Evicted by the connection cap or moved to a replacement client: the
+    // cached window is reused (no load), so the stream outage is unrecovered.
+    conversations$.get('chat-placeholder')!.streamClientGeneration.set(999);
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const resync = primaryClient.resyncLogAfterReconnect as jest.Mock;
+    act(() => eventHandlers!.onReconnectState!({ generating: false, pendingTools: [] }));
+    expect(resync).toHaveBeenCalledTimes(1);
+    expect(resync).toHaveBeenCalledWith('chat-placeholder');
   });
 
   it('clears stale pending approval when reconnect reports no pending tools', async () => {
@@ -1809,6 +1999,31 @@ describe('useConversation', () => {
     const after = conv$.data.log.get();
     expect(after.find((message) => message.timestamp === a!.timestamp)!._status).not.toBe('failed');
     expect(after.find((message) => message.timestamp === b!.timestamp)!._status).toBe('failed');
+  });
+
+  it('ignores message_added for rows a reconnect resync already restored', async () => {
+    const conv$ = conversations$.get('chat-placeholder')!;
+    conv$.needsInitialStep.set(false);
+    renderHook(() => useConversation('chat-placeholder'));
+    await waitFor(() => expect(eventHandlers).toBeDefined());
+    const prompt = conv$.data.log.get()[0];
+    const reply: Message = {
+      role: 'assistant',
+      content: 'Done',
+      timestamp: '2026-11-25T10:00:01Z',
+    };
+    const output: Message = {
+      role: 'system',
+      content: 'tool output',
+      timestamp: '2026-11-25T10:00:02Z',
+    };
+    // The resync GET added both saved rows before their events arrived.
+    conv$.data.log.set([prompt, reply, output]);
+    act(() => {
+      eventHandlers!.onMessageAdded!({ ...reply, timestamp: '2026-11-25T10:00:01.000000+00:00' });
+      eventHandlers!.onMessageAdded!(output);
+    });
+    expect(conv$.data.log.get()).toEqual([prompt, reply, output]);
   });
 
   it('keeps Retry when initial HTTP refusal precedes its SSE diagnostic', async () => {

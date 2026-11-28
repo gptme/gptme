@@ -364,6 +364,16 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
 
+        // The first handshake follows the load above; later ones are reconnects
+        // (the callbacks survive api.ts retries) and must re-sync the log.
+        // Re-subscribing a cached window skips the load (eviction by the
+        // connection cap, credential-driven client replacement), so when an
+        // earlier stream existed its outage must be recovered on the first
+        // handshake too. streamClientGeneration is recorded just below.
+        const resubscribedWithoutLoad =
+          isWindowHydrated && conversation$?.streamClientGeneration?.peek() != null;
+        let handshakes = resubscribedWithoutLoad ? 1 : 0;
+
         // Keep stream ownership by identity: a late attachment POST can append
         // a user message after the assistant currently receiving tokens.
         let streamingTimestamp: string | undefined;
@@ -374,8 +384,31 @@ export function useConversation(conversationId: string, serverId?: string) {
                 (message) =>
                   message.role === 'assistant' && message.timestamp === streamingTimestamp
               )
-            : messages.length - 1;
-          return index >= 0 ? conversation$?.data.log[index] : undefined;
+            : -1;
+          if (index >= 0) return conversation$?.data.log[index];
+          // Only an incomplete row can own the ongoing generation. A saved
+          // reply followed by tool output belongs to an earlier generation;
+          // its successor's generation_started may have been lost in the outage.
+          const lastAssistant = messages
+            .map(
+              (message) =>
+                message.role === 'assistant' && 'isComplete' in message && !message.isComplete
+            )
+            .lastIndexOf(true);
+          if (lastAssistant >= 0) {
+            const rebound = conversation$?.data.log[lastAssistant];
+            streamingTimestamp = rebound?.timestamp.get();
+            return rebound;
+          }
+          const placeholder: StreamingMessage = {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            isComplete: false,
+          };
+          addMessage(conversationId, placeholder);
+          streamingTimestamp = placeholder.timestamp;
+          return conversation$?.data.log[conversation$.data.log.length - 1];
         };
 
         // Connect to event stream. Record the client generation that owns the
@@ -535,8 +568,23 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onMessageAdded: (message) => {
-              // Check if this message already exists (ignoring timestamp)
+              // A reconnect resync may already have restored this saved row,
+              // possibly followed by later rows: match by identity across the log.
+              // Timestamp-only identity is too coarse: two prompts or notices
+              // can share a timestamp, so a replay must also match content.
               const messages$ = conversation$?.data.log;
+              const log = (messages$?.peek() ?? []) as Message[];
+              if (
+                log.some(
+                  (entry) =>
+                    sameLogMessage(entry, message) &&
+                    entry.content === message.content &&
+                    entry._synthetic === message._synthetic
+                )
+              ) {
+                return;
+              }
+              // Check if this message already exists (ignoring timestamp)
               const lastMessage$ = messages$?.[messages$.length - 1];
               if (
                 lastMessage$?.role.get() === message.role &&
@@ -881,6 +929,17 @@ export function useConversation(conversationId: string, serverId?: string) {
                   // The agent is blocked on this answer, not generating.
                   setGenerating(conversationId, false);
                 }
+              }
+              // The server starts a reconnected stream at its current event
+              // count, so anything persisted during the outage is never
+              // replayed. Re-fetch the log to recover it (#5145).
+              // A retried first attempt is a reconnect too: the handshake can
+              // arrive long after the load, so events persisted in between are
+              // missing even though this page never saw an earlier handshake.
+              if (handshakes++ > 0 || (state.reconnectAttempt ?? 0) > 0) {
+                api.resyncLogAfterReconnect(conversationId).catch((error) => {
+                  console.warn('[useConversation] Failed to re-sync log after reconnect:', error);
+                });
               }
             },
             onConversationEdited: (data) => {
@@ -1639,11 +1698,15 @@ export function useConversation(conversationId: string, serverId?: string) {
     if (loadingOlderMessagesRef.current) return;
     loadingOlderMessagesRef.current = true;
     isLoadingOlderMessages$.set(true);
+    const revision = conv$.logRevision.peek();
     try {
       const data = await api.getConversation(conversationId, {
         limit: 50,
         before: logOffset,
       });
+      // A reconnect resync or edit replaced the window while this page was in
+      // flight; the page no longer adjoins the displayed log.
+      if (conv$.logRevision.peek() !== revision || conv$.logOffset.peek() !== logOffset) return;
       prependLogPage(
         conversationId,
         data.log,

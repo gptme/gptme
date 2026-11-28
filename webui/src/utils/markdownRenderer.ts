@@ -56,6 +56,22 @@ function isMarkdownOrHtml(language: string | null | undefined): boolean {
   );
 }
 
+// Schemes that can run script when navigated to. `data:` is only dropped for
+// links: a data: image cannot run script, but a data: link can open HTML.
+const UNSAFE_HREF_SCHEME = /^(?:javascript|vbscript|data):/;
+const UNSAFE_SRC_SCHEME = /^(?:javascript|vbscript):/;
+
+/**
+ * Whether a markdown link/image URL is safe to put in href/src. Browsers strip
+ * ASCII whitespace/control characters from URLs before reading the scheme
+ * (e.g. `java\tscript:`), so normalize the same way before matching.
+ */
+function isSafeMarkdownUrl(type: 'href' | 'src', value: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  const normalized = value.replace(/[\u0000-\u0020\u007f]/g, '').toLowerCase();
+  return !(type === 'href' ? UNSAFE_HREF_SCHEME : UNSAFE_SRC_SCHEME).test(normalized);
+}
+
 /**
  * CustomRendererData extends the default renderer data with additional properties
  * for tracking code blocks, their language, and content.
@@ -312,6 +328,8 @@ export function customRenderer(
           data.code.setAttribute('class', `hljs ${langFromInfo ? `language-${langFromInfo}` : ''}`);
         }
       } else if (type === smd.SRC) {
+        // Drop script URLs entirely (#5145), before the remote-image check.
+        if (!isSafeMarkdownUrl('src', value)) return;
         const node = data.nodes[data.index];
         if (node instanceof HTMLImageElement && isRemoteImageUrl(value)) {
           // Model output is model-controlled, so a remote image is an
@@ -324,7 +342,11 @@ export function customRenderer(
         }
         smd.default_set_attr(data, type, value);
       } else if (type === smd.HREF) {
-        smd.default_set_attr(data, type, value);
+        // Model/tool-controlled markdown must not produce script URLs (#5145);
+        // leave the link without an href so its text still renders.
+        if (isSafeMarkdownUrl('href', value)) {
+          smd.default_set_attr(data, type, value);
+        }
         // Open external links in new tab
         const node = data.nodes[data.index];
         node.setAttribute('target', '_blank');

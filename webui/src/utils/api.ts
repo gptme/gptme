@@ -30,8 +30,10 @@ import {
   setTopP,
   clearInitialStepState,
   replaceLog,
+  replaceLogWindow,
   removeMessage,
   addMessage,
+  updateBranches,
   conversations$,
 } from '@/stores/conversations';
 
@@ -139,6 +141,195 @@ function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]
     }),
     ...local.filter((entry) => !snapshot.some((saved) => sameLogMessage(entry, saved))),
   ];
+}
+
+/** Per-conversation reconnect resync state (see ApiClient.resyncLogAfterReconnect). */
+interface LogResync {
+  rerun: boolean;
+  epoch: number;
+  running: Promise<void>;
+  /** Timeouts already retried by this resync loop (bounded). */
+  timeouts: number;
+}
+
+/** Window size for the reconnect resync; matches the initial conversation load. */
+const RECONNECT_RESYNC_LIMIT = 50;
+
+/**
+ * Deadline for the reconnect resync's history request. A stalled server or
+ * proxy must not hold the recovery (and every later reconnect queued behind
+ * it) open indefinitely; the next reconnect retries the resync.
+ */
+const RECONNECT_RESYNC_TIMEOUT_MS = 10_000;
+
+/**
+ * A timed-out resync is retried this many times before the recovery gives up
+ * until the next reconnect: the history fetch is the only way events persisted
+ * during the outage come back, so a slow server must not silently lose them.
+ */
+const RECONNECT_RESYNC_MAX_TIMEOUT_RETRIES = 2;
+
+/**
+ * Merge a fresh server window into the local log after an event-stream
+ * reconnect. Messages persisted while the stream was down are never replayed
+ * (the server starts the new stream at its current event count), so the
+ * snapshot is the only way to recover them.
+ *
+ * - When the local log contains the snapshot's first message at the same
+ *   server index (`localOffset + anchor === snapshot start`), older pages the
+ *   user loaded are kept and the snapshot replaces everything from there on.
+ *   An index mismatch means history shifted (e.g. a peer deleted a message),
+ *   so the kept rows would carry wrong indices for edit/delete.
+ * - Otherwise the snapshot becomes the new window (`window` is returned so the
+ *   caller resets pagination).
+ * - Local rows absent from the snapshot survive only when they are unsaved
+ *   prompts or the last `arrivedCount` rows, which arrived over the new stream
+ *   while the request was in flight. An incomplete assistant survives only
+ *   while generation is still running; otherwise the server has finished (or
+ *   dropped) it. An incomplete partial whose saved reply the server already
+ *   finished (a later row follows it) is dropped: the server moved on, and
+ *   keeping the prefix would show the reply twice. Any other absent complete
+ *   row was deleted by another client and is dropped rather than resurrected
+ *   at a fabricated position.
+ */
+export function mergeReconnectSnapshot(
+  local: Message[],
+  snapshot: Message[],
+  options: {
+    generating: boolean;
+    localOffset: number;
+    snapshotOffset: number;
+    snapshotHasMore: boolean;
+    arrivedCount: number;
+    /** Prompts that were still unsaved when the request started: the snapshot
+     *  may predate their save even if they are marked `sent` by now. */
+    pendingAtStart?: Message[];
+    /** The local rows (by identity) when the request started. A row not among
+     *  them was added or replaced while the request was in flight (e.g. a
+     *  reply completed by generation_complete), so the snapshot may predate it. */
+    startRows?: Message[];
+  }
+): { log: Message[]; window?: { logOffset: number; hasMoreBefore: boolean } } {
+  const isIncomplete = (entry: Message) => 'isComplete' in entry && entry.isComplete === false;
+  const matches = (entry: Message, saved: Message) => {
+    const unsavedPrompt =
+      entry.role === 'user' &&
+      (entry._status === 'pending' ||
+        (entry._status === 'failed' && entry._retry?.persistence !== 'saved') ||
+        options.pendingAtStart?.some((prompt) => prompt === entry));
+    // A timestamp is not a server identity for a local unsaved prompt. A
+    // colliding peer prompt must not inherit its Retry state or swallow it.
+    if (
+      unsavedPrompt &&
+      (entry.content !== saved.content ||
+        JSON.stringify(entry.files ?? []) !== JSON.stringify(saved.files ?? []))
+    ) {
+      return false;
+    }
+    return (
+      sameLogMessage(entry, saved) ||
+      (!entry.timestamp && entry.role === saved.role && entry.content === saved.content)
+    );
+  };
+  // While generating, the snapshot may already hold the saved copy of the
+  // reply the stream is still filling (generation_complete not yet received).
+  // Pair the partial with that row so it keeps the stream's identity instead
+  // of surviving next to it and being completed into a duplicate.
+  const folded = new Map<number, Message>();
+  // A partial whose saved copy the server already finished and moved past: a
+  // tool ran (or a later turn was written) after it, so the local copy is a
+  // stale prefix and keeping it would show the reply twice.
+  const superseded = new Set<Message>();
+  const startRows = options.startRows ? new Set(options.startRows) : undefined;
+  if (options.generating) {
+    const lastAssistant = snapshot.map((entry) => entry.role).lastIndexOf('assistant');
+    // Only the tail can be the reply the server is still writing. Anything
+    // after the saved assistant means it is complete and generation moved on
+    // to a new message, which the resync does not observe (`generation_started`
+    // for it is not replayed), so folding would hand the partial's timestamp to
+    // a finished row and let the new reply's tokens overwrite it.
+    const isTail = lastAssistant === snapshot.length - 1;
+    local.forEach((entry, index) => {
+      if (lastAssistant < 0 || entry.role !== 'assistant' || !isIncomplete(entry)) return;
+      // A reply that started while the fetch was in flight is new: it can only
+      // look like an older saved reply (empty placeholder, shared opening text)
+      // by accident, so folding or dropping it would strand its later tokens.
+      if (startRows && !startRows.has(entry)) return;
+      if (snapshot.some((saved) => matches(entry, saved))) return;
+      const saved = snapshot[lastAssistant];
+      if (folded.has(lastAssistant) || !saved.content.startsWith(entry.content)) return;
+      if (local.some((candidate) => matches(candidate, saved))) return;
+      // The saved reply must come after the row the partial followed locally.
+      const before = index > 0 ? snapshot.findIndex((row) => matches(local[index - 1], row)) : -1;
+      if (index > 0 && before < 0) return;
+      if (before >= lastAssistant) return;
+      if (isTail) folded.set(lastAssistant, entry);
+      else superseded.add(entry);
+    });
+  }
+  const foldedRows = new Set(folded.values());
+  const inSnapshot = (entry: Message) =>
+    foldedRows.has(entry) || snapshot.some((saved) => matches(entry, saved));
+  const pendingAtStart = options.pendingAtStart ?? [];
+  const merged = snapshot.map((entry, snapshotIndex) => {
+    const previous =
+      local.find((candidate) => matches(candidate, entry)) ?? folded.get(snapshotIndex);
+    if (!previous) return entry;
+    // Start from the server row (a field it omits, e.g. `files` after the
+    // last attachment was removed, is gone) and keep only the local identity
+    // spelling and the client-only `_` fields.
+    const clientFields = Object.fromEntries(
+      Object.entries(previous).filter(([key]) => key.startsWith('_'))
+    );
+    return {
+      ...entry,
+      ...clientFields,
+      timestamp: previous.timestamp ?? entry.timestamp,
+      // A live partial the server has not saved keeps streaming. A partial
+      // folded into its saved copy takes the saved text: the stream does not
+      // replay generation_complete, so the partial would stay cut off.
+      ...(options.generating && isIncomplete(previous) && !folded.has(snapshotIndex)
+        ? { content: previous.content, isComplete: false }
+        : {}),
+    } as Message;
+  });
+  const snapshotStart = options.snapshotHasMore ? options.snapshotOffset : 0;
+  const anchor = snapshot.length > 0 ? local.findIndex((entry) => matches(entry, snapshot[0])) : -1;
+  // A local row the snapshot does not have survives only if it is an
+  // unacknowledged prompt or a row the stream delivered while the request was
+  // in flight. A complete row the server no longer has was deleted by another
+  // client; keeping it would resurrect it at a fabricated position, and the
+  // positional edit/delete guard does not cover persisted rows.
+  const arrivedFrom = local.length - Math.max(0, options.arrivedCount);
+  // Rows before the first surviving start row were prepended ("Load older
+  // messages"), not written during the request.
+  const startFloor = startRows ? local.findIndex((entry) => startRows.has(entry)) : -1;
+  const survives = (entry: Message, index: number) =>
+    !inSnapshot(entry) &&
+    !superseded.has(entry) &&
+    (options.generating || !isIncomplete(entry)) &&
+    (entry._status === 'pending' ||
+      // A failed send the server never persisted is a local draft. One it did
+      // persist is a server row: if the snapshot no longer has it, a peer
+      // deleted it and keeping it would resurrect it at a fabricated position.
+      (entry._status === 'failed' && entry._retry?.persistence !== 'saved') ||
+      entry._synthetic === true ||
+      pendingAtStart.some((prompt) => matches(entry, prompt)) ||
+      (startRows !== undefined && index > startFloor && !startRows.has(entry)) ||
+      index >= arrivedFrom ||
+      isIncomplete(entry));
+  if (anchor >= 0 && options.localOffset + anchor === snapshotStart) {
+    const tail = local.slice(anchor).filter((entry, index) => survives(entry, index + anchor));
+    return { log: [...local.slice(0, anchor), ...merged, ...tail] };
+  }
+  // No aligned overlap: older local rows cannot be placed relative to the
+  // snapshot. Keep rows the server has not acknowledged yet, plus rows that
+  // arrived during the request (the snapshot may predate them).
+  const kept = local.filter(survives);
+  return {
+    log: [...merged, ...kept],
+    window: { logOffset: snapshotStart, hasMoreBefore: options.snapshotHasMore },
+  };
 }
 
 function stopPlaceholderGeneration(conversationId: string, placeholderTimestamp: string): void {
@@ -528,6 +719,13 @@ export class ApiClient {
   // (reconnect budget exhausted, e.g. during a server/proxy outage) can be
   // re-opened later without the component re-subscribing. Cleared only by the
   // public closeEventStream(), i.e. when the app deliberately stops listening.
+  // In-flight reconnect resyncs, keyed by conversation (see resyncLogAfterReconnect).
+  // `epoch` is bumped by closeEventStream: a request started under an older
+  // epoch no longer owns the conversation (it may now be open on another server).
+  private logResyncs = new Map<string, LogResync>();
+  // In-flight resync requests, so closeEventStream can cancel one whose stream
+  // is gone instead of letting it run to its own deadline.
+  private logResyncAborts = new Map<string, AbortController>();
   private eventCallbacks = new Map<string, Parameters<ApiClient['subscribeToEvents']>[1]>();
   // Slow background retries for streams whose fast reconnect budget ran out.
   private deadStreamRetries = new Map<string, { attempt: number; timer?: number }>();
@@ -627,7 +825,17 @@ export class ApiClient {
     const dead = this.deadStreamRetries.get(conversationId);
     if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
     console.log(`[ApiClient] Re-opening event stream for ${conversationId}`);
-    this.subscribeToEvents(conversationId, callbacks, 0).catch((err) => {
+    // A revived stream starts a fresh fast-retry budget: the slow counter that
+    // gave up says how long the outage lasted, not how many fast attempts this
+    // new connection gets. It is reported separately so the handshake can still
+    // tell the consumer that events may have been lost meanwhile.
+    this.subscribeToEvents(
+      conversationId,
+      callbacks,
+      0,
+      false,
+      Math.max(1, dead?.attempt ?? 1)
+    ).catch((err) => {
       console.error('[ApiClient] Re-opening event stream failed:', err);
     });
     return true;
@@ -1131,6 +1339,11 @@ export class ApiClient {
       onReconnectState?: (state: {
         generating: boolean;
         latestUserTimestamp?: string;
+        /** Connection attempts made before this handshake (0 = first try).
+         *  A non-zero value means events may have been lost between the
+         *  initial load and the handshake, even though it is the first
+         *  handshake this page sees. */
+        reconnectAttempt?: number;
         pendingTools: Array<{
           tool_id: string;
           tooluse: ToolUse;
@@ -1159,7 +1372,11 @@ export class ApiClient {
     // downgrading the pooled client (this.sseToken is never cleared — just bypassed
     // for the current reconnect cycle so the token remains available for future
     // subscriptions if the failure was transient).
-    skipSseToken = false
+    skipSseToken = false,
+    // Attempts that already failed *before* this subscription existed (a revived
+    // dead stream). Reported to the consumer as the lost-events hint without
+    // consuming this connection's fast retries.
+    resumeAttempt = 0
   ): Promise<void> {
     const maxReconnects = 5;
 
@@ -1210,10 +1427,12 @@ export class ApiClient {
       this.teardownEventStream(conversationId);
       // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
       this.resetAuthCookie();
-      this.subscribeToEvents(conversationId, callbacks, attempt, skipSse).catch((err) => {
-        console.error('[ApiClient] Reconnect failed:', err);
-        callbacks.onError?.(String(err));
-      });
+      this.subscribeToEvents(conversationId, callbacks, attempt, skipSse, resumeAttempt).catch(
+        (err) => {
+          console.error('[ApiClient] Reconnect failed:', err);
+          callbacks.onError?.(String(err));
+        }
+      );
     };
 
     // Create a timeout that will reconnect if we don't get a session ID after 5 seconds
@@ -1437,6 +1656,7 @@ export class ApiClient {
               callbacks.onReconnectState({
                 generating: data.generating ?? false,
                 latestUserTimestamp: data.latest_user_timestamp ?? undefined,
+                reconnectAttempt: Math.max(reconnectAttempt, resumeAttempt),
                 pendingTools: data.pending_tools ?? [],
                 // Absent on servers that predate the replay: leave state alone.
                 pendingElicitations: Array.isArray(data.pending_elicitations)
@@ -1476,6 +1696,8 @@ export class ApiClient {
               role: 'system',
               content: formatWatchEventContent(watch),
               timestamp: new Date().toISOString(),
+              // No server row will ever match it; the reconnect resync keeps it.
+              _synthetic: true,
             });
             break;
           }
@@ -1583,6 +1805,13 @@ export class ApiClient {
   /** The app no longer wants events for this conversation. */
   closeEventStream(conversationId: string): void {
     this.eventCallbacks.delete(conversationId);
+    const resync = this.logResyncs.get(conversationId);
+    if (resync) {
+      // The in-flight and queued resyncs belong to the closed stream.
+      resync.rerun = false;
+      resync.epoch += 1;
+    }
+    this.logResyncAborts.get(conversationId)?.abort();
     const dead = this.deadStreamRetries.get(conversationId);
     if (dead?.timer !== undefined) window.clearTimeout(dead.timer);
     this.deadStreamRetries.delete(conversationId);
@@ -1709,7 +1938,8 @@ export class ApiClient {
 
   async getConversation(
     logfile: string,
-    params?: { limit?: number; before?: number }
+    params?: { limit?: number; before?: number },
+    options?: { detached?: boolean; signal?: AbortSignal }
   ): Promise<ConversationResponse> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
@@ -1722,8 +1952,12 @@ export class ApiClient {
         if (params.before !== undefined) qs.set('before', String(params.before));
         url = `${url}?${qs.toString()}`;
       }
+      // A detached request (the reconnect resync) must not share the last
+      // step()'s controller: the next step() aborts it first thing. It passes
+      // its own signal instead, so a stalled history request cannot outlive
+      // the recovery attempt (see resyncLogOnce).
       const response = await this.fetchJson<ConversationResponse>(url, {
-        signal: this.controller?.signal,
+        signal: options?.signal ?? (options?.detached ? undefined : this.controller?.signal),
       });
       return response;
     } catch (error) {
@@ -1862,6 +2096,144 @@ export class ApiClient {
     }
     const retryRevision = currentLogRevision(conversationId);
     await applyIfUnchanged(retryRevision);
+  }
+
+  /**
+   * Re-fetch the latest log window after the event stream reconnects and merge
+   * it into the local log, recovering messages persisted during the outage.
+   * A local edit/delete while the request is in flight already returned an
+   * authoritative log, so the snapshot is discarded in that case.
+   */
+  async resyncLogAfterReconnect(conversationId: string): Promise<void> {
+    // Serialize per conversation. Concurrent requests would read the same
+    // logRevision, and the first write would make the second (possibly newer)
+    // snapshot look stale. A reconnect during a resync re-runs it afterwards.
+    const active = this.logResyncs.get(conversationId);
+    if (active) {
+      active.rerun = true;
+      return active.running;
+    }
+    const entry: LogResync = { rerun: false, epoch: 0, running: Promise.resolve(), timeouts: 0 };
+    this.logResyncs.set(conversationId, entry);
+    entry.running = (async () => {
+      try {
+        for (;;) {
+          entry.rerun = false;
+          try {
+            await this.resyncLogOnce(conversationId, entry);
+          } catch (error) {
+            if (!entry.rerun) throw error;
+            continue;
+          }
+          if (!entry.rerun) return;
+        }
+      } finally {
+        this.logResyncs.delete(conversationId);
+      }
+    })();
+    return entry.running;
+  }
+
+  private async resyncLogOnce(conversationId: string, entry: LogResync): Promise<void> {
+    const state = conversations$.get(conversationId);
+    // A branch view shows branches[branch], not the main log this window holds.
+    if (!state?.peek() || state.currentBranch.peek() !== 'main') return;
+    const revision = currentLogRevision(conversationId);
+    const epoch = entry.epoch;
+    // Copy: legend-state replaces rows inside the live array in place.
+    const logAtStart = [...(state.data.log.peek() as Message[])];
+    const lastAtStart = logAtStart[logAtStart.length - 1];
+    const lengthAtStart = logAtStart.length;
+    const pendingAtStart = logAtStart.filter((message) => message._status === 'pending');
+    const offsetAtStart = state.logOffset.peek();
+    // The resync has its own cancellation, independent of `step()`: a stalled
+    // history request would otherwise block every later reconnect (they wait
+    // on this promise) and keep its result applied after the stream closed.
+    const abort = new AbortController();
+    this.logResyncAborts.set(conversationId, abort);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, RECONNECT_RESYNC_TIMEOUT_MS);
+    let data: ConversationResponse;
+    try {
+      data = await this.getConversation(
+        conversationId,
+        { limit: RECONNECT_RESYNC_LIMIT },
+        { detached: true, signal: abort.signal }
+      );
+    } catch (error) {
+      // A cancelled attempt (stream closed, log edited) recovers nothing; the
+      // next reconnect retries it. A timeout is not a decision to stop: the
+      // history fetch is the only way lost events come back, so retry it a
+      // bounded number of times instead of silently leaving the gap.
+      if (abort.signal.aborted) {
+        if (timedOut && entry.timeouts < RECONNECT_RESYNC_MAX_TIMEOUT_RETRIES) {
+          entry.timeouts += 1;
+          entry.rerun = true;
+        }
+        return;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      if (this.logResyncAborts.get(conversationId) === abort) {
+        this.logResyncAborts.delete(conversationId);
+      }
+    }
+    if (
+      entry.epoch !== epoch ||
+      !state.peek() ||
+      currentLogRevision(conversationId) !== revision ||
+      state.currentBranch.peek() !== 'main' ||
+      !Array.isArray(data?.log)
+    ) {
+      return;
+    }
+    const local = state.data.log.peek() as Message[];
+    // Rows the stream delivered are the ones after the last row present at
+    // the start. "Load older messages" prepends without bumping logRevision,
+    // so growth alone would count an older page as arrivals. Without a start
+    // row to anchor on, fall back to discounting the cursor move.
+    const anchor = lastAtStart === undefined ? -1 : local.lastIndexOf(lastAtStart);
+    const arrivedCount =
+      anchor >= 0
+        ? local.length - 1 - anchor
+        : Math.max(0, local.length - lengthAtStart - (offsetAtStart - state.logOffset.peek()));
+    const { log, window } = mergeReconnectSnapshot(local, data.log as Message[], {
+      generating: state.isGenerating.peek(),
+      localOffset: state.logOffset.peek(),
+      snapshotOffset: data.before ?? 0,
+      snapshotHasMore: data.has_more ?? false,
+      arrivedCount,
+      pendingAtStart,
+      startRows: logAtStart,
+    });
+    // Branch arrays are full histories: setCurrentBranch restores them at
+    // offset zero. Never put the paginated display window in branches.main.
+    if (data.branches?.main) {
+      const main = mergeReconnectSnapshot(local, data.branches.main, {
+        generating: state.isGenerating.peek(),
+        localOffset: state.logOffset.peek(),
+        snapshotOffset: 0,
+        snapshotHasMore: false,
+        arrivedCount,
+        pendingAtStart,
+        startRows: logAtStart,
+      }).log;
+      updateBranches(conversationId, { ...data.branches, main });
+    }
+    const logOffset = window ? window.logOffset : state.logOffset.peek();
+    const hasMoreBefore = window ? window.hasMoreBefore : state.hasMoreBefore.peek();
+    if (
+      !window &&
+      log.length === local.length &&
+      log.every((entry, index) => JSON.stringify(entry) === JSON.stringify(local[index]))
+    ) {
+      return;
+    }
+    replaceLogWindow(conversationId, log, logOffset, hasMoreBefore);
   }
 
   /**
