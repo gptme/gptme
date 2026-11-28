@@ -25,6 +25,22 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "supports_strict_tools": True,
         "preferred_edit_format": "diff",
     },
+    # GPT-6.2 Sol — successor to GPT-6.1 Sol at the same list price. 1.05M context.
+    # $2/$10 per 1M (cache read $0.10).
+    # https://openrouter.ai/openai/gpt-6.2-sol (pricing verified 2026-11-26)
+    "gpt-6.2-sol": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 2,
+        "price_output": 10,
+        "price_cache_read": 0.10,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_responses_api": True,
+        "supports_parallel_tool_calls": True,
+        "supports_strict_tools": True,
+        "preferred_edit_format": "diff",
+    },
     # GPT-6.1 Sol — current workhorse tier, near-Astra performance at a fraction
     # of the price; succeeds GPT-6 Sol / GPT-5.6 Sol. 1.05M context.
     # $2/$10 per 1M (cache read $0.10).
@@ -292,6 +308,19 @@ OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
         "max_output": 128_000,
         "price_input": 10,
         "price_output": 50,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+        "preferred_edit_format": "diff",
+    },
+    # GPT-6.2 Sol — served on ChatGPT Plus/Pro via Codex OAuth.
+    # $2/$10 API-equivalent, flat-rate here.
+    "gpt-6.2-sol": {
+        "context": 1_050_000,
+        "max_output": 128_000,
+        "price_input": 2,
+        "price_output": 10,
+        "price_cache_read": 0.10,
         "supports_vision": True,
         "supports_reasoning": True,
         "supports_parallel_tool_calls": True,
