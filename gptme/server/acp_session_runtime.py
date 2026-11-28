@@ -210,6 +210,20 @@ class AcpSessionRuntime:
         self._client: GptmeAcpClient | None = None
         self._session_id: str | None = None
 
+        # Starts are serialized on the runtime loop. ``_starts_entering``
+        # counts callers inside a start on that loop (including ones waiting for
+        # the lock), so a failed start only releases state when nobody else is
+        # entering. Both are only touched from the runtime loop.
+        self._start_lock: asyncio.Lock | None = None
+        self._starts_entering = 0
+        # A start that failed but could not be reaped on the loop thread: the
+        # client it left behind and whether the loop still needs stopping.
+        # Recorded on the runtime, not on the exception, because a cancelled
+        # caller gets its own ``CancelledError`` and ``_run_on_loop`` replaces a
+        # cancelled call with a fresh ``RuntimeError``.
+        self._unstarted_client: GptmeAcpClient | None = None
+        self._release_pending = False
+
         # Dedicated event loop owning the ACP transport (see module docstring).
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
@@ -299,6 +313,10 @@ class AcpSessionRuntime:
             self._loop = loop
             self._loop_thread = thread
             self._loop_calls = calls
+            # Serializes starts on the loop that runs them. An asyncio lock is
+            # bound to one loop, so it is created with the loop and discarded
+            # with it.
+            self._start_lock = asyncio.Lock()
             return loop, calls
 
     def _stop_loop(self, join_timeout: float = 5.0) -> None:
@@ -384,29 +402,121 @@ class AcpSessionRuntime:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def _release_unstarted(self) -> None:
-        """Stop the dedicated loop if start never produced a usable session.
+    def _release_after_failed_start(self) -> None:
+        """Clean up after a start that did not publish a session.
 
-        ``start()`` starts the loop before client entry. A discarded runtime
-        whose entry failed would otherwise leak that daemon thread (and any
-        child that entry spawned before raising).
+        The state lives on the runtime rather than on the exception: a caller
+        cancelled while awaiting its start gets its own ``CancelledError``, and
+        ``_run_on_loop`` replaces a cancelled call with a fresh
+        ``RuntimeError``. Neither carries a marker, so the runtime has to know
+        what the failed start left behind.
+
+        The failed client is reaped here because the loop thread cannot do it
+        without blocking on its own shutdown. When no other start is entering,
+        the whole runtime is torn down (child and loop). When one is, only the
+        child this call left behind is reaped: the loop and the current handle
+        belong to the start that is about to succeed.
         """
+        unstarted = self._unstarted_client
+        if unstarted is not None:
+            if self._starts_entering > 0 or self._session_id is not None:
+                self._reap_unstarted_client(unstarted)
+                self._unstarted_client = None
+                if self._client is unstarted:
+                    self._client = None
+            elif self._client is unstarted:
+                self._unstarted_client = None
+                self.terminate_subprocess_sync(graceful=False)
+                return
         if self._session_id is not None:
             return
-        if self._client is not None:
-            self.terminate_subprocess_sync(graceful=False)
-        else:
+        if self._starts_entering > 0:
+            # A cancelled caller does not wait for the loop-side ``finally``,
+            # so this coroutine may still be unwinding. Stop the loop once it
+            # has decremented the counter (see ``_start_impl``).
+            self._release_pending = True
+            return
+        if self._client is None:
             self._stop_loop()
+
+    def _stop_abandoned_loop(self) -> None:
+        """Stop an abandoned runtime loop from the loop thread that owns it.
+
+        Called from ``_start_impl``'s ``finally`` when the caller is gone, so it
+        cannot join the thread. Nulling the handle under the loop lock makes a
+        concurrent start create a fresh loop instead of submitting to this one.
+        """
+        self._release_pending = False
+        unstarted = self._unstarted_client
+        if unstarted is not None:
+            self._reap_unstarted_client(unstarted)
+            self._unstarted_client = None
+            if self._client is unstarted:
+                # The loop is going away; a stale handle would make the next
+                # start refuse to create a fresh loop.
+                self._client = None
+        with self._loop_lock:
+            loop = self._loop
+            self._loop = None
+            self._loop_thread = None
+            self._loop_calls = None
+        if loop is not None and loop.is_running():
+            loop.call_soon(loop.stop)
+
+    def _reap_unstarted_client(self, client: GptmeAcpClient) -> None:
+        """Signal a failed start's child without touching the runtime loop."""
+        proc = getattr(client, "_process", None)
+        if proc is None:
+            return
+        if not isinstance(proc, subprocess.Popen):
+            _terminate_asyncio_process_sync(proc, 3.0)
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+                proc.wait(timeout=1.0)
+            except Exception:
+                logger.debug("Failed to kill ACP subprocess", exc_info=True)
+        except Exception:
+            logger.debug("Failed to terminate ACP subprocess", exc_info=True)
 
     async def start(self) -> None:
         """Start ACP subprocess and create ACP session if not already started."""
         try:
             await self._run_on_loop(self._start_impl)
         except BaseException:
-            self._release_unstarted()
+            # Covers caller cancellation too: the exception may be the caller's
+            # own ``CancelledError`` (or a ``RuntimeError`` from a cancelled
+            # call), so the release reads the runtime state instead.
+            self._release_after_failed_start()
             raise
 
     async def _start_impl(self) -> None:
+        # Serialize the whole entry: overlapping starts would otherwise each
+        # spawn a subprocess, and the later one would orphan the earlier
+        # session (or a failing one could clear a slot it does not own).
+        lock = self._start_lock
+        if lock is None:  # pragma: no cover - _run_on_loop creates it
+            raise ConnectionError("ACP runtime loop is not running")
+        self._starts_entering += 1
+        try:
+            async with lock:
+                await self._start_entry()
+        finally:
+            self._starts_entering -= 1
+            if (
+                self._release_pending
+                and self._starts_entering == 0
+                and self._session_id is None
+            ):
+                # A cancelled caller returned before this coroutine settled, so
+                # finish the release from the loop that owns it.
+                self._stop_abandoned_loop()
+
+    async def _start_entry(self) -> None:
         if self._client is not None and self._session_id is not None:
             return
 
@@ -420,7 +530,8 @@ class AcpSessionRuntime:
         )
         # Keep the handle reachable before entry finishes: __aenter__ can spawn
         # then raise, and later setup (set_session_model) can fail after a live
-        # child exists. start()'s _release_unstarted() uses this to SIGKILL.
+        # child exists. start()'s _release_after_failed_start() uses this to
+        # SIGKILL.
         self._client = client
         try:
             await client.__aenter__()
@@ -452,13 +563,22 @@ class AcpSessionRuntime:
                     "ACP client cleanup after failed start",
                     exc_info=True,
                 )
-                # Leave self._client set so _release_unstarted can still find
-                # and kill the child. A context manager cannot be exited twice.
+                # Leave the handle reachable so the caller's release can still
+                # find and kill the child. A context manager cannot be exited
+                # twice, so the child is signalled by pid instead.
+                self._unstarted_client = client
             else:
-                self._client = None
-                self._session_id = None
+                # An overlapping start may own the shared slot by now.
+                if self._client is client:
+                    self._client = None
+                    self._session_id = None
             raise
+        # Publish the pair together. Starts are serialized, so no other start
+        # can have replaced the early handle; publishing both at once keeps a
+        # reader from seeing a client with a stale session id.
+        self._client = client
         self._session_id = session_id
+        self._release_pending = False
         logger.debug(
             "Started ACP runtime (command=%s, workspace=%s, session_id=%s, model=%s)",
             self.command,
@@ -480,9 +600,9 @@ class AcpSessionRuntime:
         try:
             return await self._run_on_loop(self._prompt_impl, message, max_tokens)
         except BaseException:
-            # Lazy start goes through this path too; a failed entry must not
-            # leak the dedicated loop of a runtime that never became ready.
-            self._release_unstarted()
+            # A lazy start enters through ``_start_impl``; a failed entry must
+            # not leak the dedicated loop of a runtime that never became ready.
+            self._release_after_failed_start()
             raise
 
     async def _prompt_impl(
