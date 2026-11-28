@@ -221,6 +221,30 @@ _DOUBLE = 3
 _COMMENT = 4
 
 
+def _starts_shell_comment(cmd: str, i: int) -> bool:
+    """Return True when the ``#`` at ``i`` begins an unquoted shell comment.
+
+    Bash starts a comment only at the beginning of a *word*: after unquoted
+    whitespace or a control operator. An escaped space (``echo \\ #$(id)``)
+    is part of the word, so the ``#`` is literal and what follows still runs.
+    """
+    if i == 0:
+        return True
+    prev = cmd[i - 1]
+    if prev in ";&|":
+        return True
+    if not prev.isspace():
+        return False
+    # Count the backslashes before the whitespace: an odd count escapes it, so
+    # the whitespace joins the word instead of separating it.
+    backslashes = 0
+    j = i - 2
+    while j >= 0 and cmd[j] == "\\":
+        backslashes += 1
+        j -= 1
+    return backslashes % 2 == 0
+
+
 def _shell_context(cmd: str) -> list[int]:
     """Classify each character of ``cmd`` by its bash quoting context.
 
@@ -301,7 +325,7 @@ def _shell_context(cmd: str) -> list[int]:
             c == "#"
             and not in_single
             and not in_double
-            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+            and _starts_shell_comment(cmd, i)
         ):
             ctx[i] = _COMMENT
             in_comment = True
@@ -560,7 +584,7 @@ def _position_in_shell_comment(
             char == "#"
             and not in_single
             and not in_double
-            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+            and _starts_shell_comment(cmd, i)
         ):
             in_comment = True
         i += 1
@@ -1340,10 +1364,18 @@ def _has_command_substitution(cmd: str) -> bool:
     # Reuse the shared, ANSI-C-aware quote classifier so this scanner cannot
     # disagree with ``_find_quotes`` about where a string starts or ends.
     ctx = _shell_context(cmd)
+    # A heredoc body is not shell syntax: ``#`` does not start a comment and
+    # quotes are literal, but an *unquoted* heredoc still expands ``$(...)``
+    # and backticks. Treat body positions as unquoted so a substitution there
+    # is never mistaken for comment or string data. (Conservative for quoted
+    # delimiters: it forces a confirmation prompt instead of auto-approving.)
+    heredoc_body = bytearray(len(cmd))
+    for start, end in _find_heredoc_regions(cmd):
+        heredoc_body[start:end] = b"\x01" * (end - start)
     i = 0
     n = len(cmd)
     while i < n:
-        kind = ctx[i]
+        kind = _UNQUOTED if heredoc_body[i] else ctx[i]
         # Plain single quotes and comments are literal; nothing substitutes.
         if kind == _SINGLE or kind == _COMMENT:
             i += 1

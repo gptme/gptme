@@ -1686,6 +1686,35 @@ class TestCommandSubstitution:
         """
         assert not is_allowlisted(r"echo $'\' # ' ; python x.py")
 
+    def test_escaped_space_before_hash_does_not_start_comment(self):
+        """An escaped space joins the word, so ``#`` there is literal.
+
+        ``echo \\ #$(id)`` runs ``$(id)``; treating ``#`` as a comment made
+        the substitution scanner skip it and auto-approved the command.
+        """
+        assert not is_allowlisted("echo \\ #$(id)")
+
+    def test_hash_in_unquoted_heredoc_body_does_not_start_comment(self):
+        """A ``#`` line in an unquoted heredoc body is data that still expands.
+
+        ``cat <<EOF\\n#$(id)\\nEOF`` runs ``$(id)``; comment classification
+        used to hide it from the substitution scanner.
+        """
+        assert not is_allowlisted("cat <<EOF\n#$(id)\nEOF\n")
+
+    def test_hash_in_quoted_heredoc_body_still_requires_confirmation(self):
+        """A quoted delimiter makes the body literal; being conservative is ok.
+
+        Bash does not expand ``$(id)`` here, but the scanner cannot yet tell
+        quoted from unquoted delimiters, so it falls through to confirmation
+        rather than auto-approving. Stricter, never wider.
+        """
+        assert not is_allowlisted("cat <<'EOF'\n$(id)\nEOF\n")
+
+    def test_hash_after_unescaped_space_still_a_comment(self):
+        """The normal comment case must stay allowlisted (no false positive)."""
+        assert is_allowlisted("echo hi # $(id)")
+
 
 # ── P3: Pipe-to-shell regex close-paren gap ─────────────────────────────────
 
