@@ -68,6 +68,10 @@ jobs:
       working-directory: webui/extension
       run: npm ci
 
+    - name: Typecheck browser extension
+      working-directory: webui/extension
+      run: npm run typecheck
+
     - name: Build browser extension
       working-directory: webui/extension
       run: npm run build

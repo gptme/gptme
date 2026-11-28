@@ -33,7 +33,12 @@ API_VERSION = 2
 #     it continue to work (they just lose the UNREACHABLE notification).
 #   - The 502 path was itself new in revision 1 (PR #3555) and had no stable consumers
 #     outside the SetupWizard, which is updated in this PR to handle the new field.
-CONTRACT_REVISION = 2
+# Revision 3 — conversation metadata: additive GET/PATCH
+# /api/v2/conversations/<id>/metadata routes and the starred/description/tags/
+# pinned_order list-item fields. Additive and backward compatible, so this is a
+# CONTRACT_REVISION bump: clients can detect the capability instead of guessing
+# whether starring returns 405 (gptme/gptme#5187).
+CONTRACT_REVISION = 3
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +82,10 @@ class ConversationListItem(BaseModel):
     last_message_preview: str | None = Field(
         None, description="Preview of the last message"
     )
+    starred: bool = Field(False, description="Whether the conversation is starred")
+    description: str | None = Field(None, description="Conversation description")
+    tags: list[str] = Field(default_factory=list, description="Conversation tags")
+    pinned_order: int | None = Field(None, description="Pinned sort order")
 
 
 class Message(BaseModel):
@@ -769,6 +778,24 @@ class JsonRpcResponse(BaseModel):
     id: str | int | None = Field(None, description="Request ID")
     result: dict[str, Any] | None = Field(None, description="Method result")
     error: dict[str, Any] | None = Field(None, description="Error object")
+
+
+class ConversationMetadataResponse(BaseModel):
+    """User-edited conversation metadata (metadata.toml sidecar)."""
+
+    starred: bool = Field(False, description="Whether the conversation is starred")
+    description: str | None = Field(None, description="Free-form description")
+    tags: list[str] = Field(default_factory=list, description="Tags")
+    pinned_order: int | None = Field(None, description="Sidebar pin position")
+
+
+class ConversationMetadataPatchRequest(BaseModel):
+    """Partial metadata update; ``null`` clears a field."""
+
+    starred: bool | None = Field(None, description="Star or unstar")
+    description: str | None = Field(None, description="Free-form description")
+    tags: list[str] | None = Field(None, description="Tags")
+    pinned_order: int | None = Field(None, description="Sidebar pin position")
 
 
 class ConversationConfigUpdateResponse(BaseModel):
