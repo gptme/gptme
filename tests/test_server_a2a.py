@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -193,6 +193,234 @@ def test_a2a_failed_task_persists_after_session_gc(client, monkeypatch, tmp_path
     assert "step thread crashed" in error_artifacts[0]["parts"][0]["text"]
 
 
+def test_a2a_reports_failure_released_between_read_and_idle_check(
+    client, monkeypatch, tmp_path
+):
+    """A step failure published right after an empty event read is still reported."""
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        session.generating = True
+        real_read_events = session.read_events
+
+        def read_then_crash(abs_index):
+            events, next_index = real_read_events(abs_index)
+            if session.generating:
+                # The step thread releases its reservation and publishes the
+                # failure just after this (empty) read returns.
+                with session.step_lock:
+                    session.generating = False
+                    session_step_module.SessionManager.add_event(
+                        conversation_id,
+                        cast(EventType, {"type": "error", "error": "early crash"}),
+                    )
+                    session_step_module.SessionManager.add_event(
+                        conversation_id, cast(EventType, {"type": "step_complete"})
+                    )
+            return events, next_index
+
+        session.read_events = read_then_crash
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("trigger failure"))
+
+    assert response.status_code == 200
+    error = response.get_json()["error"]
+    assert error["data"][0]["reason"] == "TASK_FAILED"
+    task_id = error["data"][0]["metadata"]["taskId"]
+    assert (tmp_path / task_id / "a2a_failed.json").exists()
+
+
+def test_a2a_final_drain_respects_blocking_timeout(client, monkeypatch, tmp_path):
+    """A stalled step_lock holder cannot keep SendMessage past its timeout."""
+    import threading
+    import time
+
+    import gptme.server.a2a_api as a2a_api_module
+    from gptme.message import Message
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.5")
+    holder_has_lock = threading.Event()
+    release_holder = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        # The step is idle, but another holder (a deferred watch wake whose
+        # disk write stalls) owns step_lock.
+        session.generating = False
+
+        def stalled_holder():
+            with session.step_lock:
+                holder_has_lock.set()
+                release_holder.wait(5)
+
+        holder = threading.Thread(target=stalled_holder)
+        holders.append(holder)
+        holder.start()
+        assert holder_has_lock.wait(5)
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    try:
+        started = time.monotonic()
+        response = client.post("/api/a2a", json=_send_message_request("stall"))
+        elapsed = time.monotonic() - started
+    finally:
+        release_holder.set()
+        for holder in holders:
+            holder.join(5)
+
+    assert response.status_code == 200
+    assert "error" not in response.get_json()
+    assert elapsed < 3
+
+
+def test_a2a_final_drain_timeout_still_reports_posted_error(
+    client, monkeypatch, tmp_path
+):
+    """An error posted while a stalled holder owns step_lock is still reported."""
+    import threading
+
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.5")
+    holder_has_lock = threading.Event()
+    release_holder = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        session.generating = False
+        real_read_events = session.read_events
+        posted: list[bool] = []
+
+        def read_then_post_error(abs_index):
+            events, next_index = real_read_events(abs_index)
+            if not posted:
+                # The error lands just after the first (empty) read, while a
+                # deferred wake still holds step_lock.
+                posted.append(True)
+                session_step_module.SessionManager.add_event(
+                    conversation_id,
+                    cast(EventType, {"type": "error", "error": "late failure"}),
+                )
+            return events, next_index
+
+        session.read_events = read_then_post_error
+
+        def stalled_holder():
+            with session.step_lock:
+                holder_has_lock.set()
+                release_holder.wait(5)
+
+        holder = threading.Thread(target=stalled_holder)
+        holders.append(holder)
+        holder.start()
+        assert holder_has_lock.wait(5)
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    try:
+        response = client.post("/api/a2a", json=_send_message_request("stall"))
+    finally:
+        release_holder.set()
+        for holder in holders:
+            holder.join(5)
+
+    assert response.status_code == 200
+    error = response.get_json()["error"]
+    assert error["data"][0]["reason"] == "TASK_FAILED"
+    task_id = error["data"][0]["metadata"]["taskId"]
+    assert (tmp_path / task_id / "a2a_failed.json").exists()
+
+
+def test_a2a_unlimited_blocking_timeout_does_not_fail_idle_step(
+    client, monkeypatch, tmp_path
+):
+    """GPTME_A2A_BLOCKING_TIMEOUT=inf must not overflow the final lock wait."""
+    import gptme.server.a2a_api as a2a_api_module
+    from gptme.message import Message
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "inf")
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        session.generating = False
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("idle"))
+
+    assert response.status_code == 200
+    assert "error" not in response.get_json()
+
+
 def test_a2a_resume_clears_failure_sentinel(client, monkeypatch, tmp_path):
     """Resuming a failed task (SendMessage with its id) clears the sentinel."""
     import gptme.server.a2a_api as a2a_api_module
@@ -365,3 +593,290 @@ def test_a2a_rpc_requires_auth_on_network_binding(monkeypatch):
     assert missing.status_code == 401
     assert ok.status_code == 200
     assert ok.get_json()["error"]["code"] == -32601
+
+
+def test_a2a_step_complete_on_first_read_returns_completed(
+    client, monkeypatch, tmp_path
+):
+    """A step_complete seen on the initial read returns before the idle check."""
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.append(Message("assistant", "first-read response"))
+        session_step_module.SessionManager.add_event(
+            conversation_id, cast(EventType, {"type": "step_complete"})
+        )
+        session.generating = False
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    # SendMessage must consume the step_complete on its first read. If it
+    # ignored it, the idle path would still return a completed task, so count
+    # the reads instead of trusting the returned state.
+    reads: list[int] = []
+    original_get_sessions = a2a_api_module.SessionManager.get_sessions_for_conversation
+    wrapped: list[bool] = []
+
+    def counting_get_sessions(conversation_id):
+        sessions = original_get_sessions(conversation_id)
+        for session in sessions:
+            if wrapped:
+                break
+            real_read_events = session.read_events
+            wrapped.append(True)
+
+            def read_events(abs_index, _real=real_read_events):
+                reads.append(abs_index)
+                return _real(abs_index)
+
+            cast(Any, session).read_events = read_events
+        return sessions
+
+    monkeypatch.setattr(
+        a2a_api_module.SessionManager,
+        "get_sessions_for_conversation",
+        counting_get_sessions,
+    )
+
+    response = client.post("/api/a2a", json=_send_message_request("first read"))
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "error" not in data
+    task = data["result"]["task"]
+    assert task["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert task["artifacts"][0]["parts"][0]["text"] == "first-read response"
+    assert len(reads) == 1, reads
+
+
+def test_a2a_final_drain_timeout_still_reports_posted_step_complete(
+    client, monkeypatch, tmp_path, caplog
+):
+    """A step_complete posted while a stalled holder owns step_lock completes."""
+    import threading
+
+    caplog.set_level("INFO", logger="gptme.server.a2a_api")
+
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.5")
+    holder_has_lock = threading.Event()
+    release_holder = threading.Event()
+    holders: list[threading.Thread] = []
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.append(Message("assistant", "late response"))
+        session.generating = False
+        real_read_events = session.read_events
+        posted: list[bool] = []
+
+        def read_then_post_complete(abs_index):
+            events, next_index = real_read_events(abs_index)
+            if not posted:
+                # step_complete lands just after the first (empty) read, while
+                # a deferred wake still holds step_lock.
+                posted.append(True)
+                session_step_module.SessionManager.add_event(
+                    conversation_id, cast(EventType, {"type": "step_complete"})
+                )
+            return events, next_index
+
+        session.read_events = read_then_post_complete
+
+        def stalled_holder():
+            with session.step_lock:
+                holder_has_lock.set()
+                release_holder.wait(5)
+
+        holder = threading.Thread(target=stalled_holder)
+        holders.append(holder)
+        holder.start()
+        assert holder_has_lock.wait(5)
+
+    monkeypatch.setattr(
+        a2a_api_module, "get_prompt", lambda **kw: [Message("system", "test")]
+    )
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    try:
+        response = client.post("/api/a2a", json=_send_message_request("stall"))
+    finally:
+        release_holder.set()
+        for holder in holders:
+            holder.join(5)
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "error" not in data
+    task = data["result"]["task"]
+    assert task["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert task["artifacts"][0]["parts"][0]["text"] == "late response"
+    # A completed task must not also log the blocking timeout: if the final
+    # read ignored step_complete the loop would fall through to it.
+    assert "A2A SendMessage timed out" not in caplog.text
+
+
+def test_a2a_resume_serializes_with_error_persistence(client, monkeypatch, tmp_path):
+    """A resume cannot be overwritten by a crash handler's older log copy."""
+    import threading
+    from contextlib import contextmanager
+    from uuid import uuid4
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server import a2a_api
+    from gptme.server.session_models import SessionManager
+
+    name = f"test-resume-lock-{uuid4().hex}"
+    result = client.put(
+        f"/api/v2/conversations/{name}",
+        json={"prompt": "test", "config": {"chat": {"workspace": str(tmp_path)}}},
+    )
+    session = SessionManager.get_session(result.get_json()["session_id"])
+    assert session is not None
+    contended = threading.Event()
+    loaded = threading.Event()
+    errors: list[BaseException] = []
+    real_load = LogManager.load
+    real_lock = SessionManager.conversation_lock
+
+    @contextmanager
+    def observed_lock(conversation_id):
+        lock = real_lock(conversation_id)
+        if not lock.acquire(blocking=False):
+            contended.set()
+            lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def observed_load(*args, **kwargs):
+        loaded.set()
+        return real_load(*args, **kwargs)
+
+    def resume():
+        try:
+            a2a_api._append_task_message(name, "follow-up must survive")
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=resume)
+    try:
+        with real_lock(name):
+            # Simulate the crash handler's load/persist critical section.
+            old = real_load(name, lock=False)
+            monkeypatch.setattr(LogManager, "load", observed_load)
+            monkeypatch.setattr(SessionManager, "conversation_lock", observed_lock)
+            worker.start()
+            # Prove the worker reached and contended on the actual lock;
+            # a descheduled worker must not make this test pass vacuously.
+            assert contended.wait(5), "resume never contended on conversation_lock"
+            assert not loaded.is_set(), "resume loaded before acquiring the lock"
+            old.append(Message("system", "Error: setup failed"))
+            old.write()
+        worker.join(5)
+        assert not worker.is_alive()
+        assert not errors
+        messages = real_load(name, lock=False).log.messages
+        assert any(m.content == "follow-up must survive" for m in messages)
+        assert loaded.is_set()
+    finally:
+        worker.join(5)
+        SessionManager.remove_session(session.id)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a2a_crash_failure_survives_gc_while_transcript_write_stalls(
+    client, monkeypatch, tmp_path
+):
+    import threading
+
+    from gptme.message import Message
+    from gptme.server import a2a_api, session_step
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    monkeypatch.setenv("GPTME_A2A_BLOCKING_TIMEOUT", "0.2")
+    monkeypatch.setattr(a2a_api, "get_prompt", lambda **kw: [Message("system", "test")])
+    monkeypatch.setattr(a2a_api, "_resolve_model", lambda config: "anthropic")
+    persisting = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    workers: list[threading.Thread] = []
+    real_start = a2a_api._start_step_thread
+
+    def crash(*args, **kwargs):
+        raise ValueError("setup failed")
+
+    def slow_persist(*args, **kwargs):
+        persisting.set()
+        assert release.wait(5)
+
+    def start_and_wait(*args, **kwargs):
+        seen = set(threading.enumerate())
+        result = real_start(*args, **kwargs)
+        assert persisting.wait(5)
+        workers.extend(t for t in threading.enumerate() if t not in seen)
+        return result
+
+    monkeypatch.setattr(session_step, "step", crash)
+    monkeypatch.setattr(session_step, "_persist_generation_error", slow_persist)
+    monkeypatch.setattr(a2a_api, "_start_step_thread", start_and_wait)
+    monkeypatch.setattr(threading, "excepthook", lambda args: finished.set())
+    try:
+        response = client.post("/api/a2a", json=_send_message_request("crash"))
+        error = response.get_json()["error"]
+        assert error["data"][0]["reason"] == "TASK_FAILED"
+        task_id = error["data"][0]["metadata"]["taskId"]
+        assert (tmp_path / task_id / "a2a_failed.json").exists()
+        monkeypatch.setattr(
+            a2a_api.SessionManager,
+            "get_sessions_for_conversation",
+            staticmethod(lambda conversation_id: []),
+        )
+        task = a2a_api._task_from_conversation(task_id)
+        assert task["status"]["state"] == "TASK_STATE_FAILED"
+    finally:
+        release.set()
+        assert finished.wait(5)
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
