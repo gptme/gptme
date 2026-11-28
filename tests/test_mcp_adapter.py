@@ -9,7 +9,7 @@ from mcp.types import ListToolsResult, Tool
 
 from gptme.config import Config, MCPConfig, MCPServerConfig
 from gptme.llm.utils import parameters2dict
-from gptme.mcp.registry import MCPServerInfo
+from gptme.mcp.registry import MCPRegistry, MCPServerInfo
 from gptme.message import Message
 from gptme.tools.mcp_adapter import (
     _build_tool_specs_for_server,
@@ -644,6 +644,63 @@ def test_failed_override_load_restores_layer_enabled_flag(mock_mcp_client):
     assert "Failed to load" in result
     assert empty.user.mcp.servers == []
     assert empty.user.mcp.enabled is False
+
+
+@pytest.mark.parametrize(
+    "query", ["tiny", "io.github.example/tiny"], ids=["short-name", "canonical-id"]
+)
+def test_load_mcp_server_from_registry(query: str) -> None:
+    from gptme.mcp.client import MCPClient
+    from gptme.tools import get_tool
+    from gptme.tools.mcp import execute_mcp
+
+    canonical = "io.github.example/tiny"
+    cfg = Config()
+    cfg.user.mcp = MCPConfig(enabled=False, servers=[])
+    entry = MCPServerInfo(
+        name=canonical, description="Registry server", command="fixture", args=["tiny"]
+    )
+    tools = ListToolsResult(tools=[Tool(name="ping", inputSchema={"type": "object"})])
+    tool_name = f"{canonical}.ping"
+
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch.object(
+            MCPRegistry, "search_official_registry", return_value=[entry]
+        ) as search,
+        patch.object(
+            MCPClient, "_setup_stdio_connection", return_value=(tools, MagicMock())
+        ) as setup_stdio,
+    ):
+        try:
+            (message,) = execute_mcp(f"load {query}", None, None)
+            assert (
+                message.content
+                == f"Successfully loaded server '{canonical}' with 1 tools: ping"
+            )
+            search.assert_called_once_with(query, limit=50)
+            setup_stdio.assert_awaited_once()
+            params = setup_stdio.await_args_list[0].args[0]
+            assert (params.command, params.args) == ("fixture", ["tiny"])
+            assert [server.name for server in cfg.mcp.servers] == [canonical]
+            assert list(_dynamic_servers) == [canonical]
+            assert _dynamic_server_tool_names == {canonical: [tool_name]}
+            assert get_tool(tool_name) is not None
+            assert load_mcp_server(query) == f"Server '{canonical}' is already loaded."
+            setup_stdio.assert_awaited_once()
+
+            assert (
+                unload_mcp_server(canonical)
+                == f"Successfully unloaded server '{canonical}'."
+            )
+            assert not cfg.mcp.servers[0].enabled
+            assert _dynamic_servers == {}
+            assert _dynamic_server_tool_names == {}
+            assert get_tool(tool_name) is None
+        finally:
+            for server_name in list(_dynamic_servers):
+                unload_mcp_server(server_name)
 
 
 @pytest.mark.parametrize("enabled", [False, True])

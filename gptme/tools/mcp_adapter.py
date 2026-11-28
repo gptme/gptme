@@ -713,9 +713,13 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if not server_info:
             return f"Server '{name}' not found in config or registries."
 
+        name = server_info.name
+        if name in _dynamic_servers or name in _mcp_clients:
+            return f"Server '{name}' is already loaded."
+
         # Create config from registry info
         server_config = MCPServerConfig(
-            name=server_info.name,
+            name=name,
             enabled=True,
             command=server_info.command,
             args=server_info.args,
