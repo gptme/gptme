@@ -55,6 +55,7 @@ from gptme.tools.base import ToolUse
         "declare -x | grep TOKEN",
         "shopt -os xtrace",
         "shopt -so xtrace",
+        "shopt -s -o xtrace",
         "shopt -o -s xtrace",
         "export",
         "declare",
@@ -112,6 +113,8 @@ from gptme.tools.base import ToolUse
         # An end-of-options marker names nothing, so these still dump.
         "export --",
         "declare --",
+        "declare -- -x",
+        "export -x --",
         "typeset --",
         "zsh -c 'typeset --'",
         "zsh -c 'typeset -'",
