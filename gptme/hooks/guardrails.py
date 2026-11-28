@@ -268,7 +268,10 @@ def _spelling_links_to_secret(spelling: str, workspace: Path | None) -> bool:
     from ..util.workspace import current_workspace
 
     try:
-        anchored = os.path.join(workspace or current_workspace(), spelling)
+        # Resolve the workspace first, so a link on the way to it does not make
+        # every word look linked.
+        base = os.path.realpath(workspace or current_workspace())
+        anchored = os.path.join(base, spelling)
         if os.path.abspath(anchored).startswith("/dev/"):
             return False
         resolved = os.path.realpath(anchored)

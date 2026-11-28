@@ -1162,3 +1162,20 @@ def test_link_operand_defaults_to_session_workspace(linked_workspace: Path) -> N
     assert _find_secret_path_in_cmd("cat notes.txt") is None
     with workspace_scope(linked_workspace):
         assert _find_secret_path_in_cmd("cat notes.txt") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -r credentials src",
+        "openssl genrsa -out server.key 2048",
+    ],
+)
+def test_linked_workspace_path_is_not_a_linked_operand(
+    linked_workspace: Path, command: str
+) -> None:
+    # Reaching the workspace through a link must not change what its words mean.
+    alias = linked_workspace.parent / "alias"
+    alias.symlink_to(linked_workspace, target_is_directory=True)
+    assert _find_secret_path_in_cmd(command, alias) is None
+    assert _find_secret_path_in_cmd("cat notes.txt", alias) is not None
