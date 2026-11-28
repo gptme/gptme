@@ -1622,23 +1622,20 @@ def test_failed_start_keeps_child_when_cleanup_raises(monkeypatch, tmp_path):
 
 
 @pytest.mark.timeout(15)
-@pytest.mark.parametrize("failing_finishes_first", [True, False])
-def test_overlapping_failed_start_keeps_successful_session(
-    monkeypatch, tmp_path, failing_finishes_first
-):
-    """A failing start must only clear shared state that it still owns.
+def test_overlapping_successful_starts_create_one_session(monkeypatch, tmp_path):
+    """Overlapping starts share one session instead of orphaning the first.
 
-    Two ``_start_impl`` calls overlap on one loop, e.g. a step resent after an
-    interrupt while the first start is still entering. Checks the shared
-    client/session pair only, not the caller-side ``_release_unstarted()``.
+    A step resent after an interrupt can enter ``_start_impl`` while the first
+    start is still entering. Both must succeed, but only the first subprocess
+    may be published: a second one would be orphaned and its session id would
+    replace the live one.
     """
     import gptme.server.acp_session_runtime as mod
 
     clients: list[Any] = []
 
     async def _scenario() -> None:
-        release_first = asyncio.Event()
-        release_second = asyncio.Event()
+        release_entry = asyncio.Event()
 
         class _GatedClient(_DummyClient):
             def __init__(self, workspace: Path, **kwargs: Any) -> None:
@@ -1647,10 +1644,8 @@ def test_overlapping_failed_start_keeps_successful_session(
                 clients.append(self)
 
             async def __aenter__(self):
-                await (release_first, release_second)[self.index].wait()
-                # Client 0 and client 1 swap roles between the two orderings.
-                if self.index == (0 if failing_finishes_first else 1):
-                    raise OSError("entry failed")
+                if self.index == 0:
+                    await release_entry.wait()
                 return self
 
             async def new_session(
@@ -1662,24 +1657,103 @@ def test_overlapping_failed_start_keeps_successful_session(
         runtime = mod.AcpSessionRuntime(workspace=tmp_path)
         first = asyncio.create_task(runtime._start_impl())
         await asyncio.sleep(0)
+        assert len(clients) == 1
+
         second = asyncio.create_task(runtime._start_impl())
         await asyncio.sleep(0)
-        assert len(clients) == 2
+        # The second start waits for the first instead of entering alongside it.
+        assert len(clients) == 1
 
-        # The first start always settles first: it either fails while the
-        # second is still entering, or succeeds before the second one fails.
-        release_first.set()
+        release_entry.set()
         await asyncio.wait([first])
-        release_second.set()
         await asyncio.wait([second])
 
-        winner = 1 if failing_finishes_first else 0
-        tasks = (first, second)
-        assert tasks[winner].result() is None
+        assert first.result() is None
+        assert second.result() is None
+        assert len(clients) == 1
+        assert runtime._client is clients[0]
+        assert runtime.session_id == "sess-0"
+
+    asyncio.run(_scenario())
+
+
+def test_release_unstarted_defers_to_an_in_flight_start(tmp_path):
+    """A failed start must not tear down state another start is entering.
+
+    ``start()`` releases the runtime loop when entry fails, but an overlapping
+    start may already be in flight. Releasing then would stop the loop (and
+    terminate the client) under a start that is about to succeed.
+    """
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    client: Any = _DummyClient(tmp_path)
+    runtime._client = client
+
+    runtime._begin_start()  # an overlapping start is still entering
+    try:
+        runtime._release_unstarted()
+        assert runtime._client is client
+        assert runtime._start_lock is None  # loop untouched, not stopped
+    finally:
+        runtime._end_start()
+
+    # The last start to fail still cleans up after itself.
+    runtime._release_unstarted()
+    assert runtime._client is None
+    assert runtime._loop_thread is None
+
+
+@pytest.mark.timeout(15)
+def test_failed_start_does_not_tear_down_a_waiting_start(monkeypatch, tmp_path):
+    """A failed start followed by a waiting start leaves a usable session.
+
+    The second ``start()`` is already in flight when the first fails; the
+    failure must not stop the loop under it.
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+
+    async def _scenario() -> None:
+        release_failure = asyncio.Event()
+
+        class _GatedClient(_DummyClient):
+            def __init__(self, workspace: Path, **kwargs: Any) -> None:
+                super().__init__(workspace, **kwargs)
+                self.index = len(clients)
+                clients.append(self)
+
+            async def __aenter__(self):
+                if self.index == 0:
+                    await release_failure.wait()
+                    raise OSError("entry failed")
+                return self
+
+            async def new_session(
+                self, cwd: str | Path | None = None, **kwargs: Any
+            ) -> str:
+                return f"sess-{self.index}"
+
+        monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+        runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+        first = asyncio.create_task(runtime.start())
+        await asyncio.sleep(0)
+        second = asyncio.create_task(runtime.start())
+        await asyncio.sleep(0)
+        assert runtime._starts_in_flight == 2
+
+        release_failure.set()
+        await asyncio.wait([first])
+        await asyncio.wait([second])
+
         with pytest.raises(OSError, match="entry failed"):
-            tasks[1 - winner].result()
-        assert runtime._client is clients[winner]
-        assert runtime.session_id == f"sess-{winner}"
+            first.result()
+        assert second.result() is None
+        assert len(clients) == 2
+        assert runtime._client is clients[1]
+        assert runtime.session_id == "sess-1"
+        assert runtime._loop_thread is not None and runtime._loop_thread.is_alive()
 
     asyncio.run(_scenario())
 
