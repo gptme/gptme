@@ -1058,7 +1058,8 @@ A failure or timeout is logged and does not alter the session result.</p>
 <p class="admonition-title">Warning</p>
 <p><code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> and project <code class="docutils literal notranslate"><span class="pre">hooks.scripts</span></code> commands are executed with shell
 interpretation. Review <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before running gptme in untrusted
-repositories. See <a class="reference internal" href="security.html"><span class="doc">Security</span></a> for details.</p>
+repositories. Trust-on-first-use approval hashes those command strings, not
+the files they point at. See <a class="reference internal" href="security.html"><span class="doc">Security</span></a> for the trust model.</p>
 </div>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">rag</span></code>, a dictionary to configure the RAG tool. See <a class="reference internal" href="tools/rag.html#rag"><span class="std std-ref">RAG</span></a> for more information.</p></li>

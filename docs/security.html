@@ -845,6 +845,16 @@ event fires:</p>
 <p>Similarly, <code class="docutils literal notranslate"><span class="pre">base_prompt</span></code> and <code class="docutils literal notranslate"><span class="pre">prompt</span></code> can instruct the model to take
 unwanted actions.</p>
 </div>
+<p>gptme asks once per workspace to approve the shell commands in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>
+(trust-on-first-use). Approval is keyed to the config text, not the files that
+text points at: a later edit of a <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> script, hook or MCP command,
+plugin directory, or <code class="docutils literal notranslate"><span class="pre">repo:</span> <span class="pre">local</span></code> pre-commit entry still runs under the stored
+approval until the config string itself changes. Review those files with the
+config.</p>
+<p><code class="docutils literal notranslate"><span class="pre">[plugin.*]</span></code> tables, <code class="docutils literal notranslate"><span class="pre">base_prompt</span></code> / <code class="docutils literal notranslate"><span class="pre">prompt</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">context.scout_model</span></code> shape the model prompt rather than executing code, so
+they are not gated as shell commands. Review them with the rest of
+<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>.</p>
 <p>Just as you wouldn’t run <code class="docutils literal notranslate"><span class="pre">make</span></code> or <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span></code> in a malicious repository
 without looking first, review <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before running <code class="docutils literal notranslate"><span class="pre">gptme</span></code> in a new
 repository. In automated environments, set <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> explicitly to
