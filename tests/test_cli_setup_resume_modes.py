@@ -253,7 +253,8 @@ def test_interactive_default_setup_does_not_discover_tools(
     assert cfg.chat.tools is None
 
 
-def test_interactive_resume_updates_modes_on_disk(tmp_path):
+def test_interactive_resume_keeps_saved_modes_on_disk(tmp_path):
+    """A resume applies this run's modes in memory without rewriting the record."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     logdir = tmp_path / "logs"
@@ -264,8 +265,20 @@ def test_interactive_resume_updates_modes_on_disk(tmp_path):
         no_confirm=True,
         stream=False,
     )
-    setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=True)
+    cfg = setup_config_from_cli(workspace=workspace, logdir=logdir, interactive=True)
+    assert cfg.chat is not None
+    # This run is interactive, so it must not auto-confirm tools...
+    assert cfg.chat.interactive is True
+    assert cfg.chat.no_confirm is None
+    assert cfg.chat.stream is True
+    # ...but the conversation's saved run modes are unchanged.
     saved = ChatConfig.from_logdir(logdir)
-    assert saved.no_confirm is None
-    assert saved.interactive is True
-    assert saved.stream is True
+    assert saved.no_confirm is True
+    assert saved.interactive is False
+    assert saved.stream is False
+
+    # Resuming again reflects the original record, not the first resume.
+    saved = ChatConfig.from_logdir(logdir)
+    assert saved.no_confirm is True
+    assert saved.interactive is False
+    assert saved.stream is False

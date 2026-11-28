@@ -11,11 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from ..context.config import parse_context_budget
-from ..tools import get_available_tools, get_toolchain
+from ..tools import get_toolchain
 from ..tools._allowlist import (
     TOOL_PRESETS,
     expand_tool_allowlist_presets,
-    is_mcp_allowlist_entry,
 )
 from ..tools._allowlist import is_tool_file_path as _is_tool_file_path
 from .chat import ChatConfig
@@ -270,22 +269,10 @@ def setup_config_from_cli(
                 for t in excluded_tools
                 if t not in default_tools and t not in TOOL_PRESETS
             ]
-            if tool_allowlist is None:
-                # From TOOL_ALLOWLIST. --tools rejects unknown exclusions at
-                # parse time, so do the same here: a typo ("-SHELL") must not
-                # leave the tool enabled. MCP names may be undiscoverable.
-                known = {tool.name for tool in get_available_tools()}
-                if unknown := [
-                    t
-                    for t in non_default
-                    if t not in known
-                    and not _is_tool_file_path(t)
-                    and not is_mcp_allowlist_entry(t)
-                ]:
-                    raise ValueError(
-                        "Invalid TOOL_ALLOWLIST: cannot exclude unknown tool(s): "
-                        f"{', '.join(unknown)}"
-                    )
+            # Unknown exclusions warn like --tools does. Validating them here
+            # would force a plugin-discovery pass during config setup, which
+            # the TUI relies on not happening, and would turn a typo into a
+            # hard startup failure rather than the CLI flag's warning.
             if non_default:
                 logger.warning(
                     "Tool(s) %s are not in the default toolset and cannot be excluded",
@@ -348,6 +335,18 @@ def setup_config_from_cli(
         # When resuming, use saved conversation agent unless CLI override provided
         resolved_agent_path = existing_chat_config.agent
 
+    # Run modes describe this run, not the conversation. Remember the
+    # conversation's own saved values so a resume does not rewrite them below.
+    saved_run_modes = (
+        (
+            existing_chat_config.stream,
+            existing_chat_config.interactive,
+            existing_chat_config.no_confirm,
+        )
+        if existing_chat_config is not None
+        else None
+    )
+
     # Create or load chat config with CLI overrides
     logdir.mkdir(parents=True, exist_ok=True)
     config.chat = ChatConfig.load_or_create(
@@ -387,7 +386,18 @@ def setup_config_from_cli(
         config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
 
     # Persist the user's tool boundary, not this run's completion mechanism.
-    config.chat.save()
+    # On resume, write the conversation's own run modes back: this run's modes
+    # are already applied in memory and were not requested as a change to the
+    # saved conversation.
+    persist_chat = config.chat
+    if saved_run_modes is not None:
+        persist_chat = replace(
+            config.chat,
+            stream=saved_run_modes[0],
+            interactive=saved_run_modes[1],
+            no_confirm=saved_run_modes[2],
+        )
+    persist_chat.save()
     # Leave unrestricted defaults as None: tool initialization adds 'complete'
     # without turning that default into an operator boundary (which would
     # incorrectly disable ACP delegation). Only an explicit boundary is extended.

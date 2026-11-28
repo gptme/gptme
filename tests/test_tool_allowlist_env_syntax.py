@@ -89,13 +89,18 @@ def test_tool_allowlist_env_rejects_mixed_syntax(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("value", ["-SHELL", "-shel", "-save,-shel"])
-def test_tool_allowlist_env_rejects_unknown_exclusion(tmp_path, monkeypatch, value):
-    """A mistyped exclusion must not leave the tool enabled, as with --tools."""
+def test_tool_allowlist_env_warns_on_unknown_exclusion(
+    tmp_path, monkeypatch, caplog, value
+):
+    """An unknown exclusion warns like --tools instead of forcing plugin
+    discovery (and a hard startup failure) during config setup."""
     monkeypatch.setenv("TOOL_ALLOWLIST", value)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    with pytest.raises(ValueError, match="TOOL_ALLOWLIST.*unknown"):
-        setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+    with caplog.at_level("WARNING", logger="gptme.config.cli_setup"):
+        config = setup_config_from_cli(workspace=workspace, logdir=tmp_path / "logs")
+    assert config.chat is not None
+    assert "not in the default toolset" in caplog.text
 
 
 @pytest.mark.parametrize("value", ["-form", "-someserver.sometool"])
