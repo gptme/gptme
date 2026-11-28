@@ -33,7 +33,12 @@ API_VERSION = 2
 #     it continue to work (they just lose the UNREACHABLE notification).
 #   - The 502 path was itself new in revision 1 (PR #3555) and had no stable consumers
 #     outside the SetupWizard, which is updated in this PR to handle the new field.
-CONTRACT_REVISION = 2
+# Revision 3 — conversation metadata: additive GET/PATCH
+# /api/v2/conversations/<id>/metadata routes and the starred/description/tags/
+# pinned_order list-item fields. Additive and backward compatible, so this is a
+# CONTRACT_REVISION bump: clients can detect the capability instead of guessing
+# whether starring returns 405 (gptme/gptme#5187).
+CONTRACT_REVISION = 3
 
 logger = logging.getLogger(__name__)
 

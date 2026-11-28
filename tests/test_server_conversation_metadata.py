@@ -325,6 +325,79 @@ class TestMetadata:
         lock.assert_not_called()
         assert cid not in SessionManager._conversation_locks
 
+    def test_new_sidecar_uses_the_process_umask(self, tmp_path):
+        """A new sidecar must be readable like config.toml, not forced to 0600."""
+        import os
+        import stat
+
+        from gptme.logmanager.metadata import METADATA_FILENAME, update_metadata
+
+        previous = os.umask(0)
+        os.umask(previous)
+        try:
+            update_metadata(tmp_path, {"starred": True})
+        finally:
+            os.umask(previous)
+
+        mode = stat.S_IMODE((tmp_path / METADATA_FILENAME).stat().st_mode)
+        assert mode == 0o666 & ~previous
+
+    def test_edit_preserves_existing_sidecar_permissions(self, tmp_path):
+        import stat
+
+        from gptme.logmanager.metadata import METADATA_FILENAME, update_metadata
+
+        sidecar = tmp_path / METADATA_FILENAME
+        sidecar.write_text("starred = false\n", encoding="utf-8")
+        sidecar.chmod(0o640)
+
+        update_metadata(tmp_path, {"starred": True})
+
+        assert stat.S_IMODE(sidecar.stat().st_mode) == 0o640
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"description": 1},
+            {"tags": "work"},
+            {"tags": ["work", 2]},
+            {"pinned_order": "1"},
+            {"pinned_order": True},
+        ],
+    )
+    def test_invalid_patch_is_rejected(self, tmp_path, patch):
+        from gptme.logmanager.metadata import update_metadata
+
+        with pytest.raises(ValueError, match="must be"):
+            update_metadata(tmp_path, patch)
+        assert not list(tmp_path.glob(".metadata-*"))
+
+    def test_strict_read_reraises_an_unreadable_sidecar(self, tmp_path):
+        import tomlkit
+
+        from gptme.logmanager.metadata import METADATA_FILENAME, read_metadata
+
+        (tmp_path / METADATA_FILENAME).write_bytes(b'description = "unterminated')
+
+        with pytest.raises(tomlkit.exceptions.TOMLKitError):
+            read_metadata(tmp_path, strict=True)
+
+    def test_failed_write_cleans_up_the_staged_file(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from gptme.logmanager import metadata
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(metadata.os, "replace", boom)
+
+        with pytest.raises(OSError, match="disk full"):
+            metadata.update_metadata(tmp_path, {"starred": True})
+
+        assert not list(Path(tmp_path).glob(".metadata-*"))
+        assert not (tmp_path / metadata.METADATA_FILENAME).exists()
+
 
 class TestConfigPatchModelValidation:
     def test_unknown_provider_is_400(self, client: FlaskClient):
@@ -549,3 +622,9 @@ class TestConfigPatchModelValidation:
         )
         assert resp.status_code == 400, resp.get_json()
         assert "gpt-4o" in resp.get_json()["error"]
+
+    def test_provider_prefix_without_model_name_is_rejected(self):
+        from gptme.server.api_v2 import _validate_conversation_model
+
+        with pytest.raises(ValueError, match="model name after the provider"):
+            _validate_conversation_model("openai/")

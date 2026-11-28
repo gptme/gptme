@@ -9,7 +9,8 @@ runs, and changing them must not touch the chat config.
 from __future__ import annotations
 
 import os
-import tempfile
+import stat
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -111,6 +112,14 @@ def validate_metadata_patch(patch: dict[str, Any]) -> str | None:
     return None
 
 
+def _existing_mode(path: Path) -> int | None:
+    """The sidecar's current permission bits, or None if it does not exist."""
+    try:
+        return stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        return None
+
+
 def update_metadata(logdir: Path, patch: dict[str, Any]) -> ConversationMetadata:
     """Apply a validated partial update and write the sidecar atomically.
 
@@ -129,10 +138,18 @@ def update_metadata(logdir: Path, patch: dict[str, Any]) -> ConversationMetadata
         else:
             doc[key] = value
 
-    fd, tmp = tempfile.mkstemp(dir=logdir, prefix=".metadata-", suffix=".toml")
+    mode = _existing_mode(path)
+    # Stage with O_CREAT and 0o666 so the process umask decides a new file's
+    # mode, the same policy as config.toml and conversation.jsonl. mkstemp
+    # would force 0o600 and leave the sidecar unreadable to group, sync or
+    # backup readers after the first edit. An existing file keeps its bits.
+    tmp = logdir / f".metadata-{uuid.uuid4().hex}.toml"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(tomlkit.dumps(doc))
+        if mode is not None:
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
