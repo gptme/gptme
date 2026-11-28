@@ -872,6 +872,99 @@ def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     )
 
 
+def test_prompt_workspace_skips_context_cmd_by_default(tmp_path, monkeypatch):
+    """include_context_cmd defaults to False; opt-in still needs stored approval."""
+    import sys
+
+    from gptme.config import trust as trust_mod
+    from gptme.config.trust import _record, compute_shell_hash
+    from gptme.prompts import prompt_workspace
+
+    monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    # conftest.py sets the trust-all flag True for the rest of the suite; this
+    # test must exercise the real default-skip and stored-approval paths.
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", False)
+    trust_mod._session_decisions.clear()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    cmd = "echo TRUSTED_CONTEXT_CMD_RAN"
+    (workspace / "gptme.toml").write_text(f'[prompt]\ncontext_cmd = "{cmd}"\n')
+
+    def collect(**kwargs) -> str:
+        return "\n".join(
+            msg.content
+            for msg in prompt_workspace(
+                workspace,
+                include_user_context=False,
+                include_runtime_context=False,
+                **kwargs,
+            )
+        )
+
+    content = collect()
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content
+    assert "Computed context" not in content
+
+    content_untrusted = collect(include_context_cmd=True)
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content_untrusted
+
+    _record(compute_shell_hash(cmd, []), True, workspace)
+    trust_mod._session_decisions.clear()
+
+    content_trusted = collect(include_context_cmd=True)
+    assert "TRUSTED_CONTEXT_CMD_RAN" in content_trusted
+
+
+def test_prompt_workspace_accepts_full_project_approval_with_extras(
+    tmp_path, monkeypatch
+):
+    """A project with [env] still runs an approved context_cmd.
+
+    Startup records one approval over the full project hash (shell + [env], MCP,
+    plugins, RAG). Checking only the shell-only hash here would reject that
+    approval and silently drop the context output (Greptile P1 on gptme#5368).
+    """
+    import sys
+
+    from gptme.config import trust as trust_mod
+    from gptme.config.project import get_project_config
+    from gptme.config.trust import _record, compute_project_hash
+    from gptme.prompts import prompt_workspace
+
+    monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", False)
+    trust_mod._session_decisions.clear()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    cmd = "echo TRUSTED_CONTEXT_CMD_RAN"
+    (workspace / "gptme.toml").write_text(
+        f'[prompt]\ncontext_cmd = "{cmd}"\n\n[env]\nFOO = "bar"\n'
+    )
+
+    # Record the approval exactly as startup does: over the full project hash.
+    project = get_project_config(workspace)
+    assert project is not None
+    _record(compute_project_hash(project), True, workspace)
+    trust_mod._session_decisions.clear()
+
+    content = "\n".join(
+        msg.content
+        for msg in prompt_workspace(
+            workspace,
+            include_context_cmd=True,
+            include_user_context=False,
+            include_runtime_context=False,
+        )
+    )
+    assert "TRUSTED_CONTEXT_CMD_RAN" in content
+
+
 def test_prompt_workspace_path_included_without_runtime_context(tmp_path):
     """Path must appear when include_path=True regardless of include_runtime_context."""
     from gptme.prompts import prompt_workspace
