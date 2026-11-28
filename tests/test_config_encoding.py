@@ -548,6 +548,7 @@ def test_backup_does_not_touch_another_saves_staging_file(tmp_path: Path, monkey
         "config.toml",
         "config.toml.orig",
         "config.toml.orig.tmp",
+        ".config.toml.lock",  # held across the read-modify-write
     }
     assert not leftovers
 
