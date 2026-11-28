@@ -1,5 +1,6 @@
 import fnmatch
 import logging
+import os
 import re
 import subprocess
 from collections.abc import Generator
@@ -281,6 +282,73 @@ def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
     return result
 
 
+def _file_owner_uid(path: Path, *, follow_symlinks: bool = True) -> int | None:
+    """Owner uid of ``path`` (its target unless ``follow_symlinks`` is False),
+    or None where ownership is unavailable."""
+    try:
+        return path.stat(follow_symlinks=follow_symlinks).st_uid
+    except (OSError, AttributeError):
+        return None
+
+
+def _is_loadable_agent_file(agent_file: Path, vouching_dir: Path | None = None) -> bool:
+    """Whether a discovered agent file is safe to embed in the prompt.
+
+    - A symlink is followed only to a regular file that looks like an
+      instruction file (an agent-file name or ``*.md``). Shared identity files
+      symlinked from elsewhere keep working, but a cloned repo committing
+      ``AGENTS.md -> ~/.ssh/id_ed25519`` cannot pull a key or ``.env`` into the
+      prompt.
+    - Only regular files load, so a FIFO or device under an agent-file name
+      cannot block startup on ``read_text()``.
+    - On POSIX, files owned by another (non-root) user are skipped unless that
+      user also owns ``vouching_dir`` (the directory gptme was pointed at, or a
+      directory between it and its git checkout root; never a shared ancestor). Outside home
+      the walk reaches shared directories such as ``/tmp``, where any local
+      user can plant an ``AGENTS.md``. Both the symlink itself and its target
+      must be ours or root's: another user's link to one of our files is their
+      choice of instructions, and in a sticky directory they cannot replace an
+      entry they do not own.
+    """
+    if not agent_file.is_file():
+        return False
+    if agent_file.is_symlink():
+        target = agent_file.resolve()
+        if not target.is_file():
+            return False
+        if target.name not in AGENT_FILES and target.suffix.lower() != ".md":
+            logger.warning(
+                "Skipping agent file %s: symlink target %s is not an instruction file",
+                agent_file,
+                target,
+            )
+            return False
+    getuid = getattr(os, "getuid", None)
+    if getuid is not None:
+        for follow in (False, True):
+            entry = agent_file.resolve() if follow else agent_file
+            owner = _file_owner_uid(entry, follow_symlinks=False)
+            # The target directory's owner vouches for files under it: a
+            # bind-mounted checkout owned by uid 1000 still loads when gptme
+            # runs as root, and so does a teammate's checkout. Shared ancestors
+            # such as /tmp get no such exception, and neither does the file's
+            # immediate parent: another user can create /tmp/.github and own
+            # both it and the copilot-instructions.md inside.
+            trusted = {getuid(), 0}
+            if vouching_dir is not None:
+                vouch = _file_owner_uid(vouching_dir)
+                if vouch is not None:
+                    trusted.add(vouch)
+            if owner is not None and owner not in trusted:
+                logger.warning(
+                    "Skipping agent file %s: owned by another user (uid %s)",
+                    agent_file,
+                    owner,
+                )
+                return False
+    return True
+
+
 def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
@@ -318,10 +386,24 @@ def find_agent_files_in_tree(
     # but users should be aware they may contain instructions not intended for gptme.
     _cross_tool_files = frozenset({".cursorrules", ".windsurfrules"})
 
+    # Directories whose owner may vouch for another owner's agent files: the
+    # target and, inside a git checkout, everything up to the checkout root.
+    # Shared ancestors above the checkout keep the current-user-or-root rule.
+    vouching_dirs = {target}
+    for dir_path in reversed(dirs_to_check):
+        vouching_dirs.add(dir_path)
+        if (dir_path / ".git").exists():
+            break
+    else:
+        vouching_dirs = {target}
+
     for dir_path in dirs_to_check:
         for filename in AGENT_FILES:
             agent_file = dir_path / filename
-            if agent_file.exists():
+            if agent_file.exists() and _is_loadable_agent_file(
+                agent_file,
+                vouching_dir=dir_path if dir_path in vouching_dirs else None,
+            ):
                 resolved = str(agent_file.resolve())
                 if resolved not in _exclude:
                     if filename in _cross_tool_files:
