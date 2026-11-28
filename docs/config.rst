@@ -18,7 +18,7 @@ The CLI also supports a variety of options that can be used to override both con
 Global config
 -------------
 
-The file is located at ``~/.config/gptme/config.toml``.
+The file is located at ``~/.config/gptme/config.toml`` (or ``$XDG_CONFIG_HOME/gptme/config.toml`` if ``XDG_CONFIG_HOME`` is set).
 
 Here is an example:
 
@@ -261,7 +261,7 @@ See :class:`gptme.config.UserConfig` for the API reference.
 Local overrides (``config.local.toml``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can create a ``config.local.toml`` in the same directory (``~/.config/gptme/``) to override or extend values from ``config.toml``. This is useful for keeping secrets (API keys, MCP server credentials) separate from preferences you might commit to your dotfiles.
+You can create a ``config.local.toml`` in the same directory (``~/.config/gptme/``, or ``$XDG_CONFIG_HOME/gptme/`` if ``XDG_CONFIG_HOME`` is set) to override or extend values from ``config.toml``. This is useful for keeping secrets (API keys, MCP server credentials) separate from preferences you might commit to your dotfiles.
 
 Example ``config.local.toml``:
 
@@ -435,7 +435,8 @@ This file currently supports a few options:
 
      ``context_cmd`` and project ``hooks.scripts`` commands are executed with shell
      interpretation. Review ``gptme.toml`` before running gptme in untrusted
-     repositories. See :doc:`security` for details.
+     repositories. Trust-on-first-use approval hashes those command strings, not
+     the files they point at. See :doc:`security` for the trust model.
 
 - ``rag``, a dictionary to configure the RAG tool. See :ref:`rag` for more information.
 - ``plugins``, a dictionary to configure plugins for this project. See :doc:`plugins` for more information. Example:
@@ -532,8 +533,10 @@ Agent instruction files (``AGENTS.md``)
 
 At startup, gptme loads agent instruction files (``AGENTS.md``, ``CLAUDE.md``,
 ``COPILOT.md``, ``GEMINI.md``, ``.github/copilot-instructions.md``,
-``.cursorrules``, ``.windsurfrules``) from ``~/.config/gptme/`` and from every
-directory between your home directory and the workspace, most general first.
+``.cursorrules``, ``.windsurfrules``) from the gptme config directory
+(``~/.config/gptme/``, or ``$XDG_CONFIG_HOME/gptme/`` if ``XDG_CONFIG_HOME`` is
+set) and from every directory between your home directory and the workspace,
+most general first.
 
 During a session, instructions follow you: when the working directory changes
 (for example after a ``cd`` in the shell tool), or a file tool reads or writes a

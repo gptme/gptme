@@ -238,6 +238,8 @@ def main(
         model=model,
         tool_allowlist=tool_allowlist,
         tool_format=tool_format,  # type: ignore[arg-type]
+        # The TUI renders streamed output; never inherit a saved --no-stream.
+        stream=True,
         interactive=True,
     )
     assert config.chat and config.chat.tool_format

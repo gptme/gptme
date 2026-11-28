@@ -2334,6 +2334,69 @@ def test_resolve_resume_profile_unknown_name_resumes_without_profile(caplog):
     assert "no longer available" in caplog.text
 
 
+def _chats_functions_seen_by_chat(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> set[str]:
+    from gptme.tools import get_tools
+
+    seen: dict[str, set[str]] = {}
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    def fake_chat(*a: Any, **k: Any) -> None:
+        chats = next(t for t in get_tools() if t.name == "chats")
+        seen["functions"] = {f.fn.__name__ for f in chats.functions or []}
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
+    result = runner.invoke(cli.main, args, catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    return seen["functions"]
+
+
+def test_read_only_agent_profile_cannot_message_peers(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--agent-profile explorer must not expose send_peer_message to the model."""
+    functions = _chats_functions_seen_by_chat(
+        runner,
+        monkeypatch,
+        [
+            "--name",
+            "readonly-profile-peers",
+            "--workspace",
+            str(tmp_path),
+            "--agent-profile",
+            "explorer",
+            "--non-interactive",
+            "hello",
+        ],
+    )
+    assert "send_peer_message" not in functions
+    assert "list_peers" in functions
+
+
+def test_resumed_read_only_profile_cannot_message_peers(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A persisted read-only profile restricts tools on resume without the flag."""
+    workspace = tmp_path / "workspace"
+    conv = _write_conversation("resume-readonly-peers", workspace=workspace)
+    with (conv / "config.toml").open("a") as f:
+        f.write('agent_profile = "explorer"\n')
+    functions = _chats_functions_seen_by_chat(
+        runner,
+        monkeypatch,
+        [
+            "--resume",
+            "--name",
+            conv.name,
+            "--workspace",
+            str(workspace),
+            "--non-interactive",
+        ],
+    )
+    assert "send_peer_message" not in functions
+
+
 def test_resume_reapplies_agent_profile(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

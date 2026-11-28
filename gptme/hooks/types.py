@@ -154,6 +154,30 @@ class HookType(str, Enum):
     ELICIT = "elicit"  # Agent requests user input (text, choice, secret, form, etc.)
 
 
+# Hook types that gptme declares but never triggers. Registering one of these
+# logs a warning instead of silently doing nothing (gptme/gptme#5091). Wiring a
+# hook type means adding its trigger and removing it from this mapping; a
+# static test (tests/test_hook_fire_sites.py) keeps the two in sync.
+UNFIRED_HOOK_TYPES: dict[HookType, str] = {
+    HookType.STEP_POST: (
+        "not wired in any loop yet; use TOOL_EXECUTE_POST (after each tool) "
+        "or TURN_POST (after the turn) instead"
+    ),
+    HookType.MESSAGE_TRANSFORM: (
+        "deprecated, never implemented: it has no defined signature or call "
+        "site and will be removed"
+    ),
+    HookType.TOOL_TRANSFORM: (
+        "deprecated, never implemented: use TOOL_EXECUTE_PRE to inspect or "
+        "deny a call; it will be removed"
+    ),
+    HookType.GENERATION_INTERRUPT: (
+        "deprecated, never implemented: it has no defined signature or call "
+        "site and will be removed"
+    ),
+}
+
+
 # Protocol classes for different hook signatures
 class SessionStartHook(Protocol):
     """Hook called at session start with logdir, workspace, and initial messages."""

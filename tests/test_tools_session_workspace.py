@@ -257,8 +257,12 @@ def test_save_append_refuse_workspace_fifo(workspaces, operation):
 
 
 def test_precommit_detects_config_in_session_workspace(workspaces, monkeypatch):
-    a, b, _ = workspaces
+    a, b, elsewhere = workspaces
+    # Discovery is bounded by each session's repository, not the process cwd.
+    for ws in (a, b):
+        subprocess.run(["git", "init", "-q", str(ws)], check=True)
     (a / ".pre-commit-config.yaml").write_text("repos: []\n")
+    (elsewhere / ".pre-commit-config.yaml").write_text("repos: []\n")
     from gptme.tools.precommit import use_checks
 
     # Pin auto-detection and runner availability, not the developer's config/PATH.

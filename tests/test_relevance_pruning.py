@@ -131,6 +131,28 @@ def test_referenced_relative_path_boosts_score():
     assert score > score_no_ref + 2.0
 
 
+def test_referenced_bare_filename_boosts_score():
+    """Bare filenames like data1.csv must count as references (#5247)."""
+    msg = _tool_out("Ran command: `cat data1.csv`\n```\na,b\n1,2\n```")
+    later = _user("Summarize data1.csv for me")
+    padding = [_user(f"msg {i}") for i in range(_PRUNE_MIN_AGE)]
+    log = [msg] + padding + [later]
+    assert score_tool_output_relevance(msg, 0, log) == 5.0
+
+    log_no_ref = [msg] + padding + [_user("something unrelated")]
+    assert score_tool_output_relevance(msg, 0, log_no_ref) < 5.0
+
+
+def test_bare_filename_extraction_ignores_versions_and_prose():
+    from gptme.tools.autocompact.scoring import _extract_file_paths
+
+    assert "README.md" in _extract_file_paths("See README.md.")
+    assert (
+        _extract_file_paths("Upgrade 1.2 to v1.2.3 and python3.11, e.g. now. Done.")
+        == set()
+    )
+
+
 # ---------------------------------------------------------------------------
 # prune_stale_tool_outputs
 # ---------------------------------------------------------------------------

@@ -415,14 +415,14 @@ def _configure_extra_features(features: dict[str, str]):
 
         if Confirm.ask(f"  Enable {description.lower()}?", default=current_enabled):
             if not current_enabled:
-                set_config_value(f"env.{env_var}", "1")
+                set_config_value(f"env.{env_var.removeprefix('GPTME_')}", "1")
                 console.print(f"  [green]✅ Enabled {description.lower()}[/green]")
                 changes_made = True
             else:
                 console.print("  [blue]ℹ️  Already enabled[/blue]")
         else:
             if current_enabled:
-                set_config_value(f"env.{env_var}", "0")
+                set_config_value(f"env.{env_var.removeprefix('GPTME_')}", "0")
                 console.print(f"  [red]❌ Disabled {description.lower()}[/red]")
                 changes_made = True
             else:
@@ -788,12 +788,14 @@ def ask_for_api_key(require_default_model: bool = False):  # pragma: no cover
     _show_api_key_sources()
     # Save to config
     api_key, provider, env_var = _prompt_api_key()
-    set_config_value(f"env.{env_var}", api_key)
+    # Secrets go to the owner-only config.local.toml, never the shared config.
+    set_config_value(f"env.{env_var}", api_key, local=True)
+    _, local_config_path = get_user_config_paths()
 
     console.print(
         Panel.fit(
             f"[green]✅ Successfully set up {provider} API key![/green]\n"
-            f"[dim]API key saved to config at {config_path}[/dim]",
+            f"[dim]API key saved to config at {local_config_path}[/dim]",
             border_style="green",
         )
     )

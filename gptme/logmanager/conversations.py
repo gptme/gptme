@@ -4,13 +4,18 @@ Provides read-only conversation discovery (get_conversations, list_conversations
 and mutation operations (rename, delete) that work on persisted conversation logs.
 """
 
+import errno
 import functools
 import json
 import logging
+import os
 import re
 import shutil
+import stat
 import sys
+import tempfile
 from collections.abc import Generator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import islice
@@ -21,6 +26,7 @@ import tomlkit
 
 from ..config import ChatConfig, get_project_config
 from ..config.chat import chat_config_lock
+from ..config.user import _back_up_before_reencoding, _read_config_text
 from ..dirs import get_logs_dir
 from .manager import Log
 
@@ -582,8 +588,9 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
     # workspace symlinks, which is unwanted for legacy conversations.
     with chat_config_lock(conv_dir):
         if config_path.exists():
-            with open(config_path) as f:
-                config_data = tomlkit.load(f)
+            # Same UTF-8-first reader as ChatConfig: the platform default codec
+            # would misread the UTF-8 this function writes on a legacy locale.
+            config_data = tomlkit.loads(_read_config_text(config_path))
         else:
             config_data = tomlkit.document()
 
@@ -593,8 +600,56 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
         assert isinstance(chat_section, dict)
         chat_section["name"] = new_name
 
-        with open(config_path, "w") as f:
-            tomlkit.dump(config_data, f)
+        # Keep the original bytes if the read above had to guess the codec.
+        _back_up_before_reencoding(config_path)
+        # Replace atomically (like ChatConfig.save): a failure mid-dump must
+        # not truncate the workspace/model/agent settings already on disk.
+        # Write through a symlink to its target, and keep ownership and mode
+        # (mkstemp creates 0600).
+        target = config_path.resolve()
+        try:
+            info: os.stat_result | None = target.stat()
+        except FileNotFoundError:
+            info = None
+        fd, tmp_name = tempfile.mkstemp(
+            dir=target.parent, prefix=".config.", suffix=".toml.tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                if info is not None and os.name == "posix":
+                    staged = os.fstat(f.fileno())
+                    if (staged.st_uid, staged.st_gid) != (info.st_uid, info.st_gid):
+                        # Fail before writing private contents if ownership
+                        # cannot be retained on the replacement inode.
+                        os.fchown(f.fileno(), info.st_uid, info.st_gid)
+                tomlkit.dump(config_data, f)
+                f.flush()
+                os.fsync(f.fileno())
+            if info is not None:
+                # A new inode can inherit a directory's default ACL even though
+                # the original config has no ACL. Do not activate those grants
+                # when restoring its group mode. Propagate preservation errors
+                # rather than publish a more permissive replacement.
+                if sys.platform == "linux":
+                    try:
+                        acl = os.getxattr(target, "system.posix_acl_access")
+                    except OSError as exc:
+                        if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                            raise
+                        acl = None
+                    if acl is not None:
+                        os.setxattr(tmp_name, "system.posix_acl_access", acl)
+                    else:
+                        try:
+                            os.removexattr(tmp_name, "system.posix_acl_access")
+                        except OSError as exc:
+                            if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                                raise
+                os.chmod(tmp_name, stat.S_IMODE(info.st_mode))
+            os.replace(tmp_name, target)
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(tmp_name)
 
     return True
 

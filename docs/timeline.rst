@@ -50,6 +50,7 @@ Unreleased
 - Auto-discovery of local Ollama and LM Studio providers
 - Offline file format conversion tool
 - Trust-on-first-use gate for project-level shell execution
+- Approvals from older versions keep shell commands only; re-approve to enable MCP/env/plugins.
 
 2026
 ----

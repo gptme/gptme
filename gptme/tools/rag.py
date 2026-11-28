@@ -502,7 +502,9 @@ tool = ToolSpec(
     hooks={
         "rag_context": ("generation.pre", _rag_context_hook, 0),
     },
-    read_only=True,
+    # Not read_only: rag_index reads and stores any path, including secret
+    # directories, and rag_index_conversations writes to a caller-chosen
+    # output_dir. read_only is per tool and auto-approves every call.
 )
 
 __doc__ = tool.get_doc(__doc__)

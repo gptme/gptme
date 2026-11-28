@@ -221,20 +221,70 @@ def _iter_event_lines(path: Path) -> Iterator[str]:
                 logger.warning("Skipping undecodable event line in %s", path)
 
 
+def _parse_event(line: str) -> dict[str, Any] | None:
+    """Parse one event line, or return *None* if it is not a usable event.
+
+    Well-formed JSON of the wrong shape (a list, a scalar, or an object without
+    an integer ``seq``) is rejected like malformed JSON: every consumer indexes
+    ``event["seq"]`` and calls ``event.get``.
+    """
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(event, dict):
+        return None
+    seq = event.get("seq")
+    if not isinstance(seq, int) or isinstance(seq, bool):
+        return None
+    if not _payload_shape_ok(event.get("type"), event.get("payload", _MISSING)):
+        return None
+    return event
+
+
+_MISSING = object()
+
+
+def _payload_shape_ok(event_type: Any, payload: Any) -> bool:
+    """Check the payload fields recovery and compaction index, per event type.
+
+    *payload* is ``_MISSING`` when the row has no ``payload`` key, which differs
+    from an explicit ``null``: consumers default a missing payload but call
+    ``.get`` on a present one.
+    """
+    if event_type == EVENT_MESSAGE_APPEND:
+        return isinstance(payload, dict) and isinstance(payload.get("message"), dict)
+    if event_type in (EVENT_CHECKPOINT, EVENT_MESSAGE_EDIT):
+        if not isinstance(payload, dict):
+            return False
+        messages = payload.get("messages")
+        return isinstance(messages, list) and all(isinstance(m, dict) for m in messages)
+    if event_type == EVENT_UNDO:
+        if payload is _MISSING:
+            return True
+        if not isinstance(payload, dict):
+            return False
+        n = payload.get("n", 1)
+        return isinstance(n, int) and not isinstance(n, bool)
+    return True
+
+
 def read_events(logdir: Path) -> list[dict[str, Any]]:
     """Read all events from the event log, oldest first.
 
-    Returns an empty list if no event log exists.
+    Returns an empty list if no event log exists.  Malformed lines and rows
+    that are not objects with an integer ``seq`` are skipped.
     """
     path = _event_log_path(logdir)
     if not path.exists():
         return []
     events: list[dict[str, Any]] = []
     for line in _iter_event_lines(path):
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
+        event = _parse_event(line)
+        if event is None:
             logger.warning("Skipping malformed event line in %s", path)
+            continue
+        events.append(event)
     return events
 
 
@@ -249,22 +299,17 @@ def sequence_number(logdir: Path) -> int:
         last_line = line
     if not last_line:
         return 1
-    try:
-        return json.loads(last_line)["seq"] + 1
-    except (json.JSONDecodeError, KeyError, TypeError):
-        # Last line is damaged, or a valid JSON record without an integer seq —
-        # scan the remaining valid events for the maximum seq so the next
-        # sequence is never below the checkpoint's seq (which would cause
-        # recover_messages() to discard the new event as pre-checkpoint).
-        events = read_events(logdir)
-        seqs = [
-            e["seq"]
-            for e in events
-            if isinstance(e.get("seq"), int) and not isinstance(e.get("seq"), bool)
-        ]
-        if seqs:
-            return max(seqs) + 1
-        return 1
+    last_event = _parse_event(last_line)
+    if last_event is not None:
+        return last_event["seq"] + 1
+    # Last line is damaged, or a valid JSON record without an integer seq —
+    # scan the remaining valid events for the maximum seq so the next
+    # sequence is never below the checkpoint's seq (which would cause
+    # recover_messages() to discard the new event as pre-checkpoint).
+    seqs = [e["seq"] for e in read_events(logdir)]
+    if seqs:
+        return max(seqs) + 1
+    return 1
 
 
 def write_checkpoint(

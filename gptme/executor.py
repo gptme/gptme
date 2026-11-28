@@ -11,8 +11,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from dotenv import load_dotenv
-
 from .config import Config, set_config
 from .init import _register_core_compaction_hook, init_hooks, init_tools
 
@@ -40,7 +38,9 @@ def prepare_execution_environment(
     - Setting chat config (if provided)
     - Initializing tools
     - Initializing hooks
-    - Loading .env files
+
+    The workspace's ``.env`` is deliberately not loaded: it is repository
+    content, and the process environment decides what is trusted.
 
     Args:
         workspace: The workspace directory
@@ -63,9 +63,6 @@ def prepare_execution_environment(
         config.chat = chat_config
 
     set_config(config)
-
-    # Load .env file if present
-    load_dotenv(dotenv_path=workspace / ".env")
 
     # Initialize tools and hooks
     initialized_tools = init_tools(tools)

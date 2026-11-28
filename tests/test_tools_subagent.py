@@ -4369,3 +4369,150 @@ def test_session_end_teardown_cancels_planner_executors():
         _subagents[:] = _subagents[:init_count]
     with _subagent_results_lock:
         _subagent_results.clear()
+
+
+def _run_child_thread_capturing_tools(tmp_path, **kwargs) -> set[str]:
+    """Run _create_subagent_thread in a fresh thread; return the advertised tools.
+
+    A fresh ``threading.Thread`` starts with an empty ContextVar context, like a
+    real subagent child, so this exercises the child-side tool initialization
+    instead of resolving tools in the parent (the gap in the #3974 test).
+    """
+    import threading
+
+    import gptme.chat  # noqa: F401 — must import before patch.object
+    from gptme.tools.subagent.execution import _create_subagent_thread
+
+    captured: list[set[str]] = []
+
+    def fake_get_prompt(tools, *args, **kw):
+        captured.append({t.name for t in tools})
+        return []
+
+    errors: list[BaseException] = []
+
+    def run():
+        try:
+            _create_subagent_thread(
+                prompt="test",
+                logdir=tmp_path,
+                model=None,
+                context_mode="full",
+                context_include=None,
+                workspace=tmp_path,
+                **kwargs,
+            )
+        except BaseException as e:  # pragma: no cover - surfaced below
+            errors.append(e)
+
+    with (
+        patch("gptme.prompts.get_prompt", side_effect=fake_get_prompt),
+        patch.object(sys.modules["gptme.chat"], "chat", MagicMock()),
+    ):
+        t = threading.Thread(target=run)
+        t.start()
+        t.join(timeout=60)
+    assert not errors, errors
+    assert captured, "child never built its prompt"
+    return captured[0]
+
+
+def test_thread_child_profile_cannot_escape_parent_allowlist(tmp_path):
+    """A profile must not re-grant tools the parent's --tools excluded (#5247 item 1).
+
+    Parent ``-t ipython,subagent,complete`` + ``profile="verifier"`` used to
+    advertise shell and read to the child.
+    """
+    names = _run_child_thread_capturing_tools(
+        tmp_path,
+        profile_name="verifier",
+        parent_tool_allowlist=["ipython", "subagent", "complete"],
+    )
+    assert "shell" not in names
+    assert "read" not in names
+    assert "complete" in names
+
+
+def test_thread_child_without_profile_keeps_parent_allowlist(tmp_path):
+    """Without a profile the child starts with the parent's tool list (#5192 item 2)."""
+    names = _run_child_thread_capturing_tools(
+        tmp_path,
+        parent_tool_allowlist=["ipython", "subagent", "complete"],
+    )
+    assert "shell" not in names
+    assert "save" not in names
+    assert {"ipython", "complete"} <= names
+
+
+def _subprocess_tools_value(tmp_path, **kwargs) -> str:
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_cmd: list[str] = []
+
+    def fake_popen(cmd, **kw):
+        captured_cmd[:] = cmd
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+        _run_subagent_subprocess(
+            prompt="task", logdir=logdir, model=None, workspace=tmp_path, **kwargs
+        )
+    return captured_cmd[captured_cmd.index("--tools") + 1]
+
+
+def test_subprocess_profile_filtered_by_parent_allowlist(tmp_path):
+    """Subprocess --tools must honor both parent and read-only profile limits."""
+    value = _subprocess_tools_value(
+        tmp_path,
+        profile="verifier",
+        parent_tool_allowlist=["ipython", "chats", "subagent", "complete"],
+    )
+    tools = value.split(",")
+    assert "shell" not in tools
+    assert "read" not in tools
+    assert "ipython" not in tools
+    assert "chats" in tools
+    assert {"complete", "clarify", "progress", "yield"} <= set(tools)
+
+
+def test_subprocess_without_profile_uses_parent_allowlist(tmp_path):
+    value = _subprocess_tools_value(
+        tmp_path, parent_tool_allowlist=["ipython", "subagent", "complete"]
+    )
+    assert value == "ipython,subagent,complete,clarify,progress,yield"
+
+
+def test_subprocess_parent_glob_allowlist_expanded_to_names(tmp_path):
+    """The CLI --tools rejects globs, so parent patterns are expanded."""
+    value = _subprocess_tools_value(tmp_path, parent_tool_allowlist=["ipy*"])
+    assert value.split(",")[0] == "ipython"
+    assert "*" not in value
+
+
+def test_subagent_passes_parent_allowlist_to_child(monkeypatch):
+    """subagent() captures the allowlist in the parent context, before the thread."""
+    import threading
+
+    from gptme.tools import set_session_allowlist
+    from gptme.tools.subagent import api as subagent_api
+
+    seen: list[list[str] | None] = []
+    done = threading.Event()
+
+    def fake_thread(**kwargs):
+        seen.append(kwargs.get("parent_tool_allowlist"))
+        done.set()
+
+    monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", fake_thread)
+    set_session_allowlist(["ipython", "subagent", "complete"])
+    try:
+        subagent(agent_id="allowlist-capture", prompt="x")
+        assert done.wait(10)
+    finally:
+        set_session_allowlist(None)
+    assert seen == [["ipython", "subagent", "complete"]]

@@ -31,7 +31,14 @@ from ..tools import ToolFormat
 from ..util.git_cmd import GIT_CMD
 from .run import run_evals
 from .suites import suites, tests_default, tests_default_ids, tests_map
-from .types import CaseResult, EvalResult, EvalSpec, ModelConfig, get_effective_format
+from .types import (
+    CaseResult,
+    EvalResult,
+    EvalSpec,
+    ModelConfig,
+    Status,
+    get_effective_format,
+)
 
 # Configure logging, including fully-qualified module names
 logging.basicConfig(
@@ -955,10 +962,25 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
                 test_dir = results_dir / model_name / row["Test"]
 
             cost_usd_str = row.get("Cost USD", "")
+            csv_status = row.get("Status")
+            status: Status = "success" if row["Passed"] == "true" else "error"
+            if csv_status in get_args(Status):
+                status = cast(Status, csv_status)
+            cases_file = test_dir / "cases.csv"
+            cases = list(_read_case_results(cases_file))
+            if not cases:
+                # Without checker details, retain the CSV's aggregate outcome.
+                cases = [
+                    CaseResult(
+                        name="CSV aggregate",
+                        passed=row["Passed"] == "true",
+                        duration=0.0,
+                    )
+                ]
             result = EvalResult(
                 name=row["Test"],
-                status="success" if row["Passed"] == "true" else "error",
-                results=list(_read_case_results(test_dir / "cases.csv")),
+                status=status,
+                results=cases,
                 timings={
                     "gen": float(row["Generation Time"]),
                     "run": float(row["Run Time"]),
@@ -1116,6 +1138,7 @@ def write_results(
             "Commit Hash",
             "Log Dir",
             "Workspace Dir",
+            "Status",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, lineterminator="\n")
 
@@ -1151,6 +1174,7 @@ def write_results(
                     "Tool Format": config.tool_format,
                     "Test": result.name,
                     "Passed": "true" if passed else "false",
+                    "Status": result.status,
                     "Score": score,
                     "Tool Calls": result.tool_calls,
                     "Num Steps": result.num_steps,

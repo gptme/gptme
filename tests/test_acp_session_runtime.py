@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import sys
 import threading
 import time
 import uuid
@@ -24,6 +25,39 @@ if TYPE_CHECKING:
 
 def _run(coro: Any) -> Any:
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def _stop_acp_runtime_loops(monkeypatch):
+    """Stop the dedicated event-loop thread of every runtime a test creates.
+
+    Many tests never close their runtime; without this each would leak an
+    ``acp-runtime-loop`` daemon thread, and a runtime whose test failed before
+    its ``finally`` would also leave a real ACP subprocess running.
+    """
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+
+    runtimes: list[AcpSessionRuntime] = []
+    orig_init = AcpSessionRuntime.__init__
+
+    def _tracking_init(self, *args: Any, **kwargs: Any) -> None:
+        orig_init(self, *args, **kwargs)
+        runtimes.append(self)
+
+    monkeypatch.setattr(AcpSessionRuntime, "__init__", _tracking_init)
+    yield
+    for rt in runtimes:
+        # terminate_subprocess_sync closes the client (when the loop is still
+        # alive) and stops the loop, so a subprocess started by a test that
+        # failed early does not outlive the suite.
+        try:
+            rt.terminate_subprocess_sync(timeout=1.0)
+        except Exception:
+            pass
+        finally:
+            # terminate_subprocess_sync returns early when there is no client,
+            # so always stop the loop explicitly.
+            rt._stop_loop()
 
 
 class _DummyBlock:
@@ -1058,3 +1092,2227 @@ def test_health_monitor_start_stop():
     finally:
         # Stop should clean up; always run so the thread never leaks on failure
         stop_session_health_monitor()
+
+
+# ---------------------------------------------------------------------------
+# Regression: runtime must survive across per-step asyncio.run loops (#5177)
+# ---------------------------------------------------------------------------
+
+_ECHO_AGENT = (
+    "import sys\n"
+    "for line in sys.stdin:\n"
+    "    sys.stdout.write('echo:' + line)\n"
+    "    sys.stdout.flush()\n"
+)
+
+
+class _LoopBoundClient:
+    """Fake ACP client whose transport is bound to the loop that started it.
+
+    Mirrors ``acp.stdio.spawn_agent_process``: an asyncio subprocess held open
+    by an async-generator context manager. Using it from a different (or
+    closed) event loop than the one that entered it breaks, like the real one.
+    """
+
+    def __init__(self, workspace: Path, **kwargs: Any) -> None:
+        self._on_update = kwargs.get("on_update")
+        self._ctx: Any = None
+        self._process: Any = None
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.closed = False
+
+    async def __aenter__(self):
+        import sys
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _spawn():
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                _ECHO_AGENT,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+            )
+            try:
+                yield proc
+            finally:
+                if proc.returncode is None:
+                    proc.terminate()
+                    await proc.wait()
+
+        self.loop = asyncio.get_running_loop()
+        self._ctx = _spawn()
+        self._process = await self._ctx.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._ctx is not None:
+            await self._ctx.__aexit__(exc_type, exc, tb)
+        self._ctx = None
+        self.closed = True
+
+    async def new_session(self, cwd: str | Path | None = None, **kwargs: Any) -> str:
+        return "sess-loop"
+
+    async def prompt(
+        self, session_id: str, message: str, max_tokens: int | None = None
+    ):
+        assert asyncio.get_running_loop() is self.loop, "used from foreign loop"
+        assert self._process.stdin is not None
+        assert self._process.stdout is not None
+        self._process.stdin.write(message.replace("\n", " ").encode() + b"\n")
+        await self._process.stdin.drain()
+        line = await asyncio.wait_for(self._process.stdout.readline(), 10)
+        if not line:
+            raise ConnectionError("Connection closed")
+        return {"text": line.decode().rstrip("\n")}
+
+    async def set_session_model(self, session_id: str, model_id: str) -> None:
+        pass
+
+    def set_on_update(self, on_update):
+        self._on_update = on_update
+
+
+def test_runtime_survives_across_event_loops(monkeypatch, tmp_path):
+    """Each server step runs in its own asyncio.run(); the ACP subprocess and
+    its transport must outlive those loops (#5177)."""
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    try:
+        for i in range(3):
+            text, _ = _run(runtime.prompt(f"turn {i}"))
+            assert text == f"echo:turn {i}"
+            assert runtime.is_subprocess_alive()
+
+        # One subprocess served all turns.
+        assert len(created) == 1
+        proc = created[0]._process
+        loop_thread = runtime._loop_thread
+    finally:
+        _run(runtime.close())
+
+    assert created[0].closed is True
+    assert proc.returncode is not None
+    assert not runtime.is_subprocess_alive()
+    # The dedicated loop thread is stopped (joined, not just forgotten) on close.
+    assert runtime._loop_thread is None
+    assert loop_thread is not None and not loop_thread.is_alive()
+
+
+def test_runtime_terminate_sync_closes_gracefully(monkeypatch, tmp_path):
+    """terminate_subprocess_sync() closes the client on the runtime loop."""
+    import gptme.server.acp_session_runtime as mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _factory)
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    proc = created[0]._process
+    loop_thread = runtime._loop_thread
+    assert runtime.is_subprocess_alive()
+
+    runtime.terminate_subprocess_sync()
+
+    assert created[0].closed is True
+    assert proc.returncode is not None
+    assert runtime.session_id is None
+    assert runtime._loop_thread is None
+    assert loop_thread is not None and not loop_thread.is_alive()
+
+
+def test_health_check_releases_loop_thread_of_dead_runtime(monkeypatch, tmp_path):
+    """A dead ACP subprocess must not leave the runtime's loop thread running."""
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.server.api_v2_sessions import (
+        ConversationSession,
+        SessionManager,
+        _run_health_check,
+    )
+
+    session = ConversationSession(id="dead-loop", conversation_id="conv-dead-loop")
+    session.use_acp = True
+    runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    assert loop_thread is not None and loop_thread.is_alive()
+    runtime._client = type(
+        "C",
+        (),
+        {"_process": type("P", (), {"pid": 99, "poll": lambda self: 1})()},
+    )()
+    session.acp_runtime = runtime
+
+    with SessionManager._lock:
+        SessionManager._sessions["dead-loop"] = session
+        SessionManager._conversation_sessions["conv-dead-loop"].add("dead-loop")
+    try:
+        _run_health_check()
+        assert "dead-loop" not in SessionManager._sessions
+        loop_thread.join(timeout=5)
+        assert not loop_thread.is_alive()
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("dead-loop", None)
+            SessionManager._conversation_sessions.pop("conv-dead-loop", None)
+        runtime._stop_loop()
+
+
+def test_health_check_releases_runtime_when_session_removal_fails(
+    monkeypatch, tmp_path
+):
+    """A failing remove_session() must not leave the detached runtime running."""
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.server.api_v2_sessions import (
+        ConversationSession,
+        SessionManager,
+        _run_health_check,
+    )
+
+    session = ConversationSession(id="dead-rm", conversation_id="conv-dead-rm")
+    session.use_acp = True
+    runtime = rt_mod.AcpSessionRuntime(workspace=tmp_path)
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    assert loop_thread is not None and loop_thread.is_alive()
+    runtime._client = type(
+        "C",
+        (),
+        {"_process": type("P", (), {"pid": 99, "poll": lambda self: 1})()},
+    )()
+    session.acp_runtime = runtime
+
+    def failing_remove(session_id):
+        raise OSError("cannot recreate logs dir")
+
+    monkeypatch.setattr(SessionManager, "remove_session", failing_remove)
+    with SessionManager._lock:
+        SessionManager._sessions["dead-rm"] = session
+        SessionManager._conversation_sessions["conv-dead-rm"].add("dead-rm")
+    try:
+        with pytest.raises(OSError, match="cannot recreate logs dir"):
+            _run_health_check()
+        loop_thread.join(timeout=5)
+        assert not loop_thread.is_alive()
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("dead-rm", None)
+            SessionManager._conversation_sessions.pop("conv-dead-rm", None)
+        runtime._stop_loop()
+
+
+def test_call_on_stopped_loop_raises_instead_of_hanging(tmp_path):
+    """A caller that obtained the loop just before shutdown gets an error."""
+    import gptme.server.acp_session_runtime as mod
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    stale = runtime._ensure_loop_calls()
+    loop_thread = runtime._loop_thread
+    runtime._stop_loop()
+    assert loop_thread is not None and not loop_thread.is_alive()
+    runtime._ensure_loop_calls = lambda: stale  # type: ignore[method-assign]
+
+    async def work() -> int:
+        return 1
+
+    with pytest.raises(RuntimeError):
+        _run(asyncio.wait_for(runtime._run_on_loop(work), 5))
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize("sync_close", [False, True])
+@pytest.mark.parametrize("resume_before_cancel", [False, True])
+def test_stop_loop_releases_queued_call_before_loop_thread_exits(
+    monkeypatch, tmp_path, sync_close, resume_before_cancel
+):
+    """A blocked transport callback must not keep a queued caller waiting."""
+    import gptme.server.acp_session_runtime as mod
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    loop = runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    blocked = threading.Event()
+    release = threading.Event()
+    submitted = threading.Event()
+    completed = threading.Event()
+    ran = threading.Event()
+    errors: list[BaseException] = []
+    submit = asyncio.run_coroutine_threadsafe
+    drained = threading.Event()
+
+    def block_loop() -> None:
+        blocked.set()
+        release.wait(15)
+
+    def track_submit(coro, target_loop):
+        future = submit(coro, target_loop)
+        cancel = future.cancel
+
+        def cancel_after_loop_resumes():
+            # Force the loop to resume after admission closes but before the
+            # concurrent future's cancellation reaches its queued task.
+            release.set()
+            loop.call_soon_threadsafe(loop.call_soon, drained.set)
+            assert drained.wait(5)
+            return cancel()
+
+        if resume_before_cancel:
+            monkeypatch.setattr(future, "cancel", cancel_after_loop_resumes)
+        submitted.set()
+        return future
+
+    async def work() -> None:
+        ran.set()
+
+    monkeypatch.setattr(runtime, "_close_impl", work)
+
+    def caller() -> None:
+        try:
+            if sync_close:
+                if not runtime._close_on_loop_sync(timeout=60):
+                    raise ConnectionError("close cancelled; process fallback required")
+            else:
+                _run(runtime._run_on_loop(work))
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    loop.call_soon_threadsafe(block_loop)
+    thread = threading.Thread(target=caller, daemon=True)
+    try:
+        assert blocked.wait(5)
+        monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", track_submit)
+        thread.start()
+        assert submitted.wait(5)
+        runtime._stop_loop(join_timeout=0)
+        assert completed.wait(2), "Caller waits for the blocked runtime thread to exit"
+        if not resume_before_cancel:
+            assert loop_thread is not None and loop_thread.is_alive()
+        assert len(errors) == 1 and isinstance(errors[0], ConnectionError)
+        assert not ran.is_set()
+    finally:
+        release.set()
+        thread.join(5)
+        if loop_thread is not None:
+            loop_thread.join(5)
+        runtime._stop_loop()
+    assert loop_thread is not None and not loop_thread.is_alive()
+    assert not ran.is_set(), "Rejected work ran after the runtime loop resumed"
+
+
+def test_runtime_call_from_own_loop(monkeypatch, tmp_path):
+    """A callback already on the transport loop can await another runtime call."""
+    import gptme.server.acp_session_runtime as mod
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _DummyClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def nested_prompt():
+        return await runtime.prompt("nested")
+
+    text, _ = _run(asyncio.wait_for(runtime._run_on_loop(nested_prompt), 5))
+    assert text == "hello world"
+    _run(runtime.close())
+
+
+@pytest.mark.timeout(15)
+def test_failed_close_on_runtime_loop_does_not_join_itself(monkeypatch, tmp_path):
+    """The own-loop close fallback signals the child without a self-join."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingExitClient(_DummyClient):
+        _process = object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise OSError("broken transport")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingExitClient)
+    signalled: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: signalled.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    loop = runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    completed = threading.Event()
+    errors: list[BaseException] = []
+
+    async def close_from_runtime() -> None:
+        try:
+            await runtime.close()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    asyncio.run_coroutine_threadsafe(close_from_runtime(), loop)
+    assert completed.wait(5)
+    assert loop_thread is not None
+    loop_thread.join(5)
+    assert not loop_thread.is_alive()
+    assert errors == []
+    assert signalled == [_FailingExitClient._process]
+    assert runtime._client is None
+
+
+def test_runtime_rejected_submission_closes_coroutine(monkeypatch, tmp_path):
+    """A loop closed during submission must not leave an unawaited coroutine."""
+    import inspect
+
+    import gptme.server.acp_session_runtime as mod
+
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    submitted = []
+
+    def reject(coro, loop):
+        submitted.append(coro)
+        raise RuntimeError("Event loop is closed")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", reject)
+    with pytest.raises(RuntimeError, match="Event loop is closed"):
+        _run(runtime.start())
+
+    assert len(submitted) == 1
+    assert inspect.getcoroutinestate(submitted[0]) == inspect.CORO_CLOSED
+    assert runtime.session_id is None
+
+
+@pytest.mark.timeout(15)
+def test_runtime_cancelled_sync_close_uses_process_fallback(monkeypatch, tmp_path):
+    """Cancelling graceful close must release its waiter and still signal the child."""
+    import gptme.server.acp_session_runtime as mod
+
+    closing = threading.Event()
+
+    class _BlockingCloseClient(_DummyClient):
+        _process = object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            closing.set()
+            await asyncio.Future()
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _BlockingCloseClient)
+    fallback = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    loop_thread = runtime._loop_thread
+    errors = []
+    close_futures = []
+    submit = asyncio.run_coroutine_threadsafe
+
+    def track_close(coro, loop):
+        future = submit(coro, loop)
+        close_futures.append(future)
+        return future
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", track_close)
+
+    def terminate():
+        try:
+            # Longer than the test's entire deadline: timeout must not be what
+            # releases this thread after the runtime loop is stopped.
+            runtime.terminate_subprocess_sync(timeout=60)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=terminate, daemon=True)
+    thread.start()
+    try:
+        assert closing.wait(5), "Graceful close never started"
+        runtime._stop_loop()
+    finally:
+        runtime._stop_loop()
+        thread.join(5)
+
+    assert not thread.is_alive()
+    assert loop_thread is not None and not loop_thread.is_alive()
+    assert errors == []
+    assert len(close_futures) == 1
+    assert close_futures[0].cancelled()
+    assert fallback == [_BlockingCloseClient._process]
+    assert runtime._client is None
+    assert runtime.session_id is None
+
+
+@pytest.mark.timeout(15)
+def test_start_entry_failure_stops_loop_and_leaves_no_child(monkeypatch, tmp_path):
+    """A failed client entry must not leak the dedicated loop thread (#5360)."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _MissingAgentClient(_DummyClient):
+        async def __aenter__(self):
+            raise FileNotFoundError("ACP agent command not found: 'missing-acp'")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _MissingAgentClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, command="missing-acp")
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+    assert loop_thread is not None and loop_thread.is_alive()
+
+    with pytest.raises(FileNotFoundError, match="missing-acp"):
+        _run(runtime.start())
+
+    assert runtime._client is None
+    assert runtime.session_id is None
+    assert not runtime.is_subprocess_alive()
+    assert runtime._loop_thread is None
+    assert not loop_thread.is_alive()
+
+
+@pytest.mark.timeout(15)
+def test_failed_start_keeps_child_when_cleanup_raises(monkeypatch, tmp_path):
+    """A raising __aexit__ after failed setup must not drop the child handle."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingSetupClient(_DummyClient):
+        _process = object()
+
+        async def set_session_model(self, session_id: str, model_id: str) -> None:
+            raise RuntimeError("model rejected")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise OSError("broken transport")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingSetupClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path, model="openai/gpt-4o-mini")
+    runtime._ensure_loop()
+    loop_thread = runtime._loop_thread
+
+    with pytest.raises(RuntimeError, match="model rejected"):
+        _run(runtime.start())
+
+    assert fallback == [_FailingSetupClient._process]
+    assert runtime._client is None
+    assert runtime.session_id is None
+    assert runtime._loop_thread is None
+    assert loop_thread is not None and not loop_thread.is_alive()
+
+
+@pytest.mark.timeout(20)
+def test_overlapping_successful_starts_create_one_session(monkeypatch, tmp_path):
+    """Overlapping starts share one session instead of orphaning the first.
+
+    A step resent after an interrupt can call ``start()`` while the first start
+    is still entering. Both must succeed, but only the first subprocess may be
+    published: a second one would be orphaned and its session id would replace
+    the live one.
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    # Set when a second client is constructed: without serialization the
+    # second start enters alongside the first, so the first can stop waiting.
+    second_entered = threading.Event()
+
+    class _GatedClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            clients.append(self)
+            if self.index == 1:
+                second_entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(second_entered.wait, 0.5)
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        first = asyncio.create_task(runtime.start())
+        await asyncio.sleep(0)
+        second = asyncio.create_task(runtime.start())
+        await asyncio.wait([first, second])
+
+        assert first.result() is None
+        assert second.result() is None
+        # One subprocess, one session: the second start reused the first.
+        assert len(clients) == 1
+        assert runtime._client is clients[0]
+        assert runtime.session_id == "sess-0"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
+def test_cancelled_start_does_not_wedge_the_runtime(monkeypatch, tmp_path):
+    """A cancelled start releases the loop so a later start still succeeds."""
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _GatedClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            clients.append(self)
+            entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(release.wait, 10)
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+
+        await runtime.start()
+        assert runtime.session_id == "sess-1"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
+def test_cancelled_start_releases_its_loop(monkeypatch, tmp_path):
+    """A cancelled start does not leave its dedicated loop thread running.
+
+    The cancelled caller gets its own ``CancelledError`` and returns before the
+    runtime-side coroutine settles, so the release has to happen from the loop
+    after the counter drops rather than from the caller's ``except`` block.
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _GatedClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            clients.append(self)
+            entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(release.wait, 10)
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+
+        for _ in range(500):
+            if runtime._loop_thread is None and runtime._client is None:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime._loop_thread is None
+        assert runtime._client is None
+
+        await runtime.start()
+        assert runtime.session_id == "sess-1"
+        assert runtime._loop_thread is not None and runtime._loop_thread.is_alive()
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
+def test_cancelled_start_with_failed_cleanup_leaves_runtime_usable(
+    monkeypatch, tmp_path
+):
+    """A cancelled start whose cleanup also fails must not block later starts.
+
+    The abandoned-loop release reaps the child by pid; it must also drop the
+    stale ``_client`` handle, or ``_ensure_loop_calls`` refuses to start a new
+    loop and every later start fails with "bound to a stopped loop".
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _BrokenCleanupClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            self._process = object()
+            clients.append(self)
+            entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(release.wait, 10)
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if self.index == 0:
+                raise OSError("broken transport")
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _BrokenCleanupClient)
+    monkeypatch.setattr(
+        mod, "_terminate_asyncio_process_sync", lambda proc, timeout: None
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        task = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+
+        for _ in range(500):
+            if runtime._loop_thread is None and runtime._client is None:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime._loop_thread is None
+        assert runtime._client is None
+
+        await runtime.start()
+        assert runtime.session_id == "sess-1"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
+def test_cancelled_start_keeps_a_waiting_start_alive(monkeypatch, tmp_path):
+    """Cancelling one caller must not stop the loop a waiting start needs."""
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _GatedClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            clients.append(self)
+            entered.set()
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(release.wait, 10)
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _GatedClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        first = asyncio.create_task(runtime.start())
+        assert await asyncio.to_thread(entered.wait, 5)
+        second = asyncio.create_task(runtime.start())
+        for _ in range(500):
+            if runtime._starts_entering == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime._starts_entering == 2
+
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        release.set()
+
+        await second
+        assert second.result() is None
+        assert runtime._client is clients[1]
+        assert runtime.session_id == "sess-1"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(20)
+def test_failed_start_reaps_child_while_another_start_waits(monkeypatch, tmp_path):
+    """A failed start reaps its child even when another start is entering.
+
+    ``_release_unstarted`` skips the loop stop while another start is waiting,
+    but it must still terminate the client the failed start could not close.
+    """
+    import gptme.server.acp_session_runtime as mod
+
+    clients: list[Any] = []
+    gate = threading.Event()
+
+    class _BrokenCleanupClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self.index = len(clients)
+            self._process = object()
+            clients.append(self)
+
+        async def __aenter__(self):
+            if self.index == 0:
+                await asyncio.to_thread(gate.wait, 10)
+                raise OSError("entry failed")
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise OSError("broken transport")
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{self.index}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _BrokenCleanupClient)
+    reaped: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: reaped.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    async def _scenario() -> None:
+        first = asyncio.create_task(runtime.start())
+        for _ in range(500):
+            if runtime._starts_entering == 1 and clients:
+                break
+            await asyncio.sleep(0.01)
+        second = asyncio.create_task(runtime.start())
+        for _ in range(500):
+            if runtime._starts_entering == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime._starts_entering == 2
+
+        gate.set()
+        await asyncio.wait([first, second])
+
+        with pytest.raises(OSError, match="entry failed"):
+            first.result()
+        assert second.result() is None
+        # The failed start's child was reaped even though the loop stayed up.
+        assert reaped == [clients[0]._process]
+        assert runtime._client is clients[1]
+        assert runtime.session_id == "sess-1"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.timeout(15)
+def test_start_after_failed_start_reaches_a_live_session(monkeypatch, tmp_path):
+    """A failed start leaves the runtime usable for the next start."""
+    import gptme.server.acp_session_runtime as mod
+
+    attempts: list[Any] = []
+
+    class _FlakyClient(_DummyClient):
+        async def __aenter__(self):
+            attempts.append(self)
+            if len(attempts) == 1:
+                raise OSError("entry failed")
+            return self
+
+        async def new_session(
+            self, cwd: str | Path | None = None, **kwargs: Any
+        ) -> str:
+            return f"sess-{len(attempts)}"
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FlakyClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    with pytest.raises(OSError, match="entry failed"):
+        asyncio.run(runtime.start())
+    assert runtime.session_id is None
+
+    asyncio.run(runtime.start())
+    assert runtime.session_id == "sess-2"
+    assert runtime._loop_thread is not None and runtime._loop_thread.is_alive()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="needs POSIX signals and os.WNOHANG"
+)
+@pytest.mark.timeout(20)
+def test_cancelled_close_kills_term_ignoring_child(monkeypatch, tmp_path):
+    """Cancelled close() still SIGKILLs a SIGTERM-ignoring child (#5360)."""
+    import os
+
+    import gptme.server.acp_session_runtime as mod
+
+    waiting = threading.Event()
+
+    class _TermIgnoringClient(_DummyClient):
+        def __init__(self, workspace: Path, **kwargs: Any) -> None:
+            super().__init__(workspace, **kwargs)
+            self._process: Any = None
+
+        async def __aenter__(self):
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                (
+                    "import signal, sys, time; "
+                    "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                    "print('ready', flush=True); time.sleep(30)"
+                ),
+                stdout=asyncio.subprocess.PIPE,
+            )
+            assert proc.stdout is not None
+            await proc.stdout.readline()
+            self._process = proc
+            self.started = True
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if self._process is not None and self._process.returncode is None:
+                self._process.terminate()
+                waiting.set()
+                await self._process.wait()
+            self.closed = True
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _TermIgnoringClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+    pid = runtime.process_pid
+    loop_thread = runtime._loop_thread
+    assert isinstance(pid, int)
+    assert runtime.is_subprocess_alive()
+
+    result: list[BaseException] = []
+
+    async def _main() -> None:
+        task = asyncio.create_task(runtime.close())
+        await asyncio.get_running_loop().run_in_executor(None, waiting.wait, 5)
+        assert waiting.is_set(), "Graceful close never started waiting on the child"
+        task.cancel()
+        try:
+            await task
+        except BaseException as exc:
+            result.append(exc)
+
+    try:
+        asyncio.run(_main())
+
+        # Assert before the safety-net cleanup below, which would kill the
+        # child itself and hide a close() that never signalled it.
+        assert len(result) == 1
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert runtime._client is None
+        assert runtime.session_id is None
+        assert loop_thread is not None and not loop_thread.is_alive()
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+    finally:
+        runtime.terminate_subprocess_sync(graceful=False)
+
+
+def test_loop_calls_cancels_pending_futures_on_close():
+    """Calls accepted but never started are cancelled when the loop closes."""
+    import concurrent.futures
+
+    from gptme.server.acp_session_runtime import _LoopCalls
+
+    calls = _LoopCalls()
+    fut: concurrent.futures.Future[int] = concurrent.futures.Future()
+    calls.futures.add(fut)
+    calls.close_and_cancel()
+    assert fut.cancelled()
+    assert calls.closed
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="needs POSIX signals and os.WNOHANG"
+)
+def test_terminate_asyncio_process_sync_kills_term_ignoring_child():
+    """Fallback termination outside the owning loop escalates to SIGKILL."""
+    import subprocess
+
+    from gptme.server.acp_session_runtime import _terminate_asyncio_process_sync
+
+    popen = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "print('ready', flush=True); time.sleep(30)"
+            ),
+        ],
+        stdout=subprocess.PIPE,
+    )
+    assert popen.stdout is not None
+    popen.stdout.readline()
+
+    class _AsyncioLike:
+        """Mimics asyncio.subprocess.Process: no blocking wait(timeout=)."""
+
+        pid = popen.pid
+        returncode = None
+
+        def terminate(self) -> None:
+            popen.send_signal(15)
+
+        def kill(self) -> None:
+            popen.kill()
+
+    try:
+        _terminate_asyncio_process_sync(_AsyncioLike(), timeout=0.3)
+        # Reaped by pid: the child is gone, not a zombie we still own.
+        import os
+
+        with pytest.raises(ChildProcessError):
+            os.waitpid(popen.pid, os.WNOHANG)
+    finally:
+        if popen.poll() is None:
+            popen.kill()
+
+
+def test_acp_step_second_turn_reuses_live_runtime(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A server-hosted ACP conversation must handle more than one turn (#5177)."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.session_step as sessions_mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    monkeypatch.setattr(sessions_mod, "trigger_hook", lambda *args, **kwargs: [])
+
+    from gptme.logmanager import LogManager
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    session = ConversationSession(id="sid-2turn", conversation_id=conversation_id)
+    session.use_acp = True
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    session.acp_runtime = runtime
+    with SessionManager._lock:
+        SessionManager._sessions["sid-2turn"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-2turn")
+
+    try:
+        for content in ["first turn", "second turn"]:
+            resp = client.post(
+                f"/api/v2/conversations/{conversation_id}",
+                json={"role": "user", "content": content},
+            )
+            assert resp.status_code == 200
+            # Like _start_acp_step_thread: one asyncio.run() per step.
+            _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+            assert runtime.is_subprocess_alive()
+
+        errors = [e for e in session.events if e["type"] == "error"]
+        assert errors == []
+        assert session.last_error is None
+        assert len(created) == 1
+
+        manager = LogManager.load(conversation_id)
+        assistant_msgs = [
+            m.content for m in manager.log.messages if m.role == "assistant"
+        ]
+        assert assistant_msgs == ["echo:first turn", "echo:second turn"]
+    finally:
+        _run(runtime.close())
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-2turn", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-2turn")
+
+
+def test_runtime_stop_loop_releases_inflight_prompt(monkeypatch, tmp_path):
+    """Stopping the runtime loop mid-prompt fails the call instead of hanging."""
+    import gptme.server.acp_session_runtime as mod
+
+    started = threading.Event()
+
+    class _HangingClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            started.set()
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _HangingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    result: list[BaseException] = []
+
+    def _caller() -> None:
+        try:
+            asyncio.run(runtime.prompt("hang"))
+        except BaseException as e:
+            result.append(e)
+
+    t = threading.Thread(target=_caller, daemon=True)
+    t.start()
+    assert started.wait(5)
+    runtime._stop_loop()
+    t.join(5)
+    assert not t.is_alive()
+    assert len(result) == 1
+    # Not CancelledError: the caller's task was never cancelled, so a
+    # BaseException would escape every ``except Exception`` error path.
+    assert isinstance(result[0], ConnectionError)
+    assert "runtime loop stopped" in str(result[0])
+
+
+def test_prompt_cancellation_propagates_to_caller(monkeypatch, tmp_path):
+    """A caller cancelling its own task still sees CancelledError."""
+    import gptme.server.acp_session_runtime as mod
+
+    started = threading.Event()
+
+    class _HangingClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            started.set()
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _HangingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    result: list[BaseException] = []
+
+    async def _main() -> None:
+        task = asyncio.create_task(runtime.prompt("hang"))
+        await asyncio.get_running_loop().run_in_executor(None, started.wait, 5)
+        task.cancel()
+        try:
+            await task
+        except BaseException as e:
+            result.append(e)
+
+    try:
+        asyncio.run(_main())
+    finally:
+        runtime._stop_loop()
+    assert len(result) == 1
+    assert isinstance(result[0], asyncio.CancelledError)
+
+
+def test_prompt_cancelled_inside_runtime_is_an_error(monkeypatch, tmp_path):
+    """A call cancelled inside the runtime loop is an error, not caller cancellation."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _SelfCancellingClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _SelfCancellingClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    with pytest.raises(RuntimeError, match="cancelled before it completed"):
+        _run(runtime.prompt("cancel"))
+    _run(runtime.close())
+
+
+@pytest.mark.timeout(15)
+def test_stop_loop_does_not_hang_on_task_that_ignores_cancellation(
+    monkeypatch, tmp_path
+):
+    """A task that swallows CancelledError must not block loop shutdown."""
+    import gptme.server.acp_session_runtime as mod
+
+    monkeypatch.setattr(mod, "_SHUTDOWN_GRACE_S", 0.2)
+    started = threading.Event()
+
+    class _StubbornClient(_DummyClient):
+        async def prompt(self, session_id, message, max_tokens=None):
+            started.set()
+            while True:
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    continue
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _StubbornClient)
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+
+    result: list[BaseException] = []
+
+    def _caller() -> None:
+        try:
+            asyncio.run(runtime.prompt("stubborn"))
+        except BaseException as e:
+            result.append(e)
+
+    t = threading.Thread(target=_caller, daemon=True)
+    t.start()
+    assert started.wait(5)
+    loop_thread = runtime._loop_thread
+    began = time.monotonic()
+    runtime._stop_loop()
+    assert time.monotonic() - began < 10
+    assert loop_thread is not None and not loop_thread.is_alive()
+    t.join(5)
+    assert not t.is_alive()
+    # The caller is released with an error rather than hanging on the loop.
+    assert len(result) == 1
+    assert isinstance(result[0], ConnectionError)
+
+
+@pytest.mark.timeout(60)
+def test_acp_step_thread_two_turns_reuse_live_runtime(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """The production thread-spawned step path keeps one runtime across turns."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.session_step as sessions_mod
+
+    created: list[_LoopBoundClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _LoopBoundClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    monkeypatch.setattr(sessions_mod, "trigger_hook", lambda *args, **kwargs: [])
+
+    from gptme.logmanager import LogManager
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    session = ConversationSession(
+        id="sid-thread-2turn", conversation_id=conversation_id
+    )
+    session.use_acp = True
+    runtime = AcpSessionRuntime(workspace=tmp_path)
+    session.acp_runtime = runtime
+    with SessionManager._lock:
+        SessionManager._sessions["sid-thread-2turn"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-thread-2turn")
+
+    def _wait_step_complete(before: int) -> int:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            count = len([e for e in session.events if e["type"] == "step_complete"])
+            if count > before and not session.generating:
+                return count
+            time.sleep(0.05)
+        raise AssertionError("ACP step thread did not complete")
+
+    try:
+        completions = 0
+        for content in ["first turn", "second turn"]:
+            resp = client.post(
+                f"/api/v2/conversations/{conversation_id}",
+                json={"role": "user", "content": content},
+            )
+            assert resp.status_code == 200
+            assert sessions_mod._start_acp_step_thread(
+                conversation_id, session, tmp_path
+            )
+            completions = _wait_step_complete(completions)
+            assert runtime.is_subprocess_alive()
+
+        errors = [e for e in session.events if e["type"] == "error"]
+        assert errors == []
+        assert session.last_error is None
+        assert len(created) == 1
+
+        manager = LogManager.load(conversation_id)
+        assistant_msgs = [
+            m.content for m in manager.log.messages if m.role == "assistant"
+        ]
+        assert assistant_msgs == ["echo:first turn", "echo:second turn"]
+    finally:
+        _run(runtime.close())
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-thread-2turn", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-thread-2turn"
+            )
+
+
+@pytest.mark.timeout(15)
+def test_failed_close_keeps_client_handle_for_sync_terminate(monkeypatch, tmp_path):
+    """A raising __aexit__ must not drop the only handle to the subprocess."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _FailingExitClient(_DummyClient):
+        _process = object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            raise ConnectionError("transport already gone")
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _FailingExitClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    # close() keeps the handle while __aexit__ runs, so a failing close still
+    # reaches the subprocess through the synchronous fallback.
+    _run(runtime.close())
+    assert fallback == [_FailingExitClient._process]
+    assert runtime._client is None
+
+
+@pytest.mark.timeout(15)
+def test_failed_close_signals_process_even_if_a_second_exit_would_succeed(
+    monkeypatch, tmp_path
+):
+    """A finished context manager "exits" cleanly on retry without cleaning up."""
+    from contextlib import asynccontextmanager
+
+    import gptme.server.acp_session_runtime as mod
+
+    class _ExhaustedExitClient(_DummyClient):
+        _process = object()
+
+        async def __aenter__(self):
+            @asynccontextmanager
+            async def _transport():
+                yield
+                raise OSError("shutdown failed before the process was stopped")
+
+            self._ctx = _transport()
+            await self._ctx.__aenter__()
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            # First call raises; the second finds the generator exhausted and
+            # returns normally.
+            await self._ctx.__aexit__(exc_type, exc, tb)
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _ExhaustedExitClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    _run(runtime.close())
+
+    assert fallback == [_ExhaustedExitClient._process]
+    assert runtime._client is None
+
+
+@pytest.mark.timeout(15)
+def test_runtime_refuses_to_reuse_a_transport_on_a_stopped_loop(monkeypatch, tmp_path):
+    """A runtime whose loop was stopped externally must not run the old client."""
+    import gptme.server.acp_session_runtime as mod
+
+    class _StaticClient(_DummyClient):
+        _process = object()
+
+    monkeypatch.setattr(mod, "GptmeAcpClient", _StaticClient)
+    fallback: list[Any] = []
+    monkeypatch.setattr(
+        mod,
+        "_terminate_asyncio_process_sync",
+        lambda proc, timeout: fallback.append(proc),
+    )
+    runtime = mod.AcpSessionRuntime(workspace=tmp_path)
+    _run(runtime.start())
+
+    runtime._stop_loop()
+
+    with pytest.raises(ConnectionError, match="stopped loop"):
+        _run(runtime.prompt("after stop"))
+
+    # close() still terminates the orphaned subprocess instead of raising.
+    _run(runtime.close())
+    assert fallback == [_StaticClient._process]
+    assert runtime._client is None
+
+
+def test_acp_step_fresh_session_skips_already_answered_history(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A new session (reconnect, restart, second tab) must not re-prompt answered turns."""
+    import gptme.server.acp_session_runtime as rt_mod
+    import gptme.server.session_step as sessions_mod
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    for role, content in [
+        ("user", "old question"),
+        ("assistant", "old answer"),
+        ("user", "new question"),
+    ]:
+        resp = client.post(
+            f"/api/v2/conversations/{conversation_id}",
+            json={"role": role, "content": content},
+        )
+        assert resp.status_code == 200
+
+    session = ConversationSession(id="sid-fresh", conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    with SessionManager._lock:
+        SessionManager._sessions["sid-fresh"] = session
+        SessionManager._conversation_sessions[conversation_id].add("sid-fresh")
+
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+
+        all_calls = [call for c in created for call in c.prompt_calls]
+        question_calls = [
+            call for call in all_calls if call[1] in {"old question", "new question"}
+        ]
+        assert question_calls == [("sess-test", "new question")]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-fresh", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-fresh")
+
+
+def _acp_session_over_log(
+    monkeypatch, client, tmp_path, sid, log, *, seed_prompt_ids: bool = True
+):
+    """Build a conversation with ``log`` (role, content, metadata) and a fresh ACP session.
+
+    Timestamps are explicit (one second apart unless ``metadata["ts"]`` pins
+    one), so tests never depend on ``datetime.now()`` resolution.
+    """
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.acp_session_runtime import AcpSessionRuntime
+    from gptme.server.api_v2_sessions import ConversationSession, SessionManager
+    from gptme.server.session_step import _acp_prompt_ids
+
+    created: list[_DummyClient] = []
+
+    def _factory(*args, **kwargs):
+        c = _DummyClient(*args, **kwargs)
+        created.append(c)
+        return c
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
+    conversation_id = _make_v2_conversation(client)["conversation_id"]
+    manager = LogManager.load(conversation_id, lock=False)
+    prompts: dict[str, Message] = {}
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for i, (role, content, metadata) in enumerate(log):
+        metadata = dict(metadata) if metadata else None
+        ts = (metadata or {}).pop("ts", base + timedelta(seconds=i))
+        if metadata and "answers" in metadata:
+            # Tag a reply with the ID of the prompt it answers.
+            prompt_list = list(prompts.values())
+            answered = prompt_list.index(prompts[metadata["answers"]])
+            metadata = {"acp_answered_user_id": _acp_prompt_ids(prompt_list)[answered]}
+        msg = Message(role, content, timestamp=ts, metadata=metadata or None)
+        if role == "user":
+            if seed_prompt_ids:
+                # A prompt's identity is persisted before it is first answered,
+                # as ``_acp_step`` does, so later edits and deletes keep it
+                # stable.
+                prompt_list = [*prompts.values(), msg]
+                prompt_id = _acp_prompt_ids(prompt_list)[-1]
+                msg = replace(
+                    msg, metadata={**(msg.metadata or {}), "acp_prompt_id": prompt_id}
+                )
+            prompts[content] = msg
+        manager.append(msg)
+    manager.write()
+
+    session = ConversationSession(id=sid, conversation_id=conversation_id)
+    session.use_acp = True
+    session.acp_runtime = AcpSessionRuntime(workspace=tmp_path)
+    with SessionManager._lock:
+        SessionManager._sessions[sid] = session
+        SessionManager._conversation_sessions[conversation_id].add(sid)
+    return conversation_id, session, created
+
+
+def _questions_prompted(created, questions):
+    return [call[1] for c in created for call in c.prompt_calls if call[1] in questions]
+
+
+def test_acp_step_fresh_session_retries_prompt_whose_reply_failed(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Two queued prompts, only the first answered: the reply sits after both
+    prompts in the log, but it answers only the first, so the second is retried."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-queued",
+        [
+            ("user", "first question", None),
+            ("user", "second question", None),
+            ("assistant", "first answer", {"answers": "first question"}),
+        ],
+    )
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question", "second question"}) == [
+            "second question"
+        ]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-queued", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-queued")
+
+
+def test_acp_step_stale_session_skips_prompt_answered_by_another_tab(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A tab whose cursor is behind the shared log must not resend a prompt
+    another tab already answered."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-stale",
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+            ("assistant", "a1", {"answers": "q1"}),
+            ("user", "q2", None),
+        ],
+    )
+    session.acp_last_user_msg_index = 0  # this tab only saw the first answer
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1", "q2"}) == ["q2"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-stale", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-stale")
+
+
+def test_acp_step_answered_marker_survives_deleting_an_older_message(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """The reply marks its prompt by a stable ID, so deleting an earlier
+    message cannot shift a still-pending prompt into the answered slot."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-deleted",
+        [
+            ("user", "old question", None),
+            ("assistant", "old answer", None),
+            ("user", "first question", None),
+            ("user", "second question", None),
+            ("assistant", "first answer", {"answers": "first question"}),
+        ],
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.edit([m for m in manager.log.messages if m.content != "old question"])
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(
+            created, {"old question", "first question", "second question"}
+        ) == ["second question"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-deleted", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-deleted"
+            )
+
+
+def test_acp_step_voice_call_reply_does_not_answer_text_prompt(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A saved voice transcript answers its own call turns, not an earlier
+    text prompt whose ACP reply failed; the transcript is never re-prompted."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    call = {"voice_call": {"call_sid": "CA123", "source": "twilio"}}
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-voice",
+        [
+            ("user", "typed question", None),
+            ("user", "spoken question", call),
+            ("assistant", "spoken answer", call),
+        ],
+    )
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"typed question", "spoken question"}) == [
+            "typed question"
+        ]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-voice", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-voice")
+
+
+def test_acp_step_same_timestamp_prompts_are_answered_separately(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Two prompts sharing a timestamp (client-supplied, back-to-back
+    ``datetime.now()``, second-resolution imports): answering the first must
+    not mark the second answered."""
+    from datetime import datetime, timezone
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    same = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-same-ts",
+        [
+            ("user", "first question", {"ts": same}),
+            ("user", "second question", {"ts": same}),
+            ("assistant", "first answer", {"answers": "first question"}),
+        ],
+    )
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question", "second question"}) == [
+            "second question"
+        ]
+        # The reply this step wrote carries the second prompt's own ID, so a
+        # fresh cursor re-derived from the log sees both prompts answered.
+        session.acp_last_user_msg_index = -1
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question", "second question"}) == [
+            "second question"
+        ]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-same-ts", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-same-ts"
+            )
+
+
+def test_acp_step_live_session_cursor_does_not_outrank_log_after_delete(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A live tab answered q0 and q1 (positional cursor 1). Deleting q0 shifts
+    positions, so the stale in-session cursor must not hide the new q2."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-live-delete",
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+            ("assistant", "a1", {"answers": "q1"}),
+        ],
+    )
+    session.acp_last_user_msg_index = 1  # this tab answered q0 and q1 itself
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.edit([m for m in manager.log.messages if m.content != "q0"])
+    manager.append(Message("user", "q2"))
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1", "q2"}) == ["q2"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-live-delete", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-live-delete"
+            )
+
+
+def test_acp_step_deleting_same_timestamp_prompt_keeps_later_pending(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """p0, p1 and p2 share a timestamp; p0 and p1 were answered. Deleting p0
+    must not renumber p1's or p2's identity, so p2 is still prompted."""
+    from datetime import datetime, timezone
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.server.api_v2_sessions import SessionManager
+
+    same = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-same-ts-delete",
+        [
+            ("user", "p0", {"ts": same}),
+            ("user", "p1", {"ts": same}),
+            ("user", "p2", {"ts": same}),
+            ("assistant", "a0", {"answers": "p0"}),
+            ("assistant", "a1", {"answers": "p1"}),
+        ],
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.edit([m for m in manager.log.messages if m.content != "p0"])
+    manager.write()
+    session.acp_last_user_msg_index = -1
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"p0", "p1", "p2"}) == ["p2"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-same-ts-delete", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-same-ts-delete"
+            )
+
+
+def test_acp_step_editing_an_answered_prompt_does_not_replay_it(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Save (without re-run) keeps the reply but rewrites the prompt text. The
+    prompt's identity must survive that edit, or ACP re-prompts an answered
+    prompt and repeats its side effects."""
+    from dataclasses import replace
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    # Start with an untagged prompt and let the step answer it, so the test
+    # fails if the step stops persisting prompt IDs.
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-edit",
+        [("user", "deploy prod", None)],
+        seed_prompt_ids=False,
+    )
+    _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+    assert _questions_prompted(created, {"deploy prod"}) == ["deploy prod"]
+    sent_before = sum(len(c.prompt_calls) for c in created)
+
+    persisted = LogManager.load(conversation_id, lock=False)
+    prompt_index = next(
+        i for i, m in enumerate(persisted.log.messages) if m.content == "deploy prod"
+    )
+    assert (persisted.log.messages[prompt_index].metadata or {}).get("acp_prompt_id"), (
+        "the prompt identity must be persisted when the reply is written"
+    )
+
+    manager = LogManager.load(conversation_id, lock=False)
+    msgs = list(manager.log.messages)
+    manager.edit(
+        [
+            replace(m, content="deploy production") if i == prompt_index else m
+            for i, m in enumerate(msgs)
+        ]
+    )
+    manager.append(Message("user", "now check logs"))
+    manager.write()
+    session.acp_last_user_msg_index = -1
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        sent = [call[1] for c in created for call in c.prompt_calls]
+        assert [
+            q
+            for q in sent[sent_before:]
+            if q.startswith("deploy") or q == "now check logs"
+        ] == ["now check logs"]
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-edit", None)
+            SessionManager._conversation_sessions[conversation_id].discard("sid-edit")
+
+
+def test_acp_step_surrogate_prompt_does_not_stick_generating(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A stored message with an unpaired surrogate round-trips through the log
+    but cannot be UTF-8 encoded. It must not break the answered-cursor scan:
+    the step prompts the next message and the reservation is released."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    bad = "\ud83d"  # truncated emoji, accepted by JSON parsing
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-surrogate",
+        [
+            ("user", bad, None),
+            ("assistant", "answered", {"answers": bad}),
+            ("user", "next question", None),
+        ],
+    )
+    session.generating = True
+    session.generating_since = None
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {bad, "next question"}) == ["next question"]
+        assert not session.generating
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-surrogate", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-surrogate"
+            )
+
+
+def test_acp_step_cursor_failure_releases_reservation(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """An unexpected failure while deriving the answered cursor must release
+    the generating reservation and emit step_complete, not escape the cleanup
+    boundary and leave the conversation marked as generating."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        "sid-cursor-boom",
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+        ],
+    )
+
+    def _boom(_messages):
+        raise RuntimeError("cursor scan failed")
+
+    monkeypatch.setattr(sessions_mod, "_acp_answered_cursor", _boom)
+    session.generating = True
+    session.generating_since = None
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert not session.generating
+        assert session.events[-1]["type"] == "step_complete"
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop("sid-cursor-boom", None)
+            SessionManager._conversation_sessions[conversation_id].discard(
+                "sid-cursor-boom"
+            )
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_acp_step_rechecks_ownership_and_prompts_after_locked_reload(
+    monkeypatch, client: FlaskClient, tmp_path, interrupted
+):
+    """A deletion between loads must not replay a surviving answered prompt.
+
+    An interrupted worker must also leave a replacement step's log and
+    generating reservation alone, even when new prompts need IDs.
+    """
+    from contextlib import contextmanager
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sid = "sid-reload-race"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [
+            ("user", "q0", None),
+            ("assistant", "a0", {"answers": "q0"}),
+            ("user", "q1", None),
+            ("assistant", "a1", {"answers": "q1"}),
+        ],
+    )
+    original_lock = SessionManager.conversation_lock
+    changed = False
+
+    @contextmanager
+    def _delete_before_reload(cid):
+        nonlocal changed
+        with original_lock(cid):
+            if not changed:
+                changed = True
+                manager = LogManager.load(cid, lock=False)
+                manager.edit([m for m in manager.log.messages if m.content != "q0"])
+                if interrupted:
+                    with session.step_lock:
+                        session.step_seq += 1
+                        session.generating = True
+                    manager.append(Message("user", "replacement question"))
+                manager.write()
+            yield
+
+    monkeypatch.setattr(SessionManager, "conversation_lock", _delete_before_reload)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert changed
+        assert _questions_prompted(created, {"q0", "q1", "replacement question"}) == []
+        if interrupted:
+            assert session.generating
+            assert not any(e["type"] == "step_complete" for e in session.events)
+            messages = LogManager.load(conversation_id, lock=False).log.messages
+            replacement = next(
+                m for m in messages if m.content == "replacement question"
+            )
+            assert not (replacement.metadata or {}).get("acp_prompt_id")
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop(sid, None)
+            SessionManager._conversation_sessions[conversation_id].discard(sid)
+
+
+def test_acp_step_new_identical_prompt_does_not_reuse_surviving_id(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """Deleting a duplicate must not make its survivor's ID available again."""
+    from dataclasses import replace
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_sessions import SessionManager
+
+    sid = "sid-reused-id"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, [("user", "same question", None)]
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    first = sessions_mod._acp_prompts(manager.log.messages)[0]
+    second = replace(first, metadata=None)
+    second_id = sessions_mod._acp_prompt_ids([first, second])[1]
+    second = replace(second, metadata={"acp_prompt_id": second_id})
+    manager.append(second)
+    manager.append(
+        Message("assistant", "answered", metadata={"acp_answered_user_id": second_id})
+    )
+    manager.write()
+    manager.edit([m for m in manager.log.messages if m is not first])
+    manager.append(replace(first, metadata=None))
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"same question"}) == ["same question"]
+        prompts = sessions_mod._acp_prompts(
+            LogManager.load(conversation_id, lock=False).log.messages
+        )
+        ids = sessions_mod._acp_prompt_ids(prompts)
+        assert ids[0] == second_id
+        assert len(set(ids)) == len(ids) == 2
+    finally:
+        with SessionManager._lock:
+            SessionManager._sessions.pop(sid, None)
+            SessionManager._conversation_sessions[conversation_id].discard(sid)
+
+
+def _drop_acp_session(conversation_id, sid):
+    from gptme.server.api_v2_sessions import SessionManager
+
+    with SessionManager._lock:
+        SessionManager._sessions.pop(sid, None)
+        SessionManager._conversation_sessions[conversation_id].discard(sid)
+
+
+def test_acp_step_replacement_prompt_does_not_reuse_reply_referenced_id(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A deleted prompt's ID stays taken while a reply still references it.
+
+    Replacing the prompt with one of the same text and timestamp used to give
+    the new prompt the deleted prompt's ID, so the old reply marked it
+    answered and ACP never sent it, wherever the reply sat in the log.
+    """
+    from dataclasses import replace
+
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = "sid-reply-referenced-id"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [
+            ("user", "same question", None),
+            ("assistant", "answered", {"answers": "same question"}),
+        ],
+    )
+    manager = LogManager.load(conversation_id, lock=False)
+    old = sessions_mod._acp_prompts(manager.log.messages)[0]
+    old_id = (old.metadata or {}).get("acp_prompt_id")
+    assert old_id
+    manager.edit([m for m in manager.log.messages if m is not old])
+    manager.append(replace(old, metadata=None))
+    manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"same question"}) == ["same question"]
+        prompts = sessions_mod._acp_prompts(
+            LogManager.load(conversation_id, lock=False).log.messages
+        )
+        assert (prompts[0].metadata or {}).get("acp_prompt_id") not in (None, old_id)
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+def test_acp_answered_cursor_ignores_ui_only_assistant_messages():
+    """A ``ui_only`` status message is not a reply and answers nothing."""
+    from gptme.message import Message
+    from gptme.server.session_step import _acp_answered_cursor
+
+    messages = [
+        Message("user", "run task"),
+        Message("assistant", "Working...", ui_only=True),
+    ]
+    assert _acp_answered_cursor(messages) == -1
+    assert _acp_answered_cursor([*messages, Message("assistant", "done")]) == 0
+
+
+def test_acp_step_stale_worker_keeps_replacement_update_callback(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """An interrupted step must not clear the callback its replacement installed."""
+    import gptme.server.session_step as sessions_mod
+
+    sid = "sid-callback-owner"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, [("user", "first question", None)]
+    )
+
+    async def replacement_callback(session_id, update):
+        return None
+
+    original_prompt = _DummyClient.prompt
+
+    async def interrupted_prompt(self, session_id, message, max_tokens=None):
+        # Interrupt + /step while this prompt is in flight: the replacement
+        # reserves a new step and installs its own streaming callback.
+        session.step_seq += 1
+        session.acp_runtime.set_on_update(replacement_callback)
+        return await original_prompt(self, session_id, message, max_tokens)
+
+    monkeypatch.setattr(_DummyClient, "prompt", interrupted_prompt)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"first question"}) == ["first question"]
+        assert session.acp_runtime._on_update is replacement_callback
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+@pytest.mark.parametrize("delete_reply", [False, True])
+def test_acp_step_retries_gap_before_answered_prompt(
+    monkeypatch, client: FlaskClient, tmp_path, delete_reply
+):
+    """A tagged answer to q1 must not hide an unanswered q0."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = "sid-answer-gap"
+    log: list[tuple[str, str, dict[str, str] | None]] = [
+        ("user", "q0", None),
+        ("user", "q1", None),
+    ]
+    if delete_reply:
+        log.append(("assistant", "a0", {"answers": "q0"}))
+    log.append(("assistant", "a1", {"answers": "q1"}))
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, log
+    )
+    if delete_reply:
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.edit([m for m in manager.log.messages if m.content != "a0"])
+        manager.write()
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0"]
+        # The gap is now answered; a reconnect must not replay either prompt.
+        session.acp_last_user_msg_index = -1
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0"]
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+def test_acp_step_interrupted_reply_is_not_saved_or_followed_by_next_prompt(
+    monkeypatch, client: FlaskClient, tmp_path
+):
+    """A revoked prompt result is not saved and starts nothing, and the next step
+    does not run the interrupted prompt a second time."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = "sid-revoked-reply"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch,
+        client,
+        tmp_path,
+        sid,
+        [("user", "q0", None), ("user", "q1", None)],
+    )
+    original_prompt = _DummyClient.prompt
+
+    async def interrupted_prompt(self, session_id, message, max_tokens=None):
+        response = await original_prompt(self, session_id, message, max_tokens)
+        with session.step_lock:
+            session.step_seq += 1
+            session.generating = True
+        return response
+
+    monkeypatch.setattr(_DummyClient, "prompt", interrupted_prompt)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        messages = LogManager.load(conversation_id, lock=False).log.messages
+        assert not any((m.metadata or {}).get("acp_answered_user_id") for m in messages)
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0"]
+        assert session.generating
+        assert not any(
+            e["type"] in {"generation_complete", "step_complete"}
+            for e in session.events
+        )
+        assert session.acp_runtime._on_update is None
+        # A subsequent owner runs only the prompt that was never sent.
+        monkeypatch.setattr(_DummyClient, "prompt", original_prompt)
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        assert _questions_prompted(created, {"q0", "q1"}) == ["q0", "q1"]
+    finally:
+        _drop_acp_session(conversation_id, sid)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_acp_step_clears_sent_mark_unless_interrupted(
+    monkeypatch, client: FlaskClient, tmp_path, fails
+):
+    """The sent mark must not outlive a saved reply (deleting it regenerates) or a
+    failed prompt (it is retried)."""
+    import gptme.server.session_step as sessions_mod
+    from gptme.logmanager import LogManager
+
+    sid = f"sid-sent-mark-{fails}"
+    conversation_id, session, created = _acp_session_over_log(
+        monkeypatch, client, tmp_path, sid, [("user", "q0", None)]
+    )
+    original_prompt = _DummyClient.prompt
+
+    async def prompt(self, session_id, message, max_tokens=None):
+        sent = LogManager.load(conversation_id, lock=False).log.messages
+        assert any((m.metadata or {}).get("acp_prompt_sent") for m in sent)
+        response = await original_prompt(self, session_id, message, max_tokens)
+        if fails:
+            raise RuntimeError("agent failed")
+        return response
+
+    monkeypatch.setattr(_DummyClient, "prompt", prompt)
+    try:
+        _run(sessions_mod._acp_step(conversation_id, session, tmp_path))
+        messages = LogManager.load(conversation_id, lock=False).log.messages
+        assert not any((m.metadata or {}).get("acp_prompt_sent") for m in messages)
+        assert (sessions_mod._acp_answered_cursor(messages) == -1) is fails
+        assert _questions_prompted(created, {"q0"}) == ["q0"]
+    finally:
+        _drop_acp_session(conversation_id, sid)

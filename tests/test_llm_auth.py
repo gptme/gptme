@@ -208,6 +208,26 @@ class TestRequireAuthEdgeCases:
             assert resp.status_code == 401
             assert "scheme" in resp.json["error"].lower()
 
+    def test_foreign_scheme_falls_through_to_cookie(self):
+        """A basic-auth proxy's credentials must not mask a valid cookie.
+
+        Browsers attach cached basic-auth credentials to EventSource requests,
+        which cannot set their own Authorization header.
+        """
+        app = self._make_app()
+        with app.test_client() as client:
+            client.set_cookie("gptme_auth", "test-token-abc", domain="localhost")
+            resp = client.get("/test", headers={"Authorization": "Basic dXNlcjpwYXNz"})
+            assert resp.status_code == 200
+
+    def test_foreign_scheme_with_wrong_cookie(self):
+        """Falling through to the cookie still requires the right token."""
+        app = self._make_app()
+        with app.test_client() as client:
+            client.set_cookie("gptme_auth", "wrong-token", domain="localhost")
+            resp = client.get("/test", headers={"Authorization": "Basic dXNlcjpwYXNz"})
+            assert resp.status_code == 401
+
     def test_malformed_header(self):
         """Authorization header without space should be rejected."""
         app = self._make_app()

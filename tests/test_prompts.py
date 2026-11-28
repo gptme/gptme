@@ -772,6 +772,63 @@ def test_prompt_workspace_can_skip_user_context(tmp_path, monkeypatch):
     assert str(user_notes.resolve()) not in files_without_user
 
 
+@pytest.mark.parametrize("location", ["config", "workspace"])
+def test_get_prompt_with_legacy_encoded_agent_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    from gptme.prompts import _loaded_agent_files_var
+    from gptme.util.context import enrich_messages_with_context
+    from gptme.util.context_dedup import _content_hash
+
+    workspace = tmp_path / "workspace"
+    config_dir = tmp_path / "config"
+    workspace.mkdir()
+    config_dir.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path", str(config_dir / "config.toml")
+    )
+
+    directory = config_dir if location == "config" else workspace
+    legacy_agent = directory / "AGENTS.md"
+    legacy_agent.write_bytes(b"caf\xe9 legacy instructions\n")
+    valid_agent = directory / "CLAUDE.md"
+    valid_rules = "Read the adjacent instructions.\n"
+    valid_agent.write_text(valid_rules, encoding="ascii")
+
+    loaded: set[str] = set()
+    token = _loaded_agent_files_var.set(loaded)
+    try:
+        messages = get_prompt(
+            [],
+            workspace=workspace,
+            context_mode="selective",
+            context_include=["files"],
+        )
+    finally:
+        _loaded_agent_files_var.reset(token)
+
+    instructions = [msg for msg in messages if legacy_agent in msg.files]
+    assert len(instructions) == 1
+    assert instructions[0].files == [legacy_agent, valid_agent]
+    assert {str(legacy_agent.resolve()), str(valid_agent.resolve())} <= loaded
+
+    embedded = enrich_messages_with_context(instructions, workspace)[0]
+    expected_hashes = {f"ch:{_content_hash(valid_rules)}"}
+    assert valid_rules in embedded.content
+    try:
+        legacy_rules = legacy_agent.read_text()
+    except UnicodeDecodeError:
+        assert embedded.files == [legacy_agent]
+    else:
+        # A locale that can decode the file should still embed and hash its text.
+        assert embedded.files == []
+        assert legacy_rules in embedded.content
+        expected_hashes.add(f"ch:{_content_hash(legacy_rules)}")
+    assert {key for key in loaded if key.startswith("ch:")} == expected_hashes
+
+
 def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     """~/AGENTS.md must not leak when workspace is under the home directory.
 
@@ -813,6 +870,99 @@ def test_prompt_workspace_skip_home_agents_md(tmp_path, monkeypatch):
     assert str(home_agents.resolve()) not in files_without_user, (
         "~/AGENTS.md must not appear in eval runs (include_user_context=False)"
     )
+
+
+def test_prompt_workspace_skips_context_cmd_by_default(tmp_path, monkeypatch):
+    """include_context_cmd defaults to False; opt-in still needs stored approval."""
+    import sys
+
+    from gptme.config import trust as trust_mod
+    from gptme.config.trust import _record, compute_shell_hash
+    from gptme.prompts import prompt_workspace
+
+    monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    # conftest.py sets the trust-all flag True for the rest of the suite; this
+    # test must exercise the real default-skip and stored-approval paths.
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", False)
+    trust_mod._session_decisions.clear()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    cmd = "echo TRUSTED_CONTEXT_CMD_RAN"
+    (workspace / "gptme.toml").write_text(f'[prompt]\ncontext_cmd = "{cmd}"\n')
+
+    def collect(**kwargs) -> str:
+        return "\n".join(
+            msg.content
+            for msg in prompt_workspace(
+                workspace,
+                include_user_context=False,
+                include_runtime_context=False,
+                **kwargs,
+            )
+        )
+
+    content = collect()
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content
+    assert "Computed context" not in content
+
+    content_untrusted = collect(include_context_cmd=True)
+    assert "TRUSTED_CONTEXT_CMD_RAN" not in content_untrusted
+
+    _record(compute_shell_hash(cmd, []), True, workspace)
+    trust_mod._session_decisions.clear()
+
+    content_trusted = collect(include_context_cmd=True)
+    assert "TRUSTED_CONTEXT_CMD_RAN" in content_trusted
+
+
+def test_prompt_workspace_accepts_full_project_approval_with_extras(
+    tmp_path, monkeypatch
+):
+    """A project with [env] still runs an approved context_cmd.
+
+    Startup records one approval over the full project hash (shell + [env], MCP,
+    plugins, RAG). Checking only the shell-only hash here would reject that
+    approval and silently drop the context output (Greptile P1 on gptme#5368).
+    """
+    import sys
+
+    from gptme.config import trust as trust_mod
+    from gptme.config.project import get_project_config
+    from gptme.config.trust import _record, compute_project_hash
+    from gptme.prompts import prompt_workspace
+
+    monkeypatch.delenv("GPTME_TRUST_PROJECT_SHELL", raising=False)
+    monkeypatch.setattr(trust_mod, "_launcher_trusts_all", False)
+    trust_mod._session_decisions.clear()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    cmd = "echo TRUSTED_CONTEXT_CMD_RAN"
+    (workspace / "gptme.toml").write_text(
+        f'[prompt]\ncontext_cmd = "{cmd}"\n\n[env]\nFOO = "bar"\n'
+    )
+
+    # Record the approval exactly as startup does: over the full project hash.
+    project = get_project_config(workspace)
+    assert project is not None
+    _record(compute_project_hash(project), True, workspace)
+    trust_mod._session_decisions.clear()
+
+    content = "\n".join(
+        msg.content
+        for msg in prompt_workspace(
+            workspace,
+            include_context_cmd=True,
+            include_user_context=False,
+            include_runtime_context=False,
+        )
+    )
+    assert "TRUSTED_CONTEXT_CMD_RAN" in content
 
 
 def test_prompt_workspace_path_included_without_runtime_context(tmp_path):

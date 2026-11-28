@@ -39,7 +39,15 @@ const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://loca
 
 export const WelcomeView = () => {
   const { consumeSeedPrompt } = useEmbeddedContext();
-  const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
+  const {
+    api,
+    isConnected$,
+    connectionConfig,
+    switchServer,
+    connect,
+    retryConnection,
+    restartAutoConnect,
+  } = useApi();
   // The new-chat draft belongs to the active server and account.
   const draftKey = composerDraftKey(connectionConfig);
   const [inputValue, setInputValue] = useComposerDraft(draftKey);
@@ -185,6 +193,25 @@ export const WelcomeView = () => {
     }
   };
 
+  // Start a realtime voice call from the new-chat view: create an empty
+  // conversation with the composer's settings and open it. The call itself
+  // lives in VoiceCallProvider, so it survives this navigation.
+  const handleStartVoice = async (options: ChatOptions): Promise<string> => {
+    const conversationId = `chat-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    await api.createConversation(conversationId, [], {
+      chat: {
+        model: options.model,
+        reasoning_effort: options.reasoningEffort,
+        workspace: options.workspace || '.',
+      },
+    });
+    if (mountedRef.current) navigate(chatRoute(conversationId));
+    void queryClient.invalidateQueries({
+      queryKey: conversationsQueryKey(connectionConfig.baseUrl),
+    });
+    return conversationId;
+  };
+
   // Auto-send a seed the host flagged as already submitted — gptme.ai's landing
   // hero forwards the prompt a visitor typed before signing in, so they should
   // not have to press Enter a second time. Waits for a connection so the send
@@ -210,10 +237,10 @@ export const WelcomeView = () => {
   const handleRetryConnection = async () => {
     setIsRetryingConnection(true);
     try {
-      await connect();
-      // connect() shows toast.success on real connection and returns silently on no-op
+      await retryConnection();
+      // retryConnection() reports success/failure and returns silently on no-op
     } catch {
-      // connect() already shows toast.error on failure; swallow to avoid double-toast
+      // The direct-connect fallback already shows toast.error; avoid double-toast
     } finally {
       setIsRetryingConnection(false);
     }
@@ -242,9 +269,9 @@ export const WelcomeView = () => {
       // Server is already running — just retry the connection below
     }
     try {
-      await connect();
-    } catch {
-      // connect() already shows a toast on failure
+      // Not connect(): the server may not accept requests yet, so keep retrying.
+      // Not retryConnection() either: it can wait on a probe sent before launch.
+      await restartAutoConnect();
     } finally {
       setIsRestartingServer(false);
     }
@@ -665,6 +692,7 @@ export const WelcomeView = () => {
                 key={draftKey}
                 ref={chatInputRef}
                 onSend={handleSend}
+                onStartVoice={handleStartVoice}
                 autoFocus$={autoFocus$}
                 value={inputValue}
                 onChange={handleInputChange}

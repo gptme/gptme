@@ -735,11 +735,30 @@ def _selected(grep: _Grep, path: str, root: str) -> bool:
     return not any(fnmatch.fnmatchcase(d, p) for d in dirs for p in grep.exclude_dirs)
 
 
+def _reader_operands(args: list[str]) -> list[str]:
+    """Non-flag words, plus every word after a literal ``--`` separator.
+
+    After ``--`` the shell passes words verbatim, so a dash-prefixed name is a
+    filename the reader will open. Keep it as an operand (globs included)
+    instead of dropping it as a flag.
+    """
+    operands: list[str] = []
+    separated = False
+    for word in args:
+        if not separated and word == "--":
+            separated = True
+            continue
+        if separated or not word.startswith("-"):
+            operands.append(word)
+    return operands
+
+
 def find_secret_reach(
     command: str,
     is_secret: Callable[[str], bool],
     normalize: Callable[[str], str],
     *,
+    links_to_secret: Callable[[str], bool] = lambda _path: False,
     workspace: Path | None = None,
 ) -> str | None:
     """Find a literal reader's direct, glob or shallow recursive secret operand."""
@@ -769,11 +788,7 @@ def find_secret_reach(
         if grep and name == "fgrep":
             grep.flags += "F"
         extra_files = _expand_grep_patterns(grep) if grep else []
-        files = (
-            list(grep.files)
-            if grep
-            else [word for word in words[1:] if not word.startswith("-")]
-        )
+        files = list(grep.files) if grep else _reader_operands(words[1:])
         recursive = bool(grep and name != "rg" and set(grep.flags) & {"r", "R"})
         if recursive and not files:
             files = ["."]
@@ -818,9 +833,12 @@ def find_secret_reach(
                 else [anchor(normalize(operand))]
             )
             for path in expanded:
+                # Set for glob matches and literal reader arguments alike. These
+                # are concrete names, so their link targets count too.
+                scanned = operand in patterns
                 if (
-                    operand in patterns
-                    and is_secret(os.path.abspath(path))
+                    scanned
+                    and (is_secret(os.path.abspath(path)) or links_to_secret(path))
                     and os.path.isfile(path)
                 ):
                     # GNU grep reads stdin when recursion is off and no FILE
@@ -844,7 +862,10 @@ def find_secret_reach(
                         path, budget, follow_file_symlinks=grep.dereference
                     ):
                         if (
-                            is_secret(os.path.abspath(reached))
+                            (
+                                is_secret(os.path.abspath(reached))
+                                or (scanned and links_to_secret(reached))
+                            )
                             and grep
                             and _selected(grep, reached, path)
                             and _matches_values(grep, reached)

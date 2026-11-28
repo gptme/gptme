@@ -441,9 +441,15 @@ def trust_project_shell_in_tests(monkeypatch):
 
     ``get_prompt()`` defaults to ``interactive=True``, which would otherwise
     call ``input()`` (pytest OSError) or skip ``context_cmd`` (false denials).
-    Gate-unit tests in ``test_config_trust.py`` unset this env var.
+    Gate-unit tests in ``test_config_trust.py`` turn this off again.
+    The env var covers subprocesses; this process already read it at import.
     """
+    from gptme.config import trust
+
     monkeypatch.setenv("GPTME_TRUST_PROJECT_SHELL", "1")
+    monkeypatch.setattr(trust, "_launcher_trusts_all", True)
+    # Server tests call create_app(), which disables prompts process-wide.
+    monkeypatch.setattr(trust, "_prompts_disabled", False)
 
 
 @pytest.fixture(autouse=True)
@@ -571,6 +577,9 @@ def cleanup_shell_after():
     This is critical for CI where orphaned bash processes can cause
     the test runner to hang during cleanup (Issue #910).
     """
+    from gptme.util.workspace import _sandbox_root
+
+    sandbox_token = _sandbox_root.set(None)
     yield
     # Close shell if it exists (using ContextVar API)
     shell = shell_module._shell_var.get()
@@ -588,6 +597,7 @@ def cleanup_shell_after():
     # synchronously in one thread/context, so a bare `ContextVar.set()` with
     # no matching `.reset()` persists past the test that made it.
     shell_module._workspace_cwd.set(None)
+    _sandbox_root.reset(sandbox_token)
 
 
 @pytest.fixture(autouse=True)

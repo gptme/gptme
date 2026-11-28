@@ -737,6 +737,57 @@ assert 'ok' in next(execute_python("print('ok')", [], None)).content
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_execute_python_timeout_before_result(monkeypatch):
+    """A timeout outside IPython's catcher still returns the timeout message."""
+    from gptme.tools import python as python_tool
+
+    monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
+    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "1")
+    ipython = python_tool._get_ipython()
+
+    def timeout_during_setup(*args, **kwargs):
+        print("setup started")
+        # Deliver the real timer callback synchronously, without a timing race
+        # or coverage's interaction with asynchronous thread exceptions.
+        timer = timers[0]
+        timer.function(*timer.args, **timer.kwargs)
+
+    timers = []
+    real_timer = python_tool.threading.Timer
+
+    def make_timer(*args, **kwargs):
+        timer = real_timer(*args, **kwargs)
+        monkeypatch.setattr(timer, "start", lambda: None)
+        timers.append(timer)
+        return timer
+
+    def raise_timeout(thread_id, exception):
+        raise exception()
+
+    monkeypatch.setattr(python_tool.threading, "Timer", make_timer)
+    monkeypatch.setattr(python_tool, "raise_in_thread", raise_timeout)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(ipython, "run_cell", timeout_during_setup)
+        output = run("42")
+
+    assert "timed out after 1s" in output
+    assert "setup started" in output
+    assert "42" in run("6 * 7")
+
+
+def test_execute_python_reraises_cli_termination(monkeypatch):
+    from gptme.tools import python as python_tool
+    from gptme.util.interrupt import CliTermination
+
+    monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
+    with pytest.raises(CliTermination) as exc:
+        run(
+            "from gptme.util.interrupt import CliTermination; raise CliTermination(143)"
+        )
+    assert exc.value.code == 143
+
+
 def test_execute_python_timeout_disabled(monkeypatch):
     from gptme.tools.python import _get_timeout
 

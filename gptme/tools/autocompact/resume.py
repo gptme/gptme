@@ -6,6 +6,7 @@ context files, and manages conversation resumption.
 
 import errno
 import logging
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Generator
@@ -18,12 +19,14 @@ from ...credentials import get_credentials_dir
 from ...dirs import get_config_dir
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
+from ...logmanager.manager import _merge_consecutive_messages
 from ...message import Message, MessageMetadata, len_tokens
 from ...tools import ToolUse, has_tool
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
 from ...util.context_measurement import measure_context_tokens
 from ...util.master_context import is_tool_result_message
+from ...util.reduce import limit_log
 from .decision import TRIM_TARGET_RATIO
 
 if TYPE_CHECKING:
@@ -94,6 +97,16 @@ the structured checkpoint and no further tool calls.
     if compact_instructions:
         prompt += f"\n\nAdditional instructions:\n{compact_instructions}"
     return prompt
+
+
+def _checkpoint_fits(messages: list[Message], model: Any) -> bool:
+    """Request fit is independent of the operator's compaction trigger budget."""
+    from ...config import get_config
+
+    cfg = get_config()
+    requested = cfg.chat.max_tokens if cfg.chat is not None else None
+    output = llm._resolve_max_tokens(model.full, requested) or 8192
+    return len_tokens(messages, model.model) + output + 1000 <= model.context
 
 
 def _parse_context_files(content: str) -> list[str]:
@@ -223,12 +236,15 @@ def _is_config_secret_name(filename: str) -> bool:
 def _gptme_config_dirs() -> list[Path]:
     """gptme's resolved config/credential directories, wherever XDG puts them.
 
-    Uses the credential writer's own path helper, so a relocated (or empty,
-    hence cwd-relative) ``XDG_CONFIG_HOME`` is covered: such a store has no
-    ``.config`` part for ``_is_secret_bearing_path`` to match.
+    Uses the credential writer's own path helper, plus its legacy location:
+    older versions accepted empty/relative ``XDG_CONFIG_HOME`` values and
+    could leave secrets in a cwd-relative store without a ``.config`` part.
     """
+    legacy_dir = (
+        Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme"
+    )
     dirs = []
-    for d in (get_config_dir(), get_credentials_dir()):
+    for d in (get_config_dir(), get_credentials_dir(), legacy_dir):
         try:
             dirs.append(d.resolve())
         except (OSError, RuntimeError):
@@ -239,7 +255,7 @@ def _gptme_config_dirs() -> list[Path]:
 def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
     """Protect dedicated stores in full, and known secrets in cwd's source tree.
 
-    Empty XDG_CONFIG_HOME makes the credential writer use ``./gptme``. Do not
+    Older credential writers used ``./gptme`` for empty XDG_CONFIG_HOME. Do not
     suppress that entire source tree, but include config backups and cloud auth
     alongside provider/OAuth credentials. Compare components case-insensitively
     (conservatively even on Linux), and protect secret symlinks' backing paths.
@@ -264,7 +280,7 @@ def _is_config_secret(path: Path, config_dirs: list[Path]) -> bool:
         dir_parts = parts(d)
         if path_parts[: len(dir_parts)] == dir_parts:
             # Only consider the source-tree exception for a matching store.
-            # This is deliberately process-relative, like the credential writer,
+            # This is deliberately process-relative, like the legacy writer,
             # not relative to the conversation's workspace.
             try:
                 source_parts = parts((Path.cwd() / "gptme").resolve())
@@ -1341,8 +1357,11 @@ def _resume_via_llm(
             turn loop. When supplied, install it without making a second LLM call.
     """
 
-    # Prepare messages for summarization
-    prepared_msgs = prepare_messages(msgs)
+    # Prepare messages for summarization. Skip the last-resort window cut:
+    # _bound_summarize_input bounds the request itself and chunk-summarizes
+    # what does not fit, whereas limit_log would silently drop the oldest
+    # messages of a history larger than the window (#4309, #5247).
+    prepared_msgs = prepare_messages(msgs, limit=False)
 
     if len(prepared_msgs) < 3:
         yield Message(
@@ -1380,10 +1399,16 @@ def _resume_via_llm(
     # compaction capability, the old prefix is summarized server-side and the
     # signed block is replayed verbatim. Any failure here falls through to the
     # generic checkpoint below.
-    if checkpoint_response is None and m.full.startswith("anthropic/"):
+    if (
+        checkpoint_response is None
+        and m.full.startswith("anthropic/")
+        and _checkpoint_fits(prepared_msgs, m)
+    ):
         native_applied = yield from _apply_native_compaction(
             manager,
-            prepared_msgs,
+            # The provider sees the prefix in one request, so keep the
+            # window-bounded view there (an over-window prefix cannot be sent).
+            _merge_consecutive_messages(limit_log(prepared_msgs)),
             use_view_branch=use_view_branch,
             compact_instructions=compact_instructions,
             keep_recent_tokens=keep_recent_tokens,
@@ -1397,8 +1422,8 @@ def _resume_via_llm(
     _chunks_used: list[bool] = [False]
 
     if checkpoint_response is None:
-        # Legacy/manual path: ask the model directly without tools. Automatic
-        # compaction supplies a checkpoint from the normal turn loop instead.
+        # Manual or overflow path: ask directly without tools. In-window
+        # automatic compaction supplies a normal-turn checkpoint instead.
         legacy_prompt = build_checkpoint_prompt(compact_instructions)
         if previous_checkpoint is not None:
             legacy_prompt += (

@@ -24,6 +24,9 @@ const mockConversation$ = observable<{
   chatConfig: { chat: {} },
 });
 
+// VoiceButton queries the server's voice status; covered by its own tests.
+jest.mock('@/components/VoiceButton', () => ({ VoiceButton: () => null }));
+
 jest.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({
     settings: {
@@ -33,7 +36,6 @@ jest.mock('@/contexts/SettingsContext', () => ({
       showInitialSystem: false,
       hasCompletedSetup: true,
       welcomeBackground: '',
-      voiceServerUrl: '',
     },
     updateSettings: jest.fn(),
     resetSettings: jest.fn(),

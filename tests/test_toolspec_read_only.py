@@ -22,13 +22,21 @@ def test_toolspec_read_only_true():
     assert spec.read_only is True
 
 
-@pytest.mark.parametrize("tool_name", ["read", "rag", "vision", "screenshot"])
+@pytest.mark.parametrize("tool_name", ["read", "vision", "screenshot"])
 def test_read_only_tools_are_flagged(tool_name):
     """Tools that cannot modify state must carry read_only=True."""
     from gptme.tools import get_available_tools
 
     spec = next(tool for tool in get_available_tools() if tool.name == tool_name)
     assert spec.read_only, f"{tool_name!r} should have read_only=True"
+
+
+def test_rag_is_not_read_only():
+    """rag indexes arbitrary paths and writes output_dir, so it must be confirmed."""
+    from gptme.tools import get_available_tools
+
+    spec = next(tool for tool in get_available_tools() if tool.name == "rag")
+    assert not spec.read_only
 
 
 def test_cli_confirm_hook_auto_approves_read_only(monkeypatch):
@@ -49,7 +57,7 @@ def test_cli_confirm_hook_auto_approves_read_only(monkeypatch):
         _loaded_tools_var.reset(token)
 
 
-@pytest.mark.parametrize("tool_name", ["rag", "vision", "screenshot"])
+@pytest.mark.parametrize("tool_name", ["vision", "screenshot"])
 def test_ipython_registered_read_only_function_reaches_cli_auto_approval(
     tool_name: str, monkeypatch
 ):

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -305,9 +306,13 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
 
 
 def _append_task_message(task_id: str, user_text: str) -> ConversationSession:
-    manager = LogManager.load(task_id, lock=False)
-    msg = Message("user", user_text)
-    manager.append(msg)
+    # Serialize with the server's step writers: a step holds a transcript
+    # snapshot across generation, so this append and its write must not
+    # interleave with the step's own reply commit.
+    with SessionManager.conversation_lock(task_id):
+        manager = LogManager.load(task_id, lock=False)
+        msg = Message("user", user_text)
+        manager.append(msg)
 
     sessions = SessionManager.get_sessions_for_conversation(task_id)
     session = max(sessions, key=lambda item: item.last_activity, default=None)
@@ -437,31 +442,59 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
     deadline = time.monotonic() + timeout
     event_index = initial_event_count
 
+    def handle(events: list) -> bool:
+        """Return True on step_complete; raise on an error event."""
+        for event in events:
+            event_type = event.get("type") if isinstance(event, dict) else None
+            if event_type == "step_complete":
+                # step_complete fires AFTER session.generating = False, so
+                # _task_from_conversation sees the correct TASK_STATE_COMPLETED.
+                return True
+            if event_type == "generation_complete":
+                # Legacy signal: fires BEFORE session.generating = False, so
+                # finalizer work (TURN_POST hooks, auto-naming) may still be
+                # running. Don't return here — keep scanning this batch (and
+                # polling below) for the authoritative step_complete, or for
+                # session.generating to clear directly on servers that don't
+                # emit step_complete at all.
+                continue
+            if event_type == "error":
+                raise A2AError(
+                    JSONRPC_INTERNAL_ERROR,
+                    str(event.get("error") or "Internal error"),
+                    reason="TASK_FAILED",
+                    metadata={"taskId": task_id},
+                )
+        return False
+
     try:
         while time.monotonic() < deadline:
             events, event_index = session.read_events(event_index)
-            for event in events:
-                event_type = event.get("type") if isinstance(event, dict) else None
-                if event_type == "step_complete":
-                    # step_complete fires AFTER session.generating = False, so
-                    # _task_from_conversation sees the correct TASK_STATE_COMPLETED.
-                    return
-                if event_type == "generation_complete":
-                    # Legacy signal: fires BEFORE session.generating = False, so
-                    # finalizer work (TURN_POST hooks, auto-naming) may still be
-                    # running. Don't return here — keep scanning this batch (and
-                    # polling below) for the authoritative step_complete, or for
-                    # session.generating to clear directly on servers that don't
-                    # emit step_complete at all.
-                    continue
-                if event_type == "error":
-                    raise A2AError(
-                        JSONRPC_INTERNAL_ERROR,
-                        str(event.get("error") or "Internal error"),
-                        reason="TASK_FAILED",
-                        metadata={"taskId": task_id},
-                    )
+            if handle(events):
+                return
             if not session.generating:
+                # A release clears generating and publishes its error and
+                # step_complete events inside one step_lock section. Taking the
+                # lock makes this final read see them, so a failure that lands
+                # between the read above and this check is not missed. Another
+                # holder (e.g. a deferred watch wake) may stall, so wait only
+                # for the time left before the deadline. Cap the wait at
+                # TIMEOUT_MAX so an unlimited (inf) timeout cannot overflow.
+                remaining = min(
+                    max(deadline - time.monotonic(), 0.0), threading.TIMEOUT_MAX
+                )
+                if not session.step_lock.acquire(timeout=remaining):
+                    # read_events uses its own lock, so an error posted since
+                    # the first read is still visible without step_lock.
+                    events, event_index = session.read_events(event_index)
+                    if handle(events):
+                        return
+                    break
+                try:
+                    events, event_index = session.read_events(event_index)
+                finally:
+                    session.step_lock.release()
+                handle(events)
                 return
             session.event_flag.clear()
             session.event_flag.wait(timeout=0.1)

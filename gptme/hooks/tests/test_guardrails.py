@@ -91,6 +91,40 @@ class TestIsSecretPath:
     def test_dot_env_local(self):
         assert _is_secret_path(".env.local")
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            ".env.production",
+            ".env.development",
+            ".env.production.local",
+            ".env.test.local",
+            # A template suffix only exempts the exact ending; trailing junk
+            # after it is still a secret-bearing environment file.
+            ".env.aws.example.bak",
+            ".env.dist.bak",
+            ".env.production.example.local",
+        ],
+    )
+    def test_dot_env_environment_variants(self, name):
+        assert _is_secret_path(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            ".env.dist",
+            ".envrc",
+            # Template suffixes apply to environment-specific templates too;
+            # these are checked in with placeholders, not credentials.
+            ".env.production.example",
+            ".env.local.template",
+        ],
+    )
+    def test_dot_env_templates_are_not_secret(self, name):
+        assert not _is_secret_path(name)
+
     def test_pem_file(self):
         assert _is_secret_path("/tmp/cert.pem")
 

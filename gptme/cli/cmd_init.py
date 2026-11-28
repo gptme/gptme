@@ -14,6 +14,7 @@ import datetime
 import logging
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -181,12 +182,44 @@ def _toml_string(value: str) -> str:
     return tomlkit.string(value).as_string()
 
 
+def _create_directory(path: Path, *, target: Path) -> None:
+    """Create scaffold directories without following existing directory links."""
+    current = target
+    for part in path.relative_to(target).parts:
+        current = current / part
+        # One lstat per component decides both the symlink and the junction
+        # case. Checking ``is_symlink()`` first would need a second stat and
+        # would leave the reparse-tag test looking conditional on it.
+        try:
+            component_stat = current.lstat()
+        except FileNotFoundError:
+            # The component does not exist yet, so it cannot be a link.
+            continue
+        if stat.S_ISLNK(component_stat.st_mode):
+            raise click.ClickException(
+                f"Refusing to write through symlink directory: {current}"
+            )
+        # Path.is_junction() only exists on Python 3.12+. lstat exposes this
+        # tag on Windows on every supported Python, including 3.11.
+        reparse_tag = getattr(component_stat, "st_reparse_tag", 0)
+        if reparse_tag == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003):
+            raise click.ClickException(
+                f"Refusing to write through junction directory: {current}"
+            )
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def _create_file(path: Path, content: str, *, target: Path) -> None:
     """Create a file with given content."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
+    _create_directory(path.parent, target=target)
+    if path.is_symlink():
+        # Replace the link itself: writing through it would overwrite the
+        # link's target, which may be another project file or outside the project.
+        logger.warning("Replacing existing symlink: %s", path)
+        path.unlink()
+    elif path.exists():
         logger.warning("Overwriting existing file: %s", path)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     click.echo(f"  Created {path.relative_to(target)}")
 
 
@@ -240,8 +273,16 @@ def _scaffold_project(
     if with_skills:
         dirs.append("skills")
 
+    if with_ci:
+        dirs.append(".github/workflows")
+
     for subdir in dirs:
-        (target / subdir).mkdir(parents=True, exist_ok=True)
+        if subdir in ("tasks", ".github/workflows"):
+            _create_directory(target / subdir, target=target)
+        else:
+            # These directories receive no scaffold files. Existing directory
+            # links are safe to leave in place; only write paths need guarding.
+            (target / subdir).mkdir(parents=True, exist_ok=True)
 
     # Project files
     _create_file(
@@ -271,19 +312,25 @@ def _scaffold_project(
     # Symlink CLAUDE.md -> AGENTS.md
     agents_path = target / "AGENTS.md"
     claude_path = target / "CLAUDE.md"
+    if claude_path.is_symlink() and not claude_path.exists():
+        # Dangling link: replace the link itself (never write through it, the
+        # target may be outside the project) so CLAUDE.md is readable again.
+        logger.warning("Replacing dangling symlink: %s", claude_path)
+        claude_path.unlink()
     if not claude_path.exists():
         try:
             claude_path.symlink_to("AGENTS.md")
             click.echo(f"  Created {claude_path.name} -> AGENTS.md")
         except OSError:
             # Symlinks may fail on some platforms; copy instead
-            claude_path.write_text(agents_path.read_text())
+            claude_path.write_text(
+                agents_path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
             click.echo(f"  Created {claude_path.name} (copy)")
 
     # Optional: GitHub Actions CI
     if with_ci:
         ci_dir = target / ".github" / "workflows"
-        ci_dir.mkdir(parents=True, exist_ok=True)
         ci_file = ci_dir / "test.yml"
         ci_content = """\
 name: Test

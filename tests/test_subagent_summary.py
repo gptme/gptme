@@ -231,3 +231,51 @@ def test_nudge_does_not_bridge_to_unrelated_older_prose(tmp_path: Path) -> None:
         Message("assistant", native_call("complete")),
     ]
     assert read_result(tmp_path, messages) == "Task completed (no summary provided)"
+
+
+def test_native_complete_recovers_prose_beside_other_call(tmp_path: Path) -> None:
+    """Prose survives when ``complete`` shares the message with another call (#5247 item 3)."""
+    content = (
+        "Wrote it (MARKER).\n\n"
+        '@save(call_save): {"path": "out.txt", "content": "x"}\n'
+        + native_call("complete")
+    )
+    messages = [Message("user", "task"), Message("assistant", content)]
+    assert read_result(tmp_path, messages) == "Wrote it (MARKER)."
+
+
+def test_native_complete_with_other_call_does_not_reuse_older_prose(
+    tmp_path: Path,
+) -> None:
+    content = '@save(call_save): {"path": "out.txt", "content": "x"}\n' + native_call(
+        "complete"
+    )
+    messages = [
+        Message("user", "task"),
+        Message("assistant", "Plan: write the file."),
+        Message("assistant", content),
+    ]
+    assert read_result(tmp_path, messages) == "Task completed (no summary provided)"
+
+
+def test_tool_uses_counts_native_calls(tmp_path: Path) -> None:
+    """``tool_uses`` must count native-format calls, not only markdown blocks."""
+    logdir = tmp_path / "child"
+    logdir.mkdir()
+    messages = [
+        Message("user", "task"),
+        Message("assistant", native_call("shell", "call_shell")),
+        Message("system", "ok"),
+        Message("assistant", "Done.\n\n" + native_call("complete")),
+    ]
+    (logdir / "conversation.jsonl").write_text(
+        "".join(json.dumps(message.to_dict()) + "\n" for message in messages)
+    )
+    child = Subagent(
+        agent_id="count-regression",
+        prompt="task",
+        thread=None,
+        logdir=logdir,
+        model=None,
+    )
+    assert child._read_log().tool_uses == 2

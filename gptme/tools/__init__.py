@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import logging
 import pkgutil
@@ -75,6 +76,48 @@ _available_tools_var: ContextVar[list[ToolSpec] | None] = ContextVar(
 # may intentionally widen the active set without mutating this boundary.
 _session_allowlist_var: ContextVar[list[str] | None] = ContextVar(
     "session_allowlist", default=None
+)
+# Whether this context runs under a read-only agent profile. Reinitialization
+# and mid-conversation loads must preserve it until clear_tools() starts afresh.
+_read_only_session_var: ContextVar[bool] = ContextVar(
+    "read_only_session", default=False
+)
+
+# Functions that write caller-selected files or steer other agents must not
+# be reachable from a read-only profile. A peer message reaches a live agent
+# that may hold every tool, so a read-only subagent could steer it.
+_READ_ONLY_DENIED_FUNCTIONS: dict[str, frozenset[str]] = {
+    "chats": frozenset({"send_peer_message"}),
+    "browser": frozenset({"save_browser_state", "screenshot_url", "pdf_to_images"}),
+    "rag": frozenset({"rag_index", "rag_index_conversations"}),
+}
+
+# Tools that write files, execute code, or delegate unrestricted capabilities.
+# Read-only profiles retain observation tools (including bounded screenshot
+# output), not a general OS sandbox against arbitrary custom/plugin code.
+# ``shell`` and ``ipython`` can write any file the user can (including a parent
+# session's ``prompt-queue.jsonl``), which defeats
+# the profile's stated contract even when the profile's own allowlist names
+# them. Per-function denials for otherwise-safe tools live above.
+_READ_ONLY_DENIED_TOOLS: frozenset[str] = frozenset(
+    {
+        "save",
+        "patch",
+        "append",
+        "shell",
+        "ipython",
+        "computer",
+        "tmux",
+        "hashline_edit",
+        "morph",
+        "patch_many",
+        "convert",
+        "memory",
+        "watch",
+        "subagent",
+        "gh",
+        "mcp",
+    }
 )
 
 # Note: Tools must be initialized in each context that needs them.
@@ -167,6 +210,51 @@ _warned_mcp_allowlists: set[tuple[str, ...]] = set()
 _warned_mcp_allowlists_lock = threading.Lock()
 # Tool through which function-only tools (``ToolSpec.is_function_only``) are called.
 FUNCTION_CALL_TOOL = "ipython"
+
+
+def _denied_for_read_only(tool: ToolSpec) -> bool:
+    # MCP capabilities are server-defined; no local read-only contract is enforced.
+    return tool.name in _READ_ONLY_DENIED_TOOLS or tool.is_mcp
+
+
+def restrict_tools_for_read_only(tools: list[ToolSpec]) -> list[ToolSpec]:
+    """Drop tools and functions a read-only agent profile must not reach.
+
+    Write-capable tools are dropped whole (``_READ_ONLY_DENIED_TOOLS``); tools
+    that are safe apart from a few functions keep the rest
+    (``_READ_ONLY_DENIED_FUNCTIONS``).
+
+    Apply before ``with_direct_function_calls``: the direct-call handler
+    captures the tool's function list when it is built.
+    """
+    restricted: list[ToolSpec] = []
+    for tool in tools:
+        if _denied_for_read_only(tool):
+            continue
+        denied = _READ_ONLY_DENIED_FUNCTIONS.get(tool.name)
+        if denied and tool.functions:
+            tool = dataclasses.replace(
+                tool,
+                functions=[f for f in tool.functions if f.fn.__name__ not in denied],
+            )
+            if tool.execute:
+                # Reinitialization may receive an already-adapted function tool.
+                # Its execute closure still captures the old function list.
+                from ._direct_call import make_direct_call_tool
+
+                tool = make_direct_call_tool(dataclasses.replace(tool, execute=None))
+        restricted.append(tool)
+    return restricted
+
+
+def is_read_only_session() -> bool:
+    """Whether the tools in this context run under a read-only agent profile."""
+    return _read_only_session_var.get()
+
+
+def set_read_only_session(read_only: bool) -> None:
+    """Mark this context's tools as running under a read-only agent profile."""
+    _read_only_session_var.set(read_only)
 
 
 def with_direct_function_calls(tools: list[ToolSpec]) -> list[ToolSpec]:
@@ -451,6 +539,8 @@ def init_tools(
     allowlist: list[str] | None = None,
     *,
     include_mcp: bool = True,
+    read_only: bool = False,
+    interactive: bool | None = None,
 ) -> list[ToolSpec]:
     """Initialize tools in a thread-safe manner.
 
@@ -466,6 +556,15 @@ def init_tools(
     ``include_mcp`` (default True) is passed through to discovery. Set False to
     skip connecting configured MCP servers — used by snapshot/export paths that
     must not mutate the environment as a side effect of listing tools.
+
+    ``read_only`` (set for a read-only agent profile) removes functions that
+    act outside the workspace, such as peer messaging; see
+    ``restrict_tools_for_read_only``. Once enabled, the restriction persists
+    across reinitialization until ``clear_tools()`` starts a fresh session.
+
+    ``interactive`` is the current frontend's mode when it is known. ``None``
+    falls back to the chat config, which is persisted and may describe the run
+    that created the conversation rather than the one resuming it.
     """
     from ..config import get_config  # fmt: skip
 
@@ -477,11 +576,13 @@ def init_tools(
             env_allowlist = config.get_env("TOOL_ALLOWLIST")
             if env_allowlist:
                 allowlist = env_allowlist.split(",")
-            elif config.chat and config.chat.tools:
+            elif config.chat and config.chat.tools is not None:
                 allowlist = config.chat.tools
 
         allowlist = expand_tool_allowlist_presets(allowlist)
         set_session_allowlist(allowlist)
+        if read_only:
+            _read_only_session_var.set(True)
 
         # Partition allowlist into file paths and tool names
         file_paths: list[str] = []
@@ -513,12 +614,38 @@ def init_tools(
         # When file paths are present, only load explicitly named built-in tools
         # (file_paths + no names = only file tools; file_paths + names = both)
         name_allowlist = tool_names if (tool_names or file_paths) else allowlist
-        for tool in get_toolchain(name_allowlist, include_mcp=include_mcp):
+        # `complete` ends a turn, so it belongs to autonomous sessions only. The
+        # current frontend's mode is authoritative: a resumed conversation can
+        # carry a stale `interactive=False` from the run that created it (e.g.
+        # resuming an autonomous chat in the TUI), which must not enable it.
+        frontend_interactive = interactive
+        if frontend_interactive is None:
+            frontend_interactive = (
+                config.chat.interactive if config.chat is not None else True
+            )
+        default_completion = (
+            allowlist is None and config.chat is not None and not frontend_interactive
+        )
+        selected_tools = get_toolchain(name_allowlist, include_mcp=include_mcp)
+        if default_completion:
+            # The lookup above already reported skipped MCP tools. Repeating the
+            # warning for this internal `complete` probe would claim the operator
+            # excluded tools they never named.
+            selected_tools.extend(
+                get_toolchain(
+                    ["complete"], include_mcp=include_mcp, warn_skipped_mcp=False
+                )
+            )
+        for tool in selected_tools:
+            if is_read_only_session() and _denied_for_read_only(tool):
+                continue
             if has_tool(tool.name):
                 continue
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
+        if is_read_only_session():
+            loaded_tools[:] = restrict_tools_for_read_only(loaded_tools)
         loaded_tools[:] = with_direct_function_calls(loaded_tools)
 
         available_tools = get_available_tools(include_mcp=include_mcp)
@@ -531,6 +658,15 @@ def init_tools(
                 continue
             matched_available = matching_allowlist_tools(tool_name, available_tools)
             if matched_available:
+                if is_read_only_session() and all(
+                    _denied_for_read_only(tool) for tool in matched_available
+                ):
+                    # Deliberately dropped by restrict_tools_for_read_only, e.g. a
+                    # resumed conversation whose stored tools name ``append``.
+                    logger.info(
+                        "Tool '%s' is not loaded in a read-only session.", tool_name
+                    )
+                    continue
                 if any(tool.is_available for tool in matched_available):
                     raise ValueError(
                         f"Tool '{tool_name}' matched available tools that should "
@@ -593,6 +729,10 @@ def get_toolchain(
                 logger.warning("Tool '%s' in allowlist not found, skipping", tool_name)
                 continue
 
+            if is_read_only_session() and all(
+                _denied_for_read_only(tool) for tool in matched_tools
+            ):
+                continue
             if not any(tool.is_available for tool in matched_tools):
                 msg = _unavailable_message(tool_name, matched_tools)
                 if strict:
@@ -612,6 +752,8 @@ def get_toolchain(
         if allowlist is not None and not explicitly_allowed:
             if warn_on_skipped_mcp and tool.is_mcp and tool.is_available:
                 skipped_mcp_tools.append(tool.name)
+            continue
+        if is_read_only_session() and _denied_for_read_only(tool):
             continue
         if not tool.is_available:
             continue
@@ -698,6 +840,14 @@ def _add_required_tools(
         traversed.add(tool.name)
         for name in tool.requires_tools:
             dep = by_name.get(name)
+            if is_read_only_session() and (
+                name in _READ_ONLY_DENIED_TOOLS
+                or (dep is not None and _denied_for_read_only(dep))
+            ):
+                raise ValueError(
+                    f"Tool '{name}' is not allowed in a read-only session "
+                    f"(required by '{tool.name}')"
+                )
             if name in loaded:
                 if dep is not None and dep.requires_tools:
                     queue.append(dep)
@@ -1038,13 +1188,20 @@ def load_dynamic_tool_specs(specs: list[ToolSpec]) -> None:
     execute it immediately. Tools already loaded are skipped.
     """
     with _tools_init_lock:
+        if is_read_only_session():
+            specs = restrict_tools_for_read_only(specs)
         for spec in specs:
             if has_tool(spec.name):
                 continue
             initialized = _init_single_tool(spec, on_error="skip")
             if initialized is None:
                 continue
-            _loaded_tools_var.set([*_get_loaded_tools(), initialized])
+            active = [initialized]
+            if is_read_only_session():
+                active = with_direct_function_calls(
+                    restrict_tools_for_read_only(active)
+                )
+            _loaded_tools_var.set([*_get_loaded_tools(), *active])
             logger.info("Loaded dynamic tool '%s'", initialized.name)
 
 
@@ -1084,6 +1241,7 @@ def clear_tools():
     _loaded_tools_var.set([])
     _tools_initialized_var.set(False)
     _session_allowlist_var.set(None)
+    _read_only_session_var.set(False)
 
 
 def get_tools() -> list[ToolSpec]:
@@ -1117,7 +1275,18 @@ def set_session_allowlist(allowlist: list[str] | None) -> None:
     ``None`` means unrestricted. An explicit list is the hard cap that
     ``request_tool_change`` enablement must honor.
     """
-    _session_allowlist_var.set(list(allowlist) if allowlist is not None else None)
+    # Pin operator-approved files in the parent's workspace before a child
+    # changes cwd. Re-resolving a relative path there can import another file.
+    # Use is_tool_file_path(): a slash is not enough, because MCP names may
+    # embed a server path (e.g. docs/team.echo_text).
+    _session_allowlist_var.set(
+        [
+            str(Path(item).expanduser().resolve()) if is_tool_file_path(item) else item
+            for item in allowlist
+        ]
+        if allowlist is not None
+        else None
+    )
 
 
 def unload_tool(tool_name: str) -> ToolSpec:
@@ -1195,9 +1364,13 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
     Thread-safe: uses _tools_init_lock to match init_tools() behavior.
 
     Raises:
-        ValueError: If tool not found or already loaded.
+        ValueError: If tool not found, already loaded, or denied by read-only policy.
     """
     with _tools_init_lock:
+        if is_read_only_session() and tool_name in _READ_ONLY_DENIED_TOOLS:
+            raise ValueError(
+                f"Tool '{tool_name}' is not allowed in a read-only session"
+            )
         if has_tool(tool_name):
             raise ValueError(f"Tool '{tool_name}' is already loaded")
 
@@ -1208,6 +1381,10 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             )
 
         requested_spec = available[tool_name]
+        if is_read_only_session() and _denied_for_read_only(requested_spec):
+            raise ValueError(
+                f"Tool '{tool_name}' is not allowed in a read-only session"
+            )
         if not requested_spec.is_available:
             raise ValueError(_unavailable_message(tool_name, [requested_spec]))
 
@@ -1218,6 +1395,12 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
             allowlist=allowlist,
             already_loaded={spec.name for spec in get_tools()},
         )
+        if is_read_only_session():
+            for spec in to_load:
+                if _denied_for_read_only(spec):
+                    raise ValueError(
+                        f"Tool '{spec.name}' is not allowed in a read-only session"
+                    )
         # Initialize the full closure before publishing any of it to the active
         # toolset.  A companion failure must not leave the requested tool loaded
         # without its dependency (or make a retry fail as "already loaded").
@@ -1235,6 +1418,10 @@ def load_tool(tool_name: str, *, allow_required: bool = False) -> ToolSpec:
                 requested = initialized_spec
 
         assert requested is not None
+        if _read_only_session_var.get():
+            initialized = restrict_tools_for_read_only(initialized)
+            requested_name = requested.name
+            requested = next(t for t in initialized if t.name == requested_name)
         if not has_tool(FUNCTION_CALL_TOOL):
             initialized = with_direct_function_calls(initialized)
             requested_name = requested.name

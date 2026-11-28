@@ -373,6 +373,13 @@ def _is_thinking_lang(lang: str) -> bool:
     return first in ("thinking", "think")
 
 
+def _recover_repeated_closer(line: str, after_triple_closer: bool) -> str:
+    """Recognize a duplicated triple closer using only prior parser state."""
+    if after_triple_closer and re.match(r"^`{6}[^`\s]", line):
+        return line[3:]
+    return line
+
+
 # Languages where a bare fence at depth 1 is never a nested opener.
 # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
 # only produces false positives (swallowing prose + output blocks into
@@ -397,31 +404,8 @@ _EXEC_LANGS = frozenset(
 # syntax in Python — so ipython is excluded from heredoc state tracking.
 _SHELL_LANGS = _EXEC_LANGS - {"ipython", "py"}
 
-# A joined fence must have a tag after the backtick run. Using \S permits
-# backtracking into the run itself and mistakes long bare fences for pairs.
+# A bare run cannot be both a closer and a tagged opener.
 _JOINED_FENCE = re.compile(r"^`{3,}[^`\s]")
-
-
-def _is_outer_closer(
-    lines: list[str], index: int, width: int, opener_width: int, lang: str
-) -> bool:
-    """Classify a bare fence at the outer level."""
-    if width == opener_width:
-        return True
-    if width < opener_width or lang not in _EXEC_LANGS:
-        return False
-
-    # When content immediately follows a wider fence and the next fence
-    # matches the opener, keep the wider line as literal command content.
-    for after in range(index + 1, len(lines)):
-        line = lines[after]
-        if line.startswith("```"):
-            return after == index + 1 or line.rstrip() != "`" * opener_width
-        if after == index + 1 and not line.strip():
-            break
-        if line.startswith(("<think>", "<thinking>")):
-            break
-    return True
 
 
 def _line_fence_states(
@@ -470,9 +454,11 @@ def _line_fence_states(
     heredoc_terminator: str | None = None
     # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
     ambiguous_fence_kept = False
+    after_triple_closer = False
     for i, line in enumerate(lines):
         if depth == 0:
-            scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
+            scan = _recover_repeated_closer(line, after_triple_closer)
+            after_triple_closer = False
             fence_match = re.match(r"^(`{3,})", scan)
             if fence_match:
                 fence_len = len(fence_match.group(1))
@@ -539,10 +525,19 @@ def _line_fence_states(
         if line_fence_match:
             line_fence_len = len(line_fence_match.group(1))
             is_bare_fence = line.strip() == "`" * line_fence_len
-            if is_bare_fence and (
-                depth > 1
-                or _is_outer_closer(lines, i, line_fence_len, fence_len, outer_lang)
-            ):
+            # Mirror extraction: exec-lang outer blocks accept a closer at
+            # least as long as the opener; non-exec blocks keep exact width.
+            # Only at depth 1: a longer bare fence inside a nested level closes
+            # that level via the `depth > 1` branch below, as before.
+            is_outer_close = is_bare_fence and (
+                line_fence_len == fence_len
+                or (
+                    outer_lang in _EXEC_LANGS
+                    and depth == 1
+                    and line_fence_len >= fence_len
+                )
+            )
+            if is_outer_close or (is_bare_fence and depth > 1):
                 if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
                     states.append((depth, False, outer_lang))
                     continue
@@ -550,6 +545,20 @@ def _line_fence_states(
                 next_is_fence = i + 1 < len(lines) and bool(
                     re.match(r"^`{3,}", lines[i + 1])
                 )
+                # Mirror extraction: a longer bare fence for an exec-lang block
+                # stays literal if ordinary content follows. A standalone
+                # thinking opener starts a new Markdown section rather than
+                # continuing the command.
+                if (
+                    outer_lang in _EXEC_LANGS
+                    and line_fence_len > fence_len
+                    and depth == 1
+                    and next_has_content
+                    and not next_is_fence
+                    and lines[i + 1].strip() not in ("<think>", "<thinking>")
+                ):
+                    states.append((depth, False, outer_lang))
+                    continue
                 if (
                     depth == 1
                     and next_has_content
@@ -753,6 +762,7 @@ def _line_fence_states(
                 states.append((depth, True, outer_lang))
                 depth -= 1
                 if depth == 0:
+                    after_triple_closer = fence_len == 3
                     fence_len = 0
                     outer_lang = ""
                 continue
@@ -1094,18 +1104,11 @@ def _extract_codeblocks(
     lines = markdown.split("\n")
     outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     i = 0
+    after_triple_closer = False
 
     while i < len(lines):
-        line = lines[i]
-
-        # Recover from malformed adjacent outer fences where a block closes and the
-        # next one opens on the same line, e.g. "``````patch file.py" instead of
-        # "```\n```patch file.py". ToolUse._to_markdown always emits triple fences,
-        # so six leading backticks followed immediately by a language tag is a good
-        # signal that the first three backticks belong to the previous block.
-        if re.match(r"^`{6}[^`\s]", line):
-            line = line[3:]
-            lines[i] = line
+        line = _recover_repeated_closer(lines[i], after_triple_closer)
+        after_triple_closer = False
 
         # Look for code block start (3+ backticks)
         # Count the backticks at the start of the line
@@ -1252,10 +1255,23 @@ def _extract_codeblocks(
                     line_fence_len = len(line_fence_match.group(1))
                     # Check if this is a bare fence (only backticks on the line)
                     is_bare_fence = line.strip() == "`" * line_fence_len
-                    if is_bare_fence and (
-                        nesting_depth > 1
-                        or _is_outer_closer(lines, i, line_fence_len, fence_len, lang)
-                    ):
+                    # For closing the outer block, need exact match of opening
+                    # fence length, except for exec langs: a bare fence at depth
+                    # 1 is never a nested opener there (shell/ipython have no
+                    # triple-backtick syntax), so a closer at least as long as
+                    # the opener closes the block (CommonMark). Non-exec save
+                    # blocks keep the exact-width rule so a longer bare fence in
+                    # their body stays literal content.
+                    # For inner nested blocks, any bare fence can close them.
+                    is_outer_close = is_bare_fence and (
+                        line_fence_len == fence_len
+                        or (
+                            lang in _EXEC_LANGS
+                            and nesting_depth == 1
+                            and line_fence_len >= fence_len
+                        )
+                    )
+                    if is_outer_close or (is_bare_fence and nesting_depth > 1):
                         # Bare fence - determine if opening or closing based on context
                         # A fence inside an open quoted string or a Python
                         # triple-quoted string is literal content, not a markdown
@@ -1285,6 +1301,26 @@ def _extract_codeblocks(
                         next_is_fence = has_next_line and bool(
                             re.match(r"^`{3,}", lines[i + 1])
                         )
+
+                        # A bare fence *longer* than the opener is a closer for an
+                        # exec-lang block at a Markdown boundary (blank, EOF,
+                        # another fence, or a standalone thinking opener).
+                        # When ordinary content follows, the line is a
+                        # literal content line of backticks, not a delimiter — see
+                        # test_adjacent_fences_bare_multifence_content_line. An
+                        # exact-width fence keeps the existing "always a closer for
+                        # exec langs" rule (shell has no nested fences).
+                        if (
+                            lang in _EXEC_LANGS
+                            and line_fence_len > fence_len
+                            and nesting_depth == 1
+                            and next_has_content
+                            and not next_is_fence
+                            and lines[i + 1].strip() not in ("<think>", "<thinking>")
+                        ):
+                            content_lines.append(line)
+                            i += 1
+                            continue
 
                         # Decision logic:
                         # 1. If we have nested blocks open (depth > 1), prefer closing
@@ -1488,6 +1524,19 @@ def _extract_codeblocks(
                                 and not _ipython_in_triple_double
                                 and not _ipython_in_triple_single
                             ):
+                                # A bare fence *longer* than the opener may still
+                                # turn out to be literal content: the following
+                                # line has not arrived yet. Yield only once a real
+                                # blank line (or a following fence) confirms
+                                # closure; otherwise keep the block open so the
+                                # streamed tail is not dropped (gptme/gptme#5386
+                                # Greptile P1 "Streamed commands lose their tail").
+                                if (
+                                    line_fence_len > fence_len
+                                    and not next_is_blank
+                                    and not next_is_fence
+                                ):
+                                    break
                                 yield Codeblock(
                                     lang,
                                     "\n".join(content_lines),
@@ -1568,5 +1617,8 @@ def _extract_codeblocks(
             # (this handles the unfinished nested test case)
             if reprocess_current_line:
                 continue
+            # A joined closer is handled above. At top level, only an immediately
+            # preceding standalone triple closer can justify stripping another.
+            after_triple_closer = fence_len == 3 and lines[i - 1].rstrip() == "```"
         else:
             i += 1

@@ -4,6 +4,7 @@ import { observable } from '@legendapp/state';
 import { SetupWizard } from '../SetupWizard';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { setupWizard$ } from '@/stores/setupWizard';
+import { sameOriginServer$ } from '@/stores/servers';
 import { toast } from 'sonner';
 import { setLocation } from '@/test-utils/location';
 
@@ -48,6 +49,7 @@ const mockUseTauriServerStatus = jest.fn((): MockUseTauriServerStatusResult => (
 
 let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
 let mockIsExchangingAuthCode = false;
+let mockAuthToken: string | null = null;
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -63,8 +65,8 @@ jest.mock('@/contexts/ApiContext', () => ({
       get baseUrl() {
         return mockConnectionBaseUrl;
       },
-      authToken: null,
-      useAuthToken: false,
+      authToken: mockAuthToken,
+      useAuthToken: Boolean(mockAuthToken),
     },
   }),
 }));
@@ -195,12 +197,14 @@ describe('SetupWizard', () => {
     localStorage.clear();
     setLocation('http://localhost/');
     isConnected$.set(false);
+    sameOriginServer$.set(null);
     lastConnectionResult$.set(null);
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
     setupWizard$.providerStatusVersion.set(0);
     mockConnectionBaseUrl = 'http://127.0.0.1:5700';
     mockIsExchangingAuthCode = false;
+    mockAuthToken = null;
     mockConnect.mockReset();
     mockOpen.mockReset();
     mockFetch.mockReset();
@@ -290,6 +294,158 @@ describe('SetupWizard', () => {
       expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
     }
   );
+
+  it('skips welcome while the discovered same-origin server connects, and after connection', () => {
+    setLocation('http://myhost:5700/');
+    mockConnectionBaseUrl = window.location.origin;
+    sameOriginServer$.set(window.location.origin);
+    const ui = (
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    const { rerender } = render(ui);
+    expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument();
+    isConnected$.set(true);
+    rerender(ui);
+    expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument();
+  });
+
+  it('asks only for a server token on same-origin 401, including after setup was completed', async () => {
+    localStorage.setItem('gptme-settings', JSON.stringify({ hasCompletedSetup: true }));
+    setLocation('http://myhost:5700/');
+    mockConnectionBaseUrl = window.location.origin;
+    sameOriginServer$.set(window.location.origin);
+    lastConnectionResult$.set({
+      ok: false,
+      status: 401,
+      reason: 'http_error',
+      url: `${window.location.origin}/api/v2/conversations?limit=1`,
+    });
+    mockConnect.mockImplementationOnce(async () => {
+      lastConnectionResult$.set({
+        ok: false,
+        status: 503,
+        reason: 'http_error',
+        url: `${window.location.origin}/api/v2`,
+      });
+      throw new Error('Temporarily unavailable');
+    });
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(screen.queryByText('Welcome to gptme')).not.toBeInTheDocument();
+    expect(screen.getByText('gptme-server token')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'test-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await screen.findByText('Temporarily unavailable');
+    expect(mockConnect).toHaveBeenCalledWith(
+      { baseUrl: 'http://myhost:5700', authToken: 'test-token', useAuthToken: true },
+      undefined,
+      { suppressErrorToast: true }
+    );
+    mockConnect.mockImplementationOnce(async () => {
+      isConnected$.set(true);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument());
+  });
+
+  it('reopens the token prompt after a successful submission and a later 401', async () => {
+    mockConnectionBaseUrl = 'http://myhost:5700';
+    sameOriginServer$.set(mockConnectionBaseUrl);
+    lastConnectionResult$.set({ ok: false, status: 401, url: `${mockConnectionBaseUrl}/api/v2` });
+    mockConnect.mockImplementationOnce(async () => {
+      lastConnectionResult$.set({ ok: true, status: 200, url: `${mockConnectionBaseUrl}/api/v2` });
+      isConnected$.set(true);
+    });
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'old-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(screen.queryByLabelText('Server token')).not.toBeInTheDocument());
+    act(() => {
+      isConnected$.set(false);
+      lastConnectionResult$.set({ ok: false, status: 401, url: `${mockConnectionBaseUrl}/api/v2` });
+    });
+    // use$ is a snapshot-only mock in this suite; drive the observable render.
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(await screen.findByLabelText('Server token')).toHaveValue('');
+  });
+
+  it('never prefills another server token after switching to the same-origin server', () => {
+    sameOriginServer$.set('http://myhost:5700');
+    mockAuthToken = 'other-server-secret';
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    mockConnectionBaseUrl = 'http://myhost:5700';
+    mockAuthToken = null;
+    lastConnectionResult$.set({ ok: false, status: 401, url: 'http://myhost:5700/api/v2' });
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(screen.getByLabelText('Server token')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
+  });
+
+  it.each(['dismiss', 'connect'])(
+    'does not reveal welcome after %s on a switched same-origin token prompt',
+    async (action) => {
+      sameOriginServer$.set('http://myhost:5700');
+      const ui = (
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+      const { rerender } = render(ui);
+      expect(screen.getByText('Welcome to gptme')).toBeInTheDocument();
+      mockConnectionBaseUrl = 'http://myhost:5700';
+      lastConnectionResult$.set({ ok: false, status: 401, url: 'http://myhost:5700/api/v2' });
+      rerender(
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+      expect(screen.getByLabelText('Server token')).toBeInTheDocument();
+      if (action === 'dismiss') {
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      } else {
+        mockConnect.mockImplementationOnce(async () => {
+          isConnected$.set(true);
+        });
+        fireEvent.change(screen.getByLabelText('Server token'), { target: { value: 'token' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+      }
+      await waitFor(() => expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument());
+      expect(screen.queryByText('Welcome to gptme')).not.toBeInTheDocument();
+    }
+  );
+
+  it('does not offer the same-origin token prompt for an explicitly selected different server', () => {
+    sameOriginServer$.set('http://myhost:5700');
+    lastConnectionResult$.set({ ok: false, status: 401, url: 'http://127.0.0.1:5700/api/v2' });
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+    expect(screen.queryByLabelText('Server token')).not.toBeInTheDocument();
+    expect(screen.getByText('Welcome to gptme')).toBeInTheDocument();
+  });
 
   it('still auto-opens in Tauri', () => {
     setLocation('http://tauri.localhost/');

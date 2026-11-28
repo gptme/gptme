@@ -12,6 +12,8 @@ import flask
 from flask_compress import Compress
 from flask_cors import CORS
 
+from ..config.trust import disable_prompts
+
 logger = logging.getLogger(__name__)
 
 # Resolve static/media paths from the gptme package
@@ -137,6 +139,9 @@ def create_app(
             Docker container) where every session should use a specific
             backend-selection policy without requiring the client to set it.
     """
+    # Before any request: trust prompts must never reach the server's console.
+    disable_prompts()
+
     static_folder = _resolve_static_folder(webui_dir)
     app = flask.Flask(__name__, static_folder=static_folder)
     webui_available = static_folder is not None
@@ -172,16 +177,18 @@ def create_app(
     if server_default_model:
         app.config["SERVER_DEFAULT_MODEL"] = server_default_model
         SessionManager.set_server_default_model(server_default_model.full)
-
-        @app.before_request
-        def propagate_default_model():
-            """Propagate the server's default model to each request's ContextVar."""
-            # Only set if not already set in this context
-            if get_default_model() is None:
-                set_default_model(server_default_model)
     else:
         app.config.pop("SERVER_DEFAULT_MODEL", None)
         SessionManager.set_server_default_model(None)
+
+    @app.before_request
+    def propagate_default_model() -> None:
+        """Propagate the current server default to fresh request contexts."""
+        # Read app state rather than the startup snapshot: preference saves can
+        # change the default (or establish one on a server started without one).
+        current_default = app.config.get("SERVER_DEFAULT_MODEL")
+        if get_default_model() is None and current_default is not None:
+            set_default_model(current_default)
 
     # Register v2 API, workspace API, tasks API, and auth API
     # noreorder
@@ -196,6 +203,7 @@ def create_app(
     from .tasks_api import tasks_api  # fmt: skip
     from .tools_api import tools_api  # fmt: skip
     from .tts_api import tts_api  # fmt: skip
+    from .voice_api import voice_api  # fmt: skip
     from .workspace_api import workspace_api  # fmt: skip
 
     app.register_blueprint(a2a_api)
@@ -210,6 +218,7 @@ def create_app(
     app.register_blueprint(tts_api)
     app.register_blueprint(computer_api)
     app.register_blueprint(preview_proxy_api)
+    app.register_blueprint(voice_api)
 
     # Register OpenAPI documentation
     from .openapi_docs import docs_api  # fmt: skip

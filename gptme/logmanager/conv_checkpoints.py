@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -68,8 +69,23 @@ def save_conv_checkpoint(
         prefix_hash=prefix_hash,
     )
     path = _sidecar_path(logdir)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(dataclasses.asdict(record)) + "\n")
+    line = (json.dumps(dataclasses.asdict(record)) + "\n").encode("utf-8")
+    try:
+        stream = open(path, "ab+")
+    except PermissionError:
+        # An appendable sidecar need not be readable. Without tail inspection,
+        # a separator is safe for both complete and torn last rows.
+        with open(path, "ab") as f:
+            f.write(b"\n" + line)
+    else:
+        with stream as f:
+            # Guard against a torn tail with no terminating newline: appending
+            # straight after it would glue this record onto the fragment and lose it.
+            if f.seek(0, 2) > 0:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    line = b"\n" + line
+            f.write(line)
     return record
 
 
@@ -79,24 +95,47 @@ def list_conv_checkpoints(logdir: Path) -> list[ConvCheckpoint]:
     if not path.exists():
         return []
     records: list[ConvCheckpoint] = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
+    with open(path, "rb") as f:
+        for raw_line in f:
+            # Decode per line so one damaged byte skips only its own record.
             try:
-                data = json.loads(line)
-                records.append(
-                    ConvCheckpoint(
-                        index=data["index"],
-                        label=data["label"],
-                        timestamp=data["timestamp"],
-                        prefix_hash=data.get("prefix_hash"),
-                    )
-                )
-            except (json.JSONDecodeError, KeyError):
+                line = raw_line.decode("utf-8").strip()
+                data = json.loads(line) if line else None
+            except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
+            if not isinstance(data, dict):
+                continue
+            index = data.get("index")
+            label = data.get("label")
+            timestamp = data.get("timestamp")
+            prefix_hash = data.get("prefix_hash")
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or not isinstance(label, str)
+                or not isinstance(timestamp, str)
+                or not (prefix_hash is None or isinstance(prefix_hash, str))
+            ):
+                continue
+            records.append(
+                ConvCheckpoint(
+                    index=index,
+                    label=label,
+                    timestamp=timestamp,
+                    prefix_hash=prefix_hash,
+                )
+            )
     return records
+
+
+def is_message_index(identifier: str) -> bool:
+    """Whether a checkpoint identifier is a bare message index, not a label.
+
+    ``isdigit()`` accepts non-ASCII digits like ² and ३, so restrict to [0-9],
+    and allow at most one leading minus: "--5" is a label (int() rejects it).
+    The length cap keeps int() under CPython's integer string conversion limit.
+    """
+    return re.fullmatch(r"-?[0-9]{1,18}", identifier) is not None
 
 
 def resolve_conv_checkpoint(
@@ -111,9 +150,7 @@ def resolve_conv_checkpoint(
     """
     records = list_conv_checkpoints(logdir)
 
-    # isdigit() accepts non-ASCII digits like ² and ३; restrict to [0-9].
-    _stripped = identifier.lstrip("-")
-    if _stripped.isascii() and _stripped.isdecimal():
+    if is_message_index(identifier):
         msg_idx = int(identifier)
         return ConvCheckpoint(
             index=msg_idx,

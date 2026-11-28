@@ -10,6 +10,11 @@ from typing import SupportsIndex
 
 from . import console
 
+
+class CliTermination(SystemExit):
+    """External CLI termination that must escape tool error capture."""
+
+
 # Use ContextVar for thread/session isolation
 # In server/multi-session scenarios, each session has its own interrupt state
 _interruptible_var: ContextVar[bool] = ContextVar("interruptible", default=False)

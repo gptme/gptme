@@ -110,3 +110,15 @@ def test_registration_does_not_create_backend(monkeypatch: pytest.MonkeyPatch) -
     with patch("gptme.tools.python_kernel.get_backend") as get_backend:
         py.register_function(helper)
     get_backend.assert_not_called()
+
+
+def test_kernel_bridge_messages_drop_terminal_control_sequences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bridge messages from a cell/helper must not reach the console raw."""
+    backend = MagicMock()
+    backend._bridge.messages = [Message("system", "a\x1bc\x1b]0;t\x07b")]
+    backend.execute.return_value = KernelExecResult(stdout="out")
+    with patch("gptme.tools.python_kernel.get_backend", return_value=backend):
+        messages = list(py._execute_python_kernel("helper()"))
+    assert [m.content for m in messages if m.content.startswith("ac")] == ["ac]0;tb"]

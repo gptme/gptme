@@ -9,19 +9,36 @@ Usage:
 import logging
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import cast
 
 import click
+import tomlkit
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from ..config import config_path
-from ..llm import list_available_providers
+from ..config import config_path, get_config, set_config_value
+from ..config.user import (
+    USER_CONFIG_SOURCE_LOCAL,
+    _config_write_lock,
+    _initial_config_data,
+    _load_config_doc,
+    _write_config_text,
+    get_default_model_source,
+    get_user_config_paths,
+)
+from ..credentials import STORED_CREDENTIALS_SOURCE, get_stored_api_key
+from ..llm import PROVIDER_API_KEYS, list_available_providers
 from ..llm.models import MODELS, PROVIDERS, BuiltinProvider, get_recommended_model
-from ..llm.validate import OAUTH_PROVIDERS, PROVIDER_DOCS, validate_api_key
+from ..llm.validate import (
+    OAUTH_PROVIDERS,
+    PROVIDER_DOCS,
+    ApiKeyValidationStatus,
+    validate_api_key_status,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -68,6 +85,12 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         for provider, source in list_available_providers():
             if provider in OAUTH_PROVIDERS:
                 results[provider] = (True, source)
+            elif (
+                source == STORED_CREDENTIALS_SOURCE
+                and not results.get(provider, (False,))[0]
+            ):
+                # Keys saved by `/account setup` live in credentials.toml.
+                results[provider] = (True, f"({STORED_CREDENTIALS_SOURCE})")
     except (OSError, ValueError) as e:
         logger.warning(
             "OAuth credential check failed: %s — run `gptme auth` to re-authenticate", e
@@ -119,13 +142,15 @@ def _test_provider(provider: str) -> tuple[bool, str]:
             return True, "OAuth credentials found (not validated during onboarding)"
         return False, f"Not authenticated (run gptme auth {provider})"
 
-    env_var = PROVIDER_ENV_VARS.get(provider)
-    if not env_var:
-        return False, f"Unknown provider: {provider}"
+    # Detection also lists any provider with a key in credentials.toml (e.g.
+    # moonshot), so look that key up before rejecting a provider as unknown.
+    env_var = PROVIDER_ENV_VARS.get(provider) or PROVIDER_API_KEYS.get(provider)
+    api_key: str | None = None
 
     # Check env var first, then config file
-    api_key = os.environ.get(env_var)
-    if not api_key:
+    if env_var:
+        api_key = os.environ.get(env_var)
+    if env_var and not api_key:
         try:
             from ..config import get_config
 
@@ -133,9 +158,19 @@ def _test_provider(provider: str) -> tuple[bool, str]:
         except Exception:
             pass
     if not api_key:
+        try:
+            api_key = get_stored_api_key(provider)
+        except (OSError, ValueError):
+            api_key = None
+    if not api_key:
+        if not env_var:
+            return False, f"Unknown provider: {provider}"
         return False, f"No API key found (set {env_var})"
 
-    return validate_api_key(api_key, provider)
+    status, message = validate_api_key_status(api_key, provider)
+    if status == ApiKeyValidationStatus.UNSUPPORTED:
+        return True, message or "API key found (not validated during onboarding)"
+    return status != ApiKeyValidationStatus.INVALID, message
 
 
 def _show_provider_status(providers: dict[str, tuple[bool, str | None]]) -> None:
@@ -239,11 +274,85 @@ def _select_provider(providers: dict[str, tuple[bool, str | None]]) -> str | Non
         console.print("[red]Invalid selection. Try again.[/red]")
 
 
-def _create_config(provider: str, model: str | None = None) -> Path:
-    """Create initial gptme configuration file."""
-    # Determine config path
+def _get_corrupt_config_paths() -> list[Path]:
+    """Identify unreadable user configs before asking permission to move them."""
+    corrupt_paths = []
+    for path in get_user_config_paths():
+        if not path.exists():
+            continue
+        try:
+            _load_config_doc(str(path))
+        except tomlkit.exceptions.TOMLKitError:
+            corrupt_paths.append(path)
+    return corrupt_paths
+
+
+def _back_up_corrupt_configs(paths: list[Path]) -> None:
+    """Move unparseable user config files aside so onboarding can rewrite them.
+
+    Onboarding used to offer to overwrite an existing config. Now that it saves
+    through the shared writer, a corrupt file must be removed first or the
+    writer (and ``get_config``) would keep failing on it.
+
+    Each move resolves the path first: a config symlinked from a dotfiles
+    checkout must be replaced at its target, not have the link itself moved.
+    Backups get a unique suffix so a second incident cannot erase the copy
+    saved by the first.
+    """
+    for path in paths:
+        # Each file has its own sidecar lock. In particular, locking only the
+        # main config would not exclude a concurrent config.local.toml save.
+        with _config_write_lock(path):
+            if not path.exists():
+                continue
+            target = path.resolve()
+            try:
+                _load_config_doc(str(target))
+            except tomlkit.exceptions.TOMLKitError:
+                backup = target.with_name(
+                    f"{target.name}.corrupt-{uuid.uuid4().hex[:8]}"
+                )
+                target.replace(backup)
+                # A symlinked config must keep resolving: recreate the file at
+                # the link's target, or the wizard would skip the dangling link
+                # and write the other config, silently losing the local override.
+                # Give it the content a missing config would be created with: an
+                # empty file parses as an empty document, so the rewrite would
+                # keep only [models] where a plain corrupt file gets the full
+                # defaults. The shared writer also keeps config.local.toml 0600.
+                if path.is_symlink():
+                    _write_config_text(
+                        path,
+                        tomlkit.dumps(_initial_config_data(str(path))),
+                        exclusive=True,
+                    )
+                console.print(f"[yellow]Moved corrupt config to: {backup}[/yellow]")
+
+
+def _local_config_sets_non_table_models(local_path: Path) -> bool:
+    """True when ``config.local.toml`` sets ``models`` to something but a table.
+
+    A scalar or array ``models`` key replaces the whole ``[models]`` table on
+    merge, so a default saved to ``config.toml`` is discarded on the next load
+    while onboarding still reports success.
+    """
+    if not local_path.exists():
+        return False
+    try:
+        models = _load_config_doc(str(local_path)).unwrap().get("models")
+    except tomlkit.exceptions.TOMLKitError:
+        return False
+    return models is not None and not isinstance(models, dict)
+
+
+def _create_config(provider: str, model: str | None = None) -> Path | None:
+    """Save the chosen default model to the gptme config file.
+
+    Writes ``[models] default`` (the key gptme reads) through the shared config
+    writer, so the rest of an existing config is kept as-is. Returns None if
+    the user declines a change, rather than reporting a successful save.
+    """
     conf_path = Path(config_path)
-    conf_path.parent.mkdir(parents=True, exist_ok=True)
 
     if model is None:
         if provider in PROVIDERS:
@@ -256,30 +365,61 @@ def _create_config(provider: str, model: str | None = None) -> Path:
         else:
             model = provider
 
-    # Create minimal TOML config
-    config_content = f"""# gptme configuration
-# Generated by gptme onboard
-# See: https://gptme.org/docs/config.html
-
-[chat]
-model = "{model}"
-
-# Uncomment to set default tools:
-# tools = ["shell", "python", "browser"]
-
-# Uncomment to enable auto-save:
-# auto_save = true
-"""
-
-    # Check if config already exists
-    if conf_path.exists():
-        console.print(f"\n[yellow]Config already exists at: {conf_path}[/yellow]")
-        if not Confirm.ask("Overwrite existing config?"):
+    try:
+        current = get_config().user.models.default
+        in_local = get_default_model_source() == USER_CONFIG_SOURCE_LOCAL
+    except tomlkit.exceptions.TOMLKitError:
+        corrupt_paths = _get_corrupt_config_paths()
+        if not corrupt_paths:
+            raise
+        console.print("\n[red]These user config files are not valid TOML:[/red]")
+        for path in corrupt_paths:
+            console.print(f"  {path}", markup=False)
+        console.print(
+            "[yellow]Recovery will move these files to backups. "
+            "Settings such as API keys must be restored from those backups.[/yellow]"
+        )
+        if not Confirm.ask("Back up these files and continue?", default=True):
             console.print("[dim]Skipping config creation.[/dim]")
-            return conf_path
+            return None
+        _back_up_corrupt_configs(corrupt_paths)
+        # Re-read what survived the backup. A valid config.local.toml may still
+        # set a default, and that must go through the same replacement
+        # confirmation as the non-corrupt path: the user only agreed to move
+        # the unparseable file aside, not to replace a default that was never
+        # corrupt.
+        try:
+            current = get_config().user.models.default
+            in_local = get_default_model_source() == USER_CONFIG_SOURCE_LOCAL
+        except tomlkit.exceptions.TOMLKitError:
+            current = None
+            in_local = False
 
-    conf_path.write_text(config_content)
-    console.print(f"\n[green]✅ Config created at: {conf_path}[/green]")
+    # config.local.toml overrides config.toml, so update it if it sets one.
+    # Use the startup loader, which also accepts legacy-encoded files.
+    _, local_path = get_user_config_paths()
+    if not in_local and _local_config_sets_non_table_models(local_path):
+        console.print(
+            f"\n[red]{local_path} sets `models` to a value that is not a table.[/red]"
+        )
+        console.print(
+            "It replaces the whole [models] table from config.toml, so a default "
+            "saved there would be discarded. Fix that entry to a [models] table "
+            "and re-run onboarding.",
+            markup=False,
+        )
+        return None
+
+    if current and current != model:
+        console.print(f"\n[yellow]Default model already set: {current}[/yellow]")
+        if not Confirm.ask(f"Replace it with {model}?"):
+            console.print("[dim]Keeping the existing default model.[/dim]")
+            return None
+
+    if in_local:
+        conf_path = local_path
+    set_config_value("models.default", model, local=in_local)
+    console.print(f"\n[green]✅ Default model saved to: {conf_path}[/green]")
 
     return conf_path
 
@@ -383,6 +523,11 @@ def _run_wizard(check_only: bool = False) -> int:
 
     # Create config
     config_created = _create_config(selected, model)
+    if config_created is None:
+        console.print(
+            "[yellow]Configuration was not changed; setup cancelled.[/yellow]"
+        )
+        return 1
 
     # Final summary
     console.print(

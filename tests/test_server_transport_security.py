@@ -441,9 +441,7 @@ def test_cookie_origin_policy_is_per_app(monkeypatch, upload_logdir, second_orig
         assert csp == "frame-ancestors 'self'" + (f" {origin}" if origin else "")
 
 
-@pytest.mark.parametrize(
-    "authorization", ["Bearer ", "Bearer", "Basic x", "Bearer wrong"]
-)
+@pytest.mark.parametrize("authorization", ["Bearer ", "Bearer", "Bearer wrong"])
 def test_invalid_bearer_never_falls_back_to_cookie(app, authorization):
     client = _client_with_auth_cookie(app)
     response = client.post(
@@ -451,6 +449,28 @@ def test_invalid_bearer_never_falls_back_to_cookie(app, authorization):
         headers={"Origin": FOREIGN_SAME_SITE_ORIGIN, "Authorization": authorization},
     )
     assert response.status_code == 401
+
+
+def test_foreign_scheme_cookie_fallback_is_origin_checked(app):
+    """A non-Bearer Authorization header falls back to the cookie (browsers attach
+    a reverse proxy's cached Basic credentials, including to EventSource), so it
+    gets the cookie Origin check: browsers attach those credentials to forged
+    cross-origin requests too."""
+    client = _client_with_auth_cookie(app)
+    forged = client.post(
+        "/api/v2/auth/cookie",
+        headers={"Origin": FOREIGN_SAME_SITE_ORIGIN, "Authorization": "Basic x"},
+    )
+    assert forged.status_code == 403
+    same_origin = client.post(
+        "/api/v2/auth/cookie",
+        headers={"Origin": "http://localhost", "Authorization": "Basic x"},
+    )
+    assert same_origin.status_code == 200
+    no_cookie = app.test_client().get(
+        "/api/v2/conversations", headers={"Authorization": "Basic x"}
+    )
+    assert no_cookie.status_code == 401
 
 
 def test_unmatched_preview_path_keeps_ui_frame_protection(monkeypatch, tmp_path):

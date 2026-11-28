@@ -156,6 +156,23 @@ class WorkspaceFile:
         }
 
 
+def _send_raw(path: Path, **kwargs) -> flask.Response:
+    """Serve a workspace or conversation file as raw bytes, isolated from the API origin.
+
+    These files are written by the agent (or by whatever a tool call fetched),
+    so an ``.html`` or ``.svg`` opened from the webui would otherwise run script
+    with the server origin's credentials. ``sandbox`` gives the document an
+    opaque origin with scripts disabled; images, models and downloads still work.
+    PDFs are exempt: browsers refuse to open their PDF viewer in a sandboxed
+    document, and that viewer does not run script on the page origin.
+    """
+    response = flask.send_file(path, **kwargs)
+    if response.mimetype != "application/pdf":
+        response.headers["Content-Security-Policy"] = "sandbox"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 def safe_workspace_path(workspace: Path, path: str | None = None) -> Path:
     """
     Safely resolve a path within a workspace.
@@ -331,16 +348,16 @@ def browse_workspace(
             # (e.g. sibling buffers and textures referenced by .gltf files).
             ext = path.suffix.lower()
             if ext in _MODEL3D_MIME:
-                return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
+                return _send_raw(path, mimetype=_MODEL3D_MIME[ext])
             # Also serve images and binary buffers (.bin) as raw bytes.
             # model-viewer resolves glTF sibling assets (textures, geometry
             # buffers) via relative URIs against the model's workspace URL,
             # so they must return bytes here, not JSON metadata.
             mime = mimetypes.guess_type(path.name)[0]
             if mime and mime.startswith("image/"):
-                return flask.send_file(path, mimetype=mime)
+                return _send_raw(path, mimetype=mime)
             if ext == ".bin":
-                return flask.send_file(path, mimetype="application/octet-stream")
+                return _send_raw(path, mimetype="application/octet-stream")
             # Return single file metadata for other files
             return flask.jsonify(WorkspaceFile(path, workspace).to_dict())
         if not path.exists():
@@ -527,7 +544,7 @@ def serve_conversation_file(conversation_id: str, filepath: str):
             return flask.jsonify({"error": "File not found"}), 404
 
         mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        return flask.send_file(path, mimetype=mime_type)
+        return _send_raw(path, mimetype=mime_type)
 
     except FileNotFoundError:
         return flask.jsonify({"error": "File not found"}), 404
@@ -598,7 +615,7 @@ def preview_file(conversation_id: str, filepath: str):
         # glTF is JSON text, so model dispatch must precede text sniffing.
         ext = path.suffix.lower()
         if ext in _MODEL3D_MIME:
-            return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
+            return _send_raw(path, mimetype=_MODEL3D_MIME[ext])
 
         # Handle different file types
         if wfile.is_text:
@@ -617,7 +634,7 @@ def preview_file(conversation_id: str, filepath: str):
             return flask.jsonify(resp)
         if mime_type and mime_type.startswith("image/"):
             # Images
-            return flask.send_file(path, mimetype=mime_type)
+            return _send_raw(path, mimetype=mime_type)
         # Binary files - return only metadata
         return flask.jsonify({"type": "binary", "metadata": wfile.to_dict()})
 
@@ -680,7 +697,7 @@ def download_file(conversation_id: str, filepath: str):
         if not path.is_file():
             return flask.jsonify({"error": "File not found"}), 404
 
-        return flask.send_file(
+        return _send_raw(
             path,
             mimetype=WorkspaceFile(path, workspace).mime_type
             or "application/octet-stream",

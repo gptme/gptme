@@ -82,8 +82,11 @@ def _assert_setup_api_serves(
     port: int,
     cli_args: list[str],
     extra_env: dict[str, str] | None = None,
-) -> None:
-    """Start the server in a clean HOME and assert the setup API is reachable."""
+) -> str:
+    """Start the server in a clean HOME and assert the setup API is reachable.
+
+    Returns the captured server log so callers can assert on what was resolved.
+    """
     repo = Path(__file__).resolve().parents[1]
     env = {
         name: os.environ[name] for name in ("PATH", "SYSTEMROOT") if name in os.environ
@@ -145,6 +148,8 @@ def _assert_setup_api_serves(
                 process.kill()
                 process.wait(timeout=5)
 
+    return (tmp_path / "server.log").read_text()
+
 
 @pytest.mark.parametrize(
     "model",
@@ -155,6 +160,113 @@ def test_configured_model_without_key_still_serves_setup(
 ) -> None:
     """Missing credentials must leave the setup API reachable, not crash startup."""
     _assert_setup_api_serves(tmp_path, unused_tcp_port, ["--model", model])
+
+
+@pytest.mark.parametrize(
+    ("cli_args", "extra_env"),
+    [
+        # --model flag, another provider's key present
+        (
+            ["--model", "openrouter/deepseek/deepseek-v4.1-flash"],
+            {"OPENAI_API_KEY": "placeholder-not-a-real-key"},
+        ),
+        # MODEL environment variable, another provider's key present
+        (
+            [],
+            {
+                "MODEL": "openrouter/deepseek/deepseek-v4.1-flash",
+                "OPENAI_API_KEY": "placeholder-not-a-real-key",
+            },
+        ),
+    ],
+)
+def test_explicit_model_never_falls_back_to_another_provider(
+    cli_args: list[str],
+    extra_env: dict[str, str],
+    tmp_path: Path,
+    unused_tcp_port: int,
+) -> None:
+    """A pinned model must never be replaced by a different provider.
+
+    With only OPENAI_API_KEY set, startup used to pick openai/gpt-4o-mini and
+    silently run every conversation there (gptme/gptme#5353). It must instead
+    start in setup mode and say which model/key is missing.
+    """
+    log = _assert_setup_api_serves(
+        tmp_path, unused_tcp_port, cli_args, extra_env=extra_env
+    )
+    assert "Using fallback" not in log
+    assert "openai/gpt-4o-mini" not in log
+    assert "openrouter/deepseek/deepseek-v4.1-flash" in log
+
+
+def test_dotenv_model_never_falls_back_to_another_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model pinned only in .env must not be replaced by another provider.
+
+    ``init()`` loads .env itself, so resolving the configured model before that
+    load saw no model and picked a fallback provider — sending conversations to
+    a provider the operator never chose (gptme/gptme#5354).
+
+    A subprocess cannot reproduce this portably: ``load_user_dotenv()`` reads
+    ``.env`` from the gptme checkout or home, not the cwd. So drive ``serve()``
+    directly and let the patched loader stand in for the .env file.
+    """
+    from click.testing import CliRunner
+
+    from gptme.server import cli as server_cli
+
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+    pinned = "openrouter/deepseek/deepseek-v4.1-flash"
+
+    def fake_load_dotenv(*args: object, **kwargs: object) -> bool:
+        monkeypatch.setenv("MODEL", pinned)
+        return True
+
+    init_calls: list[tuple[str | None, bool]] = []
+
+    def fake_init(model: str | None, **kwargs: object) -> None:
+        require_llm = bool(kwargs.get("require_llm", True))
+        init_calls.append((model, require_llm))
+        if require_llm:
+            raise ValueError("No API key found for provider openrouter")
+
+    run_kwargs: dict[str, object] = {}
+
+    class _App:
+        def run(self, **kwargs: object) -> None:
+            run_kwargs.update(kwargs)
+
+    monkeypatch.setattr(server_cli, "load_user_dotenv", fake_load_dotenv)
+    monkeypatch.setattr(server_cli, "init", fake_init)
+    monkeypatch.setattr("gptme.server.auth.init_auth", lambda **kwargs: None)
+    monkeypatch.setattr(server_cli, "init_telemetry", lambda **kwargs: None)
+    monkeypatch.setattr(server_cli, "shutdown_telemetry", lambda: None)
+    monkeypatch.setattr("gptme.server.app.create_app", lambda **kwargs: _App())
+    monkeypatch.setattr(
+        server_cli,
+        "_pick_fallback_model",
+        lambda: PROVIDER_FALLBACK_MODELS["openai"],
+    )
+    # These three run for real otherwise, and none of them is undone by
+    # monkeypatch: init_logging reconfigures root logging, the SIGTERM handler
+    # replaces the process-wide disposition (a second SIGTERM is then silently
+    # ignored), and set_config_from_workspace swaps the global config for this
+    # checkout. Leaking that state makes later tests order-dependent.
+    monkeypatch.setattr(server_cli, "init_logging", lambda *a, **k: None)
+    monkeypatch.setattr(server_cli, "_install_sigterm_handler", lambda: None)
+    monkeypatch.setattr(server_cli, "set_config_from_workspace", lambda *a, **k: None)
+
+    result = CliRunner().invoke(server_cli.serve, ["--port", "0", "--tools", "none"])
+
+    assert result.exit_code == 0, result.output
+    # The pinned model is used (in degraded mode), never the fallback.
+    assert init_calls[-1] == (pinned, False)
+    assert "Using fallback" not in result.output
+    # Flask's own loader would read .env/.flaskenv from the working directory.
+    assert run_kwargs["load_dotenv"] is False
 
 
 def test_nvidia_key_without_model_still_serves_setup(

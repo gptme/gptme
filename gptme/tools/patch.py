@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import get_config
+from ..hooks import HookType, trigger_hook
 from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
@@ -105,6 +106,9 @@ class Patch:
     updated: str
 
     def apply(self, content: str) -> str:
+        # Normalize only the replacement: model-emitted CRLF/lone CR must not
+        # create mixed line endings, while the file's own lone CRs are content.
+        updated = normalize_patch_text(self.updated)
         # Fast path: try exact match first (backward compatible)
         first_match = content.find(self.original)
         if first_match != -1:
@@ -114,7 +118,7 @@ class Patch:
                     "original chunk is not unique (at least 2 matches found). "
                     "Provide more surrounding context to make the match unique."
                 )
-            new_content = content.replace(self.original, self.updated, 1)
+            new_content = content.replace(self.original, updated, 1)
             if new_content == content:
                 raise ValueError(
                     "patch did not change the file "
@@ -137,7 +141,7 @@ class Patch:
         # occurrence of the matched text, which can be earlier in the file
         # (e.g. the tail of a more-indented line) than the relaxed match.
         start, end = match_span
-        new_content = content[:start] + self.updated + content[end:]
+        new_content = content[:start] + updated + content[end:]
         if new_content == content:
             raise ValueError(
                 "patch did not change the file "
@@ -316,6 +320,15 @@ def apply(codeblock: str, content: str) -> str:
     return new_content
 
 
+def normalize_patch_text(text: str) -> str:
+    """Normalize model-emitted CRLF and lone CR in patch text to LF.
+
+    Only the patch is normalized. The file's own lone ``"\\r"`` characters are
+    content and must survive an edit elsewhere (see ``read_text_lf``).
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def preview_patch(content: str, path: Path | None) -> str | None:
     """Prepare preview content for patch operation."""
     try:
@@ -373,15 +386,34 @@ def execute_patch_impl(
         # Re-check before the write: the read above is fast but not atomic with this write.
         if path.exists() and not path.is_file():
             raise ValueError(f"Cannot patch non-regular file `{path}`")
-        # Normalize \r\n → \n unconditionally: files are read in universal-newline
-        # mode so the content model is always LF-only. Python's newline= then
-        # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
-        # for LF). Skipping this on LF files would let model-emitted \r\n create
-        # mixed line endings.
-        text = patched_content.replace("\r\n", "\n")
+        # The replacement was normalized to LF in Patch.apply(); the file's own
+        # lone CRs stay as content. Python's newline= then applies the target
+        # ending exactly once (\n→\r\n for CRLF files, no-op for LF).
+        text = patched_content
         # Validate UTF-8 before staging the replacement.
         text.encode("utf-8")
+
+        # file.patch.pre: same arguments as file.save.pre, so one hook function
+        # can serve both. ``content`` is the full patched file text.
+        yield from trigger_hook(
+            HookType.FILE_PATCH_PRE,
+            log=None,
+            workspace=None,
+            path=path,
+            content=text,
+        )
+
         write_text_preserving_original(path, text, newline=newline)
+
+        # file.patch.post: only after a successful write (as for file.save.post).
+        yield from trigger_hook(
+            HookType.FILE_PATCH_POST,
+            log=None,
+            workspace=None,
+            path=path,
+            content=text,
+            created=False,
+        )
 
         # Return success message with any warnings
         warnings_str = "\n".join(warnings)

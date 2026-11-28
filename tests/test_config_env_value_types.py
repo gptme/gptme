@@ -1,0 +1,171 @@
+"""Non-string ``[env]`` values in project gptme.toml / chat config.toml are
+accepted unvalidated and later crash ``Config.get_env_bool``.
+
+Writing ``[env] COSTS = true`` (a natural TOML boolean) is accepted by
+``ProjectConfig.from_dict`` and ``ChatConfig.from_dict`` (gptme/config/chat.py:217),
+then ``get_env_bool`` calls ``.lower()`` on a bool/int -> AttributeError at
+runtime (e.g. gptme/chat.py:1648 ``get_env_bool("GPTME_COSTS")``).
+"""
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home" / ".config"))
+    for k in ("COSTS", "GPTME_COSTS", "PRUNE_TOOL_OUTPUT", "GPTME_PRUNE_TOOL_OUTPUT"):
+        monkeypatch.delenv(k, raising=False)
+    from gptme.config.project import _get_project_config_cached
+
+    _get_project_config_cached.cache_clear()
+    yield
+    _get_project_config_cached.cache_clear()
+
+
+def test_project_env_toml_bool_does_not_crash_get_env_bool(tmp_path):
+    from gptme.config import Config
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "gptme.toml").write_text("[env]\nCOSTS = true\nPRUNE_TOOL_OUTPUT = 1\n")
+    cfg = Config.from_workspace(ws)
+    assert cfg.get_env_bool("GPTME_COSTS") is True
+    assert cfg.get_env_bool("PRUNE_TOOL_OUTPUT") is True
+
+
+@pytest.mark.parametrize("workspace", [None, r"C:\Users\runner\AppData\Local\Temp"])
+def test_chat_config_env_non_string_rejected_or_stringified(tmp_path, workspace):
+    import tomlkit
+
+    from gptme.config.chat import ChatConfig
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "config.toml").write_text(
+        tomlkit.dumps(
+            {"chat": {"workspace": str(workspace or tmp_path)}, "env": {"COSTS": True}}
+        ),
+        encoding="utf-8",
+    )
+    chat = ChatConfig.from_logdir(logdir)
+    assert chat.env == {"COSTS": "true"}
+
+
+def test_chat_null_env_keeps_lower_layer_value():
+    from gptme.config import Config
+    from gptme.config.chat import ChatConfig
+    from gptme.config.user import UserConfig
+
+    cfg = Config(
+        user=UserConfig(env={"EXAMPLE_KEY": "user-value"}),
+        chat=ChatConfig.from_dict({"env": {"EXAMPLE_KEY": None}}),
+    )
+    assert cfg.get_env("EXAMPLE_KEY") == "user-value"
+    assert cfg.chat is not None
+    assert "EXAMPLE_KEY" not in cfg.chat.env
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+@pytest.mark.parametrize("layer", ["chat", "project"])
+def test_env_skips_compound_values_in_config_files(tmp_path, caplog, value, layer):
+    """A hand-edited config file must not brick loading (runtime stays strict)."""
+    from gptme.config.chat import ChatConfig
+    from gptme.config.models import ProjectConfig
+
+    if layer == "chat":
+        chat = ChatConfig.from_dict(
+            {"_logdir": tmp_path, "env": {"EXAMPLE_KEY": value, "COSTS": False}},
+            tolerate_malformed_env=True,
+        )
+        assert "EXAMPLE_KEY" not in chat.env
+        assert chat.env["COSTS"] == "false"
+    elif layer == "project":
+        project = ProjectConfig.from_dict(
+            {"env": {"EXAMPLE_KEY": value, "COSTS": False}}, tmp_path
+        )
+        assert "EXAMPLE_KEY" not in project.env
+        assert project.env["COSTS"] == "false"
+    assert "env.EXAMPLE_KEY in " in caplog.text
+    assert "must be a scalar value (skipped)" in caplog.text
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+@pytest.mark.parametrize("with_logdir", [False, True])
+def test_chat_api_rejects_compound_env(tmp_path, value, with_logdir):
+    from gptme.config.chat import ChatConfig
+
+    data = {"env": {"EXAMPLE_KEY": value, "COSTS": False}}
+    if with_logdir:
+        data["_logdir"] = tmp_path
+    with pytest.raises(ValueError, match="env.EXAMPLE_KEY must be a scalar value"):
+        ChatConfig.from_dict(data)
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+def test_chat_logdir_with_compound_env_still_resumes(tmp_path, caplog, value):
+    """A legacy/hand-edited compound [env] must not make a conversation unloadable."""
+    import tomlkit
+
+    from gptme.config.chat import ChatConfig
+
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    (logdir / "config.toml").write_text(
+        tomlkit.dumps(
+            {
+                "chat": {"model": "openai/gpt-4o", "tools": ["shell"]},
+                "env": {"EXAMPLE_KEY": value, "COSTS": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    chat = ChatConfig.from_logdir(logdir)
+    assert chat.model == "openai/gpt-4o"
+    assert chat.tools == ["shell"]
+    assert "EXAMPLE_KEY" not in chat.env
+    assert chat.env["COSTS"] == "false"
+    assert "config.toml must be a scalar value (skipped)" in caplog.text
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+@pytest.mark.parametrize("filename", ["config.toml", "config.local.toml"])
+@pytest.mark.parametrize("runtime", [False, True])
+def test_user_env_skips_compound_values(tmp_path, caplog, value, filename, runtime):
+    import tomlkit
+
+    from gptme.config.user import load_user_config
+
+    path = tmp_path / "config.toml"
+    path.write_text("", encoding="utf-8")
+    if runtime:
+        (tmp_path / "config.runtime.toml").write_text(
+            '[env]\nRUNTIME_KEY = "default"\n', encoding="utf-8"
+        )
+    (tmp_path / filename).write_text(
+        tomlkit.dumps({"env": {"EXAMPLE_KEY": value, "COSTS": False}}),
+        encoding="utf-8",
+    )
+    cfg = load_user_config(str(path))
+    assert "EXAMPLE_KEY" not in cfg.env
+    assert cfg.env["COSTS"] == "false"
+    if runtime:
+        assert cfg.env["RUNTIME_KEY"] == "default"
+    assert "env.EXAMPLE_KEY in " in caplog.text
+    assert f"{filename} must be a scalar value (skipped)" in caplog.text
+
+
+@pytest.mark.parametrize("value", [["a"], {"nested": "a"}])
+def test_runtime_env_rejects_compound_values_even_if_overridden(tmp_path, value):
+    import tomlkit
+
+    from gptme.config.user import load_user_config
+
+    path = tmp_path / "config.toml"
+    path.write_text('[env]\nEXAMPLE_KEY = "valid"\n', encoding="utf-8")
+    (tmp_path / "config.runtime.toml").write_text(
+        tomlkit.dumps({"env": {"EXAMPLE_KEY": value}}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="env.*EXAMPLE_KEY.*scalar"):
+        load_user_config(str(path))

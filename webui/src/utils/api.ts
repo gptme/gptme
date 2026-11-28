@@ -13,6 +13,8 @@ import type {
   ServerInfo,
   SkillListResponse,
   UserInfo,
+  VoiceSessionTicket,
+  VoiceStatus,
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
 import type { PendingElicitation } from '@/stores/conversations';
@@ -2575,6 +2577,28 @@ export class ApiClient {
   async deleteSession(sessionId: string): Promise<void> {
     const url = `${this.baseUrl}/api/v2/sessions/${sessionId}`;
     await this.fetchJson<{ status: string }>(url, { method: 'DELETE' });
+  }
+
+  /** Whether realtime voice works on this server (configured server-side). */
+  async getVoiceStatus(): Promise<VoiceStatus> {
+    return await this.fetchJson<VoiceStatus>(`${this.baseUrl}/api/v2/voice`);
+  }
+
+  /** Get a single-use ticket for a voice call bound to a conversation. */
+  async createVoiceSession(conversationId: string, provider?: string): Promise<VoiceSessionTicket> {
+    return await this.fetchJson<VoiceSessionTicket>(
+      `${this.baseUrl}/api/v2/conversations/${encodeURIComponent(conversationId)}/voice/session`,
+      { method: 'POST', body: JSON.stringify(provider ? { provider } : {}) }
+    );
+  }
+
+  /** WebSocket URL for a voice ticket (same host as the API). */
+  voiceWebSocketUrl(session: VoiceSessionTicket): string {
+    // Concatenate (not resolve) so a baseUrl with a path prefix is kept.
+    const url = new URL(`${this.baseUrl.replace(/\/$/, '')}${session.path}`, window.location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.searchParams.set('ticket', session.ticket);
+    return url.toString();
   }
 }
 

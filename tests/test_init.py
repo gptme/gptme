@@ -65,7 +65,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_calls_all_subsystems(
         self,
         mock_dotenv,
@@ -75,7 +75,7 @@ class TestInit:
         mock_init_hooks,
         mock_init_commands,
     ):
-        """init() should call load_dotenv, init_model, init_tools, init_hooks, init_commands, set_tool_format."""
+        """init() should call load_user_dotenv, init_model, init_tools, init_hooks, init_commands, set_tool_format."""
         from gptme.init import init
 
         init(
@@ -89,7 +89,7 @@ class TestInit:
 
         mock_dotenv.assert_called_once()
         mock_init_model.assert_called_once_with("anthropic/claude-sonnet-4-6", True)
-        mock_init_tools.assert_called_once_with(None)
+        mock_init_tools.assert_called_once_with(None, interactive=True)
         mock_init_hooks.assert_called_once_with(
             interactive=True, no_confirm=False, server=False
         )
@@ -101,7 +101,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_double_call_skips_subsystems(
         self,
         mock_dotenv,
@@ -137,7 +137,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_tool_allowlist_passed(
         self,
         mock_dotenv,
@@ -157,14 +157,14 @@ class TestInit:
             tool_allowlist=allowlist,
             tool_format="markdown",
         )
-        mock_init_tools.assert_called_once_with(allowlist)
+        mock_init_tools.assert_called_once_with(allowlist, interactive=False)
 
     @patch("gptme.init.init_commands")
     @patch("gptme.init.init_hooks")
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_server_mode(
         self,
         mock_dotenv,
@@ -194,7 +194,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_tool_format_xml(
         self,
         mock_dotenv,
@@ -215,7 +215,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_tool_format_changes_on_reinit(
         self,
         mock_dotenv,
@@ -239,7 +239,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model", side_effect=ValueError("No API key found"))
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_require_llm_true_propagates_error(
         self,
         mock_dotenv,
@@ -269,7 +269,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model", side_effect=ValueError("No API key found"))
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_require_llm_false_continues_on_error(
         self,
         mock_dotenv,
@@ -310,7 +310,7 @@ class TestInit:
         side_effect=KeyError("ANTHROPIC_API_KEY not set in env or config"),
     )
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_require_llm_false_handles_keyerror(
         self,
         mock_dotenv,
@@ -340,7 +340,7 @@ class TestInit:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_can_be_retried_after_failure(
         self,
         mock_dotenv,
@@ -1862,7 +1862,7 @@ class TestInitEdgeCases:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_sets_done_flag(
         self,
         mock_dotenv,
@@ -1885,7 +1885,7 @@ class TestInitEdgeCases:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_order_of_operations(
         self,
         mock_dotenv,
@@ -1954,7 +1954,7 @@ class TestInitEdgeCases:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_with_all_tool_formats(
         self,
         mock_dotenv,
@@ -1982,7 +1982,7 @@ class TestInitEdgeCases:
     @patch("gptme.init.init_tools")
     @patch("gptme.init.init_model")
     @patch("gptme.init.set_tool_format")
-    @patch("gptme.init.load_dotenv")
+    @patch("gptme.init.load_user_dotenv")
     def test_init_double_call_logs_warning(
         self,
         mock_dotenv,

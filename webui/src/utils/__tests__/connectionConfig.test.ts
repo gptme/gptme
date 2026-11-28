@@ -1,4 +1,7 @@
 import { jest } from '@jest/globals';
+import { observable } from '@legendapp/state';
+
+const mockSameOriginServer$ = observable<string | null>(null);
 
 const mockFindOrCreateServerByUrl = jest.fn((baseUrl: string, config: Record<string, unknown>) => ({
   id: 'server-1',
@@ -17,6 +20,8 @@ jest.mock('@/stores/servers', () => ({
   getActiveServer: mockGetActiveServer,
   setActiveServer: mockSetActiveServer,
   updateServer: mockUpdateServer,
+  sameOriginServer$: mockSameOriginServer$,
+  getBundledLoopbackOrigin: jest.fn(() => null),
 }));
 
 import {
@@ -90,6 +95,7 @@ describe('processConnectionFromHash', () => {
   const mockFetch = jest.fn<typeof fetch>();
 
   beforeEach(() => {
+    mockSameOriginServer$.set(null);
     mockFindOrCreateServerByUrl.mockClear();
     mockConnectServer.mockClear();
     mockGetActiveServer.mockClear();
@@ -239,6 +245,33 @@ describe('processConnectionFromHash', () => {
     expect(result).toEqual({
       baseUrl: 'https://legacy.example.com',
       authToken: 'legacy-token',
+      useAuthToken: true,
+    });
+  });
+
+  it('binds a token-only link to the discovered serving origin, not the selected remote', () => {
+    mockSameOriginServer$.set('http://serving.example:5700');
+    const result = getConnectionConfigFromSources('userToken=serving-token');
+
+    expect(mockFindOrCreateServerByUrl).toHaveBeenCalledWith('http://serving.example:5700', {
+      authToken: 'serving-token',
+      useAuthToken: true,
+    });
+    expect(mockSetActiveServer).toHaveBeenCalledWith('server-1');
+    expect(mockConnectServer).toHaveBeenCalledWith('server-1');
+    expect(mockUpdateServer).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      baseUrl: 'http://serving.example:5700',
+      authToken: 'serving-token',
+      useAuthToken: true,
+    });
+  });
+
+  it('an explicit fragment destination takes precedence over the serving origin', () => {
+    mockSameOriginServer$.set('http://serving.example:5700');
+    getConnectionConfigFromSources('baseUrl=https://chosen.example&userToken=chosen-token');
+    expect(mockFindOrCreateServerByUrl).toHaveBeenCalledWith('https://chosen.example', {
+      authToken: 'chosen-token',
       useAuthToken: true,
     });
   });

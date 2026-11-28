@@ -171,7 +171,7 @@ def runner(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> s
     name = str(request.param)
     executable = runner_executable(name)
     # Only enablement and runner selection are mocked; Git and hooks are real.
-    monkeypatch.setattr(precommit, "use_checks", lambda: True)
+    monkeypatch.setattr(precommit, "_checks_enabled", lambda *args: True)
     monkeypatch.setattr(precommit, "get_precommit_runner", lambda: executable)
     return name
 
@@ -198,7 +198,7 @@ def test_relative_path_runner_survives_root_cwd(
     monkeypatch.chdir(nested)
     monkeypatch.setenv("PATH", "runner-bin" + os.pathsep + os.defpath)
     monkeypatch.setattr(precommit, "PRECOMMIT_RUNNERS", (runner_name,))
-    monkeypatch.setattr(precommit, "use_checks", lambda: True)
+    monkeypatch.setattr(precommit, "_checks_enabled", lambda *args: True)
     hook_repo.write("changed.txt", "REJECT\n")
     hook_repo.write("clean-sentinel.txt", "REJECT\n")
     success, output = precommit.run_precommit_checks(all_files=all_files)

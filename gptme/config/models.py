@@ -37,6 +37,42 @@ def _pop_object_section(config_data: dict, key: str) -> dict:
     return value
 
 
+def _drop_malformed_env_entries(env: dict, source: str | Path) -> dict:
+    """Drop non-scalar ``[env]`` values from a config file before normalising.
+
+    A hand-edited config file is not a runtime default: a stray compound value
+    must not prevent startup, resuming a conversation, or listing conversations.
+    Runtime defaults stay strict (``_stringify_env`` raises on them).
+    """
+    for key, value in list(env.items()):
+        if isinstance(value, (dict, list)):
+            logger.warning(
+                "env.%s in %s must be a scalar value (skipped)",
+                key,
+                source,
+            )
+            del env[key]
+    return env
+
+
+def _stringify_env(env: dict) -> dict[str, str]:
+    """Normalise ``[env]`` values to the strings a process env would hold.
+
+    TOML lets users write ``KEY = true``/``false``/``0``. Left as bool/int,
+    ``Config.get_env``'s ``or`` chain skips falsy values (so an explicit
+    ``false`` is ignored) and ``get_env_bool`` crashes calling ``.lower()``.
+    """
+    result: dict[str, str] = {}
+    for key, value in env.items():
+        # JSON chat configs can contain null: keep treating that as unset.
+        if value is None:
+            continue
+        if isinstance(value, (dict, list)):
+            raise ValueError(f"env.{key} must be a scalar value")
+        result[key] = str(value).lower() if isinstance(value, bool) else str(value)
+    return result
+
+
 def _require_str_list(key: str, value):
     """Require a config value to be a list of strings (None passes through)."""
     if value is not None and (
@@ -465,6 +501,11 @@ class ProjectConfig:
 
     env: dict[str, str] = field(default_factory=dict)
     mcp: MCPConfig | None = None
+    # Set by trust.withhold_untrusted() on the copy whose sensitive surfaces were
+    # removed; points at the full config so the trust prompt can show them.
+    _untrusted_original: "ProjectConfig | None" = field(
+        default=None, repr=False, compare=False
+    )
 
     @classmethod
     def from_dict(cls, config_data: dict, workspace: Path | None = None) -> Self:
@@ -554,7 +595,16 @@ class ProjectConfig:
                 "plugins.enabled", plugins_data.get("enabled", [])
             ),
         )
-        env = _pop_object_section(config_data, "env")
+        env_source = (
+            path_with_tilde(workspace / "gptme.toml")
+            if workspace is not None
+            else "project config"
+        )
+        env = _stringify_env(
+            _drop_malformed_env_entries(
+                _pop_object_section(config_data, "env"), env_source
+            )
+        )
         mcp: MCPConfig | None = None
         mcp_data = config_data.pop("mcp", None)
         if mcp_data is not None and not isinstance(mcp_data, dict):
@@ -614,7 +664,15 @@ class ProjectConfig:
 
     def merge(self, other: Self) -> Self:
         """Merge another ProjectConfig into this one."""
-        return replace(self, **dict(other.to_dict().items()))
+        merged = replace(self, **dict(other.to_dict().items()))
+        # ``to_dict`` skips private fields, so the withheld source pointer would
+        # be dropped and a withheld config would look like its own full config
+        # (the trust prompt would then disclose only the shell surfaces).
+        if other._untrusted_original is not None:
+            merged._untrusted_original = other._untrusted_original
+        elif self._untrusted_original is not None:
+            merged._untrusted_original = self._untrusted_original
+        return merged
 
     def to_dict(self) -> dict:
         """Convert ProjectConfig to a dictionary. Returns a dict with non-'mcp' and non-'env' keys nested under a 'project' key, and 'env' and 'mcp' as top-level keys."""

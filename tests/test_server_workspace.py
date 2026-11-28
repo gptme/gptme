@@ -1044,3 +1044,70 @@ class TestUploadFilesEndpoint:
             assert resp.status_code == 400, (
                 f"Expected 400 for whitespace filename {bad_name!r}, got {resp.status_code}"
             )
+
+
+class TestRawFileIsolation:
+    """Agent-written files served raw must not run script on the API origin.
+
+    The server origin carries the session (bearer token in the webui, the
+    ``gptme_auth`` cookie for the bundled webui), so an ``.html`` or ``.svg``
+    written by the agent (or by a prompt-injected tool call) that a user opens
+    must not execute with that origin's privileges.
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "body"),
+        [
+            ("report.html", "<script>fetch('/api/v2/conversations')</script>"),
+            (
+                "chart.svg",
+                '<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>',
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("route", ["files/attachments", "workspace"])
+    def test_raw_file_is_sandboxed(
+        self, client: FlaskClient, workspace_conv, name: str, body: str, route: str
+    ):
+        from gptme.logmanager import LogManager
+
+        conv_id = workspace_conv["conversation_id"]
+        if route == "workspace":
+            (workspace_conv["workspace"] / name).write_text(body)
+        else:
+            attachments = LogManager.load(conv_id, lock=False).logdir / "attachments"
+            attachments.mkdir(exist_ok=True)
+            (attachments / name).write_text(body)
+        response = client.get(f"/api/v2/conversations/{conv_id}/{route}/{name}")
+        assert response.status_code == 200
+        if route == "workspace" and name.endswith(".html"):
+            # The browse endpoint returns JSON metadata for non-image files.
+            assert response.content_type.startswith("application/json")
+            assert response.get_json()["name"] == name
+            return
+        assert response.headers.get("X-Content-Type-Options") == "nosniff"
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert csp.split(";")[0].strip() == "sandbox", csp
+        expected_mimetype = "text/html" if name.endswith(".html") else "image/svg+xml"
+        assert response.mimetype == expected_mimetype
+        assert response.data == body.encode()
+
+    def test_pdf_served_inline_without_sandbox(
+        self, client: FlaskClient, workspace_conv
+    ):
+        """Browsers block their PDF viewer under a sandbox CSP, so PDFs are exempt."""
+        from gptme.logmanager import LogManager
+
+        conv_id = workspace_conv["conversation_id"]
+        attachments = LogManager.load(conv_id, lock=False).logdir / "attachments"
+        attachments.mkdir(exist_ok=True)
+        (attachments / "doc.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/files/attachments/doc.pdf"
+        )
+        assert response.status_code == 200
+        assert response.mimetype == "application/pdf"
+        assert "Content-Security-Policy" not in response.headers
+        assert response.headers.get("X-Content-Type-Options") == "nosniff"
+        disposition = response.headers.get("Content-Disposition", "inline")
+        assert disposition.split(";")[0].strip() == "inline", disposition

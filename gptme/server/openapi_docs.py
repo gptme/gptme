@@ -611,6 +611,14 @@ class TranscriptTurn(BaseModel):
     ended_at: float | None = Field(
         None, description="Unix timestamp when this turn ended"
     )
+    turn_id: str | None = Field(
+        None,
+        description=(
+            "Stable id of this turn within the call. When turns carry ids, "
+            "deduplication is per turn, so a live call can post turns as they "
+            "happen; without ids, the whole call is deduplicated by call_sid."
+        ),
+    )
 
 
 class CallMetadata(BaseModel):
@@ -639,6 +647,41 @@ class TranscriptResponse(BaseModel):
     status: str = Field(..., description="Operation status (ok or already_acked)")
     conversation_id: str = Field(..., description="Conversation ID")
     messages_added: int = Field(..., description="Number of messages added")
+
+
+class VoiceProviderStatus(BaseModel):
+    """A realtime voice provider and whether it works on this server."""
+
+    id: str = Field(..., description="Provider id (openai, grok)")
+    label: str = Field(..., description="Display name")
+    available: bool = Field(..., description="Whether calls can use it now")
+    reason: str | None = Field(None, description="Why it is unavailable")
+
+
+class VoiceStatusResponse(BaseModel):
+    """Realtime voice availability, as configured on the server."""
+
+    available: bool = Field(..., description="Whether any provider works")
+    reason: str | None = Field(None, description="Why voice is unavailable")
+    providers: list[VoiceProviderStatus] = Field(..., description="Providers")
+    default_provider: str | None = Field(None, description="Provider used by default")
+
+
+class VoiceSessionRequest(BaseModel):
+    """Request a ticket for a voice call bound to a conversation."""
+
+    provider: str | None = Field(
+        None, description="Provider id; defaults to the server's default provider"
+    )
+
+
+class VoiceSessionResponse(BaseModel):
+    """Single-use ticket for opening the voice WebSocket."""
+
+    provider: str = Field(..., description="Provider the call will use")
+    ticket: str = Field(..., description="Single-use ticket for the WebSocket URL")
+    path: str = Field(..., description="WebSocket path; append ?ticket=<ticket>")
+    expires_in: float = Field(..., description="Seconds until the ticket expires")
 
 
 class AgentCreateRequest(BaseModel):

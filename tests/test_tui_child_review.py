@@ -174,6 +174,35 @@ async def test_inline_status_updates_do_not_reveal_parent_rows(
 
 
 @pytest.mark.asyncio
+async def test_work_indicator_update_stops_if_shutdown_starts_during_read(
+    child_app: ChildApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, children = child_app
+    app = GptmeApp(manager)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        def shutdown_during_read(*_: Any, **__: Any) -> list[SubagentSnapshot]:
+            # Textual's teardown can start while the read is off-loop, pruning
+            # widgets before on_unmount sets _quitting.
+            app._running = False
+            return children
+
+        try:
+            with monkeypatch.context() as patch:
+                display = Mock(wraps=app._set_parent_display)
+                patch.setattr(app, "_set_parent_display", display)
+                patch.setattr(
+                    "gptme.tools.subagent.subagent_snapshots", shutdown_during_read
+                )
+                await app._update_work_indicator()
+                display.assert_not_called()
+        finally:
+            # Restore the running state so run_test can perform real teardown.
+            app._running = True
+
+
+@pytest.mark.asyncio
 async def test_rolling_tail_keeps_overlapping_expanded_widgets(
     child_app: ChildApp,
 ) -> None:

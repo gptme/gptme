@@ -32,6 +32,7 @@ from .events import append_compaction_event
 from .handlers import cmd_compact_handler
 from .resume import (
     _apply_native_compaction,
+    _checkpoint_fits,
     _resume_via_llm,
     build_checkpoint_prompt,
 )
@@ -540,7 +541,24 @@ def autocompact_hook(
             except Exception:
                 pass  # Config read is best-effort; use defaults if it fails
 
-            if checkpoint_turn is None:
+            m = get_default_model()
+            # A normal checkpoint turn uses prepare_messages' hard window
+            # limit. Route overflow directly through the chunked summarizer
+            # before that limit can discard early requirements. In-window
+            # checkpoints keep their normal tool-capable turn.
+            overflow = m is not None and not _checkpoint_fits(
+                [
+                    *prepare_messages(checkpoint_source, limit=False),
+                    Message(
+                        "user",
+                        build_checkpoint_prompt(
+                            compact_instructions, tool_capable=True
+                        ),
+                    ),
+                ],
+                m,
+            )
+            if checkpoint_turn is None and not overflow:
                 # Provider-native compaction before queuing the generic
                 # checkpoint turn: _resume_via_llm's native branch only runs
                 # when no checkpoint response is supplied, so queueing the

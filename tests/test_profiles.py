@@ -98,6 +98,27 @@ class TestBuiltinProfiles:
         assert isolated.name == "isolated"
         assert isolated.behavior.read_only is True
         assert isolated.behavior.no_network is True
+        # ipython can write files, so a read-only profile must not name it.
+        assert isolated.tools == ["read"]
+
+    def test_verifier_profile(self):
+        verifier = BUILTIN_PROFILES["verifier"]
+
+        assert verifier.behavior.read_only is True
+        # shell can write files, including a parent's prompt queue.
+        assert verifier.tools is not None
+        assert "shell" not in verifier.tools
+        assert "ipython" not in verifier.tools
+        assert "read" in verifier.tools
+
+    def test_read_only_builtin_profiles_have_no_write_tools(self):
+        write_tools = {"save", "patch", "append", "shell", "ipython", "computer"}
+        for profile in BUILTIN_PROFILES.values():
+            if not profile.behavior.read_only or profile.tools is None:
+                continue
+            assert write_tools.isdisjoint(profile.tools), (
+                f"{profile.name} is read_only but lists write-capable tools"
+            )
 
     def test_developer_profile(self):
         developer = BUILTIN_PROFILES["developer"]

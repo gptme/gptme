@@ -182,10 +182,36 @@ carries the same risks.
    Similarly, ``base_prompt`` and ``prompt`` can instruct the model to take
    unwanted actions.
 
+gptme asks once per workspace to approve the shell commands in ``gptme.toml``
+(trust-on-first-use). Approval is keyed to the config text, not the files that
+text points at: a later edit of a ``context_cmd`` script, hook or MCP command,
+plugin directory, or ``repo: local`` pre-commit entry still runs under the stored
+approval until the config string itself changes. Review those files with the
+config.
+
+``[plugin.*]`` tables, ``base_prompt`` / ``prompt``, and
+``context.scout_model`` shape the model prompt rather than executing code, so
+they are not gated as shell commands. Review them with the rest of
+``gptme.toml``.
+
 Just as you wouldn't run ``make`` or ``npm install`` in a malicious repository
 without looking first, review ``gptme.toml`` before running ``gptme`` in a new
 repository. In automated environments, set ``--workspace`` explicitly to
 directories you control.
+
+Environment files
+~~~~~~~~~~~~~~~~~
+
+gptme does not load a ``.env`` file from the workspace or the working directory:
+such a file is repository content. It reads every existing ``.env`` from the
+gptme source checkout (when run from one), then ``~/.env``, then
+``~/.config/gptme/.env``. Earlier files win: ``python-dotenv`` does not override
+variables that are already set. Use those files, exported variables, or
+``[env]`` in ``gptme.toml`` (which needs approval) for keys. Workspace and cwd
+``.env`` files are never loaded.
+
+``GPTME_TRUST_PROJECT_SHELL`` is read only from the environment gptme was
+launched with.
 
 Tool-specific notes
 -------------------

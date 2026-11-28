@@ -69,6 +69,17 @@ By default the subagent starts with the same tool list as the parent (both threa
 share the same initial snapshot; contextvars are thread-isolated so the parent's
 tool state cannot be mutated by the subagent).
 
+Continuation and clarification respawns apply both the saved operator allowlist
+and the caller's current allowlist; neither can widen the other. Legacy records
+without a saved limit still obey the current caller's limit. If two differing
+boundaries involve a custom tool file, the relaunch is rejected: checking its
+exports by importing it could execute revoked code. Start a new child with the
+current permissions instead. Unchanged file boundaries remain supported.
+ACP launches and continuations are rejected when an operator tool allowlist is
+active, because the ACP backend cannot enforce that boundary; use thread or
+subprocess mode instead. Default non-interactive tools (including ``complete``)
+are not an operator restriction and do not disable ACP.
+
 Three ways to restrict tools:
 
 - ``profile="explorer"`` (or any built-in profile) — applies a tool allowlist at spawn

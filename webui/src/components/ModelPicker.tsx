@@ -70,29 +70,26 @@ const ModelItem: FC<{
   </div>
 );
 
-function useModelGroups() {
-  const { models, availableModels, recommendedModels, favorites, toggleFavorite } = useModels();
+function useModelGroups(catalog: ReturnType<typeof useModels>) {
+  const { models, recommendedModels, favorites, toggleFavorite } = catalog;
+  const modelById = useMemo(() => new Map(models.map((model) => [model.id, model])), [models]);
 
   const recommendedSet = useMemo(() => new Set(recommendedModels), [recommendedModels]);
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
   const availableFavorites = useMemo(
-    () =>
-      favorites
-        .filter((id) => availableModels.includes(id))
-        .map((id) => models.find((m) => m.id === id)!)
-        .filter(Boolean),
-    [favorites, availableModels, models]
+    () => favorites.map((id) => modelById.get(id)).filter((model) => model !== undefined),
+    [favorites, modelById]
   );
 
   // Favorites take precedence over the Recommended group to avoid duplicates.
   const availableRecommended = useMemo(
     () =>
       recommendedModels
-        .filter((id) => availableModels.includes(id) && !favoriteSet.has(id))
-        .map((id) => models.find((m) => m.id === id)!)
-        .filter(Boolean),
-    [recommendedModels, availableModels, models, favoriteSet]
+        .filter((id) => !favoriteSet.has(id))
+        .map((id) => modelById.get(id))
+        .filter((model) => model !== undefined),
+    [recommendedModels, modelById, favoriteSet]
   );
 
   const providerGroups = useMemo(() => {
@@ -120,7 +117,8 @@ function useModelGroups() {
 const ModelCommandList: FC<{
   value?: string;
   onSelect: (modelId: string) => void;
-}> = ({ value, onSelect }) => {
+  catalog: ReturnType<typeof useModels>;
+}> = ({ value, onSelect, catalog }) => {
   const [search, setSearch] = useState('');
   const {
     models,
@@ -129,7 +127,7 @@ const ModelCommandList: FC<{
     providerGroups,
     favoriteSet,
     toggleFavorite,
-  } = useModelGroups();
+  } = useModelGroups(catalog);
 
   // Substring filter instead of cmdk's default fuzzy match
   const filter = (value: string, search: string, keywords?: string[]) => {
@@ -226,11 +224,8 @@ const ModelCommandList: FC<{
 
 // --- Public API ---
 
-/** Inline model picker (renders the Command list directly, no wrapper) */
-export const ModelPicker: FC<{
-  value?: string;
-  onSelect: (modelId: string) => void;
-}> = ({ value, onSelect }) => <ModelCommandList value={value} onSelect={onSelect} />;
+/** Inline model picker. The composer supplies the same catalog to its gallery. */
+export const ModelPicker = ModelCommandList;
 
 /** Model picker as a popover button without form bindings. */
 export function ModelPickerButton({
@@ -245,8 +240,8 @@ export function ModelPickerButton({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { models } = useModels();
-  const modelInfo = models.find((m) => m.id === value);
+  const catalog = useModels();
+  const modelInfo = catalog.models.find((m) => m.id === value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -271,6 +266,7 @@ export function ModelPickerButton({
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <ModelCommandList
+          catalog={catalog}
           value={value}
           onSelect={(id) => {
             onSelect(id);
@@ -297,14 +293,14 @@ export function ModelPickerField<T extends FieldValues = FieldValues>({
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { models } = useModels();
+  const catalog = useModels();
 
   return (
     <FormField
       control={control}
       name={name}
       render={({ field }) => {
-        const modelInfo = models.find((m) => m.id === field.value);
+        const modelInfo = catalog.models.find((m) => m.id === field.value);
         return (
           <FormItem className="flex flex-col">
             <FormLabel className="flex items-center gap-1.5">
@@ -335,6 +331,7 @@ export function ModelPickerField<T extends FieldValues = FieldValues>({
               </PopoverTrigger>
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                 <ModelCommandList
+                  catalog={catalog}
                   value={field.value}
                   onSelect={(id) => {
                     field.onChange(id);

@@ -1103,6 +1103,50 @@ def test_default_model_propagation(monkeypatch):
         _default_model_var.set(None)
 
 
+@pytest.mark.parametrize("has_startup_model", [True, False])
+def test_saved_default_propagates_to_fresh_request_contexts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, has_startup_model: bool
+) -> None:
+    """A confirmation GET must see the saved model, not the startup snapshot."""
+    from contextvars import Context
+
+    import gptme.config.user as user_mod
+    from gptme.llm.models import ModelMeta, _default_model_var
+    from gptme.server.app import create_app
+    from gptme.server.session_models import SessionManager
+
+    monkeypatch.setenv("GPTME_DISABLE_AUTH", "true")
+    monkeypatch.setattr(user_mod, "config_path", str(tmp_path / "config.toml"))
+    monkeypatch.setattr("gptme.llm.init_llm", lambda provider: None)
+    startup = ModelMeta(provider="openai", model="gpt-4", context=8192)
+    previous_server_default = SessionManager._server_default_model_full
+    token = _default_model_var.set(startup if has_startup_model else None)
+    try:
+        app = create_app()
+
+        def save_default() -> None:
+            with app.test_client() as client:
+                response = client.post(
+                    "/api/v2/user/default-model",
+                    json={"model": "anthropic/claude-sonnet-4-7"},
+                )
+                assert response.status_code == 200
+                assert response.get_json()["restart_required"] is False
+
+        def confirm_default() -> None:
+            with app.test_client() as client:
+                response = client.get("/api/v2/models")
+                assert response.status_code == 200
+                assert response.get_json()["default"] == "anthropic/claude-sonnet-4-7"
+
+        # Separate, empty ContextVars emulate independent request threads.
+        Context().run(save_default)
+        Context().run(confirm_default)
+    finally:
+        _default_model_var.reset(token)
+        SessionManager.set_server_default_model(previous_server_default)
+
+
 def _reset_provider_health_cache(monkeypatch: pytest.MonkeyPatch):
     import gptme.server.api_v2 as api_module
 
@@ -1314,7 +1358,7 @@ def test_api_providers_health_timeout_returns_quickly(
     }
 
 
-def test_api_v2_commands(client: FlaskClient):
+def test_api_v2_commands(client: FlaskClient) -> None:
     """Test the /api/v2/commands endpoint returns available commands."""
     response = client.get("/api/v2/commands")
     assert response.status_code == 200
@@ -1322,10 +1366,11 @@ def test_api_v2_commands(client: FlaskClient):
     assert "commands" in data
     commands = data["commands"]
     assert isinstance(commands, list)
-    # Core commands should always be registered
     assert "/help" in commands
-    assert "/exit" in commands
     assert "/model" in commands
+    assert not {"/exit", "/restart", "/edit", "/delete", "/rm", "/export"}.intersection(
+        commands
+    )
 
 
 def test_api_v2_conversation_command(conv, client: FlaskClient):

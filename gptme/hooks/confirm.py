@@ -226,7 +226,16 @@ def get_confirmation(
     # Preserve the original ToolUse identity for preconfirmed checks above and
     # keep hook signatures unchanged: carry display metadata on a local copy.
     if preview_header is not None:
-        tool_use = replace(tool_use, confirmation_header=preview_header)
+        from ..config.trust import sanitize_for_prompt
+
+        # Headers interpolate model-chosen names and paths; control characters
+        # could redraw the prompt and hide what is being confirmed.
+        tool_use = replace(
+            tool_use,
+            confirmation_header=sanitize_for_prompt(
+                preview_header, allow_newlines=True
+            ),
+        )
 
     # Get registered TOOL_CONFIRM hooks
     hooks = get_hooks(HookType.TOOL_CONFIRM)

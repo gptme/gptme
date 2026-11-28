@@ -4,6 +4,7 @@ Provides allowlist/denylist checking, shellcheck integration, and
 quote/heredoc parsing helpers for safe command execution.
 """
 
+import io
 import logging
 import os
 import re
@@ -16,7 +17,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..util.context import md_codeblock
-from .shell_flags import flags_permitted
+from .shell_flags import (
+    PERMITTED_FLAGS,
+    _check_flag_token,
+    _split_lines,
+    flags_permitted,
+)
 
 if TYPE_CHECKING:
     from .base import ToolUse
@@ -236,6 +242,199 @@ def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     return quoted_regions
 
 
+def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
+    """Return bash's delimiter for the heredoc word at ``start`` and its end.
+
+    Bash applies quote removal to the delimiter word, and any part of it may be
+    quoted: ``<<E\\OF``, ``<<'E'OF``, ``<<E"O"F`` and ``<<E''OF`` all end at an
+    ``EOF`` line. The delimiter must match bash's exactly. A different one
+    would let the region run past bash's terminator and hide real commands.
+
+    Returns None for a word this does not model exactly (``$'...'``,
+    ``$"..."``, backquotes, newlines, unterminated quotes). The caller must
+    then stop modelling further openers: this opener's body is scanned as
+    ordinary shell text, and a ``<<`` inside that body has to stay visible too.
+    Recording such an inner opener as a region would hide lines bash executes.
+    """
+    out: list[str] = []
+    i = start
+    n = len(cmd)
+    while i < n:
+        c = cmd[i]
+        if c.isspace() or c in ";&|<>)\n":
+            break
+        if c == "`":
+            return None
+        if c == "$":
+            # Bash keeps ``$(x)``, ``${x}`` and ``$[...]`` literal in a heredoc
+            # delimiter word, so stopping at the ``(`` would return ``$`` and
+            # then match a different terminator than bash. Do not model them.
+            return None
+        if c == "(":
+            # An unquoted ``(`` is a metacharacter that ends the word; the
+            # prefix is not the delimiter bash would match.
+            return None
+        if c == "\\":
+            if i + 1 >= n or cmd[i + 1] == "\n":
+                return None
+            out.append(cmd[i + 1])
+            i += 2
+        elif c == "'":
+            end = cmd.find("'", i + 1)
+            if end == -1 or "\n" in cmd[i + 1 : end]:
+                return None
+            out.append(cmd[i + 1 : end])
+            i = end + 1
+        elif c == '"':
+            i += 1
+            while i < n and cmd[i] != '"':
+                if cmd[i] in "\n`":
+                    return None
+                # Inside double quotes a backslash only escapes $ ` " \ and
+                # newline; before any other character it stays literal.
+                if cmd[i] == "\\" and cmd[i + 1 : i + 2] in ("$", "`", '"', "\\"):
+                    i += 1
+                out.append(cmd[i])
+                i += 1
+            if i >= n:
+                return None
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    if i == start:
+        return None
+    return "".join(out), i
+
+
+def _char_before(cmd: str, pos: int) -> str:
+    """Return the character bash sees before ``pos``, or ``""`` at the start.
+
+    Bash removes backslash-newline before reading words, so look past it.
+    """
+    while cmd[:pos].endswith("\\\n"):
+        pos -= 2
+    return cmd[pos - 1] if pos else ""
+
+
+def _scan_nesting(
+    cmd: str,
+    start: int,
+    end: int,
+    stack: list[str],
+    skip: list[tuple[int, int]],
+) -> None:
+    """Update ``stack`` with the brackets opened and closed in ``cmd[start:end]``.
+
+    Entries are ``[``, ``$[``, ``${``, ``((`` (arithmetic), ``=(`` (compound
+    assignment) and ``(`` (any other paren).
+    """
+    i = start
+    while i < end:
+        if _is_in_quoted_region(i, skip):
+            i += 1
+            continue
+        c = cmd[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "#" and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|()"):
+            newline = cmd.find("\n", i)
+            i = newline + 1 if newline != -1 else end
+            continue
+        if cmd.startswith("$[", i):
+            # ``$[...]`` is arithmetic, and its ``]`` may be on a later line.
+            # Track it explicitly so a bare ``[`` can require a same-line
+            # closing bracket without losing this form.
+            stack.append("$[")
+            i += 2
+            continue
+        if cmd.startswith("${", i):
+            stack.append("${")
+            i += 2
+            continue
+        if cmd.startswith("((", i):
+            stack.extend(["((", "(("])
+            i += 2
+            continue
+        if c == "(":
+            # ``name=(`` is a compound array assignment, where a ``[`` after
+            # ``(`` or a blank is a subscript too (``a=( [1<<X]=2 )``).
+            prev = _char_before(cmd, i)
+            stack.append("=(" if prev == "=" else "(")
+        elif c == "[":
+            # ``[`` glued to a word may open an array subscript (``a[1 << X]=2``)
+            # or be literal text (``echo a[``). Push it either way; the caller
+            # stops modelling heredocs while it is open.
+            prev = _char_before(cmd, i)
+            # Inside an open ``[`` or ``$[`` every ``[`` counts, or its ``]``
+            # would close the outer one early (``$[ [1] <<X ]``).
+            if prev.isalnum() or prev in ("_", "]") or "[" in stack or "$[" in stack:
+                stack.append(c)
+        elif c == ")" and stack and stack[-1] in ("(", "=("):
+            stack.pop()
+        elif cmd.startswith("))", i) and stack and stack[-1] == "((":
+            # Only ``))`` ends arithmetic: a lone ``)`` (a ``case`` pattern
+            # in a substitution) must not.
+            del stack[-2:]
+            i += 2
+            continue
+        elif c == "]" and stack and stack[-1] in ("[", "$["):
+            stack.pop()
+        elif c == "}" and stack and stack[-1] == "${":
+            stack.pop()
+        i += 1
+
+
+def _position_in_shell_comment(
+    cmd: str, pos: int, skip: list[tuple[int, int]] | None = None
+) -> bool:
+    """Return True when ``pos`` lies inside an unquoted shell comment.
+
+    Comments run to the end of the line, so a backslash there is data: bash
+    does not treat the newline as a continuation. Mirrors the lexical rules in
+    ``_blank_shell_comments``.
+
+    ``skip`` lists regions already known to be heredoc bodies. Their contents
+    are data: an apostrophe there does not open a shell string, so counting it
+    would leave ``in_single`` set and hide a later comment marker.
+    """
+    in_single = in_double = in_comment = False
+    regions = sorted(skip or [])
+    region_idx = 0
+    i = 0
+    while i < pos:
+        while region_idx < len(regions) and regions[region_idx][1] <= i:
+            region_idx += 1
+        if region_idx < len(regions):
+            start, end = regions[region_idx]
+            if start <= i < end:
+                i = min(end, pos)
+                continue
+        char = cmd[i]
+        if in_comment:
+            if char == "\n":
+                in_comment = False
+            i += 1
+            continue
+        if char == "\\" and not in_single:
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+        ):
+            in_comment = True
+        i += 1
+    return in_comment
+
+
 def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     """Find all heredoc regions in a command string.
 
@@ -244,19 +443,52 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 
     Returns a list of (start, end) tuples for each heredoc content region.
     """
-    heredoc_regions = []
+    heredoc_regions: list[tuple[int, int]] = []
 
     # A delimiter is a shell word, not necessarily an identifier. Support
     # punctuation commonly used to make delimiters distinctive (for example
     # ``END-TAG``), while stopping unquoted words at shell metacharacters.
-    heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
+    #
+    # ``<<<`` is a here-string, not a heredoc: it has no body, so the lookarounds
+    # keep its operand (and the lines after it) visible to validation.
+    heredoc_pattern = re.compile(r"(?<!<)<<(?!<)-?[ \t]*")
 
     quoted_regions = _find_quotes(cmd)
 
+    # Inside ``$((...))``, ``((...))``, ``$[...]``, ``${...}`` and array
+    # subscripts ``<<`` is a shift or literal text, not a redirection. Treating
+    # it as an opener would hide the following commands. Skipping a real opener
+    # only makes validation stricter.
+    nesting: list[str] = []
+    scanned = 0
+
+    # ``_find_quotes`` reads ``$'a\'b'`` as plain single quotes and loses track
+    # after the escaped quote, so nothing past one can be trusted as nesting.
+    ansi_c = re.search(r"\$'(?:[^'\\]|\\[^'])*\\'", cmd)
+
     for match in heredoc_pattern.finditer(cmd):
+        # ``<<`` text inside an earlier heredoc body is data. Treating it as an
+        # opener would start a region that runs past that body's terminator.
+        if _is_in_quoted_region(match.start(), heredoc_regions):
+            continue
+        if ansi_c and match.start() > ansi_c.start():
+            break
         # Quoted or escaped ``<<`` text is inert to the shell and must not hide
         # later lines from command validation.
         if _is_in_quoted_region(match.start(), quoted_regions):
+            continue
+        _scan_nesting(
+            cmd, scanned, match.start(), nesting, quoted_regions + heredoc_regions
+        )
+        scanned = match.start()
+        if "[" in nesting or "=(" in nesting:
+            # Without bash's assignment-word context these cannot be told
+            # apart: ``a[1 <<X]=2`` is a shift, ``echo a[ <<X`` a real
+            # heredoc. Stop modelling rather than guess. Every later line then
+            # stays visible to validation, so neither a misread shift nor an
+            # inner ``<<`` in an unmodelled body can hide executed commands.
+            break
+        if any(entry != "(" for entry in nesting):
             continue
         backslashes = 0
         pos = match.start() - 1
@@ -281,11 +513,41 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         ):
             continue
 
-        delimiter = next(group for group in match.groups() if group is not None)
+        word = _heredoc_delimiter(cmd, match.end())
+        if word is None:
+            # The opener is real but its delimiter is not modelled, so the
+            # lines after it are scanned as ordinary shell text. A ``<<`` in
+            # that body is data to bash; accepting it as a new opener would
+            # blank the lines up to a later fake terminator, including commands
+            # bash actually runs. Stop modelling openers from here on: every
+            # remaining line stays visible to validation.
+            break
+        delimiter, search_start = word
+        strip_tabs = cmd.startswith("<<-", match.start())
 
-        # Find where the content starts (after the first newline after the marker)
-        search_start = match.end()
-        newline_idx = cmd.find("\n", search_start)
+        # Find where the content starts: after the newline that ends the
+        # command line. A backslash-newline is removed by bash before
+        # tokenizing, so it does not end the line and the heredoc body starts
+        # further down.
+        newline_idx = search_start
+        while True:
+            newline_idx = cmd.find("\n", newline_idx)
+            if newline_idx == -1:
+                break
+            backslashes = 0
+            pos = newline_idx - 1
+            while pos >= 0 and cmd[pos] == "\\":
+                backslashes += 1
+                pos -= 1
+            if backslashes % 2 == 0:
+                break
+            # A backslash inside a shell comment is data, not a line
+            # continuation: bash ends the command line there. Treating it as a
+            # continuation would push the body start past real command lines
+            # and hide them as heredoc data.
+            if _position_in_shell_comment(cmd, newline_idx - 1, heredoc_regions):
+                break
+            newline_idx += 1
         if newline_idx == -1:
             continue  # No content
 
@@ -299,7 +561,8 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
                 # Check if remaining text is the delimiter. Include the
                 # delimiter itself in the safe region: it is shell syntax, not
                 # a command following the heredoc.
-                if cmd[pos:].strip() == delimiter:
+                last_line = cmd[pos:].lstrip("\t") if strip_tabs else cmd[pos:]
+                if last_line == delimiter:
                     heredoc_regions.append((content_start, len(cmd)))
                 break
 
@@ -307,7 +570,7 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             # Include the terminator line but preserve its newline, so a real
             # command on the following line remains independently visible.
             line = cmd[pos:newline_idx]
-            if line.strip() == delimiter:
+            if (line.lstrip("\t") if strip_tabs else line) == delimiter:
                 heredoc_regions.append((content_start, newline_idx))
                 break
 
@@ -319,44 +582,6 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 def _is_in_quoted_region(pos: int, quoted_regions: list[tuple[int, int]]) -> bool:
     """Check if a position is within any quoted region."""
     return any(start <= pos < end for start, end in quoted_regions)
-
-
-def _find_first_unquoted_pipe(command: str) -> int | None:
-    """Find the position of the first pipe operator that's not in quotes.
-
-    Returns None if no unquoted pipe is found.
-    Skips escaped pipes and logical OR operators (||).
-    """
-    quoted_regions = _find_quotes(command)
-
-    pos = 0
-    while True:
-        pipe_pos = command.find("|", pos)
-        if pipe_pos == -1:
-            return None
-
-        # An odd run of backslashes escapes the pipe; pairs escape each other.
-        backslashes = 0
-        preceding = pipe_pos - 1
-        while preceding >= 0 and command[preceding] == "\\":
-            backslashes += 1
-            preceding -= 1
-        if backslashes % 2:
-            pos = pipe_pos + 1
-            continue
-
-        # Check if this pipe is inside quotes
-        if not _is_in_quoted_region(pipe_pos, quoted_regions):
-            # Check if this is part of || (logical OR)
-            if pipe_pos + 1 < len(command) and command[pipe_pos + 1] == "|":
-                # Skip the || operator
-                pos = pipe_pos + 2
-                continue
-
-            return pipe_pos
-
-        # Try next pipe
-        pos = pipe_pos + 1
 
 
 def _has_file_redirection(cmd: str) -> bool:
@@ -392,6 +617,454 @@ def _has_file_redirection(cmd: str) -> bool:
     return False
 
 
+def _attached_option_value(name: str, token: str) -> str | None:
+    """Return the value an option carries in the same word, if any.
+
+    ``grep --file=/etc/shadow`` and ``grep -f/etc/shadow`` make the program
+    read the path exactly as ``grep -f /etc/shadow`` does, but the path is not
+    a token of its own, so a whole-token scan never sees it.
+    """
+    if not token.startswith("-"):
+        return None
+    if token.startswith("--"):
+        _name, sep, value = token.partition("=")
+        return value if sep and value else None
+    spec = PERMITTED_FLAGS.get(name)
+    if spec is None or not spec.bundling or spec.any_flag:
+        return None
+    for index, char in enumerate(token[1:], 1):
+        if char in spec.short:
+            continue
+        if char in spec.short_value:
+            value = token[index + 1 :]
+            # A slash used as a delimiter is not a root-directory read.
+            if value == "/" and (name, char) in (("cut", "d"), ("sort", "t")):
+                return None
+            return value or None
+        break
+    return None
+
+
+def _recursive_roots(name: str, args: list[str]) -> list[str]:
+    """Directory operands, excluding option values and the search pattern.
+
+    Reuse the permitted-flag grammar rather than guessing that every non-dash
+    token is a path. Unknown flags are rejected by flags_permitted() later.
+    """
+    spec = PERMITTED_FLAGS[name]
+    operands: list[str] = []
+    pattern_option = False
+    end_options = False
+    index = 0
+    while index < len(args):
+        token = args[index]
+        index += 1
+        if token == "--" and not end_options:
+            end_options = True
+            continue
+        if not end_options and token.startswith("-") and token != "-":
+            if name == "find" and token not in (
+                "-H",
+                "-L",
+                "-P",
+                "-O0",
+                "-O1",
+                "-O2",
+                "-O3",
+                "-D",
+            ):
+                break  # Everything after the starting paths is an expression.
+            option = token.partition("=")[0]
+            if name in ("grep", "rg", "ag"):
+                if option in (
+                    "--regexp",
+                    "--file",
+                    "--files",
+                ):
+                    pattern_option = True
+                elif not token.startswith("--"):
+                    for char in token[1:]:
+                        if char in spec.short_value:
+                            pattern_option |= char in "ef"
+                            break
+            _permitted, consumes_next = _check_flag_token(token, spec)
+            if consumes_next:
+                index += 1
+            continue
+        if name == "find" and token in ("(", "!", ")"):
+            break
+        operands.append(token)
+    if name in ("grep", "rg", "ag") and not pattern_option and operands:
+        operands.pop(0)
+    return operands or ["."]
+
+
+# Allowlisted readers that walk a directory tree. Pointing one at a directory
+# that *contains* a credential location reads (or lists) that location without
+# the argument ever naming it, e.g. ``grep -r AWS_SECRET ~``.
+_ALWAYS_RECURSIVE = frozenset({"find", "rg", "ag", "du", "tree"})
+
+
+def _is_recursive_reader(name: str, args: list[str]) -> bool:
+    """Whether this allowlisted command recurses into its directory operands.
+
+    GNU tools accept unambiguous abbreviations of long options and of the
+    ``grep --directories`` action, so prefixes count as the full spelling.
+    """
+    if name in _ALWAYS_RECURSIVE:
+        return True
+    if name not in ("grep", "ls"):
+        return False
+    # (full spelling, shortest prefix that selects it)
+    long_flags = [("--recursive", "--rec")]
+    if name == "grep":
+        long_flags.append(("--dereference-recursive", "--der"))
+    letters = "rR" if name == "grep" else "R"
+    for i, arg in enumerate(args):
+        if arg == "--":
+            break
+        following = args[i + 1] if i + 1 < len(args) else ""
+        action = ""
+        if arg.startswith("--"):
+            option, sep, value = arg.partition("=")
+            if any(
+                full.startswith(option) and option.startswith(short)
+                for full, short in long_flags
+            ):
+                return True
+            if (
+                name == "grep"
+                and option.startswith("--di")
+                and "--directories".startswith(option)
+            ):
+                action = value if sep else following
+        elif arg.startswith("-"):
+            for offset, char in enumerate(arg[1:], 1):
+                if char in letters:
+                    return True
+                if char in PERMITTED_FLAGS[name].short_value:
+                    # Everything after a value-taking option is its value,
+                    # not more flags (``-dread``, ``-eR``).
+                    if name == "grep" and char == "d":
+                        action = arg[offset + 1 :] or following
+                    break
+        if action and "recurse".startswith(action):
+            return True
+    return False
+
+
+def _sensitive_locations() -> list[str]:
+    """Absolute spellings of every sensitive location, for containment checks."""
+    home = os.path.expanduser("~")
+    return [home + entry[1:] for entry in _SENSITIVE_HOME_DIRS] + [
+        prefix.rstrip("/") for prefix in _SENSITIVE_PATH_PREFIXES
+    ]
+
+
+def _contains_sensitive_location(token: str, cwd: Path | None) -> bool:
+    """Whether a directory operand is, or is an ancestor of, a sensitive location.
+
+    Used for recursive readers only: ``grep -r x ~`` reads ``~/.ssh`` although
+    no argument names it. Spellings whose target cannot be known statically
+    (``~user``, ``$VAR``) count as containing one.
+    """
+    home = os.path.expanduser("~")
+    path: str | None = None
+    if token == "~" or token.startswith("~/"):
+        path = home + token[1:]
+    elif token.startswith("~"):
+        return True
+    else:
+        for var in ("${HOME}", "$HOME"):
+            if token == var or token.startswith(var + "/"):
+                path = home + token[len(var) :]
+                break
+        else:
+            if re.match(r"^\$\{?[A-Za-z_]", token):
+                return True
+            if token.startswith("/"):
+                path = token
+            elif cwd is not None:
+                # Lexical and resolved spellings, as in _token_is_sensitive().
+                bases = {Path(os.path.normpath(cwd.absolute())), cwd.resolve()}
+                return any(
+                    _contains_sensitive_location(str(base / token), None)
+                    for base in bases
+                )
+    if path is None:
+        return False
+    path = os.path.normpath(re.sub(r"^/+", "/", path))
+    if path == "/":
+        return True
+    # Resolve the operand itself, not just its cwd: home-link may point at ~.
+    paths = {path, os.path.realpath(path)}
+    locations = {
+        spelling
+        for location in _sensitive_locations()
+        for spelling in (location, os.path.realpath(location))
+    }
+    return any(
+        location == root or location.startswith(root.rstrip("/") + "/")
+        for root in paths
+        for location in locations
+    )
+
+
+def _cd_destinations(
+    args: list[str], cwds: list[Path | None]
+) -> list[Path | None] | None:
+    """Directories a ``cd`` with these arguments can move the shell to.
+
+    Returns None when the destination cannot be determined statically
+    (``cd -``, ``cd $VAR``, ``cd ~user``, globs, or a relative target subject
+    to the persistent shell's unknown ``CDPATH``).
+    """
+    operands = list(args)
+    while operands and re.fullmatch(r"-[LPe@]+", operands[0]):
+        operands.pop(0)
+    if operands and operands[0] == "--":
+        operands.pop(0)
+    home = os.path.expanduser("~")
+    if not operands:
+        return [Path(home)]
+    target = operands[0]
+    if target == "-" or any(char in target for char in "*?[{`"):
+        return None
+    if target == "~" or target.startswith("~/"):
+        target = home + target[1:]
+    elif target.startswith("~"):
+        return None
+    else:
+        for var in ("${HOME}", "$HOME"):
+            if target == var or target.startswith(var + "/"):
+                target = home + target[len(var) :]
+                break
+    if "$" in target:
+        return None
+    if target.startswith("/"):
+        return [Path(os.path.normpath(re.sub(r"^/+", "/", target)))]
+    # The persistent bash shell may have changed CDPATH without changing
+    # Python's environment. Only ./ and ../ spellings bypass CDPATH reliably.
+    if not target.startswith(("./", "../")):
+        return None
+    destinations: list[Path | None] = []
+    for cwd in cwds:
+        if cwd is None:
+            destinations.append(None)
+        else:
+            destinations.extend(
+                Path(os.path.normpath(base / target))
+                for base in (cwd.absolute(), cwd.resolve())
+            )
+    return destinations
+
+
+def _input_redirections(cmd: str) -> tuple[str, list[str]]:
+    """Separate input-redirection targets from the program's argument words.
+
+    Work on the quoted source so a literal ``'<'`` remains an argument. Keep
+    targets separately for sensitive-path checks, including redirects before
+    the command name or between an option and its value.
+    """
+    regions = _find_quotes(cmd)
+    targets: list[str] = []
+    chars = list(cmd)
+    # Shell words can concatenate quoted, escaped and unquoted fragments.
+    word = re.compile(r"""(?:[^\s<>;&|()'"\\]|\\.|'[^']*'|"(?:\\.|[^"\\])*")+""")
+    index = 0
+    while index < len(cmd):
+        if cmd[index] == "\\" and not _is_in_quoted_region(index, regions):
+            index += 2
+            continue
+        if cmd[index] != "<" or _is_in_quoted_region(index, regions):
+            index += 1
+            continue
+        start = index
+        # An immediately adjacent, unquoted number is a file descriptor, not
+        # an operand (``0<file``); a spaced number remains a real argument.
+        while start > 0 and cmd[start - 1].isdigit():
+            start -= 1
+        if start > 0 and not cmd[start - 1].isspace():
+            start = index
+        index += 1
+        while index < len(cmd) and cmd[index] == "<":
+            index += 1
+        while index < len(cmd) and cmd[index].isspace():
+            index += 1
+        match = word.match(cmd, index)
+        if match is None:
+            # Invalid/unsupported syntax must not hide an implicit cwd read.
+            chars[start:index] = " " * (index - start)
+            continue
+        index = match.end()
+        targets.extend(shlex.split(match.group()))
+        chars[start:index] = " " * (index - start)
+    return "".join(chars), targets
+
+
+def _command_segments(cmd: str) -> list[tuple[list[str], list[str]]]:
+    """Split a command into simple-command token lists.
+
+    Lines are split first (``shlex`` treats a newline as plain whitespace, so
+    ``cd ~`` and ``cat .ssh/id_rsa`` on two lines would otherwise merge), then
+    each line on list and pipeline operators. Input redirection targets are
+    returned separately: they are reads, but not program arguments.
+    """
+    segments: list[tuple[list[str], list[str]]] = []
+    for line in _split_lines(strip_transparent_wrappers(cmd)):
+        # Split before unquoting. shlex loses the distinction between a shell
+        # operator and quoted/escaped data such as the filename '()'.
+        regions = _find_quotes(line)
+        start = 0
+        index = 0
+        pieces: list[str] = []
+        while index < len(line):
+            if line[index] == "\\" and not _is_in_quoted_region(index, regions):
+                index += 2
+                continue
+            if line[index] in ";&|()" and not _is_in_quoted_region(index, regions):
+                pieces.append(line[start:index])
+                start = index + 1
+            index += 1
+        pieces.append(line[start:])
+        for piece in pieces:
+            try:
+                piece, targets = _input_redirections(piece)
+                lexer = shlex.shlex(piece, posix=True, punctuation_chars="><")
+                lexer.whitespace_split = True
+                lexer.commenters = ""
+                tokens = list(lexer)
+            except ValueError:
+                tokens = piece.split()
+                targets = []
+            if tokens or targets:
+                segments.append((tokens, targets))
+    return segments
+
+
+def _token_is_sensitive(token: str, cwd: Path | None) -> bool:
+    """Whether one argument names a sensitive path, read from ``cwd``."""
+    if token and all(char in ";&|><()" for char in token):
+        return False
+    # Bare root directory — e.g. `find /` or `ls /`
+    if token == "/":
+        return True
+    # Path traversal that could escape to a sensitive directory.
+    # Catches both absolute traversal (e.g. /home/user/../../../etc/passwd)
+    # and relative traversal (e.g. ../../etc/passwd) — bash resolves the
+    # latter relative to the current working directory, which we cannot
+    # predict at validation time, so any `..` in a path is treated as
+    # potentially sensitive and requires explicit confirmation.
+    if ".." in token:
+        return True
+    # Shell pathname and brace expansion happen after validation. Literal
+    # tokens such as /e??/shadow or /{etc/shadow,tmp/file} can therefore
+    # become /etc/shadow at execution time. Require confirmation whenever
+    # a path-like argument contains expansion metacharacters; ordinary
+    # search patterns such as ``*.py`` remain eligible for auto-approval
+    # because they contain no path separator.
+    if "/" in token and any(char in token for char in "*?[{"):
+        return True
+    # Relative path arguments are interpreted from the persistent shell's
+    # effective cwd. Check both the lexical path (what bash uses after a
+    # ``cd`` through a symlink such as ``~/.config``) and the resolved one, so
+    # a confirmed ``cd ~/.ssh`` cannot make a later ``cat id_rsa``
+    # auto-approved, and neither can ``cd ~/.config/gptme && cat config.toml``.
+    if cwd is not None and token and not token.startswith(("/", "~", "$")):
+        bases = {Path(os.path.normpath(cwd.absolute())), cwd.resolve()}
+        for base in bases:
+            joined = str(base / token)
+            if any(char in token for char in "*?[{"):
+                # A slash-free glob expands inside ``base``: ``cat *`` from
+                # ``~/.ssh``, or ``cat conf*`` from ``~/.config/gptme``.
+                if _token_is_sensitive(base.as_posix(), None) or (
+                    _contains_sensitive_location(base.as_posix(), None)
+                ):
+                    return True
+            elif _token_is_sensitive(joined, None):
+                return True
+        return False
+    # Sensitive directory prefixes (absolute paths). Collapse repeated
+    # leading slashes before normalizing no-op dot segments: POSIX permits
+    # normpath() to preserve exactly two leading slashes even though the
+    # shell resolves //etc and /./etc to /etc on our supported platforms.
+    abs_token = (
+        os.path.normpath(re.sub(r"^/+", "/", token)) if token.startswith("/") else token
+    )
+    home = os.path.expanduser("~")
+
+    # Sensitive home-relative credential directories.
+    # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
+    # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
+    # Use a boundary check (exact match or followed by "/") to avoid
+    # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
+    normalized = abs_token
+    if token.casefold() == home.casefold() or token.casefold().startswith(
+        home.casefold() + "/"
+    ):
+        normalized = "~" + token[len(home) :]
+    else:
+        for sub in ("${HOME}/", "$HOME/"):
+            if token.startswith(sub):
+                normalized = "~/" + token[len(sub) :]
+                break
+    # ~username/... spellings (e.g. ~root/.ssh/id_rsa) name another user's
+    # home dir; strip the username component and treat the rest as ~/...
+    # so the sensitive-dir boundary check below fires for those too.
+    if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
+        normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
+    # Relative path arguments are interpreted from the persistent shell's
+    # effective cwd. Resolve lexical components here so a confirmed
+    # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
+    if cwd is not None and not normalized.startswith(("/", "~")):
+        normalized = str(cwd.resolve() / normalized)
+        if normalized == home or normalized.startswith(home + "/"):
+            normalized = "~" + normalized[len(home) :]
+
+    # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
+    # still matches the ~/ prefix boundary after double-slash removal.
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    # Remove no-op ./ segments (e.g. ~/./.ssh/id_rsa → ~/.ssh/id_rsa) that
+    # bash resolves at runtime but which bypass literal prefix matching.
+    while "/./" in normalized:
+        normalized = normalized.replace("/./", "/")
+    # Resolve parent-directory (..) segments within the home-relative path
+    # (e.g. ~/tmp/../.ssh/id_rsa → ~/.ssh/id_rsa).  Tokens with ".." are
+    # already caught by the path-traversal check above; this normpath pass
+    # ensures the prefix check below is also correct as belt-and-suspenders.
+    if ".." in normalized:
+        normalized = os.path.normpath(normalized)
+    # Normalize home variables before resolving paths, then check both system
+    # and credential locations. Resolve the protected locations too: ~/.ssh
+    # may link outside home, and macOS /etc links to /private/etc. Retain the
+    # literal spellings for case variants and paths that do not exist yet.
+    locations = {
+        spelling.rstrip("/").casefold()
+        for location in (*_SENSITIVE_PATH_PREFIXES, *_SENSITIVE_HOME_DIRS)
+        for spelling in (location, _resolve_symlinks(location, home))
+    }
+    # Keep the lexical absolute spelling too, including expansion of ~/$HOME:
+    # a home symlink can otherwise erase a protected ancestor such as /root.
+    # Resolve the original spelling independently: case-folded home matching
+    # must not redirect resolution to a different path on case-sensitive hosts.
+    absolute = home + normalized[1:] if normalized.startswith("~") else normalized
+    for candidate in (
+        abs_token,
+        normalized,
+        absolute,
+        _resolve_symlinks(abs_token, home),
+        _resolve_symlinks(normalized, home),
+    ):
+        folded = candidate.casefold()
+        if any(
+            folded == location or folded.startswith(location + "/")
+            for location in locations
+        ):
+            return True
+    return False
+
+
 def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     """Check whether any argument in the command targets a sensitive system path.
 
@@ -407,6 +1080,19 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     Also covers P4: ``find /`` traverses the entire filesystem; the ``/``
     argument is caught here.
 
+    Three spellings used to hide the path from the literal-token check:
+
+    - a value attached to an option (``grep --file=/etc/shadow``,
+      ``grep -f/etc/shadow``) is scanned as an argument of its own;
+    - a ``cd`` earlier in the same command moves the directory that later
+      relative arguments are read from (``cd ~ && cat .ssh/id_rsa``), so
+      relative arguments are resolved from every directory the command can
+      be in, and a ``cd`` whose destination is unknown requires confirmation;
+    - a recursive reader (``grep -r``, ``rg``, ``find``, ``ls -R``, ``du``)
+      pointed at a directory that *contains* a credential location
+      (``grep -r AWS_SECRET ~``) requires confirmation. With no directory
+      operand it reads the current directory, which is checked the same way.
+
     Returns True if a sensitive argument is found (approval should be denied).
     """
     # Blank heredoc bodies (stdin data) *and* headers (the << / <<- opener and
@@ -418,100 +1104,82 @@ def _has_sensitive_args(cmd: str, cwd: Path | None = None) -> bool:
     # whitespace), so ``cat << - /etc/shadow`` auto-approved a genuine read;
     # regex-based blanking keeps the real path visible, so it is scanned.
     cmd_blanked = _blank_heredoc_headers(_blank_heredoc_bodies(cmd))
-    try:
-        lexer = shlex.shlex(cmd_blanked, posix=True, punctuation_chars=";&|><()")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
-        tokens = cmd_blanked.split()
+    segments = _command_segments(cmd_blanked)
 
-    # Walk all tokens after the first (which is the leading command name).
-    # punctuation_chars separates unquoted shell operators from adjacent path
-    # tokens while preserving quoted or escaped operators as literal filename
-    # characters. Compound command names also appear in this list, but command
-    # names never start with / so they are harmless.
-    for token in tokens[1:]:
-        if token and all(char in ";&|><()" for char in token):
-            continue
-        # Bare root directory — e.g. `find /` or `ls /`
-        if token == "/":
-            return True
-        # Path traversal that could escape to a sensitive directory.
-        # Catches both absolute traversal (e.g. /home/user/../../../etc/passwd)
-        # and relative traversal (e.g. ../../etc/passwd) — bash resolves the
-        # latter relative to the current working directory, which we cannot
-        # predict at validation time, so any `..` in a path is treated as
-        # potentially sensitive and requires explicit confirmation.
-        if ".." in token:
-            return True
-        # Shell pathname and brace expansion happen after validation. Literal
-        # tokens such as /e??/shadow or /{etc/shadow,tmp/file} can therefore
-        # become /etc/shadow at execution time. Require confirmation whenever
-        # a path-like argument contains expansion metacharacters; ordinary
-        # search patterns such as ``*.py`` remain eligible for auto-approval
-        # because they contain no path separator.
-        if "/" in token and any(char in token for char in "*?[{"):
-            return True
-        # Sensitive directory prefixes (absolute paths). Collapse repeated
-        # leading slashes before normalizing no-op dot segments: POSIX permits
-        # normpath() to preserve exactly two leading slashes even though the
-        # shell resolves //etc and /./etc to /etc on our supported platforms.
-        abs_token = (
-            os.path.normpath(re.sub(r"^/+", "/", token))
-            if token.startswith("/")
-            else token
-        )
-        if any(abs_token.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES):
-            return True
-        # Sensitive home-relative credential directories.
-        # Normalize $HOME/... and ${HOME}/... to ~/... before matching so that
-        # shell-variable spellings (cat "$HOME/.ssh/id_rsa") are caught too.
-        # Use a boundary check (exact match or followed by "/") to avoid
-        # false-positives on sibling paths like ~/.sshrc or ~/.npmrc-public.
-        normalized = token
-        home = os.path.expanduser("~")
-        if token == home or token.startswith(home + "/"):
-            normalized = "~" + token[len(home) :]
-        else:
-            for sub in ("${HOME}/", "$HOME/"):
-                if token.startswith(sub):
-                    normalized = "~/" + token[len(sub) :]
-                    break
-        # ~username/... spellings (e.g. ~root/.ssh/id_rsa) name another user's
-        # home dir; strip the username component and treat the rest as ~/...
-        # so the sensitive-dir boundary check below fires for those too.
-        if re.match(r"^~[^/]+/", normalized) and not normalized.startswith("~/"):
-            normalized = "~/" + re.sub(r"^~[^/]+/", "", normalized)
-        # Relative path arguments are interpreted from the persistent shell's
-        # effective cwd. Resolve lexical components here so a confirmed
-        # ``cd ~/.ssh`` cannot make a later ``cat id_rsa`` auto-approved.
-        if cwd is not None and not normalized.startswith(("/", "~")):
-            normalized = str(cwd.resolve() / normalized)
-            if normalized == home or normalized.startswith(home + "/"):
-                normalized = "~" + normalized[len(home) :]
-
-        # Collapse redundant separators so that $HOME//.ssh/id_rsa (→ ~//.ssh/id_rsa)
-        # still matches the ~/ prefix boundary after double-slash removal.
-        while "//" in normalized:
-            normalized = normalized.replace("//", "/")
-        # Remove no-op ./ segments (e.g. ~/./.ssh/id_rsa → ~/.ssh/id_rsa) that
-        # bash resolves at runtime but which bypass literal prefix matching.
-        while "/./" in normalized:
-            normalized = normalized.replace("/./", "/")
-        # Resolve parent-directory (..) segments within the home-relative path
-        # (e.g. ~/tmp/../.ssh/id_rsa → ~/.ssh/id_rsa).  Tokens with ".." are
-        # already caught by the path-traversal check above; this normpath pass
-        # ensures the prefix check below is also correct as belt-and-suspenders.
-        if ".." in normalized:
-            normalized = os.path.normpath(normalized)
+    # Every directory the shell can be in when a given segment runs. A ``cd``
+    # adds its destination rather than replacing the start directory: a
+    # subshell, pipeline or failed ``cd`` leaves the old directory in effect,
+    # so checking all of them never under-approximates.
+    cwds: list[Path | None] = [cwd]
+    for index, (segment, targets) in enumerate(segments):
         if any(
-            normalized == prefix or normalized.startswith(prefix + "/")
-            for prefix in _SENSITIVE_HOME_DIRS
+            _token_is_sensitive(target, base) for target in targets for base in cwds
         ):
             return True
+        if not segment:
+            continue
+        name, args = segment[0], segment[1:]
+        candidates: list[str] = []
+        for arg_index, token in enumerate(args):
+            # find's name patterns are matched by find, not read as files.
+            # A quoted '*.py' must not become a cwd-wide credential glob.
+            if (
+                name == "find"
+                and arg_index > 0
+                and args[arg_index - 1]
+                in (
+                    "-name",
+                    "-iname",
+                    "-path",
+                    "-ipath",
+                    "-regex",
+                    "-iregex",
+                    "-lname",
+                    "-ilname",
+                )
+            ):
+                continue
+            candidates.append(token)
+            if (value := _attached_option_value(name, token)) is not None:
+                candidates.append(value)
+        for token in candidates:
+            if any(_token_is_sensitive(token, base) for base in cwds):
+                return True
+
+        if name == "cd":
+            destinations = _cd_destinations(args, cwds)
+            if destinations is None:
+                # Unknown destination: anything after it may read from it.
+                if index + 1 < len(segments):
+                    return True
+            else:
+                cwds.extend(d for d in destinations if d not in cwds)
+        elif _is_recursive_reader(name, args):
+            roots = _recursive_roots(name, args)
+            for root in roots:
+                if any(_contains_sensitive_location(root, base) for base in cwds):
+                    return True
 
     return False
+
+
+def _resolve_symlinks(normalized: str, home: str) -> str:
+    """Return the absolute symlink target of a normalized path.
+
+    ``os.path.realpath`` resolves the components that exist, so a symlinked
+    directory is followed even when the leaf does not exist yet. Keep the
+    absolute spelling: mapping back to ~ would hide system ancestors when
+    home is nested inside a protected directory (e.g. /root/app).
+    """
+    if normalized == "~":
+        absolute = home
+    elif normalized.startswith("~/"):
+        absolute = os.path.join(home, normalized[2:])
+    elif normalized.startswith("/"):
+        absolute = normalized
+    else:
+        return normalized
+    return os.path.realpath(absolute)
 
 
 def _has_command_substitution(cmd: str) -> bool:
@@ -840,23 +1508,41 @@ _COMMAND_SEPARATORS = {"|", "||", "&", "&&", ";", ";;", "(", ")"}
 def _interpreter_args(rest: str) -> list[str] | None:
     """The interpreter's arguments as the shell passes them, without
     redirects; None if they can't be parsed."""
+    line = rest.split("\n", 1)[0]
     try:
-        lexer = shlex.shlex(rest.split("\n", 1)[0], posix=True, punctuation_chars=True)
+        stream = io.StringIO(line)
+        lexer = shlex.shlex(stream, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
-        tokens = iter(list(lexer))
+        # (token, whether it ended directly before a redirect operator). shlex
+        # drops whitespace, so `python3 123 > out` and `2>out` would otherwise
+        # look alike; only the latter's digits are the redirect's fd.
+        lexed: list[tuple[str, bool]] = []
+        start = 0
+        for token in lexer:
+            end = stream.tell()
+            before_redirect = line[end - 1 : end] in ("<", ">")
+            # A shell IO_NUMBER must be unquoted and unescaped. shlex strips
+            # both, so inspect the source spelling as well as adjacency.
+            raw = line[start : end - 1] if before_redirect else ""
+            lexed.append((token, before_redirect and raw.lstrip() == token))
+            start = end - 1 if before_redirect else end
     except ValueError:
         return None
+    tokens = iter(lexed)
     args: list[str] = []
-    for token in tokens:
+    fd_adjacent = False
+    for token, before_redirect in tokens:
         if token in _COMMAND_SEPARATORS:
             break
         if set(token) <= set("<>&") and set(token) & set("<>"):
             # a redirect (`2>/dev/null`, `>&1`): drop its fd and target
-            if args and args[-1].isdigit():
+            if args and args[-1].isdigit() and fd_adjacent:
                 args.pop()
             next(tokens, None)
+            fd_adjacent = False
             continue
         args.append(token)
+        fd_adjacent = before_redirect
     return args
 
 

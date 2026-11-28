@@ -725,3 +725,78 @@ def test_live_secret_spanning_assignment_value_is_redacted(monkeypatch, suffix):
     monkeypatch.setenv("SERVICE_TOKEN", value)
     text = f"TOKEN_{value}={OPAQUE}\n"
     assert redact_secret_values_from_output(text) == ("TOKEN_[REDACTED]\n", 1)
+
+
+@pytest.mark.parametrize(
+    "value", ["hunter2", "Tr0ub4dor&3", "1234", "a password with spaces"]
+)
+@pytest.mark.parametrize(
+    "template", ["DATABASE_PASSWORD={}\n", "export DATABASE_PASSWORD='{}'\n"]
+)
+def test_known_password_assignment_is_redacted(
+    monkeypatch: pytest.MonkeyPatch, value: str, template: str
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", value)
+    out, changed = redact_secret_values_from_output(template.format(value))
+    assert changed == 1
+    assert value not in out
+    assert "DATABASE_PASSWORD=[REDACTED]" in out
+
+
+def test_known_password_does_not_redact_a_different_source_expression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "hunter2")
+    line = 'DATABASE_PASSWORD = os.environ["DATABASE_PASSWORD"]\n'
+    assert redact_secret_values_from_output(line) == (line, 0)
+
+
+def test_known_short_password_does_not_redact_unrelated_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "pass")
+    line = "tests pass; password validation passed\n"
+    assert redact_secret_values_from_output(line) == (line, 0)
+
+
+def test_known_password_containing_hash_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "abc #123")
+    out, changed = redact_secret_values_from_output(
+        "export DATABASE_PASSWORD='abc #123'\n"
+    )
+    assert changed == 1
+    assert "abc #123" not in out
+    assert "DATABASE_PASSWORD=[REDACTED]" in out
+
+
+def test_known_password_ending_in_quote_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", 'hunter2"')
+    out, changed = redact_secret_values_from_output('DATABASE_PASSWORD=hunter2"\n')
+    assert changed == 1
+    assert 'hunter2"' not in out
+    assert "DATABASE_PASSWORD=[REDACTED]" in out
+
+
+def test_known_password_quoted_with_trailing_comment_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "hunter2")
+    out, changed = redact_secret_values_from_output(
+        "export DATABASE_PASSWORD='hunter2' # local\n"
+    )
+    assert changed == 1
+    assert "hunter2" not in out
+    assert "DATABASE_PASSWORD=[REDACTED]" in out
+
+
+def test_shell_tool_redacts_known_short_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "hunter2")
+    result = _run(monkeypatch, 'printf "DATABASE_PASSWORD=%s\\n" "$DATABASE_PASSWORD"')
+    assert "hunter2" not in result
+    assert "DATABASE_PASSWORD=[REDACTED]" in result

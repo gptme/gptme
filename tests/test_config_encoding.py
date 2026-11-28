@@ -10,6 +10,7 @@ are exactly the ones a user writes about themselves: `[user] about`,
 
 import builtins
 import codecs
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -523,6 +524,35 @@ def test_backup_is_written_once_not_overwritten_by_a_second_save(
     assert Path(str(config_file) + ".orig").read_bytes() == original
 
 
+def test_backup_does_not_touch_another_saves_staging_file(tmp_path: Path, monkeypatch):
+    """Overlapping saves must not delete each other's in-progress backup copy.
+
+    A fixed staging name made each save unlink the shared file before creating
+    it, so one save could remove another's half-written backup. A foreign
+    staging file must survive, and the backup must still be published.
+    """
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    other = Path(str(config_file) + ".orig.tmp")
+    other.write_bytes(b"another save's copy in progress")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with legacy_locale_codec("cp1252"), legacy_default_encoding("cp1252"):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    assert other.read_bytes() == b"another save's copy in progress"
+    assert Path(str(config_file) + ".orig").read_bytes() == original
+    leftovers = {p.name for p in tmp_path.iterdir()} - {
+        "config.toml",
+        "config.toml.orig",
+        "config.toml.orig.tmp",
+        ".config.toml.lock",  # held across the read-modify-write
+    }
+    assert not leftovers
+
+
 @contextmanager
 def backup_writes_failing():
     """Make writing the `.orig` copy fail, as a full disk or read-only dir would.
@@ -532,13 +562,20 @@ def backup_writes_failing():
     silently miss the write and report a pass.
     """
     real_write_bytes = Path.write_bytes
+    real_open = os.open
 
     def shim(self, data):
         if ".orig" in str(self):
             raise OSError(28, "No space left on device")
         return real_write_bytes(self, data)
 
-    with patch.object(Path, "write_bytes", shim):
+    def open_shim(path, flags, *args, **kwargs):
+        # The backup is staged through os.open (private mode), not write_bytes.
+        if ".orig" in os.fspath(path) and flags & (os.O_WRONLY | os.O_RDWR):
+            raise OSError(28, "No space left on device")
+        return real_open(path, flags, *args, **kwargs)
+
+    with patch.object(Path, "write_bytes", shim), patch.object(os, "open", open_shim):
         yield
 
 
@@ -647,3 +684,40 @@ def test_failed_backup_aborts_a_chat_config_save_too(tmp_path: Path):
             config.save()
 
     assert chat_config_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("occupant", ["broken_symlink", "directory"])
+def test_non_file_at_backup_path_aborts_the_rewrite(
+    tmp_path: Path, monkeypatch, occupant: str
+):
+    """Something at `.orig` that is not a file holds no copy of the bytes.
+
+    A broken symlink reads as absent to `exists()` but still makes the
+    no-clobber link fail with `FileExistsError`; a directory reads as present.
+    Either way the save must refuse rather than rewrite without a backup.
+    """
+    if occupant == "broken_symlink" and not hasattr(os, "symlink"):
+        pytest.skip("no symlinks")
+    config_file = tmp_path / "config.toml"
+    original = b'[user]\nabout = "' + LEGACY_BYTES_ABOUT + b'"\n'
+    config_file.write_bytes(original)
+    backup = Path(str(config_file) + ".orig")
+    if occupant == "broken_symlink":
+        try:
+            backup.symlink_to(tmp_path / "missing")
+        except OSError:
+            pytest.skip("cannot create symlinks here")
+    else:
+        backup.mkdir()
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    user_mod._encoding_unverified.clear()
+
+    with (
+        legacy_locale_codec("cp1252"),
+        legacy_default_encoding("cp1252"),
+        pytest.raises(OSError, match="Refusing to rewrite"),
+    ):
+        user_mod.set_config_value("user.name", "Alice", reload=False)
+
+    assert config_file.read_bytes() == original
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == []

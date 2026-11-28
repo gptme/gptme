@@ -54,7 +54,7 @@ def test_setup_saves_gemini_key(api_key: str) -> None:
     ):
         assert ask_for_api_key() == ("gemini", api_key)
 
-    save.assert_called_once_with("env.GEMINI_API_KEY", api_key)
+    save.assert_called_once_with("env.GEMINI_API_KEY", api_key, local=True)
 
 
 def test_prompt_retries_rejected_gemini_key() -> None:

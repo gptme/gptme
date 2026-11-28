@@ -26,6 +26,7 @@ from gptme.tools.autocommit import tool as autocommit_tool
 from gptme.tools.precommit import (
     _get_modified_files,
     _get_repo_root,
+    _resolve_check_config,
     check_precommit_available,
     get_precommit_runner,
     handle_precommit_command,
@@ -117,14 +118,16 @@ class TestUseChecks:
         with _mock_config({"GPTME_CHECK": "no"}):
             assert use_checks() is False
 
-    def test_auto_detect_config_file(self, tmp_path: Path, monkeypatch):
+    def test_auto_detect_config_file(self, tmp_path: Path, monkeypatch, mock_repo_root):
         """Auto-enables when .pre-commit-config.yaml exists in cwd."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
         with _mock_config({"GPTME_CHECK": ""}), _mock_which():
             assert use_checks() is True
 
-    def test_auto_detect_config_in_parent(self, tmp_path: Path, monkeypatch):
+    def test_auto_detect_config_in_parent(
+        self, tmp_path: Path, monkeypatch, mock_repo_root
+    ):
         """Auto-enables when .pre-commit-config.yaml exists in parent dir."""
         sub = tmp_path / "subdir"
         sub.mkdir()
@@ -132,6 +135,35 @@ class TestUseChecks:
         (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
         with _mock_config({"GPTME_CHECK": ""}), _mock_which():
             assert use_checks() is True
+
+    def test_auto_detect_requires_trusted_config(self, tmp_path: Path, monkeypatch):
+        """A cloned repository's hooks must not auto-run without approval."""
+        from gptme.config import trust
+
+        monkeypatch.setattr(trust, "_launcher_trusts_all", False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+        monkeypatch.setattr(trust, "_session_decisions", {})
+        repo = tmp_path / "repo"
+        sub = repo / "subdir"
+        sub.mkdir(parents=True)
+        monkeypatch.chdir(sub)
+        cfg = repo / ".pre-commit-config.yaml"
+        cfg.write_text("repos: []")
+        with (
+            _mock_config({"GPTME_CHECK": ""}),
+            _mock_which(),
+            patch("sys.stdin.isatty", return_value=False),
+            patch("gptme.tools.precommit._get_repo_root", return_value=repo),
+        ):
+            assert use_checks() is False
+            trust._session_decisions.clear()
+            # Approval is keyed on the config's directory, not the cwd: the
+            # hook may run from a nested or symlinked workspace.
+            trust._record(trust.precommit_trust_hash(cfg), True, cfg.parent)
+            assert use_checks() is True
+            # Changing the hooks needs a fresh approval.
+            cfg.write_text("repos: [{repo: local, hooks: [{id: x, entry: evil}]}]")
+            assert use_checks() is False
 
     def test_disabled_when_no_config(self, tmp_path: Path, monkeypatch):
         """Returns False when no config file and not explicitly enabled."""
@@ -171,11 +203,9 @@ class TestUseChecks:
             _mock_which(),
         ):
             assert use_checks() is True
-        assert (
-            "GPTME_CHECK is enabled but no .pre-commit-config.yaml found" in caplog.text
-        )
+        assert "GPTME_CHECK is enabled but no runner config" in caplog.text
 
-    def test_enabled_with_prek_only(self, tmp_path: Path, monkeypatch):
+    def test_enabled_with_prek_only(self, tmp_path: Path, monkeypatch, mock_repo_root):
         """prek satisfies the runner requirement when pre-commit is absent."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
@@ -280,6 +310,28 @@ class TestGetRepoRoot:
     def test_discovery_error(self, mock_run: MagicMock, error: Exception) -> None:
         mock_run.side_effect = error
         assert _get_repo_root() is None
+
+
+class TestResolveCheckConfig:
+    """Config search stays inside the repository; no repo means no ancestor walk."""
+
+    def test_no_repo_root_does_not_select_ancestor_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home_config = tmp_path / ".pre-commit-config.yaml"
+        home_config.write_text("repos: []")
+        workspace = tmp_path / "scratch"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        with (
+            _mock_which(),
+            patch("gptme.tools.precommit.current_workspace", return_value=workspace),
+            patch("gptme.tools.precommit._get_repo_root", return_value=None),
+        ):
+            runner, root, config = _resolve_check_config()
+        assert runner is not None
+        assert root is None
+        assert config is None
 
 
 @pytest.mark.usefixtures("mock_repo_root")
@@ -410,7 +462,13 @@ class TestRunPrecommitChecks:
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
             run_precommit_checks(all_files=True)
         mock_run.assert_called_once_with(
-            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
+            [
+                os.path.abspath("/usr/bin/pre-commit"),
+                "run",
+                "--config",
+                str(tmp_path / ".pre-commit-config.yaml"),
+                "--all-files",
+            ],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -429,7 +487,13 @@ class TestRunPrecommitChecks:
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which_available("prek"):
             run_precommit_checks(all_files=True)
         args = mock_run.call_args[0][0]
-        assert args == [os.path.abspath("/usr/bin/prek"), "run", "--all-files"]
+        assert args == [
+            os.path.abspath("/usr/bin/prek"),
+            "run",
+            "--config",
+            str(tmp_path / ".pre-commit-config.yaml"),
+            "--all-files",
+        ]
         assert mock_run.call_count == 1
         assert mock_run.call_args.kwargs["cwd"] == tmp_path
 
@@ -451,7 +515,15 @@ class TestRunPrecommitChecks:
             run_precommit_checks(all_files=False)
         mock_modified.assert_called_once_with(tmp_path)
         mock_run.assert_called_once_with(
-            [os.path.abspath("/usr/bin/pre-commit"), "run", "--files", "a.py", "b.py"],
+            [
+                os.path.abspath("/usr/bin/pre-commit"),
+                "run",
+                "--config",
+                str(tmp_path / ".pre-commit-config.yaml"),
+                "--files",
+                "a.py",
+                "b.py",
+            ],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -576,7 +648,13 @@ class TestRunPrecommitChecks:
         assert output is not None
         assert "Pre-commit checks failed" in output
         mock_run.assert_called_once_with(
-            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
+            [
+                os.path.abspath("/usr/bin/pre-commit"),
+                "run",
+                "--config",
+                str(tmp_path / ".pre-commit-config.yaml"),
+                "--all-files",
+            ],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -754,6 +832,7 @@ class TestHandlePrecommitCommand:
 # ── TestRunPrecommitOnFile ────────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("mock_repo_root")
 class TestRunPrecommitOnFile:
     """Tests for run_precommit_on_file — per-file save hook."""
 
@@ -814,6 +893,8 @@ class TestRunPrecommitOnFile:
         assert calls[1] == [
             os.path.abspath("/usr/bin/prek"),
             "run",
+            "--config",
+            str(tmp_path / ".pre-commit-config.yaml"),
             "--files",
             str(tmp_path / "f.py"),
         ]
@@ -1051,3 +1132,74 @@ class TestToolSpec:
         assert priority == 5
         assert autocommit_priority == 1
         assert priority > autocommit_priority
+
+
+@pytest.mark.parametrize("per_file", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_approves_and_executes_same_prek_config(
+    tmp_path, monkeypatch, per_file, nested
+):
+    from gptme.config import trust
+
+    monkeypatch.chdir(tmp_path)
+    workspace = tmp_path / "nested" if nested else tmp_path
+    workspace.mkdir(exist_ok=True)
+    monkeypatch.chdir(workspace)
+    yaml = workspace / ".pre-commit-config.yaml"
+    yaml.write_text("repos: []")
+    actual = workspace / "prek.toml"
+    actual.write_text("repos = []")
+    approved = []
+
+    def approve(config, ws, **kwargs):
+        # The automatic hook must never prompt; it only reads an approval.
+        assert kwargs.get("prompt") is False
+        approved.append(config)
+        return True
+
+    with (
+        _mock_config({"GPTME_CHECK": "", "GPTME_CHECK_PER_FILE": "true"}),
+        _mock_which_available("prek"),
+        patch("gptme.tools.precommit._get_repo_root", return_value=tmp_path),
+        patch.object(trust, "check_precommit_trust", side_effect=approve),
+        patch(
+            "gptme.tools.precommit.subprocess.run", return_value=_mock_subprocess_run()
+        ) as run,
+    ):
+        if per_file:
+            # A file in another subdir must still use the workspace-approved config.
+            target = tmp_path / "other" / "f.py"
+            target.parent.mkdir()
+            list(run_precommit_on_file(None, workspace, target, "content"))
+        else:
+            run_precommit_checks()
+    assert approved == [actual]
+    command = run.call_args.args[0]
+    assert command[command.index("--config") + 1] == str(actual)
+    assert run.call_args.kwargs["cwd"] == tmp_path
+
+
+def test_prek_edits_invalidate_approval_not_yaml(tmp_path, monkeypatch):
+    from gptme.config import trust
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(trust, "_launcher_trusts_all", False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(trust, "_session_decisions", {})
+    actual = tmp_path / "prek.toml"
+    actual.write_text("repos = []")
+    yaml = tmp_path / ".pre-commit-config.yaml"
+    yaml.write_text("repos: []")
+    trust._record(trust.precommit_trust_hash(yaml), True, tmp_path)
+    with (
+        _mock_config({"GPTME_CHECK": ""}),
+        _mock_which_available("prek"),
+        patch("gptme.tools.precommit._get_repo_root", return_value=tmp_path),
+        patch("sys.stdin.isatty", return_value=False),
+    ):
+        assert use_checks() is False
+        trust._session_decisions.clear()
+        trust._record(trust.precommit_trust_hash(actual), True, tmp_path)
+        assert use_checks() is True
+        actual.write_text("repos = []\n# changed hooks")
+        assert use_checks() is False

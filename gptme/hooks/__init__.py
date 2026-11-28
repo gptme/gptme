@@ -60,6 +60,9 @@ from .registry import (
 )
 from .server_confirm import current_conversation_id as current_conversation_id
 from .server_confirm import current_session_id as current_session_id
+from .types import (
+    UNFIRED_HOOK_TYPES as UNFIRED_HOOK_TYPES,
+)
 
 # Re-export types (Protocol classes, enums, dataclasses)
 from .types import (

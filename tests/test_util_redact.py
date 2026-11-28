@@ -1,0 +1,254 @@
+"""Redaction of mid-line secret assignments and URL userinfo passwords.
+
+Two common leak shapes were missed by the line-anchored patterns: a request
+header copied out of a log (``-H "X-Api-Key: sk-..."``) or a JSON headers dict,
+and a credential embedded in a URL (``https://user:password@host``).
+"""
+
+import pytest
+
+from gptme.util.redact import (
+    redact_secret_values_from_output,
+    redact_secrets_from_text,
+)
+
+# Built at runtime so the literal never looks like a committed credential.
+VENDOR_KEY = "sk-" + "proj-" + "AbCdEf0123456789abcdefXYZ"
+OPAQUE = "Zq8" + "x7WmK2pL9vR4tY6uN3bH5jC1"
+URL_PASSWORD = "hunter2" + "s3cr3t"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f'-H "X-Api-Key: {VENDOR_KEY}"',
+        f"X-Api-Key: {VENDOR_KEY}",
+        f'headers={{"X-Api-Key": "{VENDOR_KEY}"}}',
+        f"[debug] api_key: {VENDOR_KEY}",
+        f"[debug] token={VENDOR_KEY}",
+    ],
+)
+def test_midline_secret_assignment_is_redacted(line):
+    out = redact_secrets_from_text(line)
+    assert VENDOR_KEY not in out
+    assert "[REDACTED]" in out
+    # The surrounding context is preserved so the line stays readable.
+    assert line.split(VENDOR_KEY)[0] in out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"curl https://user:{URL_PASSWORD}@example.com/api",
+        f"DATABASE_URL: postgres://admin:{URL_PASSWORD}@db:5432/app",
+        f"REDIS_URL=redis://:{URL_PASSWORD}@db:6379/0",
+        f"git clone https://x-access-token:{URL_PASSWORD}@github.com/o/r",
+        f"GET https://john@corp.com:{URL_PASSWORD}@example.com/v1",
+        f"GET postgres://admin:{URL_PASSWORD}@tail@db/app",
+    ],
+)
+def test_url_userinfo_password_is_redacted(line):
+    out = redact_secrets_from_text(line)
+    assert URL_PASSWORD not in out
+    assert (
+        "[REDACTED]@example.com" in out
+        or "[REDACTED]@db" in out
+        or "[REDACTED]@github.com" in out
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'config = {"max_tokens": 1024}',
+        "the token: rotate it monthly",
+        "https://example.com:8080/path",
+        "git@github.com:org/repo.git",
+        "https://host:8443?u=a@b.com",
+        "https://host:8443#u=a@b.com",
+    ],
+)
+def test_non_secret_midline_shapes_are_kept(line):
+    """A mid-line ``token:`` in code or prose must not corrupt the value."""
+    assert redact_secrets_from_text(line) == line
+    assert redact_secret_values_from_output(line) == (line, 0)
+
+
+@pytest.mark.parametrize("value", [VENDOR_KEY, OPAQUE])
+def test_output_redactor_catches_midline_header(value):
+    out, n = redact_secret_values_from_output(f'curl -H "X-Api-Key: {value}"\n')
+    assert n == 1
+    assert value not in out
+
+
+@pytest.mark.parametrize("value", [VENDOR_KEY, OPAQUE, OPAQUE + "=="])
+@pytest.mark.parametrize(
+    "prefix", ["INFO params: ", "[debug] data=", "INFO params: nested: "]
+)
+def test_midline_secret_after_nonsecret_assignment(prefix, value):
+    line = f"{prefix}api_key={value}"
+    expected = f"{prefix}api_key=[REDACTED]"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize("value", [VENDOR_KEY, OPAQUE, OPAQUE + "=="])
+@pytest.mark.parametrize("suffix", [": rejected", ":next", ":"])
+def test_midline_secret_followed_by_colon(value: str, suffix: str) -> None:
+    line = f"ERROR invalid token={value}{suffix}"
+    expected = f"ERROR invalid token=[REDACTED]{suffix}"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line, live_literals=[]) == (expected, 1)
+    assert redact_secret_values_from_output(line, live_literals=[value[:20]]) == (
+        expected,
+        1,
+    )
+
+
+@pytest.mark.parametrize("password", ["8443,a", "8443;user=a"])
+def test_url_userinfo_subdelimiters_are_redacted(password: str) -> None:
+    """Commas and semicolons can belong to passwords, not adjacent fields."""
+    line = f"https://h:{password}@b.com"
+    expected = "https://h:[REDACTED]@b.com"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line, live_literals=[]) == (expected, 1)
+
+
+@pytest.mark.parametrize("quote", ['"', "'", "`"])
+@pytest.mark.parametrize("password", [URL_PASSWORD, URL_PASSWORD + "@tail"])
+def test_url_redaction_preserves_adjacent_fields(quote, password):
+    line = f"{{{quote}url{quote}:{quote}redis://user:{password}@db:6379{quote},email=dev@example.com}}"
+    expected = line.replace(password, "[REDACTED]")
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize("quote", ['"', "'", "`"])
+def test_nonsecret_url_preserves_adjacent_fields(quote):
+    line = f"{{{quote}url{quote}:{quote}https://host:8443{quote},email=a@b.com}}"
+    assert redact_secrets_from_text(line) == line
+    assert redact_secret_values_from_output(line) == (line, 0)
+
+
+@pytest.mark.parametrize("suffix", ["", "&format=json"])
+def test_midline_query_secret_is_redacted(suffix):
+    line = f"curl https://example.com/v1?api_key={OPAQUE}{suffix}"
+    expected = line.replace(OPAQUE, "[REDACTED]")
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize("username", ["user", "", "john@corp.com"])
+@pytest.mark.parametrize("password_tail", ["", "@tail"])
+def test_output_redactor_catches_url_password(username, password_tail):
+    password = URL_PASSWORD + password_tail
+    line = f"GET redis://{username}:{password}@example.com/0\n"
+    out, n = redact_secret_values_from_output(line)
+    assert n == 1
+    assert out == line.replace(password, "[REDACTED]")
+
+
+@pytest.mark.parametrize(
+    "redactor", ["redact_secrets_from_text", "redact_secret_values_from_output"]
+)
+@pytest.mark.parametrize("scheme_run", ["a-", "a.", "a+"])
+def test_url_scan_does_not_retry_overlapping_schemes(redactor, scheme_run):
+    """Bound pathological URL scans without leaving a stuck pytest process."""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                f"from gptme.util.redact import {redactor} as redact; "
+                f"line = {scheme_run!r} * 100000 + ' :// @'; "
+                "result = redact(line); "
+                "assert (result[0] if isinstance(result, tuple) else result) == line"
+            ),
+        ],
+        check=True,
+        timeout=10,
+    )
+
+
+@pytest.mark.parametrize("wrapper", ["", '"', "`", "<"])
+@pytest.mark.parametrize("username", ["admin", "", "john@corp.com"])
+def test_url_password_with_apostrophe(wrapper, username):
+    password = "o'" + "brien"
+    closing = ">" if wrapper == "<" else wrapper
+    line = f"DATABASE_URL={wrapper}postgres://{username}:{password}@db/app{closing}"
+    expected = line.replace(password, "[REDACTED]")
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+@pytest.mark.parametrize(
+    "redactor", ["redact_secrets_from_text", "redact_secret_values_from_output"]
+)
+@pytest.mark.parametrize("separator", ["=", ":"])
+def test_repeated_secret_assignments_do_not_rescan_suffixes(redactor, separator):
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                f"from gptme.util.redact import {redactor} as redact; "
+                f"prefix = 'INFO ' + ('token' + {separator!r}) * 100000; "
+                f"line = prefix + {OPAQUE!r} + '=='; "
+                "result = redact(line); "
+                "assert (result[0] if isinstance(result, tuple) else result) "
+                "== prefix + '[REDACTED]'"
+            ),
+        ],
+        check=True,
+        timeout=10,
+    )
+
+
+def test_output_redactor_keeps_source_code():
+    line = 'API_KEY = os.environ["OPENAI_API_KEY"]\n'
+    out, n = redact_secret_values_from_output(line)
+    assert n == 0
+    assert out == line
+
+
+def test_midline_long_secret_name_is_redacted():
+    """Names longer than the old 40-character mid-line cap still redact."""
+    name = "MY_SERVICE_PRODUCTION_DATABASE_ACCESS_TOKEN"
+    assert len(name) > 40
+    line = f"INFO {name}={OPAQUE}"
+    expected = f"INFO {name}=[REDACTED]"
+    assert redact_secrets_from_text(line) == expected
+    assert redact_secret_values_from_output(line) == (expected, 1)
+
+
+def test_live_literal_does_not_leave_midline_credential_remainder():
+    """A known substring must not hide the rest of a mid-line credential."""
+    full = OPAQUE + "XYZ9"
+    line = f"INFO token={full}"
+    out, n = redact_secret_values_from_output(line, live_literals=[OPAQUE])
+    assert n == 1
+    assert full not in out
+    assert "XYZ9" not in out
+    assert out == "INFO token=[REDACTED]"
+    assert redact_secret_values_from_output(line) == ("INFO token=[REDACTED]", 1)
+
+
+def test_live_literal_does_not_leave_url_password_remainder():
+    """A known substring must not hide the rest of a URL userinfo password."""
+    full = OPAQUE + "XYZ9"
+    line = f"GET postgres://admin:{full}@db/app"
+    out, n = redact_secret_values_from_output(line, live_literals=[OPAQUE])
+    assert n == 1
+    assert full not in out
+    assert "XYZ9" not in out
+    assert out == "GET postgres://admin:[REDACTED]@db/app"
+    assert redact_secret_values_from_output(line) == (
+        "GET postgres://admin:[REDACTED]@db/app",
+        1,
+    )

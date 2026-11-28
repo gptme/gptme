@@ -15,6 +15,29 @@ export interface ServerInfo {
   capabilities?: Record<string, boolean>;
 }
 
+// GET /api/v2/voice — realtime voice availability, as configured on the server
+export interface VoiceProviderStatus {
+  id: string;
+  label: string;
+  available: boolean;
+  reason: string | null;
+}
+
+export interface VoiceStatus {
+  available: boolean;
+  reason: string | null;
+  providers: VoiceProviderStatus[];
+  default_provider: string | null;
+}
+
+// POST /api/v2/conversations/<id>/voice/session — single-use WebSocket ticket
+export interface VoiceSessionTicket {
+  provider: string;
+  ticket: string;
+  path: string;
+  expires_in: number;
+}
+
 export interface ServerHealth {
   session_count: number;
   generating_count: number;

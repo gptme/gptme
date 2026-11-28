@@ -1895,7 +1895,7 @@ def test_imagemagick_pdf_output_argv(tmp_path, avail_imagemagick_only):
 
 
 @pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
-@pytest.mark.parametrize("extension", ["png", "jpg", "jpeg"])
+@pytest.mark.parametrize("extension", ["png", "jpg", "jpeg", "bmp"])
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("animated", [False, True])
 def test_real_single_frame_image_output(

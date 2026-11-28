@@ -56,7 +56,7 @@ def _invoke_cli_with_captured_goodbye(monkeypatch, tmp_path: Path, args: list[st
         project=None,
     )
     monkeypatch.setattr("gptme.config.setup_config_from_cli", lambda **_: fake_config)
-    monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+    monkeypatch.setattr("gptme.tools.init_tools", lambda _, **kwargs: [])
     monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
     monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
     monkeypatch.setattr("gptme.util.interrupt.set_interruptible", lambda: None)
@@ -159,7 +159,7 @@ class TestOutputFormatValidation:
         monkeypatch.setattr(
             "gptme.config.setup_config_from_cli", lambda **_: fake_config
         )
-        monkeypatch.setattr("gptme.tools.init_tools", lambda _: [])
+        monkeypatch.setattr("gptme.tools.init_tools", lambda _, **kwargs: [])
         monkeypatch.setattr("gptme.prompts.get_prompt", lambda **_: [])
         monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **_: None)
         monkeypatch.setattr("gptme.util.interrupt.set_interruptible", lambda: None)

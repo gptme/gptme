@@ -11,7 +11,7 @@ from gptme.llm.openai_responses import (
     _messages_to_responses_input,
     _pair_missing_tool_results,
 )
-from gptme.message import Message
+from gptme.message import Message, MessageMetadata
 from gptme.tools import ToolUse
 
 
@@ -222,3 +222,154 @@ def test_mid_conversation_system_messages_keep_instructions_prefix_stable(
         "role": "developer",
         "content": notice[1],
     }
+
+
+@pytest.mark.parametrize("tools", [[], None])
+def test_tool_output_kept_as_text_without_tools(tools) -> None:
+    """Without tools, a call_id tool result must reach the input as text.
+
+    Autocompact summaries call ``reply(..., tools=[])``; the assistant's
+    ``@tool(call_id)`` stays text, so the result has no function_call to pair
+    with and used to be dropped as an orphan (gptme/gptme#5218 item 12).
+    """
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+
+    output = "UNIQUE-TOOL-OUTPUT-42: 3 tests failed in test_foo.py"
+    instructions, items, responses_tools = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run the tests"),
+            Message("assistant", 'Running.\n@shell(call_abc): {"command": "pytest"}'),
+            Message("system", output, call_id="call_abc"),
+            Message("user", "Summarize the conversation so far."),
+        ],
+        "openai/gpt-5",
+        tools,
+    )
+    assert responses_tools is None
+    assert not any(i.get("type") == "function_call_output" for i in items)
+    # Tool output must not gain instruction/developer priority.
+    assert output not in (instructions or "")
+    assert not any(
+        i.get("role") == "developer" and output in str(i.get("content")) for i in items
+    )
+    result_items = [i for i in items if output in str(i.get("content"))]
+    assert len(result_items) == 1, items
+    assert result_items[0]["role"] == "user"
+    assert result_items[0]["content"].startswith("Tool result:\n")
+
+
+def test_native_replayed_call_keeps_its_result_without_tools() -> None:
+    """A result paired with a replayed native call stays a function_call_output."""
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+    from gptme.llm.responses_phase import _digest
+
+    content = 'Running.\n@shell(call_abc): {"command": "pytest"}'
+    output = "UNIQUE-TOOL-OUTPUT-42: 3 tests failed in test_foo.py"
+    metadata: MessageMetadata = {
+        "responses_output": {
+            "content_digest": _digest(content),
+            "items": [
+                {"type": "message", "text": "Running.\n"},
+                {"type": "function_call", "call_id": "call_abc"},
+            ],
+        }
+    }
+    _, items, responses_tools = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run the tests"),
+            Message("assistant", content, metadata=metadata),
+            Message("system", output, call_id="call_abc"),
+            Message("user", "Summarize the conversation so far."),
+        ],
+        "openai/gpt-5",
+        [],
+    )
+    assert responses_tools is None
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert [i["call_id"] for i in outputs] == ["call_abc"]
+    assert outputs[0]["output"] == output
+    assert not any("Tool result:" in str(i.get("content")) for i in items)
+
+
+def test_extra_result_for_one_replayed_call_stays_as_text() -> None:
+    """A second result for one call must reach the summary, not be dropped."""
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+    from gptme.llm.responses_phase import _digest
+
+    content = 'Running.\n@shell(call_abc): {"command": "pytest"}'
+    first = "first result"
+    second = "SECOND-RESULT-42: more output"
+    metadata: MessageMetadata = {
+        "responses_output": {
+            "content_digest": _digest(content),
+            "items": [
+                {"type": "message", "text": "Running.\n"},
+                {"type": "function_call", "call_id": "call_abc"},
+            ],
+        }
+    }
+    _, items, _ = _prepare_messages_for_responses_api(
+        [
+            Message("system", "You are gptme."),
+            Message("user", "run the tests"),
+            Message("assistant", content, metadata=metadata),
+            Message("system", first, call_id="call_abc"),
+            Message("system", second, call_id="call_abc"),
+            Message("user", "Summarize the conversation so far."),
+        ],
+        "openai/gpt-5",
+        [],
+    )
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert [i["output"] for i in outputs] == [first]
+    texts = [i for i in items if second in str(i.get("content"))]
+    assert len(texts) == 1, items
+    assert texts[0]["role"] == "user"
+    assert texts[0]["content"] == f"Tool result:\n{second}"
+
+
+@pytest.mark.parametrize("first_answered", [True, False])
+def test_result_pairs_only_with_a_call_from_its_own_turn(first_answered: bool) -> None:
+    """A reused call_id in a later text-only turn must not steal an earlier call."""
+    from gptme.llm.llm_openai import _prepare_messages_for_responses_api
+    from gptme.llm.responses_phase import _digest
+
+    first_content = 'Running.\n@shell(call_x): {"command": "echo 1"}'
+    second_content = '@shell(call_x): {"command": "echo 2"}'
+    metadata: MessageMetadata = {
+        "responses_output": {
+            "content_digest": _digest(first_content),
+            "items": [
+                {"type": "message", "text": "Running.\n"},
+                {"type": "function_call", "call_id": "call_x"},
+            ],
+        }
+    }
+    messages = [
+        Message("system", "You are gptme."),
+        Message("user", "run it"),
+        Message("assistant", first_content, metadata=metadata),
+        *(
+            [Message("system", "first result", call_id="call_x")]
+            if first_answered
+            else []
+        ),
+        Message("assistant", second_content),
+        Message("system", "SECOND-RESULT-42", call_id="call_x"),
+        Message("user", "Summarize."),
+    ]
+    original_messages = copy.deepcopy(messages)
+    _, items, _ = _prepare_messages_for_responses_api(messages, "openai/gpt-5", [])
+    assert messages == original_messages
+    outputs = [i for i in items if i.get("type") == "function_call_output"]
+    assert [i["call_id"] for i in outputs] == ["call_x"]
+    if first_answered:
+        assert outputs[0]["output"] == "first result"
+    else:
+        assert "No tool result was recorded" in outputs[0]["output"]
+    second = [i for i in items if "SECOND-RESULT-42" in str(i.get("content"))]
+    assert len(second) == 1, items
+    assert second[0]["role"] == "user"
+    assert second[0]["content"] == "Tool result:\nSECOND-RESULT-42"

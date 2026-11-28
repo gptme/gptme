@@ -7,14 +7,20 @@ from optional config.runtime.toml defaults, config.toml, and config.local.toml.
 import codecs
 import copy
 import dataclasses
+import errno
 import locale
 import logging
 import os
 import re
-from collections.abc import MutableMapping
+import stat
+import threading
+import time
+import uuid
+from collections.abc import Iterator, MutableMapping
+from contextlib import contextmanager
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 import tomlkit
 from tomlkit import TOMLDocument
@@ -22,6 +28,16 @@ from tomlkit.items import AoT
 
 if TYPE_CHECKING:
     from tomlkit.container import Container
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None  # type: ignore[assignment]
 
 from ..context.config import parse_context_budget as _parse_context_budget
 from ..util import path_with_tilde
@@ -41,6 +57,9 @@ from .models import (
     UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
+    _drop_malformed_env_entries,
+    _pop_object_section,
+    _stringify_env,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +116,19 @@ def _mark_encoding_unverified(path: str | Path) -> None:
     _encoding_unverified.add(str(Path(path).resolve()))
 
 
+def _group_grants_more_than_other(mode: int) -> bool:
+    """Whether preserving ``mode``'s group ownership protects any access.
+
+    A 0644 config grants its group exactly the read access 'other' already has,
+    so an ``fchown`` to a foreign gid buys nothing -- and fails for a user who
+    is not in that group, which is the common case for a config restored with
+    ``rsync -a`` or a bind mount with an unmapped gid. Only a group bit that
+    'other' lacks justifies moving the group, and only then can failing to move
+    it expose something.
+    """
+    return bool((mode & 0o070) & ~((mode & 0o007) << 3))
+
+
 def _back_up_before_reencoding(path: str | Path) -> None:
     """Keep the original bytes of a config whose decoding was a guess.
 
@@ -120,14 +152,36 @@ def _back_up_before_reencoding(path: str | Path) -> None:
     if resolved not in _encoding_unverified:
         return
     backup = Path(f"{path}.orig")
-    if backup.exists():
+    if backup.is_file():
         # Already preserved by an earlier save; this file is safe to rewrite.
         _encoding_unverified.discard(resolved)
         return
-    staged = Path(f"{path}.orig.tmp")
+    # Per-save staging name: overlapping saves of the same legacy file must not
+    # delete each other's in-progress copy.
+    staged = Path(f"{path}.orig.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
-        staged.write_bytes(Path(path).read_bytes())
-        staged.replace(backup)
+        original = Path(path).read_bytes()
+        # Keep backups owner-only, including after publication. Copying mode
+        # bits onto a new inode can grant a different group or inherited ACL
+        # access to [env] secrets. Backups need not retain shared readability.
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(original)
+        try:
+            # No-clobber publish: the first completed backup wins, since every
+            # concurrent save copied the same original bytes.
+            os.link(staged, backup)
+        except FileExistsError:
+            # A concurrent save published it first. Anything else at that path
+            # (a broken symlink, a directory) holds no copy of the bytes.
+            if not backup.is_file():
+                raise
+        except OSError:
+            # Filesystem without hard links: fall back to rename unless a
+            # concurrent save has already published the backup.
+            if not backup.is_file():
+                staged.replace(backup)
+        staged.unlink(missing_ok=True)
     except OSError as e:
         staged.unlink(missing_ok=True)
         # The marker is deliberately left in place: this file still holds
@@ -205,8 +259,20 @@ def _read_config_text(path: str | Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _default_config_path() -> str:
+    """``$XDG_CONFIG_HOME/gptme/config.toml``, defaulting to ``~/.config``.
+
+    Honors ``XDG_CONFIG_HOME`` (on every platform, so macOS keeps its
+    documented ``~/.config/gptme`` location when it is unset), which lets a
+    process run with its own config directory, e.g. a dev server that must not
+    load the user's personal prompt files.
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
+    return os.path.join(os.path.expanduser(base), "gptme", "config.toml")
+
+
 # Define the path to the config file
-config_path = os.path.expanduser("~/.config/gptme/config.toml")
+config_path = _default_config_path()
 
 
 def _filter_known_fields(
@@ -232,32 +298,41 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
     Called after detecting unknown keys in load_user_config() so that the
     warning fires only once instead of on every future invocation.
     """
-    if not os.path.exists(path):
+    if not os.path.exists(path) or _doc_without_keys(path, keys) is None:
         return
+    try:
+        with _config_write_lock(path):
+            # Re-read under the lock so a concurrent save is not overwritten
+            # with the stale document from the unlocked check above.
+            doc = _doc_without_keys(path, keys)
+            if doc is None:
+                return
+            # May raise if the file's decoding was a guess and its original
+            # bytes cannot be preserved. Swallowing it is right *here* -- this
+            # write is only a cosmetic cleanup, so not doing it costs a repeated
+            # warning and nothing else -- but the reason is worth naming,
+            # because the same exception aborting a real save is deliberate.
+            _back_up_before_reencoding(path)
+            _write_config_doc(path, doc)
+    except OSError as e:
+        logger.warning(f"Could not strip unknown config keys from {path}: {e}")
+
+
+def _doc_without_keys(path: str, keys: set[str]) -> TOMLDocument | None:
+    """Return the config at ``path`` minus ``keys``, or None if nothing to write."""
     doc = _load_config_doc(path)
     if str(Path(path).resolve()) in _encoding_unverified or getattr(
         doc, "_providers_recovered", False
     ):
         # Cosmetic startup cleanup must not persist a guessed decoding or an
         # in-memory provider repair. Only an explicit save may rewrite it.
-        return
-    changed = False
-    for key in keys:
-        if key in doc:
-            del doc[key]
-            changed = True
-    if changed:
-        try:
-            # May raise if the file's decoding was a guess and its original bytes
-            # cannot be preserved. Swallowing it is right *here* -- this write is
-            # only a cosmetic cleanup, so not doing it costs a repeated warning
-            # and nothing else -- but the reason is worth naming, because the same
-            # exception aborting a real save is deliberate.
-            _back_up_before_reencoding(path)
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                tomlkit.dump(doc, f)
-        except OSError as e:
-            logger.warning(f"Could not strip unknown config keys from {path}: {e}")
+        return None
+    present = [key for key in keys if key in doc]
+    if not present:
+        return None
+    for key in present:
+        del doc[key]
+    return doc
 
 
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
@@ -337,6 +412,16 @@ def _get_nested_config_value(doc: TOMLDocument, *keys: str) -> Any | None:
     return current
 
 
+def _is_effective_env_value(value: Any | None) -> bool:
+    """Whether a raw ``[env]`` value can be the source of a resolved setting.
+
+    Compound values are dropped before the merge (``_drop_malformed_config_env``),
+    so they never shadow a lower-priority layer and must not be reported as the
+    source. Empty strings do shadow (the merge keeps them), so they still count.
+    """
+    return value is not None and not isinstance(value, (dict, list))
+
+
 def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     """Return where an env-backed user setting currently comes from.
 
@@ -347,23 +432,23 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
     bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
 
-    if prefixed in os.environ or bare in os.environ:
+    # Empty values are skipped by Config.get_env, so they are not the source.
+    if os.environ.get(prefixed) or os.environ.get(bare):
         return USER_CONFIG_SOURCE_ENV
 
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
         local_doc = _load_config_doc(str(local_path))
-        if _get_nested_config_value(local_doc, "env", bare) is not None:
+        if _is_effective_env_value(_get_nested_config_value(local_doc, "env", bare)):
             return USER_CONFIG_SOURCE_LOCAL
 
     main_doc = _load_config_doc(str(config_file))
-    if _get_nested_config_value(main_doc, "env", bare) is not None:
+    if _is_effective_env_value(_get_nested_config_value(main_doc, "env", bare)):
         return USER_CONFIG_SOURCE_MAIN
 
     runtime_doc = _load_runtime_config_doc(path)
-    if (
-        runtime_doc is not None
-        and _get_nested_config_value(runtime_doc, "env", bare) is not None
+    if runtime_doc is not None and _is_effective_env_value(
+        _get_nested_config_value(runtime_doc, "env", bare)
     ):
         return USER_CONFIG_SOURCE_RUNTIME
 
@@ -565,16 +650,31 @@ def _parse_providers(providers_config: Any, *, strict: bool) -> list[ProviderCon
     return providers
 
 
+def _drop_malformed_config_env(config: dict, source: str | Path) -> None:
+    """Drop non-scalar ``[env]`` values from a user/local config before merging.
+
+    Dropping it only after the merge would let it replace and then delete a valid
+    lower-priority value such as ``TOOL_ALLOWLIST``, silently re-enabling default
+    tools. Runtime defaults stay strict: ``_stringify_env`` raises on them.
+    """
+    env = config.get("env")
+    if isinstance(env, dict):
+        _drop_malformed_env_entries(env, source)
+
+
 def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> UserConfig:
     config_file_path = path or config_path
     config_file, local_path = get_user_config_paths(config_file_path)
     main_config = _load_config_doc(path).unwrap()
+    _drop_malformed_config_env(main_config, path_with_tilde(config_file))
     # Validate operator-managed providers before merging: a user/local overlay
     # must not repair or hide an invalid runtime default.
     if runtime_doc is not None:
         runtime_raw = runtime_doc.unwrap()
         if "providers" in runtime_raw:
             _parse_providers(runtime_raw["providers"], strict=True)
+        if "env" in runtime_raw:
+            _stringify_env(_pop_object_section(runtime_raw, "env"))
     writable_keys = set(main_config)
     config = (
         _merge_config_data(runtime_doc.unwrap(), main_config)
@@ -586,6 +686,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     has_local = local_path.exists()
     if has_local:
         local_config = _load_config_doc(str(local_path)).unwrap()
+        _drop_malformed_config_env(local_config, path_with_tilde(local_path))
         writable_keys.update(local_config)
         config = _merge_config_data(config, local_config)
 
@@ -633,7 +734,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
             user_identity, about=about, response_preference=resp_pref
         )
 
-    env = config.pop("env", {})
+    env = _stringify_env(_pop_object_section(config, "env"))
 
     # Parse [mcp] and [[providers]]. Runtime overlays are admin-managed: if
     # config.runtime.toml itself defines mcp/providers, those entries fail
@@ -974,6 +1075,297 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     return doc
 
 
+def _is_private_config(path: Path) -> bool:
+    """``config.local.toml`` is where secrets (API keys) go, so keep it owner-only."""
+    return path.name == USER_CONFIG_SOURCE_LOCAL
+
+
+# Config locks the current thread already holds, so a nested acquisition (a
+# first-run create inside set_config_value) does not deadlock on its own flock.
+_held_config_locks = threading.local()
+
+
+@contextmanager
+def _config_write_lock(path: str | Path) -> Iterator[None]:
+    """Serialize read-modify-write cycles on one config file across processes.
+
+    The lock is a sidecar next to the resolved file, so every name for the same
+    config (e.g. a dotfiles symlink) shares it. Re-entrant within one thread;
+    other threads and processes wait.
+    """
+    target = Path(path).resolve()
+    held: set[str] = _held_config_locks.__dict__.setdefault("paths", set())
+    if str(target) in held:
+        yield
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.with_name(f".{target.name}.lock")
+    lock_file: IO[bytes]
+    read_only_fallback = False
+    try:
+        lock_file = lock_path.open("a+b")
+    except PermissionError:
+        # A lock created by another user follows their umask, so a group-writable
+        # config can come with a lock we may only read. flock(2) needs no write
+        # access to take LOCK_EX, so fall back to a read-only descriptor instead
+        # of failing the save on the lock; msvcrt does need write access.
+        if fcntl is None:
+            raise
+        try:
+            lock_file = lock_path.open("rb")
+        except FileNotFoundError:
+            # The parent directory is not writable and there is no sidecar to
+            # read, so no lock can exist. Save unlocked rather than surfacing a
+            # FileNotFoundError that names the lock file, not the config.
+            logger.warning(
+                f"Cannot create lock file {lock_path}; saving {target.name} "
+                "without cross-process serialization"
+            )
+            yield
+            return
+        read_only_fallback = True
+    locked = False
+    with lock_file:
+        if fcntl is not None:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                locked = True
+            except OSError as e:
+                # Linux emulates flock over NFS with fcntl byte-range locks,
+                # where LOCK_EX needs a descriptor opened for writing. The
+                # read-only fallback above then fails with EBADF on exactly the
+                # shared NFS home it targets. Degrade to an unlocked save with
+                # a warning instead of aborting every config write there.
+                if not read_only_fallback:
+                    raise
+                logger.warning(
+                    f"Could not take an exclusive lock on {lock_path} ({e}); "
+                    f"saving {target.name} without it"
+                )
+        elif msvcrt is not None:
+            lock_file.seek(0)
+            # LK_LOCK gives up with an error after about ten seconds, unlike
+            # flock; poll the non-blocking lock so writers really wait.
+            while True:
+                try:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as e:
+                    if e.errno not in (errno.EACCES, errno.EDEADLK):
+                        raise
+                time.sleep(0.05)
+        held.add(str(target))
+        try:
+            yield
+        finally:
+            held.discard(str(target))
+            if fcntl is not None:
+                # Nothing to release when the fallback degraded to unlocked.
+                if locked:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+            elif msvcrt is not None:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+# A ``PermissionError`` from ``os.replace`` is transient only on Windows, where
+# CPython opens files without ``FILE_SHARE_DELETE``. On POSIX ``rename`` returns
+# EPERM/EACCES deterministically (a sticky-bit directory, an immutable file), so
+# retrying there would only delay a real error and then relabel it as a lock.
+_replace_retries_transient_errors = os.name == "nt"
+
+
+def _replace_with_retry(
+    src: str | Path, dst: str | Path, *, attempts: int = 5, delay: float = 0.05
+) -> None:
+    """Atomically replace ``dst`` with ``src``, retrying transient Windows locks.
+
+    On Windows, ``os.replace`` (``MoveFileEx``) fails with ``PermissionError``
+    while another process has the destination open -- a reader, antivirus, or
+    the search indexer. The previous in-place write succeeded in that window.
+    Retry a few times before surfacing a clear error. Elsewhere the error is
+    deterministic and is re-raised unchanged, keeping its type and ``errno`` so
+    callers that handle permission failures still recognise it.
+    """
+    for attempt in range(attempts if _replace_retries_transient_errors else 1):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError as exc:
+            if not _replace_retries_transient_errors:
+                raise
+            if attempt == attempts - 1:
+                raise PermissionError(
+                    f"Could not replace {dst}: it remained locked by another "
+                    f"process after {attempts} attempts"
+                ) from exc
+            # Back off a little so a short-lived reader can finish.
+            time.sleep(delay * (2**attempt))
+
+
+def _publish_over_placeholder(staged: Path, target: Path) -> None:
+    """Exclusively create ``target`` from ``staged`` without hard links.
+
+    Call with the target's write lock held. Raises `FileExistsError` if the
+    target exists. If publishing fails, the empty placeholder is removed: the
+    next launch would otherwise take it as an existing config and skip writing
+    the defaults.
+    """
+    os.close(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+    placeholder = os.stat(target)
+    try:
+        _replace_with_retry(staged, target)
+    except BaseException:
+        try:
+            current = os.stat(target)
+            if (current.st_dev, current.st_ino) == (
+                placeholder.st_dev,
+                placeholder.st_ino,
+            ):
+                os.unlink(target)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _write_config_text(path: str | Path, text: str, *, exclusive: bool = False) -> bool:
+    """Replace a config file with ``text`` without ever leaving it truncated.
+
+    The new contents are staged in a temporary file beside the resolved
+    destination (symlinks keep pointing at the same file) and renamed over it,
+    so a failed write leaves the previous file intact. Existing permission bits
+    and POSIX group ownership are kept. ``config.local.toml`` holds secrets: it
+    is created 0600 and an existing one loses its group/other bits.
+
+    This replaces the destination inode: hard links to it are not updated and
+    extended metadata (ACLs, xattrs) on it is not carried over. A single-file
+    bind mount cannot be replaced; mount the config directory instead. There
+    is no in-place fallback, which would reintroduce truncation on write failure.
+
+    With ``exclusive``, the file is only created if absent; returns False (and
+    writes nothing) when it already exists.
+    """
+    target = Path(path).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # A symlinked config.local.toml is private whatever its target is called.
+    private = _is_private_config(Path(path)) or _is_private_config(target)
+    try:
+        destination_stat = target.stat()
+        mode: int | None = stat.S_IMODE(destination_stat.st_mode)
+    except FileNotFoundError:
+        destination_stat = None
+        mode = None
+    if exclusive and mode is not None:
+        return False
+    if mode is not None and (not mode & 0o222 or not os.access(target, os.W_OK)):
+        # Rename is authorized by the directory on POSIX, but a deliberately
+        # read-only config must still refuse saves. Check before staging so a
+        # Windows read-only staging file cannot mask the error during cleanup.
+        # The mode check alone is not enough: in a group-writable directory
+        # another user could replace a config they cannot write (the rename
+        # needs only directory permission), where the old in-place write
+        # raised PermissionError. Keep the mode test too so root still refuses
+        # an explicitly 0444 file, which os.access would allow.
+        raise PermissionError(errno.EACCES, "Config file is read-only", str(target))
+    if mode is not None and private:
+        mode &= 0o700
+    elif mode is None and private:
+        mode = 0o600
+
+    staged = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    # The contents never sit in a file more open than the destination. Another
+    # user who opens the staging file keeps that descriptor through a later
+    # chmod, so whenever the final mode is known the file is created 0600 and
+    # only gets its final mode once fully written. A new non-private file gets
+    # the umask-filtered 0666 default it ends up with anyway.
+    fd = os.open(
+        staged,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600 if private or mode is not None else 0o666,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+            f.flush()
+            if mode is not None:
+                # A replacement inherits the directory/process group, not the
+                # destination's. Restore it before granting group access, or a
+                # retained 0640 mode could expose secrets to a different group.
+                # Failure must leave the old file intact, not widen access.
+                # Only when the group has access 'other' does not: the move is
+                # pointless for 0600/0700, and for 0644 the group has no more
+                # than 'other' already has. An unprivileged user cannot chown
+                # to a group they are not in, so doing it anyway would fail an
+                # otherwise valid save (a config restored from another machine
+                # or a bind mount with a foreign gid).
+                if (
+                    _group_grants_more_than_other(mode)
+                    and destination_stat is not None
+                    and hasattr(os, "fchown")
+                    and os.fstat(f.fileno()).st_gid != destination_stat.st_gid
+                ):
+                    os.fchown(f.fileno(), -1, destination_stat.st_gid)
+                if hasattr(os, "fchmod"):
+                    os.fchmod(f.fileno(), mode)
+                else:  # pragma: no cover - Windows before 3.13
+                    os.chmod(staged, mode)
+            os.fsync(f.fileno())
+        if exclusive:
+            # Publish only if still absent: never replace a file another
+            # process created after our existence check.
+            try:
+                if hasattr(os, "link"):
+                    try:
+                        os.link(staged, target)
+                        staged.unlink()
+                    except FileExistsError:
+                        raise
+                    except OSError:
+                        # No hard links here (exFAT, some network mounts).
+                        # Claim the name with an empty placeholder, which fails
+                        # if the file appeared meanwhile, then replace our own
+                        # placeholder. Readers only ever see empty or complete
+                        # TOML. The write lock keeps a concurrent save from
+                        # landing between the cleanup check and the unlink.
+                        with _config_write_lock(target):
+                            _publish_over_placeholder(staged, target)
+                else:  # pragma: no cover - rename refuses existing targets there
+                    os.rename(staged, target)
+            except FileExistsError:
+                staged.unlink()
+                return False
+        else:
+            _replace_with_retry(staged, target)
+        return True
+    except BaseException:
+        try:
+            staged.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _write_config_doc(path: str | Path, doc: "TOMLDocument | Container") -> None:
+    """Serialize ``doc`` and atomically replace ``path`` (see `_write_config_text`)."""
+    _write_config_text(path, tomlkit.dumps(doc))
+
+
+def _initial_config_data(path: str) -> dict[str, Any]:
+    """The content a config layer starts with when it has no content yet.
+
+    The main config gets the built-in defaults written out. Built-in defaults
+    written into an operator-supplied runtime layer would become explicit user
+    overrides of it (notably empty lists), so that layer starts sparse. The
+    local override layer always starts empty: defaults written there would
+    shadow the main config instead of being overridden by it.
+    """
+    if _is_private_config(Path(path)) or _is_private_config(Path(path).resolve()):
+        return {}
+    if get_user_config_runtime_path(path).exists():
+        return {}
+    return _serialize_user_config(default_config)
+
+
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if path is None:
         path = config_path
@@ -981,19 +1373,14 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if not os.path.exists(path):
         # If not, create it and write some default settings
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        # Built-in defaults written here would become explicit user overrides
-        # of runtime defaults (notably empty lists). Keep this layer sparse.
-        initial = (
-            {}
-            if get_user_config_runtime_path(path).exists()
-            else _serialize_user_config(default_config)
-        )
-        toml = tomlkit.dumps(initial)
-        with open(path, "w", encoding="utf-8") as config_file:
-            config_file.write(toml)
-        logger.info(f"Created config file at {path}")
-        doc = tomlkit.loads(toml)
-        return doc
+        # A pre-existing runtime layer makes the built-in defaults its business,
+        # not this file's: writing them here would turn runtime defaults into
+        # explicit user overrides (notably empty lists).
+        toml = tomlkit.dumps(_initial_config_data(path))
+        if _write_config_text(path, toml, exclusive=True):
+            logger.info(f"Created config file at {path}")
+            return tomlkit.loads(toml)
+        # Another process created it after our check; read theirs instead.
     text = _read_config_text(path)
     try:
         return tomlkit.loads(text)
@@ -1027,33 +1414,40 @@ def set_config_value(
     if local:
         _, local_path = get_user_config_paths()
         write_path = str(local_path)
-        # Load existing local config or start empty (no defaults)
-        doc: TOMLDocument | Container = (
-            _load_config_doc(write_path) if local_path.exists() else tomlkit.document()
-        )
     else:
+        local_path = None
         write_path = config_path
-        doc = _load_config_doc()
 
-    # Set the value
-    keypath = key.split(".")
-    d: TOMLDocument | Container = doc
-    for k in keypath[:-1]:
-        if k not in d:
-            d[k] = tomlkit.table()
+    # Hold the lock across read-modify-write so concurrent writers cannot drop
+    # each other's updates. Reload only after releasing it (not re-entrant).
+    with _config_write_lock(write_path):
+        if local_path is not None:
+            # Load existing local config or start empty (no defaults)
+            doc: TOMLDocument | Container = (
+                _load_config_doc(write_path)
+                if local_path.exists()
+                else tomlkit.document()
+            )
         else:
-            existing = d[k]
-            if not isinstance(existing, MutableMapping):
-                raise ValueError(f"Cannot set '{key}': '{k}' exists but is not a table")
-        d = cast("Container", d[k])
-    d[keypath[-1]] = value
+            doc = _load_config_doc()
 
-    # Write the config
-    if local:
-        os.makedirs(os.path.dirname(write_path), exist_ok=True)
-    _back_up_before_reencoding(write_path)
-    with open(write_path, "w", encoding="utf-8", newline="") as config_file:
-        tomlkit.dump(doc, config_file)
+        # Set the value
+        keypath = key.split(".")
+        d: TOMLDocument | Container = doc
+        for k in keypath[:-1]:
+            if k not in d:
+                d[k] = tomlkit.table()
+            else:
+                existing = d[k]
+                if not isinstance(existing, MutableMapping):
+                    raise ValueError(
+                        f"Cannot set '{key}': '{k}' exists but is not a table"
+                    )
+            d = cast("Container", d[k])
+        d[keypath[-1]] = value
+
+        _back_up_before_reencoding(write_path)
+        _write_config_doc(write_path, doc)
 
     if reload:
         from .core import reload_config
@@ -1079,13 +1473,33 @@ def save_provider_config(
     if local:
         _, local_path = get_user_config_paths()
         write_path = str(local_path)
-        doc: TOMLDocument | Container = (
-            _load_config_doc(write_path) if local_path.exists() else tomlkit.document()
-        )
     else:
+        local_path = None
         write_path = config_path
-        doc = _load_config_doc()
 
+    with _config_write_lock(write_path):
+        if local_path is not None:
+            doc: TOMLDocument | Container = (
+                _load_config_doc(write_path)
+                if local_path.exists()
+                else tomlkit.document()
+            )
+        else:
+            doc = _load_config_doc()
+        _add_provider_to_doc(doc, provider)
+        _back_up_before_reencoding(write_path)
+        _write_config_doc(write_path, doc)
+
+    if reload:
+        from .core import reload_config
+
+        reload_config()
+
+
+def _add_provider_to_doc(
+    doc: "TOMLDocument | Container", provider: "ProviderConfig"
+) -> None:
+    """Insert or replace the ``[[providers]]`` entry named ``provider.name``."""
     provider_table = tomlkit.table()
     provider_table.add("name", provider.name)
     provider_table.add("base_url", provider.base_url)
@@ -1115,17 +1529,6 @@ def save_provider_config(
             break
     else:
         providers.append(provider_table)
-
-    if local:
-        os.makedirs(os.path.dirname(write_path), exist_ok=True)
-    _back_up_before_reencoding(write_path)
-    with open(write_path, "w", encoding="utf-8", newline="") as config_file:
-        tomlkit.dump(doc, config_file)
-
-    if reload:
-        from .core import reload_config
-
-        reload_config()
 
 
 def _merge_config_data(

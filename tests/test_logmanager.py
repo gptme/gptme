@@ -17,6 +17,7 @@ from gptme.logmanager import (
     LogManager,
     check_for_modifications,
     conversation_name_error,
+    eventlog,
 )
 from gptme.logmanager.manager import (
     _active_prompt_generation,
@@ -1429,4 +1430,248 @@ def test_history_log_reads_branch_lossless_archive(tmp_path: Path):
     assert [m.content for m in manager.history_log.messages] == [
         *(m.content for m in inherited),
         extra.content,
+    ]
+
+
+def test_write_jsonl_preserves_concurrent_appends(tmp_path: Path):
+    """A writer holding a stale snapshot must not drop newer appends.
+
+    The server step loads its ``LogManager`` before a long generation and then
+    appends its reply. A resume/A2A writer can append meanwhile. The stale
+    writer's append fallback must keep that message instead of rewriting the
+    transcript from its pre-generation copy.
+    """
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+
+    # Another writer appends while ``stale`` holds its pre-generation snapshot.
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale = stale.append(Message("assistant", "reply"))
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "reply",
+        "resume",
+    ]
+    # The in-memory log learns about the merged tail too, so the next write or
+    # append does not drop it or duplicate it.
+    assert [m.content for m in stale.messages] == ["prompt", "reply", "resume"]
+    assert stale.persisted_messages == 3
+
+
+def test_write_jsonl_rewrites_when_concurrent_writer_diverges(tmp_path: Path):
+    """A non-append change to the destination keeps the rewrite semantics."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt"), Message("assistant", "old")]).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    # Another writer truncated and replaced the history instead of extending it.
+    Log([Message("user", "rewritten")]).write_jsonl(jsonl_file)
+
+    stale = stale.append(Message("assistant", "reply"))
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "old",
+        "reply",
+    ]
+
+
+@pytest.mark.parametrize("replacement", ["invalid json\n", ""])
+def test_write_jsonl_rewrites_unreadable_concurrent_file(
+    tmp_path: Path, replacement: str
+):
+    """A corrupt or missing destination cannot supply a valid foreign tail."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    if replacement:
+        # Make the corrupt file larger than the persisted snapshot so reading
+        # it, rather than the size check, rejects the purported append.
+        jsonl_file.write_text(replacement * jsonl_file.stat().st_size)
+    else:
+        jsonl_file.unlink()
+
+    stale.append(Message("assistant", "reply")).write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+
+@pytest.mark.parametrize("with_tail", [False, True])
+def test_write_jsonl_rewrites_grown_non_append_history(tmp_path: Path, with_tail: bool):
+    """File growth alone does not make a replacement history a concurrent tail."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    replacement = Log([Message("user", "a much longer replacement prompt")])
+    if with_tail:
+        replacement = replacement.append(Message("user", "foreign tail"))
+    replacement.write_jsonl(jsonl_file)
+    assert stale.persisted_size is not None
+    assert jsonl_file.stat().st_size > stale.persisted_size
+
+    stale.append(Message("assistant", "reply")).write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+
+def test_write_jsonl_without_size_cursor_rewrites(tmp_path: Path):
+    """An unknown persisted size must not be treated as a validated snapshot."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale = stale.replace(persisted_size=None).append(Message("assistant", "reply"))
+    stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+
+def test_append_event_without_explicit_message_uses_last_or_skips_empty(tmp_path: Path):
+    """Legacy event callers can omit the message, including for an empty log."""
+    from gptme.logmanager.eventlog import EVENT_MESSAGE_APPEND, recover_messages
+
+    manager = LogManager(logdir=tmp_path, lock=False)
+    manager._write_event_log(EVENT_MESSAGE_APPEND)
+    assert recover_messages(tmp_path) is None
+
+    manager.append(Message("user", "prompt"))
+    manager._write_event_log(EVENT_MESSAGE_APPEND)
+    assert _recovered_contents(tmp_path) == ["prompt", "prompt"]
+
+
+def test_write_jsonl_merge_keeps_in_place_edits(tmp_path: Path):
+    """Merging a concurrent tail must not resurrect pre-edit history."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt"), Message("assistant", "first")]).write_jsonl(
+        jsonl_file, append=True
+    )
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+
+    stale.messages[-1] = stale.messages[-1].replace(content="first (edited)")
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "first (edited)",
+        "resume",
+    ]
+
+
+def test_write_jsonl_retry_does_not_duplicate_own_saved_messages(tmp_path: Path):
+    """A write that landed but raised before updating the cursor must not double.
+
+    ``append`` can fail after a complete line was flushed, and a rewrite can
+    raise in ``sync_directory`` after ``os.replace`` succeeded. The caller keeps
+    its old ``persisted`` cursor, so the retry must recognize the on-disk tail as
+    its own messages instead of merging them back as a concurrent append.
+    """
+    jsonl_file = tmp_path / "conversation.jsonl"
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+    reply = Message("assistant", "reply", metadata={"model": "mock/model", "cost": 0.1})
+    stale = stale.append(reply)
+
+    # Simulate the write having landed while the caller's cursor stayed stale.
+    Log.read_jsonl(jsonl_file).append(reply).write_jsonl(jsonl_file, append=True)
+
+    stale = stale.write_jsonl(jsonl_file, append=True)
+
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == ["prompt", "reply"]
+
+    # A foreign append after our landed write must still be preserved.
+    Log.read_jsonl(jsonl_file).append(Message("user", "resume")).write_jsonl(
+        jsonl_file, append=True
+    )
+    stale = stale.write_jsonl(jsonl_file, append=True)
+    assert [m.content for m in Log.read_jsonl(jsonl_file)] == [
+        "prompt",
+        "reply",
+        "resume",
+    ]
+
+
+def test_write_jsonl_keeps_matching_message_from_another_writer(tmp_path: Path):
+    """Same role and content from two writers are still two messages."""
+    jsonl_file = tmp_path / "conversation.jsonl"
+    attachment = tmp_path / "notes.txt"
+    attachment.write_text("notes")
+    stale = Log([Message("user", "prompt")]).write_jsonl(jsonl_file, append=True)
+
+    other = Message("user", "continue", files=[attachment])
+    Log.read_jsonl(jsonl_file).append(other).write_jsonl(jsonl_file, append=True)
+
+    stale = stale.append(Message("user", "continue"))
+    stale.write_jsonl(jsonl_file, append=True)
+
+    saved = Log.read_jsonl(jsonl_file).messages
+    assert [m.content for m in saved] == ["prompt", "continue", "continue"]
+    assert saved[-1].files == [attachment.resolve()]
+    assert saved[-1].timestamp == other.timestamp
+
+
+def _recovered_contents(logdir: Path) -> list[str]:
+    from gptme.logmanager.eventlog import recover_messages
+
+    recovered = recover_messages(logdir)
+    assert recovered is not None
+    return [message["content"] for message in recovered]
+
+
+def test_event_replay_matches_transcript_after_a_merged_append(tmp_path: Path):
+    """Recovery must reproduce the order a concurrent-tail merge wrote."""
+    manager = LogManager(logdir=tmp_path, lock=False)
+    manager.append(Message("user", "prompt"))
+
+    # A resume/A2A-style writer appends while this manager holds its snapshot.
+    LogManager.load(tmp_path, lock=False).append(Message("user", "resume"))
+
+    manager.append(Message("assistant", "reply"))
+    manager.append(Message("system", "after"))
+
+    expected = ["prompt", "reply", "resume", "after"]
+    transcript = Log.read_jsonl(tmp_path / "conversation.jsonl")
+    assert [m.content for m in transcript] == expected
+    assert _recovered_contents(tmp_path) == expected
+
+
+def test_revise_updates_view_branch_and_disk_without_backup(
+    tmp_path: Path, monkeypatch
+):
+    """A revised voice turn reaches the full history, not only the active view,
+    and does not leave an edit backup branch behind."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-conv"
+    manager = LogManager(logdir=logdir)
+    manager.append(Message("user", "early"))
+    turn = Message("user", "Hello", metadata={"voice_call": {"turn_id": "t0"}})
+    manager.append(turn)
+    manager.create_view("compacted-001", Log([Message("system", "summary"), turn]))
+    manager.switch_view("compacted-001")
+
+    def is_t0(msg: Message) -> bool:
+        return (msg.metadata or {}).get("voice_call", {}).get("turn_id") == "t0"
+
+    assert manager.revise(is_t0, "Hello, use the other file")
+    assert not manager.revise(is_t0, "Hello, use the other file")
+
+    assert [m.content for m in manager.log] == ["summary", "Hello, use the other file"]
+    on_disk = Log.read_jsonl(logdir / "conversation.jsonl")
+    assert [m.content for m in on_disk] == ["early", "Hello, use the other file"]
+    view = Log.read_jsonl(logdir / "views" / "compacted-001.jsonl")
+    assert [m.content for m in view] == ["summary", "Hello, use the other file"]
+    manager.switch_to_master()
+    assert [m.content for m in manager.log] == ["early", "Hello, use the other file"]
+    assert list(manager._branches) == ["main"]
+    edit = [e for e in eventlog.read_events(logdir) if e["type"] == "message_edit"]
+    assert [m["content"] for m in edit[-1]["payload"]["messages"]] == [
+        "early",
+        "Hello, use the other file",
     ]

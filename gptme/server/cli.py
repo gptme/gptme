@@ -49,11 +49,12 @@ if threading.current_thread() is threading.main_thread() and not callable(
 import click
 from click_default_group import DefaultGroup
 
-from gptme.config import set_config_from_workspace
+from gptme.config import get_config, resolve_model_source, set_config_from_workspace
 
 from ..cli.completion import complete_model
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
+from ..util.env_file import load_user_dotenv
 from .constants import _pick_fallback_model
 from .token_file import read_token_file, remove_token_file, write_token_file
 
@@ -86,6 +87,15 @@ def _parse_tools_allowlist(tools: str | None) -> list[str] | None:
             )
         return []
     return names
+
+
+def _is_reloader_parent(debug: bool) -> bool:
+    """Whether this is Werkzeug's reloader parent, which never serves requests.
+
+    Under ``--debug`` the reloader re-runs the CLI in a child process that
+    serves; the parent only watches files.
+    """
+    return debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -297,6 +307,16 @@ def main():
         "Can also be set via the GPTME_SERVER_DEFAULT_PROFILE environment variable."
     ),
 )
+@click.option(
+    "--voice",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable realtime voice: start a gptme-voice sidecar for each realtime "
+        "provider with an API key (OPENAI_API_KEY, XAI_API_KEY). Requires "
+        "gptme-voice. Can also be set via GPTME_SERVER_VOICE=1."
+    ),
+)
 def serve(
     debug: bool,
     verbose: bool,
@@ -310,6 +330,7 @@ def serve(
     exit_on_parent_death: bool,
     watch_pid: int | None,
     default_profile: str | None,
+    voice: bool,
 ):  # pragma: no cover
     """Starts a server and web UI for gptme."""
     from .app import create_app
@@ -323,6 +344,23 @@ def serve(
 
     if exit_on_parent_death or watch_pid is not None:
         _start_parent_death_watcher(watch_pid=watch_pid)
+
+    # Load .env before resolving the configured model. init() loads it too, but
+    # that happens after this resolution, so a MODEL set only in .env would be
+    # missed here and the operator's provider choice silently dropped
+    # (gptme/gptme#5354). Loading twice is harmless: dotenv does not override
+    # variables that are already set.
+    load_user_dotenv()
+
+    # A model pinned by the operator (--model, MODEL/GPTME_MODEL in the
+    # environment, .env or config, [models].default) is a deliberate provider
+    # choice: never silently substitute a different provider when it cannot
+    # be initialized (gptme/gptme#5353). Only auto-detect a fallback when no
+    # model was configured at all.
+    configured_model: str | None = None
+    resolution = resolve_model_source(get_config(), cli_model=model)
+    if resolution is not None:
+        configured_model = resolution[0]
 
     # Try to initialize with provided/configured model
     # If init fails due to missing model/API keys, use fallback
@@ -348,25 +386,46 @@ def serve(
         if not is_config_error:
             raise
 
-        # Handle model configuration errors with fallback.
-        # Pick a fallback that matches an available provider so we don't try
-        # (and fail) to use Anthropic when the user only has e.g. OpenAI keys.
-        fallback_model = _pick_fallback_model()
-        logger.warning(
-            f"No default model configured. Using fallback: {fallback_model}. "
-            "Set MODEL environment variable or use --model flag for explicit configuration."
-        )
-        # require_llm=False: if the fallback provider also has no API key
-        # (e.g. first-run Tauri with no keys configured), start the server
-        # in degraded mode so the user can configure a provider via the UI.
-        init(
-            fallback_model,
-            interactive=False,
-            tool_allowlist=_parse_tools_allowlist(tools),
-            tool_format="markdown",
-            server=True,
-            require_llm=False,
-        )
+        if configured_model:
+            # Never switch providers on an explicit model: that would send
+            # conversations to a provider the operator did not choose.
+            # Start in the same degraded/setup mode as with no keys at all.
+            logger.error(
+                "Cannot initialize the configured model %s: %s. "
+                "Not falling back to another provider. Starting in setup mode — "
+                "configure this provider's API key (or pass a different --model) "
+                "and restart.",
+                configured_model,
+                error_msg.split("\n", 1)[0],
+            )
+            init(
+                configured_model,
+                interactive=False,
+                tool_allowlist=_parse_tools_allowlist(tools),
+                tool_format="markdown",
+                server=True,
+                require_llm=False,
+            )
+        else:
+            # No model configured (first-run desktop/Tauri): pick a fallback
+            # that matches an available provider so we don't try (and fail) to
+            # use Anthropic when the user only has e.g. OpenAI keys.
+            fallback_model = _pick_fallback_model()
+            logger.warning(
+                f"No default model configured. Using fallback: {fallback_model}. "
+                "Set MODEL environment variable or use --model flag for explicit configuration."
+            )
+            # require_llm=False: if the fallback provider also has no API key
+            # (e.g. first-run Tauri with no keys configured), start the server
+            # in degraded mode so the user can configure a provider via the UI.
+            init(
+                fallback_model,
+                interactive=False,
+                tool_allowlist=_parse_tools_allowlist(tools),
+                tool_format="markdown",
+                server=True,
+                require_llm=False,
+            )
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)
     init_telemetry(
@@ -405,11 +464,27 @@ def serve(
         else None,
     )
 
+    from .voice_api import init_voice, voice_enabled_from_env
+
+    # Only the serving process starts sidecars (not the reloader's parent).
+    if (voice or voice_enabled_from_env()) and not _is_reloader_parent(debug):
+        from ..llm.models import get_default_model  # fmt: skip
+
+        default_model = get_default_model()
+        init_voice(
+            host=host,
+            port=port,
+            token=token,
+            workspace=Path.cwd(),
+            model=default_model.full if default_model else None,
+        )
+
     try:
         # Written inside the try so a failed startup still removes it.
         if shared_token:
             write_token_file(shared_token)
-        app.run(debug=debug, host=host, port=port)
+        # Flask would otherwise load .env/.flaskenv from the working directory.
+        app.run(debug=debug, host=host, port=port, load_dotenv=False)
     finally:
         if shared_token:
             remove_token_file(shared_token)

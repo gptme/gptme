@@ -58,11 +58,6 @@ export interface Settings {
    */
   sttAuthToken: string;
   /**
-   * WebSocket URL for the gptme-voice-server /voice endpoint, e.g. ws://localhost:5700/voice.
-   * Leave empty to hide the VoiceButton.
-   */
-  voiceServerUrl: string;
-  /**
    * When true, tool execution prompts are skipped and all tools are auto-confirmed.
    * Equivalent to --no-confirm in the CLI (also known as "YOLO mode").
    */
@@ -94,7 +89,6 @@ const defaultSettings: Settings = {
   ttsServerUrl: '',
   ttsAuthToken: '',
   sttAuthToken: '',
-  voiceServerUrl: '',
   noConfirmMode: false,
   groupTurns: true,
 };

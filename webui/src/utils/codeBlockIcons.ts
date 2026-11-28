@@ -12,7 +12,18 @@ import type { LucideIcon } from 'lucide-react';
  *
  * Mirrors the icon set used by CollapsedStepGroup.
  */
+/**
+ * Langtag as shown to the user. Native tool calls are rendered as
+ * "tool-call <tool> ..." fences (see nativeToolCalls.ts) so the chat renderer
+ * can collapse them like other tool blocks; the label shows just the tool, as
+ * for markdown-format tool calls ("shell", not "tool-call shell").
+ */
+export function displayLangtag(langtag: string): string {
+  return (langtag || '').replace(/^tool-call\s+/i, '');
+}
+
 export function iconForLangtag(langtag: string): LucideIcon {
+  langtag = displayLangtag(langtag);
   const tag = (langtag || '').split(' ')[0].toLowerCase();
   // file path (e.g. /path/to/file.py)
   if ((tag.includes('/') || tag.includes('\\') || tag.includes('.')) && tag === langtag) {
@@ -66,6 +77,6 @@ function escapeHtml(s: string): string {
 export function codeBlockLabelHtml(langtag: string, fallbackText = 'Code'): string {
   const Icon = iconForLangtag(langtag);
   const svg = renderToStaticMarkup(createElement(Icon, { size: 14 }));
-  const text = langtag ? escapeHtml(langtag) : fallbackText;
+  const text = langtag ? escapeHtml(displayLangtag(langtag)) : fallbackText;
   return `<span class="codeblock-icon">${svg}</span><span class="codeblock-label-text">${text}</span>`;
 }

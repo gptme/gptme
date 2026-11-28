@@ -523,6 +523,15 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     getConversationMetadata: async () => ({ starred: false }),
     createAgent: async () => notImpl('createAgent'),
     deleteSession: async () => {},
+    // Demo mode has no server-side voice.
+    getVoiceStatus: async () => ({
+      available: false,
+      reason: 'voice is not available in demo mode',
+      providers: [],
+      default_provider: null,
+    }),
+    createVoiceSession: async () => notImpl('createVoiceSession'),
+    voiceWebSocketUrl: () => notImpl('voiceWebSocketUrl'),
     getExternalSession: async () => notImpl('getExternalSession'),
     steerExternalSession: async () => notImpl('steerExternalSession'),
     // Demo conversations are created synchronously in-memory, so there is never

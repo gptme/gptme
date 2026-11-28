@@ -36,6 +36,9 @@ import shutil
 import subprocess
 import time
 from collections.abc import Generator
+from pathlib import Path
+
+import yaml
 
 from ..message import Message
 from ..util.gh import (
@@ -657,6 +660,208 @@ def _failure_stream_preview(
     return _truncate_log_tail(text, max_chars, hint)
 
 
+# gh subcommands that make the CLI run a local program. The gh tool never asks
+# for confirmation, so letting these through would hand the model unconfirmed
+# local code execution outside the shell tool's confirmation and guardrails.
+_LOCAL_PROGRAM_CONFIG_KEYS = frozenset({"browser", "editor", "pager"})
+_SAFE_EXTENSION_ACTIONS = frozenset({"list", "ls", "search"})
+_EXTENSION_RUN_ACTIONS = frozenset({"browse", "create", "exec", "install", "upgrade"})
+
+# Commands gh itself implements. Anything else is a user alias or an installed
+# extension, both of which run programs the CLI resolves at call time. Names
+# only recent releases implement (``agent-task``, ``preview``, ``skill``) are
+# left out: on an older gh an alias or extension can own them.
+_GH_BUILTIN_COMMANDS = frozenset(
+    {
+        "alias",
+        "api",
+        "attestation",
+        "auth",
+        "browse",
+        "cache",
+        "codespace",
+        "completion",
+        "config",
+        "discussion",
+        "extension",
+        "gist",
+        "gpg-key",
+        "issue",
+        "label",
+        "licenses",
+        "org",
+        "pr",
+        "project",
+        "release",
+        "repo",
+        "ruleset",
+        "run",
+        "search",
+        "secret",
+        "ssh-key",
+        "status",
+        "variable",
+        "workflow",
+        # Command-group aliases gh ships with.
+        "cs",
+        "ext",
+        "extensions",
+    }
+)
+
+
+def _gh_config_dirs() -> list[Path]:
+    """Candidate gh config directories.
+
+    Windows resolves its config from ``%AppData%`` rather than XDG, so that
+    location is included whenever the variable is set. Reading an extra path
+    can only make the guard stricter; resolving the wrong single directory
+    would let an existing alias through without confirmation.
+    """
+    if configured := os.environ.get("GH_CONFIG_DIR"):
+        return [Path(configured)]
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    dirs = [Path(base) / "gh"]
+    if appdata := os.environ.get("APPDATA"):
+        dirs.append(Path(appdata) / "GitHub CLI")
+    return dirs
+
+
+def _gh_data_dirs() -> list[Path]:
+    """Candidate gh data directories (extension installs). See config dirs."""
+    if configured := os.environ.get("GH_DATA_DIR"):
+        return [Path(configured)]
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    dirs = [Path(base) / "gh"]
+    for var in ("LOCALAPPDATA", "APPDATA"):
+        if value := os.environ.get(var):
+            candidate = Path(value) / "GitHub CLI"
+            if candidate not in dirs:
+                dirs.append(candidate)
+    return dirs
+
+
+def _gh_alias_values() -> dict[str, str] | None:
+    """Alias name -> definition from gh's config files.
+
+    Returns an empty dict when no config file exists. Returns ``None`` when a
+    config file exists but cannot be read or parsed: the guard then cannot
+    tell whether a subcommand is an alias, so it must refuse rather than let
+    an alias run unconfirmed.
+
+    Read on every call instead of cached: an alias defined through the shell
+    tool mid-session must not stay invisible to this guard, and a missing
+    config must not stall the pass-through on a subprocess timeout.
+    """
+    aliases: dict[str, str] = {}
+    for directory in _gh_config_dirs():
+        path = directory / "config.yml"
+        try:
+            # gh itself reads the config as UTF-8. The locale default would
+            # reject any non-ASCII alias on a cp1252 host and skip the whole
+            # file, hiding every alias it defines.
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError):
+            # The file exists but cannot be read: refusing unknown
+            # subcommands is the only fail-closed option.
+            return None
+        try:
+            config = yaml.safe_load(text)
+        except yaml.YAMLError:
+            return None
+        found = config.get("aliases") if isinstance(config, dict) else None
+        if isinstance(found, dict):
+            aliases.update({str(name): str(value) for name, value in found.items()})
+    return aliases
+
+
+def _gh_extension_names() -> frozenset[str]:
+    """Names of installed gh extensions, from ``gh-<name>`` entries on disk."""
+    names: set[str] = set()
+    for directory in _gh_data_dirs():
+        try:
+            entries = list((directory / "extensions").iterdir())
+        except OSError:
+            continue
+        names.update(
+            entry.name.removeprefix("gh-")
+            for entry in entries
+            if entry.name.startswith("gh-")
+        )
+    return frozenset(names)
+
+
+def _local_exec_reason(
+    gh_args: list[str], _seen: frozenset[str] = frozenset()
+) -> str | None:
+    """Return why ``gh <gh_args>`` would run a local program, or None.
+
+    gh accepts flags between a command group and its subcommand, so the
+    dangerous subcommands are matched among all positionals of their group.
+    """
+    if gh_args in (["--version"], ["--help"], ["-h"]):
+        return None
+    # Repository selection is an inherited flag accepted before the command.
+    # Skip only known forms, not arbitrary flags whose values could conceal
+    # which command gh resolves (including aliases and extensions).
+    while gh_args and gh_args[0].startswith("-"):
+        flag = gh_args[0]
+        if flag in ("-R", "--repo") and len(gh_args) > 1:
+            gh_args = gh_args[2:]
+        elif flag.startswith("--repo=") or (flag.startswith("-R") and len(flag) > 2):
+            gh_args = gh_args[1:]
+        else:
+            return "flags before the subcommand hide which command runs"
+    positionals = [a for a in gh_args if not a.startswith("-")]
+    if not positionals:
+        return None
+    sub, action = positionals[0], positionals[1] if len(positionals) > 1 else None
+    rest = set(positionals[1:])
+    # Any alias can later reach a refused command under another name.
+    if sub == "alias" and rest & {"set", "import"}:
+        return "an alias can run local programs or rename a refused command"
+    if sub in ("extension", "extensions", "ext") and action is not None:
+        if action not in _SAFE_EXTENSION_ACTIONS or rest & _EXTENSION_RUN_ACTIONS:
+            return f"`gh {sub} {action}` installs or runs extension programs"
+    if sub == "copilot":
+        # The gh-copilot extension on older gh, the Copilot CLI on newer.
+        return "`gh copilot` runs a local program"
+    if sub == "config" and "set" in rest and _LOCAL_PROGRAM_CONFIG_KEYS & rest:
+        return "the browser, editor and pager settings are commands gh executes"
+    if "--" in gh_args[:-1]:
+        # ``-- <flags>`` reaches git or ssh, where ``-c core.sshCommand=`` or
+        # ``-oProxyCommand=`` names a program that runs locally.
+        if sub in ("repo", "gist") and rest & {"clone", "fork"}:
+            return f"`gh {sub}` with `-- <gitflags>` passes options to git"
+        if sub in ("codespace", "cs") and rest & {"ssh", "cp"}:
+            return f"`gh {sub}` with `--` passes options to ssh"
+    if sub in _GH_BUILTIN_COMMANDS:
+        return None
+    # An alias or an installed extension runs under a name none of the checks
+    # above recognize. Refuse rather than hand the model unconfirmed local
+    # execution; a plain alias that only expands to a safe gh command is fine.
+    if sub in _seen:
+        return "an alias cycle hides which command runs"
+    alias_values = _gh_alias_values()
+    if alias_values is None:
+        return "gh's config exists but could not be parsed; cannot rule out an alias"
+    alias_value = alias_values.get(sub)
+    if alias_value is not None:
+        if alias_value.startswith("!"):
+            return f"`gh {sub}` is a shell alias, which runs local commands"
+        try:
+            expanded = shlex.split(alias_value)
+        except ValueError:
+            return f"`gh {sub}` is an alias with an unparsable definition"
+        if reason := _local_exec_reason(expanded + gh_args[1:], _seen | {sub}):
+            return f"`gh {sub}` is an alias for `gh {alias_value}`: {reason}"
+    if sub in _gh_extension_names():
+        return f"`gh {sub}` is an installed extension, which runs a local program"
+    return None
+
+
 def _passthrough_gh(
     args: list[str] | None, code: str | None
 ) -> Generator[Message, None, None]:
@@ -672,6 +877,14 @@ def _passthrough_gh(
             return
     else:
         yield Message("system", "Error: No command provided")
+        return
+
+    if reason := _local_exec_reason(cmd[1:]):
+        yield Message(
+            "system",
+            f"Error: refused `{shlex.join(cmd)}`: {reason}. The gh tool does not "
+            "run local programs; use the shell tool, which asks for confirmation.",
+        )
         return
 
     logger.info("gh pass-through: %s", shlex.join(cmd))

@@ -12,6 +12,7 @@ import tomlkit
 
 from ..util import path_with_tilde
 from .models import ProjectConfig
+from .trust import withhold_untrusted
 from .user import _merge_config_data, _read_config_text
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,8 @@ def get_project_config(
                 f"Using local configuration from {path_with_tilde(local_config_path)}"
             )
 
-    return config
+    # Untrusted projects must not reach MCP spawns, plugin code, [env] or rag.
+    return withhold_untrusted(config)
 
 
 @lru_cache(maxsize=4)
