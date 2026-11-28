@@ -1,11 +1,14 @@
 """Secret reach tests inspect inert commands and synthetic files only."""
 
+import os
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from gptme.hooks.guardrails import _find_secret_path_in_cmd, guardrail_hook
 from gptme.tools.base import ToolUse
+from gptme.util.workspace import workspace_scope
 
 
 @pytest.fixture
@@ -1063,3 +1066,128 @@ def test_secret_path_after_literal_hash_is_detected(
     assert _find_secret_path_in_cmd(command) is not None
     monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
     assert guardrail_hook(ToolUse(tool="shell", args=[], content=command)) is not None
+
+
+@pytest.fixture
+def linked_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, requires_symlinks: None
+) -> Path:
+    """A workspace whose innocuously named links lead to credentials."""
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "material").write_text("synthetic\n")
+    monkeypatch.setenv("HOME", str(home))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "notes.txt").symlink_to(home / ".ssh" / "material")
+    (workspace / "keys").symlink_to(home / ".ssh", target_is_directory=True)
+    (workspace / "readme").write_text("plain\n")
+    (workspace / "readme-link").symlink_to("readme")
+    monkeypatch.chdir(tmp_path)  # relative operands anchor to the workspace
+    return workspace
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat notes.txt",
+        "cat ./notes.txt",
+        "head -c 8 '{workspace}/notes.txt'",
+        "cat keys/material",
+        "tool --input=notes.txt",
+        "wc -c <notes.txt",
+        "cat readme notes.txt",
+    ],
+)
+def test_symlink_operand_to_secret_is_detected(
+    linked_workspace: Path, command: str
+) -> None:
+    command = command.format(workspace=linked_workspace)
+    assert _find_secret_path_in_cmd(command, linked_workspace) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat readme",
+        "cat readme-link",
+        "echo notes",
+        "echo done 2>/dev/stderr",
+        "cat /dev/stdin",
+    ],
+)
+def test_ordinary_links_stay_allowed(linked_workspace: Path, command: str) -> None:
+    assert _find_secret_path_in_cmd(command, linked_workspace) is None
+
+
+def test_link_into_own_home_is_judged_by_credential_rules(
+    linked_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As root, HOME is under the broad /root/ prefix: a venv interpreter linking
+    # into it must still run, while a credential directory there stays blocked.
+    monkeypatch.setenv("HOME", "/root")
+    (linked_workspace / "python").symlink_to("/root/.local/bin/python3")
+    (linked_workspace / "settings").symlink_to("/root/.aws/settings")
+    assert _find_secret_path_in_cmd("./python -V", linked_workspace) is None
+    assert _find_secret_path_in_cmd("cat settings", linked_workspace) is not None
+
+
+def test_enforce_mode_blocks_linked_secret_in_shell(
+    linked_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GPTME_GUARDRAILS", "enforce")
+    result = guardrail_hook(
+        ToolUse("shell", [], "cat notes.txt"), workspace=linked_workspace
+    )
+    assert result is not None
+    assert result.action.value == "skip"
+
+
+@pytest.mark.parametrize(
+    ("name", "command"),
+    [
+        ("notes ", "cat 'notes '"),
+        (" notes", 'cat " notes"'),
+        ("$HOME", "cat '$HOME'"),
+        ("notes ", "tool --input='notes '"),
+    ],
+)
+def test_quoted_link_names_are_resolved_as_written(
+    linked_workspace: Path, name: str, command: str
+) -> None:
+    (linked_workspace / name).symlink_to("notes.txt")
+    assert _find_secret_path_in_cmd(command, linked_workspace) is not None
+
+
+def test_link_operand_defaults_to_session_workspace(linked_workspace: Path) -> None:
+    # A server's process cwd belongs to the host, not to this conversation.
+    assert _find_secret_path_in_cmd("cat notes.txt") is None
+    with workspace_scope(linked_workspace):
+        assert _find_secret_path_in_cmd("cat notes.txt") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -r credentials src",
+        "openssl genrsa -out server.key 2048",
+    ],
+)
+def test_linked_workspace_path_is_not_a_linked_operand(
+    linked_workspace: Path, command: str
+) -> None:
+    # Reaching the workspace through a link must not change what its words mean.
+    alias = linked_workspace.parent / "alias"
+    alias.symlink_to(linked_workspace, target_is_directory=True)
+    assert _find_secret_path_in_cmd(command, alias) is None
+    assert _find_secret_path_in_cmd("cat notes.txt", alias) is not None
+
+
+@pytest.mark.skipif(not os.access("/dev/shm", os.W_OK), reason="needs /dev/shm")
+def test_workspace_under_dev_is_still_checked(linked_workspace: Path) -> None:
+    # Only the standard stream aliases are exempt, not everything under /dev.
+    with tempfile.TemporaryDirectory(dir="/dev/shm") as tmp:
+        (Path(tmp) / "notes.txt").symlink_to(linked_workspace / "notes.txt")
+        assert _find_secret_path_in_cmd("cat notes.txt", Path(tmp)) is not None
+        assert _find_secret_path_in_cmd(f"cat {tmp}/notes.txt", Path(tmp)) is not None
+        assert _find_secret_path_in_cmd("cat /dev/fd/3", Path(tmp)) is None

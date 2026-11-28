@@ -156,7 +156,8 @@ def _path_spellings(expanded: str, workspace: Path | None = None) -> list[str]:
 
     The prefix rules below match text, so ``~/work/../.ssh/config`` and a
     relative ``.ssh/config`` slip past a literal comparison. Symlink targets
-    are deliberately not resolved (see ``test_file_symlinks_in_globs``).
+    are not resolved here: :func:`_links_to_secret` does that for literal shell
+    operands, not for glob expansions (see ``test_file_symlinks_in_globs``).
     Metacharacters may be literal filename characters after shell quoting
     (``work$/../.ssh/config``), including operands of arbitrary programs that
     the reader-reach analysis does not inspect. Check the collapsed spelling
@@ -242,6 +243,50 @@ def _is_secret_target(literal: str, exempt_under: str | None = None) -> bool:
     return resolved != literal and _is_secret_spelling(resolved, exempt_under)
 
 
+# These link into /proc, which the broad secret prefixes would otherwise block.
+_DEV_STREAM_LINKS = ("/dev/stdin", "/dev/stdout", "/dev/stderr", "/dev/fd")
+
+
+def _links_to_secret(operand: str, workspace: Path | None = None) -> bool:
+    """True if a literal shell operand leads through a symlink to a secret file.
+
+    Only the resolved target is judged here; the operand's own spelling is the
+    caller's job. The broad ``/root/`` prefix is not applied to targets inside
+    the user's own home, so ``.venv/bin/python`` linking into ``~/.local`` still
+    runs as root. Credential directories and file names always apply.
+
+    Globs and substitutions are not evaluated, so what they expand to is not
+    resolved. The standard stream aliases are skipped (see
+    :data:`_DEV_STREAM_LINKS`).
+    """
+    # A quoted operand is opened exactly as written (trailing spaces, a literal
+    # ``$``); an unquoted one is expanded first. Check both spellings.
+    return any(
+        _spelling_links_to_secret(spelling, workspace)
+        for spelling in {operand, _normalize_path_token(operand)}
+        if spelling
+    )
+
+
+def _spelling_links_to_secret(spelling: str, workspace: Path | None) -> bool:
+    from ..util.workspace import current_workspace
+
+    try:
+        # Resolve the workspace first, so a link on the way to it does not make
+        # every word look linked.
+        base = os.path.realpath(workspace or current_workspace())
+        anchored = os.path.join(base, spelling)
+        spelled = os.path.abspath(anchored)
+        if any(_path_has_prefix(spelled, alias) for alias in _DEV_STREAM_LINKS):
+            return False
+        resolved = os.path.realpath(anchored)
+        if resolved == spelled:
+            return False  # no link on the path
+    except (OSError, ValueError):
+        return False
+    return _is_secret_spelling(resolved, exempt_under=str(Path.home()))
+
+
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
     """Return the first token in ``cmd`` that looks like a secret path, or None."""
     import shlex
@@ -258,8 +303,8 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
         # Unmatched quotes etc. — fallback to whitespace split
         tokens = cmd.split()
 
-    for token in tokens:
-        token = token.strip("'\"")
+    for operand in tokens:
+        token = operand.strip("'\"")
         # Option flags: skip unless they carry a value after '='
         # (`python script.py --aws_key=~/.aws/credentials`).
         if token.startswith("-"):
@@ -267,7 +312,14 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
                 value = token.split("=", 1)[1].strip("'\"")
                 if value and _is_secret_path(value, workspace):
                     return value
+                linked = operand.split("=", 1)[1]
+                if _links_to_secret(linked, workspace):
+                    return linked
             continue
+        # A bare name can be a link too (`cat notes.txt`), so check links
+        # before the path-shape heuristic below.
+        if _links_to_secret(operand, workspace):
+            return operand
         # Skip command names (heuristic: no path separators and no home marker)
         if (
             "/" not in token
