@@ -2754,6 +2754,23 @@ def subagent_status(agent_id: str) -> dict:
     return asdict(sa.status())
 
 
+def _wait_for_subprocess_outcome(
+    sa: Subagent, launcher: threading.Thread, timeout: float
+) -> ReturnType:
+    """Wait for publication of the outcome, independently of launcher cleanup."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if not launcher.is_alive():
+            return sa.status()
+        cached = sa._cached_result()
+        if cached is not None:
+            return cached
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return ReturnType("running")
+        launcher.join(timeout=min(remaining, 0.05))
+
+
 @_without_inprocess_cwd_pin
 def subagent_wait(
     agent_id: str, timeout: int = 60, max_result_chars: int = 2000
@@ -2779,8 +2796,10 @@ def subagent_wait(
 
     logger.info(f"Waiting for subagent {agent_id} to finish...")
 
-    if sa.execution_mode == "subprocess" and sa.process:
-        # Subprocess mode: wait for process
+    status = None
+    if sa.execution_mode == "subprocess" and sa.thread:
+        status = _wait_for_subprocess_outcome(sa, sa.thread, timeout)
+    elif sa.execution_mode == "subprocess" and sa.process:
         try:
             sa.process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -2801,14 +2820,13 @@ def subagent_wait(
         # Thread mode: join thread
         sa.thread.join(timeout=timeout)
 
-    # A shadowed run (another conversation's running run holds the ID) must not
-    # read the agent_id-keyed cache; sa.status() reports its own outcome.
-    cached_status = (
-        _wait_for_cached_subagent_result(sa)
-        if sa.is_running() and not sa.shadowed
-        else None
-    )
-    status = cached_status if cached_status is not None else sa.status()
+    if status is None:
+        # A shadowed run must not read the agent_id-keyed cache; sa.status()
+        # reports its own outcome.
+        if sa.is_running() and not sa.shadowed:
+            status = _wait_for_cached_subagent_result(sa)
+        if status is None:
+            status = sa.status()
     result_dict = asdict(status)
 
     # Apply output_schema parsing before truncation — the parsed object may be
