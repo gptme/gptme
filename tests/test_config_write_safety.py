@@ -1189,6 +1189,47 @@ def test_onboard_refuses_when_local_models_is_not_a_table(
     assert local.read_text(encoding="utf-8") == 'models = "oops"\n'
 
 
+def test_onboard_refuses_local_non_table_models_when_local_holds_the_default(
+    config_file: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The local file is the write target, so its own check cannot be skipped.
+
+    With ``[env].MODEL`` in config.local.toml the effective default is local,
+    which used to skip both non-table ``models`` checks. The writer then raised
+    ``ValueError: ... 'models' exists but is not a table`` after the user had
+    already confirmed the replacement.
+    """
+    from gptme.cli import onboard
+
+    local = config_file.with_name("config.local.toml")
+    original = 'models = "oops"\n\n[env]\nMODEL = "anthropic/old"\n'
+    local.write_text(original, encoding="utf-8")
+    # A process MODEL would outrank the user config and make the default
+    # non-local, hiding the branch under test.
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+
+    with (
+        patch.object(onboard, "config_path", str(config_file)),
+        patch.object(
+            onboard,
+            "get_config",
+            side_effect=lambda: SimpleNamespace(user=load_user_config()),
+        ),
+        patch.object(onboard, "set_config_value") as save,
+    ):
+        result = onboard._create_config("openai", "openai/y")
+
+    save.assert_not_called()
+    assert result is None
+    out = capsys.readouterr().out.replace("\n", "")
+    assert "not a table" in out
+    assert "config.local.toml" in out
+    assert local.read_text(encoding="utf-8") == original
+
+
 @pytest.mark.parametrize("shape", ["plain", "symlink"])
 def test_onboard_recovery_restores_defaults_for_both_config_shapes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str

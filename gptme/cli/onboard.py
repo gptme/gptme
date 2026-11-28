@@ -436,13 +436,16 @@ def _create_config(provider: str, model: str | None = None) -> Path | None:
     # config.local.toml overrides config.toml, so update it if it sets one.
     # Use the startup loader, which also accepts legacy-encoded files.
     main_path, local_path = get_user_config_paths()
-    if not in_local:
-        if _config_sets_non_table_models(local_path):
-            _refuse_non_table_models(local_path, shadows_main=True)
-            return None
-        if _config_sets_non_table_models(main_path):
-            _refuse_non_table_models(main_path, shadows_main=False)
-            return None
+    # The local file is also the write target when it sets the default (or
+    # ``[env].MODEL``), so its own non-table ``models`` must be refused on that
+    # path too: the writer would otherwise raise after the user confirmed the
+    # replacement.
+    if _config_sets_non_table_models(local_path):
+        _refuse_non_table_models(local_path, shadows_main=True)
+        return None
+    if not in_local and _config_sets_non_table_models(main_path):
+        _refuse_non_table_models(main_path, shadows_main=False)
+        return None
 
     if current and current != model:
         console.print(f"\n[yellow]Default model already set: {current}[/yellow]")
