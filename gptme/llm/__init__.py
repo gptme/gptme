@@ -70,6 +70,10 @@ def _drain_toolbreak_stream(stream: "_StreamWithMetadata") -> None:
 
     This is safe because after the tool-use break, we discard the drained
     content — it's only the side-effects (metadata capture) we care about.
+    For native tool format (``"tool"``), drain errors still propagate so
+    generation recovery does not execute an uncommitted native tool call;
+    for markdown/XML tool breaks the tool block is already complete, so
+    provider/transport errors fall back to partial metadata.
     """
     discarded = 0
     try:
@@ -84,6 +88,22 @@ def _drain_toolbreak_stream(stream: "_StreamWithMetadata") -> None:
         # breakdown shows accurate output tokens and cost.
         if e.value:
             stream.metadata = e.value
+    except Exception as exc:
+        if get_tool_format() == "tool" or not is_provider_error(exc):
+            raise
+        logger.debug(
+            "Ignoring provider error while draining stream after tool-use break: %s",
+            exc,
+        )
+        if stream.metadata is None:
+            partial_meta: MessageMetadata | None = (
+                stream._partial.get("metadata") if stream._partial else None
+            )
+            stream.metadata = (
+                cast(MessageMetadata, {"model": stream.model, **partial_meta})
+                if partial_meta
+                else {"model": stream.model}
+            )
     if discarded:
         logger.debug("Drained %d chunks after tool-use break", discarded)
 

@@ -19,6 +19,7 @@ autonomous session. Override with ``GPTME_LLM_MAX_RETRIES``.
 """
 
 import logging
+import math
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -63,7 +64,13 @@ def get_max_retries(default: int = DEFAULT_MAX_RETRIES) -> int:
 
 def retry_delay(attempt: int, base_delay: float = DEFAULT_BASE_DELAY) -> float:
     """Capped exponential backoff delay for a zero-indexed attempt."""
-    return min(base_delay * (2**attempt), MAX_RETRY_DELAY)
+    if base_delay <= 0:
+        return 0.0
+    try:
+        delay = math.ldexp(base_delay, attempt)
+    except OverflowError:
+        return MAX_RETRY_DELAY if attempt >= 0 else 0.0
+    return min(delay, MAX_RETRY_DELAY)
 
 
 def _utcnow() -> datetime:

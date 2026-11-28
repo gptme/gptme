@@ -258,6 +258,123 @@ class TestSelectRelevantFiles:
         reply.assert_called_once()
         assert selected == (expected if falls_back else [])
 
+    def test_hybrid_preserves_ranked_candidates_without_recent_filename_match(
+        self, tmp_path: Path
+    ) -> None:
+        """Hybrid selection must not drop active files when recent messages omit filenames."""
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=tmp_path,
+            check=True,
+        )
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+        imp = tmp_path / "important_module.py"
+        imp.write_text("def core(): return 1\n")
+        other = tmp_path / "other.py"
+        other.write_text("x = 2\n")
+        subprocess.run(["git", "add", "important_module.py"], cwd=tmp_path, check=True)
+
+        msgs = [
+            Message("user", "inspect important_module.py", files=[imp]),
+            Message("assistant", "checked", files=[imp]),
+            Message("user", "update important_module.py", files=[imp]),
+            Message("assistant", "updated", files=[imp]),
+            Message("user", "review important_module.py", files=[imp]),
+            Message("user", "please run the failing tests again"),
+            Message("assistant", "running tests now please wait"),
+            Message("user", "please run the failing tests again"),
+            Message("assistant", "still running tests please wait"),
+            Message("user", "please run the failing tests again"),
+        ]
+
+        rule_selected = select_relevant_files(
+            msgs,
+            workspace=tmp_path,
+            use_selector=True,
+            config=FileSelectorConfig(strategy="rule"),
+        )
+        with patch("gptme.llm.reply") as reply:
+            hybrid_selected = select_relevant_files(
+                msgs,
+                workspace=tmp_path,
+                use_selector=True,
+                config=FileSelectorConfig(strategy="hybrid"),
+            )
+
+        reply.assert_not_called()
+        assert rule_selected[0] == imp.resolve()
+        assert hybrid_selected == rule_selected
+
+    def test_hybrid_refines_ranked_candidates_with_llm_when_exceeding_max_files(
+        self, tmp_path: Path
+    ) -> None:
+        """When candidates exceed max_files, hybrid passes ranked files to LLM even without keyword hits."""
+        f1 = tmp_path / "important_module.py"
+        f2 = tmp_path / "helper_utils.py"
+        f1.write_text("a = 1\n")
+        f2.write_text("b = 2\n")
+        msgs = [
+            Message("user", "work on important_module.py", files=[f1]),
+            Message("user", "also helper_utils.py", files=[f2]),
+            Message("user", "please run the failing tests again"),
+        ]
+        response = Message("assistant", f"<selected>\n{f1.resolve()}\n</selected>")
+        with patch("gptme.llm.reply", return_value=response) as reply:
+            selected = select_relevant_files(
+                msgs,
+                workspace=tmp_path,
+                max_files=1,
+                use_selector=True,
+                config=FileSelectorConfig(strategy="hybrid"),
+            )
+
+        reply.assert_called_once()
+        assert selected == [f1.resolve()]
+
+    def test_symlink_workspace_no_duplicates_and_preserves_git_boost(
+        self, tmp_path: Path
+    ) -> None:
+        """Symlinked workspaces must not duplicate files or drop git status boosts."""
+        import subprocess
+
+        real = tmp_path / "real"
+        real.mkdir()
+        link = tmp_path / "link"
+        link.symlink_to(real)
+
+        subprocess.run(["git", "init", "-q"], cwd=real, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"], cwd=real, check=True
+        )
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=real, check=True)
+        (real / "a.py").write_text("a = 1\n")
+        (real / "b.py").write_text("b = 2\n")
+        subprocess.run(["git", "add", "a.py", "b.py"], cwd=real, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=real, check=True)
+        (real / "staged_new.py").write_text("s = 3\n")
+        subprocess.run(["git", "add", "staged_new.py"], cwd=real, check=True)
+
+        msgs = [Message("user", "check a.py", files=[Path("a.py")])]
+        cfg = FileSelectorConfig(strategy="rule")
+
+        selected_real = select_relevant_files(
+            msgs, workspace=real, use_selector=True, config=cfg
+        )
+        selected_link = select_relevant_files(
+            msgs, workspace=link, use_selector=True, config=cfg
+        )
+
+        assert selected_real == [
+            (real / "staged_new.py").resolve(),
+            (real / "a.py").resolve(),
+            (real / "b.py").resolve(),
+        ]
+        assert selected_link == selected_real
+        assert len(selected_link) == len(set(selected_link))
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

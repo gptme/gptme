@@ -106,6 +106,68 @@ def test_native_tool_break_must_drain_before_return(monkeypatch):
     assert len(calls) == 2 and closed == [0, 1]
 
 
+def test_markdown_tool_break_drain_transport_error_keeps_reply(monkeypatch):
+    """A transport error while draining after a complete markdown tool block keeps the reply."""
+    from gptme.tools import init_tools
+    from gptme.tools.base import get_tool_format, set_tool_format
+
+    prev_format = get_tool_format()
+    set_tool_format("markdown")
+    try:
+        tools = init_tools(allowlist=["shell"])
+        calls: list[list[Message]] = []
+        closed: list[int] = []
+
+        def stream(messages, model, _tools, **kwargs):
+            index = len(calls)
+            calls.append(copy.deepcopy(messages))
+            partial = {"metadata": {"usage": {"input_tokens": 42}}}
+
+            def gen():
+                try:
+                    yield "Running command:\n```shell\necho hi\n```\n\n"
+                    raise httpx.RemoteProtocolError("connection reset after tool call")
+                finally:
+                    closed.append(index)
+
+            return llm._StreamWithMetadata(gen(), model, partial=partial)
+
+        monkeypatch.setattr(llm, "_stream", stream)
+        result = llm.reply(
+            [Message("user", "run echo")], MODEL, stream=True, tools=tools
+        )
+        assert len(calls) == 1 and closed == [0]
+        tooluses = list(llm.ToolUse.iter_from_content(result.content))
+        assert len(tooluses) == 1
+        assert tooluses[0].tool == "shell"
+        assert tooluses[0].content == "echo hi"
+        assert result.metadata is not None
+        assert result.metadata["model"] == MODEL
+        assert result.metadata["usage"]["input_tokens"] == 42
+    finally:
+        set_tool_format(prev_format)
+
+
+def test_markdown_tool_break_drain_non_provider_error_propagates(monkeypatch):
+    """Non-provider bugs during post-tool-break drain must still propagate."""
+    from gptme.tools import init_tools
+    from gptme.tools.base import get_tool_format, set_tool_format
+
+    prev_format = get_tool_format()
+    set_tool_format("markdown")
+    try:
+        tools = init_tools(allowlist=["shell"])
+        calls, _ = install_stream(
+            monkeypatch,
+            [["```shell\necho hi\n```\n\n", ValueError("unexpected drain bug")]],
+        )
+        with pytest.raises(ValueError, match="unexpected drain bug"):
+            llm.reply([Message("user", "run echo")], MODEL, stream=True, tools=tools)
+        assert len(calls) == 1
+    finally:
+        set_tool_format(prev_format)
+
+
 @pytest.mark.parametrize(
     "error",
     [

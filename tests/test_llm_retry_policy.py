@@ -30,6 +30,16 @@ def test_backoff_is_exponential_then_capped():
     assert retry_delay(10) == MAX_RETRY_DELAY
 
 
+def test_retry_delay_large_attempt_does_not_overflow():
+    """High attempt counts (e.g. GPTME_LLM_MAX_RETRIES>=1025) must hit the cap, not OverflowError."""
+    assert retry_delay(1024) == MAX_RETRY_DELAY
+    assert retry_delay(10_000) == MAX_RETRY_DELAY
+    assert retry_delay(10**9) == MAX_RETRY_DELAY
+    assert retry_delay(1024, base_delay=0.0) == 0.0
+    error = _status_error_with_retry_after(None)
+    assert retry_delay_for_error(error, attempt=1024) == MAX_RETRY_DELAY
+
+
 def _status_error_with_retry_after(value: str | None):
     from openai import RateLimitError
 

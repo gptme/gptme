@@ -513,7 +513,8 @@ def auto_compact_log(
         for idx, msg in enumerate(compacted_log):
             if msg.pinned or idx < keep_head:
                 continue
-            if msg.role == "system":
+            prev = compacted_log[idx - 1] if idx > 0 else None
+            if _is_tool_output(msg, prev):
                 msg_tokens = len_tokens(msg.content, model.model)
                 if msg_tokens > max_tool_result_tokens:
                     candidates.append((idx, msg_tokens, msg))

@@ -86,11 +86,11 @@ def estimate_compaction_savings(
     # Do not pass logdir: estimation must not write tool-output files.
     # for_estimate=True uses the recovery-path template with a placeholder
     # so savings match the persisted form (short stubs overestimate).
+    from .engine import _is_tool_output, prune_stale_tool_outputs
+
     estimated_phase0_savings = 0
     work_log = log
     if would_remove_tool_results:
-        from .engine import prune_stale_tool_outputs
-
         work_log, estimated_phase0_savings = prune_stale_tool_outputs(
             log, model.model, keep_head=keep_head, for_estimate=True
         )
@@ -119,12 +119,13 @@ def estimate_compaction_savings(
 
         msg_tokens = len_tokens(msg.content, model.model)
         distance_from_end = log_length - idx - 1
+        prev = work_log[idx - 1] if idx > 0 else None
 
         # Phase 2: Estimate massive tool result removal savings
         # CRITICAL: Only count if we would actually remove tool results
         if (
             would_remove_tool_results
-            and msg.role == "system"
+            and _is_tool_output(msg, prev)
             and msg_tokens > max_tool_result_tokens
         ):
             # Tool results get reduced to summary (~200 tokens)

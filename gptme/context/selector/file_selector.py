@@ -5,16 +5,13 @@ import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from ...message import Message
 from ...util.git_cmd import GIT_CMD
 from .file_config import FileSelectorConfig
 from .file_integration import FileItem
-from .hybrid import HybridSelector
-
-if TYPE_CHECKING:
-    from .base import ContextSelector
+from .llm_based import LLMSelector
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +87,55 @@ def get_git_status_files(workspace: Path) -> dict[Path, str]:
         return {}
 
 
+_QUERY_STOPWORDS = frozenset(
+    {
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "were",
+        "been",
+        "what",
+        "when",
+        "where",
+        "which",
+        "their",
+        "there",
+        "does",
+        "about",
+        "would",
+        "could",
+        "should",
+        "these",
+        "those",
+    }
+)
+
+
+def _build_query_from_messages(msgs: list[Message]) -> str:
+    """Build a weighted keyword query from the last 5 user/assistant messages."""
+    term_weights: dict[str, float] = {}
+    recent_msgs = list(reversed(msgs))[:5]
+
+    for i, msg in enumerate(recent_msgs):
+        if msg.role not in ("user", "assistant") or not msg.content.strip():
+            continue
+
+        content = msg.content.lower()
+        if len(content) < 10:
+            continue
+
+        weight = 1.0 / (i + 1)
+        for word in content.split():
+            if len(word) > 3 and word not in _QUERY_STOPWORDS:
+                term_weights[word] = term_weights.get(word, 0) + weight
+
+    sorted_terms = sorted(term_weights.items(), key=lambda x: x[1], reverse=True)
+    top_terms = [term for term, _ in sorted_terms[:20]]
+    return " ".join(top_terms) if top_terms else ""
+
+
 def select_relevant_files(
     msgs: list[Message],
     workspace: Path | None,
@@ -141,8 +187,11 @@ def select_relevant_files(
     # 2. Workspace files (if available)
     if workspace:
         for f in get_workspace_files(workspace):
-            if f not in candidates:
-                candidates[f] = 0
+            # Resolve so symlinked workspace paths match mention_counts and
+            # get_git_status_files (both of which return resolved paths).
+            resolved = f.resolve()
+            if resolved not in candidates:
+                candidates[resolved] = 0
 
     # Convert to FileItems with metadata
     now = datetime.now(tz=timezone.utc).timestamp()
@@ -162,6 +211,10 @@ def select_relevant_files(
 
     # Get git status for additional boosting
     git_status_map = get_git_status_files(workspace) if workspace else {}
+
+    # Build query from recent conversation context for semantic strategies
+    if query is None and config.strategy != "rule":
+        query = _build_query_from_messages(msgs)
 
     # Apply metadata boosts before selection
     scored_items = []
@@ -223,69 +276,20 @@ def select_relevant_files(
         # Rule-based: use scored ranking directly
         return [item.path for item, _ in scored_items[:max_files]]
 
-    # For LLM/hybrid: use context selector for semantic refinement
-    selector: ContextSelector = HybridSelector(config)
+    # Use the file-specific rule ranking (mentions, recency, git status, name
+    # match) as the pre-filtered candidate pool instead of re-filtering through
+    # keyword-only RuleBasedSelector, which drops active files whose names do
+    # not appear verbatim in recent messages.
+    pre_filtered = [item for item, _ in scored_items[: config.max_candidates]]
+    if config.strategy == "hybrid" and len(pre_filtered) <= max_files:
+        return [item.path for item in pre_filtered]
 
-    # Build query from recent conversation context
-    # This provides continuity across turns by considering multiple recent messages
-    if query is None:
-        # Extract terms from recent messages with decay weighting
-        term_weights: dict[str, float] = {}
-        recent_msgs = list(reversed(msgs))[:5]  # Last 5 messages (user + assistant)
-
-        for i, msg in enumerate(recent_msgs):
-            if msg.role not in ("user", "assistant") or not msg.content.strip():
-                continue
-
-            content = msg.content.lower()
-
-            # Skip very short messages
-            if len(content) < 10:
-                continue
-
-            # Extract meaningful terms (filter stopwords, short words)
-            # Weight decays: most recent = 1.0, then 0.5, 0.33, 0.25, 0.2
-            weight = 1.0 / (i + 1)
-
-            # Simple tokenization
-            words = content.split()
-            for word in words:
-                # Filter stopwords and short words
-                if len(word) > 3 and word not in {
-                    "this",
-                    "that",
-                    "with",
-                    "from",
-                    "have",
-                    "were",
-                    "been",
-                    "what",
-                    "when",
-                    "where",
-                    "which",
-                    "their",
-                    "there",
-                    "does",
-                    "about",
-                    "would",
-                    "could",
-                    "should",
-                    "these",
-                    "those",
-                }:
-                    # Accumulate weights for repeated terms across messages
-                    term_weights[word] = term_weights.get(word, 0) + weight
-
-        # Build query from top weighted terms (preserves multi-message context)
-        sorted_terms = sorted(term_weights.items(), key=lambda x: x[1], reverse=True)
-        top_terms = [term for term, _ in sorted_terms[:20]]  # Top 20 terms
-        query = " ".join(top_terms) if top_terms else ""
-
-    # Select using context selector (sync)
+    # Refine the pre-filtered set with LLMSelector
+    selector = LLMSelector(config)
     try:
         selected = selector.select(
-            query=query,
-            candidates=[item for item, _ in scored_items],
+            query=query or "",
+            candidates=pre_filtered,
             max_results=max_files,
         )
         return [cast(FileItem, item).path for item in selected]

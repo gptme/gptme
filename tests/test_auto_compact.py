@@ -43,7 +43,7 @@ def create_test_conversation():
         ),
         Message(
             "assistant",
-            "I'll run the ls command for you.",
+            "I'll run the ls command for you.\n```shell\nfind /usr -type f\n```",
             datetime.now(tz=timezone.utc),
         ),
         Message("system", tool_output, datetime.now(tz=timezone.utc)),
@@ -815,7 +815,9 @@ def test_estimate_compaction_savings_tool_results_only_when_over_limit():
     massive_content = "x " * 3000  # ~3000 tokens
     messages = [
         Message("user", "Request"),
-        Message("system", massive_content),  # Massive tool result
+        Message(
+            "system", massive_content, call_id="call_massive"
+        ),  # Massive tool result
         Message("assistant", "Response"),
     ]
 
@@ -852,7 +854,7 @@ def test_estimate_compaction_savings_respects_keep_head():
     massive = "x " * 3000  # ~3000 tokens, above max_tool_result_tokens
     messages = [
         Message("system", "System prompt"),
-        Message("system", massive),  # idx 1, inside keep_head
+        Message("system", massive, call_id="call_head"),  # idx 1, inside keep_head
         Message("user", "Request"),
         Message("assistant", "Response"),
     ]
@@ -962,7 +964,9 @@ def test_should_auto_compact_triggers_with_high_savings():
             "assistant",
             "<think>" + "reasoning " * 500 + "</think>\nResponse",
         ),
-        Message("system", "tool result " * 3000),  # Massive tool result
+        Message(
+            "system", "tool result " * 3000, call_id="call_high"
+        ),  # Massive tool result
         Message("user", "Follow up"),
         Message("assistant", "Final response"),
     ]
@@ -1679,7 +1683,7 @@ def test_auto_compact_trims_at_exact_budget(monkeypatch):
     Token counts must be mocked for every equivalent list, not just the
     original ``messages`` object — the engine copies into ``compacted_log``.
     """
-    messages = [Message("system", "tool output " * 100)]
+    messages = [Message("system", "tool output " * 100, call_id="call_exact")]
     from gptme.tools.autocompact import engine
 
     def fake_len_tokens(value, model=None):
@@ -2008,7 +2012,11 @@ def test_keep_head_protects_head_messages_from_tool_truncation():
 
     messages = [
         Message("system", head_content, datetime.now(tz=timezone.utc)),
-        Message("assistant", "running", datetime.now(tz=timezone.utc)),
+        Message(
+            "assistant",
+            "```shell\nfind /usr -type f\n```",
+            datetime.now(tz=timezone.utc),
+        ),
         Message("system", tail_content, datetime.now(tz=timezone.utc)),
     ]
 
@@ -3961,19 +3969,71 @@ def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
         assert (out[0].metadata or {}).get("compaction_checkpoint_view") == "main"
 
 
-def _big_plain_system_result(n_words: int) -> Message:
-    """A large plain ``system`` message that Phase 2 (not Phase 0) will trim.
+def _big_plain_system_result(n_words: int, call_id: str = "call_big") -> Message:
+    """A large recent tool result that Phase 2 (not Phase 0) will trim.
 
-    Phase 0 only stubs *tool* outputs (``call_id`` or directly after a
-    tool-call assistant message), so a plain system message is ignored by the
-    pre-pass and handled by the Phase 2 largest-first loop.
+    In a short log (within ``_PRUNE_MIN_AGE`` of the end), Phase 0 keeps
+    recent tool outputs intact so Phase 2's largest-first loop handles them.
     """
     words = " ".join(f"tok{i}" for i in range(n_words))
     return Message(
         "system",
         f"Ran command: `find /usr -type f`\n{words}",
         datetime.now(tz=timezone.utc),
+        call_id=call_id,
     )
+
+
+def test_phase2_skips_non_tool_system_messages():
+    """Phase 2 must not stub non-tool system messages (e.g. unpinned <agent-instructions>)."""
+    from gptme.tools.autocompact import estimate_compaction_savings
+
+    model = get_default_model() or get_model("gpt-4")
+    agent_instructions = (
+        "<agent-instructions>\n"
+        + ("Keep code clean, modular, and well-tested. " * 400)
+        + "\n</agent-instructions>"
+    )
+    assert len_tokens(agent_instructions, model.model) > 2000
+
+    # Log with only an unpinned non-tool system message over 2000 tokens
+    msgs_only_instructions = [
+        Message("system", agent_instructions, datetime.now(tz=timezone.utc)),
+        Message("user", "Please help with the refactor", datetime.now(tz=timezone.utc)),
+        Message(
+            "assistant",
+            "Sure, let's inspect the module.",
+            datetime.now(tz=timezone.utc),
+        ),
+    ]
+    limit_only = len_tokens(msgs_only_instructions, model.model) - 100
+
+    _, est_savings, _ = estimate_compaction_savings(
+        msgs_only_instructions, limit=limit_only
+    )
+    assert est_savings == 0
+
+    compacted_only = list(auto_compact_log(msgs_only_instructions, limit=limit_only))
+    assert compacted_only[0].content == agent_instructions
+    assert "[Large tool output removed" not in compacted_only[0].content
+
+    # Log with both unpinned <agent-instructions> and an actual large tool output:
+    # Phase 2 compacts the tool output and leaves <agent-instructions> untouched.
+    large_tool_output = "Ran command: `cat big.log`\n" + ("log line entry\n" * 1000)
+    msgs_mixed = [
+        Message("system", agent_instructions, datetime.now(tz=timezone.utc)),
+        Message("user", "Inspect big.log", datetime.now(tz=timezone.utc)),
+        Message(
+            "assistant",
+            "```shell\ncat big.log\n```",
+            datetime.now(tz=timezone.utc),
+        ),
+        Message("system", large_tool_output, datetime.now(tz=timezone.utc)),
+    ]
+    limit_mixed = len_tokens(msgs_mixed[:3], model.model) + 500
+    compacted_mixed = list(auto_compact_log(msgs_mixed, limit=limit_mixed))
+    assert compacted_mixed[0].content == agent_instructions
+    assert "[Large tool output removed" in compacted_mixed[3].content
 
 
 def test_auto_compact_log_target_ratio_leaves_headroom():
