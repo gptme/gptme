@@ -255,11 +255,18 @@ def _links_to_secret(operand: str, workspace: Path | None = None) -> bool:
     resolved. ``/dev`` operands are skipped: ``/dev/stderr`` and friends link
     into ``/proc``.
     """
-    expanded = _normalize_path_token(operand)
-    if not expanded:
-        return False
+    # A quoted operand is opened exactly as written (trailing spaces, a literal
+    # ``$``); an unquoted one is expanded first. Check both spellings.
+    return any(
+        _spelling_links_to_secret(spelling, workspace)
+        for spelling in {operand, _normalize_path_token(operand)}
+        if spelling
+    )
+
+
+def _spelling_links_to_secret(spelling: str, workspace: Path | None) -> bool:
     try:
-        anchored = os.path.join(workspace or os.getcwd(), expanded)
+        anchored = os.path.join(workspace or os.getcwd(), spelling)
         if os.path.abspath(anchored).startswith("/dev/"):
             return False
         resolved = os.path.realpath(anchored)
@@ -286,23 +293,23 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
         # Unmatched quotes etc. — fallback to whitespace split
         tokens = cmd.split()
 
-    for token in tokens:
-        token = token.strip("'\"")
+    for operand in tokens:
+        token = operand.strip("'\"")
         # Option flags: skip unless they carry a value after '='
         # (`python script.py --aws_key=~/.aws/credentials`).
         if token.startswith("-"):
             if "=" in token:
                 value = token.split("=", 1)[1].strip("'\"")
-                if value and (
-                    _is_secret_path(value, workspace)
-                    or _links_to_secret(value, workspace)
-                ):
+                if value and _is_secret_path(value, workspace):
                     return value
+                linked = operand.split("=", 1)[1]
+                if _links_to_secret(linked, workspace):
+                    return linked
             continue
         # A bare name can be a link too (`cat notes.txt`), so check links
         # before the path-shape heuristic below.
-        if _links_to_secret(token, workspace):
-            return token
+        if _links_to_secret(operand, workspace):
+            return operand
         # Skip command names (heuristic: no path separators and no home marker)
         if (
             "/" not in token

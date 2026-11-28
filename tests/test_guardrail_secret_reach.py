@@ -1138,3 +1138,19 @@ def test_enforce_mode_blocks_linked_secret_in_shell(
     )
     assert result is not None
     assert result.action.value == "skip"
+
+
+@pytest.mark.parametrize(
+    ("name", "command"),
+    [
+        ("notes ", "cat 'notes '"),
+        (" notes", 'cat " notes"'),
+        ("$HOME", "cat '$HOME'"),
+        ("notes ", "tool --input='notes '"),
+    ],
+)
+def test_quoted_link_names_are_resolved_as_written(
+    linked_workspace: Path, name: str, command: str
+) -> None:
+    (linked_workspace / name).symlink_to("notes.txt")
+    assert _find_secret_path_in_cmd(command, linked_workspace) is not None
