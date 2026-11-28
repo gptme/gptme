@@ -356,6 +356,83 @@ def test_persistence_pattern_still_matches_the_call(tmp_path, source):
     assert [f.category for f in scan.findings] == ["persistence"]
 
 
+@pytest.mark.parametrize(
+    ("source", "flagged"),
+    [
+        ("json.loads(self.credentials_file.read_text())", False),
+        ("open('config/.environment')", False),
+        ("open('config/.ssh_config')", False),
+        ("open('config/app-credentials.json')", False),
+        ("open('config/credentials.json.example')", False),
+        ("open('config/.env.sample')", False),
+        ("open('.env.example.local')", False),
+        ("open('config/' + credentials_path + '/data.toml')", False),
+        ("open('.env')", True),
+        ("open('config/.env.local')", True),
+        ("open('.ssh/id_rsa')", True),
+        (r"open(r'C:\Users\alice\.ssh\id_rsa')", True),
+        ("open('~/.gnupg/private-keys-v1.d/key')", True),
+        ("open('~/.aws/credentials')", True),
+        ("open('config/credentials.yaml')", True),
+        ("read_text('config/credentials.ini')", True),
+        ("open('/home/' + user + '/.ssh/id_rsa')", True),
+        ("open(f'.env.{stage}')", True),
+        ("open(f'config/.env.prod-{region}')", True),
+        ("open(f'.env{suffix}')", True),
+        ("open('config/.env.' + stage)", True),
+        ("open(`.env.${stage}`)", True),
+        ("open('.env.%s' % stage)", True),
+        ("open('.env.{}'.format(stage))", True),
+        ("open('.envrc')", True),
+        ("open('config/.env-production')", True),
+        ("open('config/.env_local')", True),
+        ("open('~/.git-credentials')", True),
+        ("open('gcloud/application_default_credentials.json')", True),
+        ("open('gcloud/credentials.db')", True),
+        ("open('fixtures/claude/.credentials.json')", True),
+        ("open('fixtures/sbt/.credentials')", True),
+        ("open('fixtures/ivy/.credentials')", True),
+        ("open('fixtures/cargo/credentials.toml')", True),
+        ("open('fixtures/terraform/credentials.tfrc.json')", True),
+        ("open('fixtures/.credentials.json.example')", False),
+        ("open('fixtures/credentials.toml.template')", False),
+        ("open('fixtures/app-credentials.tfrc.json')", False),
+        ("open(f'.env.example.{stage}')", False),
+    ],
+)
+def test_credential_pattern_matches_literal_path_components(
+    tmp_path: Path, source: str, flagged: bool
+) -> None:
+    scan = _scan_source_file(tmp_path, source)
+
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert [finding.category for finding in scan.findings] == (
+        ["credential-harvest"] if flagged else []
+    )
+
+
+@pytest.mark.parametrize("suffix", [".js", ".ts"])
+def test_javascript_credential_pattern_requires_literal_path(
+    tmp_path: Path, suffix: str
+) -> None:
+    relative = f"config{suffix}"
+    (tmp_path / relative).write_text(
+        "fs.readFileSync(process.env.PLUGIN_CONFIG);\n"
+        "fs.readFileSync(`${process.env.HOME}/.ssh/id_rsa`);\n",
+        encoding="utf-8",
+    )
+
+    scan = scan_plugin_entry_point(
+        _entry_point("plugin", _wheel_distribution(tmp_path, relative))
+    )
+
+    assert scan is not None
+    assert [(finding.category, finding.line) for finding in scan.findings] == [
+        ("credential-harvest", 2)
+    ]
+
+
 def test_credential_pattern_matches_across_lines_within_a_statement(tmp_path):
     """A split expression is still one statement, so it cannot evade the scan."""
     scan = _scan_source_file(

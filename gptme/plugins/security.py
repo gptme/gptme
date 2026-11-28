@@ -215,12 +215,28 @@ def _logical_statements(code_lines: list[str]) -> list[tuple[str, list[int]]]:
 # remain better suited to an audit command with human review.
 _PATTERNS = (
     _pattern(
-        # Allow any expression before the path so f-strings and concatenation
-        # (``open(f'{home}/.ssh/id_rsa')``, ``open('/home/' + u + '/.ssh/x')``)
-        # are caught, not just a bare quoted literal right after the call.
-        r"(?:readFileSync|open|read_text)\s*\([^)]*"
-        r"(?:\.ssh|\.gnupg|\.env(?!\.(?:example|sample|template|dist|default))|"
-        r"credentials(?:\.(?:json|ya?ml|txt|ini))?)",
+        # Skip earlier literals as a unit so their closing quotes cannot start
+        # a path match. Allow literal path fragments in composed expressions.
+        r"""(?x)
+        (?:readFileSync|open|read_text)\s*\(
+        (?:
+            [^)"'`\n]
+            | (?P<earlier>["'`]) (?:\\.|(?!(?P=earlier))[^\\\n])* (?P=earlier)
+        )*?
+        (?P<quote>["'`])
+        (?:(?:\\.|(?!(?P=quote))[^\\\n])*? (?:/|\\{1,2}))?
+        (?:
+            (?: \.(?:ssh|gnupg)
+              | (?:\.git-|\.|application_default_)?credentials
+                (?:\.(?:json|ya?ml|toml|txt|ini|db|tfrc\.json))?
+            )
+            (?=[/\\]|(?P=quote))
+            # The dotenv name may end at an interpolation: f"{x}", `${x}`, "%s".
+            | \.env(?:rc)?
+              (?:[._-](?!(?:example|sample|template|dist|default))[\w.-]*)?
+            (?=[/\\{%]|\$\{|(?P=quote))
+        )
+        """,
         "credential-harvest",
         "reads SSH or credential files",
         {".js", ".ts", ".py"},
