@@ -1139,7 +1139,11 @@ class LogManager:
             )
         if changed:
             self.write()
-            self._write_event_log(eventlog.EVENT_MESSAGE_EDIT)
+            # The event log sits beside the branch file: record the branch.
+            self._write_event_log(
+                eventlog.EVENT_MESSAGE_EDIT,
+                messages=self._branches[branch].messages,
+            )
         return changed
 
     def _reconcile_branch_history(self, previous: Log, updated: Log) -> None:

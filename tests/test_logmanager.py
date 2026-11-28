@@ -17,6 +17,7 @@ from gptme.logmanager import (
     LogManager,
     check_for_modifications,
     conversation_name_error,
+    eventlog,
 )
 from gptme.logmanager.manager import (
     _active_prompt_generation,
@@ -1669,3 +1670,8 @@ def test_revise_updates_view_branch_and_disk_without_backup(
     manager.switch_to_master()
     assert [m.content for m in manager.log] == ["early", "Hello, use the other file"]
     assert list(manager._branches) == ["main"]
+    edit = [e for e in eventlog.read_events(logdir) if e["type"] == "message_edit"]
+    assert [m["content"] for m in edit[-1]["payload"]["messages"]] == [
+        "early",
+        "Hello, use the other file",
+    ]
