@@ -241,6 +241,199 @@ def _find_quotes(cmd: str) -> list[tuple[int, int]]:
     return quoted_regions
 
 
+def _heredoc_delimiter(cmd: str, start: int) -> tuple[str, int] | None:
+    """Return bash's delimiter for the heredoc word at ``start`` and its end.
+
+    Bash applies quote removal to the delimiter word, and any part of it may be
+    quoted: ``<<E\\OF``, ``<<'E'OF``, ``<<E"O"F`` and ``<<E''OF`` all end at an
+    ``EOF`` line. The delimiter must match bash's exactly. A different one
+    would let the region run past bash's terminator and hide real commands.
+
+    Returns None for a word this does not model exactly (``$'...'``,
+    ``$"..."``, backquotes, newlines, unterminated quotes). The caller must
+    then stop modelling further openers: this opener's body is scanned as
+    ordinary shell text, and a ``<<`` inside that body has to stay visible too.
+    Recording such an inner opener as a region would hide lines bash executes.
+    """
+    out: list[str] = []
+    i = start
+    n = len(cmd)
+    while i < n:
+        c = cmd[i]
+        if c.isspace() or c in ";&|<>)\n":
+            break
+        if c == "`":
+            return None
+        if c == "$":
+            # Bash keeps ``$(x)``, ``${x}`` and ``$[...]`` literal in a heredoc
+            # delimiter word, so stopping at the ``(`` would return ``$`` and
+            # then match a different terminator than bash. Do not model them.
+            return None
+        if c == "(":
+            # An unquoted ``(`` is a metacharacter that ends the word; the
+            # prefix is not the delimiter bash would match.
+            return None
+        if c == "\\":
+            if i + 1 >= n or cmd[i + 1] == "\n":
+                return None
+            out.append(cmd[i + 1])
+            i += 2
+        elif c == "'":
+            end = cmd.find("'", i + 1)
+            if end == -1 or "\n" in cmd[i + 1 : end]:
+                return None
+            out.append(cmd[i + 1 : end])
+            i = end + 1
+        elif c == '"':
+            i += 1
+            while i < n and cmd[i] != '"':
+                if cmd[i] in "\n`":
+                    return None
+                # Inside double quotes a backslash only escapes $ ` " \ and
+                # newline; before any other character it stays literal.
+                if cmd[i] == "\\" and cmd[i + 1 : i + 2] in ("$", "`", '"', "\\"):
+                    i += 1
+                out.append(cmd[i])
+                i += 1
+            if i >= n:
+                return None
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    if i == start:
+        return None
+    return "".join(out), i
+
+
+def _char_before(cmd: str, pos: int) -> str:
+    """Return the character bash sees before ``pos``, or ``""`` at the start.
+
+    Bash removes backslash-newline before reading words, so look past it.
+    """
+    while cmd[:pos].endswith("\\\n"):
+        pos -= 2
+    return cmd[pos - 1] if pos else ""
+
+
+def _scan_nesting(
+    cmd: str,
+    start: int,
+    end: int,
+    stack: list[str],
+    skip: list[tuple[int, int]],
+) -> None:
+    """Update ``stack`` with the brackets opened and closed in ``cmd[start:end]``.
+
+    Entries are ``[``, ``$[``, ``${``, ``((`` (arithmetic), ``=(`` (compound
+    assignment) and ``(`` (any other paren).
+    """
+    i = start
+    while i < end:
+        if _is_in_quoted_region(i, skip):
+            i += 1
+            continue
+        c = cmd[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "#" and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|()"):
+            newline = cmd.find("\n", i)
+            i = newline + 1 if newline != -1 else end
+            continue
+        if cmd.startswith("$[", i):
+            # ``$[...]`` is arithmetic, and its ``]`` may be on a later line.
+            # Track it explicitly so a bare ``[`` can require a same-line
+            # closing bracket without losing this form.
+            stack.append("$[")
+            i += 2
+            continue
+        if cmd.startswith("${", i):
+            stack.append("${")
+            i += 2
+            continue
+        if cmd.startswith("((", i):
+            stack.extend(["((", "(("])
+            i += 2
+            continue
+        if c == "(":
+            # ``name=(`` is a compound array assignment, where a ``[`` after
+            # ``(`` or a blank is a subscript too (``a=( [1<<X]=2 )``).
+            prev = _char_before(cmd, i)
+            stack.append("=(" if prev == "=" else "(")
+        elif c == "[":
+            # ``[`` glued to a word may open an array subscript (``a[1 << X]=2``)
+            # or be literal text (``echo a[``). Push it either way; the caller
+            # stops modelling heredocs while it is open.
+            prev = _char_before(cmd, i)
+            # Inside an open ``[`` or ``$[`` every ``[`` counts, or its ``]``
+            # would close the outer one early (``$[ [1] <<X ]``).
+            if prev.isalnum() or prev in ("_", "]") or "[" in stack or "$[" in stack:
+                stack.append(c)
+        elif c == ")" and stack and stack[-1] in ("(", "=("):
+            stack.pop()
+        elif cmd.startswith("))", i) and stack and stack[-1] == "((":
+            # Only ``))`` ends arithmetic: a lone ``)`` (a ``case`` pattern
+            # in a substitution) must not.
+            del stack[-2:]
+            i += 2
+            continue
+        elif c == "]" and stack and stack[-1] in ("[", "$["):
+            stack.pop()
+        elif c == "}" and stack and stack[-1] == "${":
+            stack.pop()
+        i += 1
+
+
+def _position_in_shell_comment(
+    cmd: str, pos: int, skip: list[tuple[int, int]] | None = None
+) -> bool:
+    """Return True when ``pos`` lies inside an unquoted shell comment.
+
+    Comments run to the end of the line, so a backslash there is data: bash
+    does not treat the newline as a continuation. Mirrors the lexical rules in
+    ``_blank_shell_comments``.
+
+    ``skip`` lists regions already known to be heredoc bodies. Their contents
+    are data: an apostrophe there does not open a shell string, so counting it
+    would leave ``in_single`` set and hide a later comment marker.
+    """
+    in_single = in_double = in_comment = False
+    regions = sorted(skip or [])
+    region_idx = 0
+    i = 0
+    while i < pos:
+        while region_idx < len(regions) and regions[region_idx][1] <= i:
+            region_idx += 1
+        if region_idx < len(regions):
+            start, end = regions[region_idx]
+            if start <= i < end:
+                i = min(end, pos)
+                continue
+        char = cmd[i]
+        if in_comment:
+            if char == "\n":
+                in_comment = False
+            i += 1
+            continue
+        if char == "\\" and not in_single:
+            i += 2
+            continue
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            char == "#"
+            and not in_single
+            and not in_double
+            and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|")
+        ):
+            in_comment = True
+        i += 1
+    return in_comment
+
+
 def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
     """Find all heredoc regions in a command string.
 
@@ -249,19 +442,52 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
 
     Returns a list of (start, end) tuples for each heredoc content region.
     """
-    heredoc_regions = []
+    heredoc_regions: list[tuple[int, int]] = []
 
     # A delimiter is a shell word, not necessarily an identifier. Support
     # punctuation commonly used to make delimiters distinctive (for example
     # ``END-TAG``), while stopping unquoted words at shell metacharacters.
-    heredoc_pattern = re.compile(r"<<-?\s*(?:\"([^\"\n]+)\"|'([^'\n]+)'|([^\s;&|<>]+))")
+    #
+    # ``<<<`` is a here-string, not a heredoc: it has no body, so the lookarounds
+    # keep its operand (and the lines after it) visible to validation.
+    heredoc_pattern = re.compile(r"(?<!<)<<(?!<)-?[ \t]*")
 
     quoted_regions = _find_quotes(cmd)
 
+    # Inside ``$((...))``, ``((...))``, ``$[...]``, ``${...}`` and array
+    # subscripts ``<<`` is a shift or literal text, not a redirection. Treating
+    # it as an opener would hide the following commands. Skipping a real opener
+    # only makes validation stricter.
+    nesting: list[str] = []
+    scanned = 0
+
+    # ``_find_quotes`` reads ``$'a\'b'`` as plain single quotes and loses track
+    # after the escaped quote, so nothing past one can be trusted as nesting.
+    ansi_c = re.search(r"\$'(?:[^'\\]|\\[^'])*\\'", cmd)
+
     for match in heredoc_pattern.finditer(cmd):
+        # ``<<`` text inside an earlier heredoc body is data. Treating it as an
+        # opener would start a region that runs past that body's terminator.
+        if _is_in_quoted_region(match.start(), heredoc_regions):
+            continue
+        if ansi_c and match.start() > ansi_c.start():
+            break
         # Quoted or escaped ``<<`` text is inert to the shell and must not hide
         # later lines from command validation.
         if _is_in_quoted_region(match.start(), quoted_regions):
+            continue
+        _scan_nesting(
+            cmd, scanned, match.start(), nesting, quoted_regions + heredoc_regions
+        )
+        scanned = match.start()
+        if "[" in nesting or "=(" in nesting:
+            # Without bash's assignment-word context these cannot be told
+            # apart: ``a[1 <<X]=2`` is a shift, ``echo a[ <<X`` a real
+            # heredoc. Stop modelling rather than guess. Every later line then
+            # stays visible to validation, so neither a misread shift nor an
+            # inner ``<<`` in an unmodelled body can hide executed commands.
+            break
+        if any(entry != "(" for entry in nesting):
             continue
         backslashes = 0
         pos = match.start() - 1
@@ -286,11 +512,41 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
         ):
             continue
 
-        delimiter = next(group for group in match.groups() if group is not None)
+        word = _heredoc_delimiter(cmd, match.end())
+        if word is None:
+            # The opener is real but its delimiter is not modelled, so the
+            # lines after it are scanned as ordinary shell text. A ``<<`` in
+            # that body is data to bash; accepting it as a new opener would
+            # blank the lines up to a later fake terminator, including commands
+            # bash actually runs. Stop modelling openers from here on: every
+            # remaining line stays visible to validation.
+            break
+        delimiter, search_start = word
+        strip_tabs = cmd.startswith("<<-", match.start())
 
-        # Find where the content starts (after the first newline after the marker)
-        search_start = match.end()
-        newline_idx = cmd.find("\n", search_start)
+        # Find where the content starts: after the newline that ends the
+        # command line. A backslash-newline is removed by bash before
+        # tokenizing, so it does not end the line and the heredoc body starts
+        # further down.
+        newline_idx = search_start
+        while True:
+            newline_idx = cmd.find("\n", newline_idx)
+            if newline_idx == -1:
+                break
+            backslashes = 0
+            pos = newline_idx - 1
+            while pos >= 0 and cmd[pos] == "\\":
+                backslashes += 1
+                pos -= 1
+            if backslashes % 2 == 0:
+                break
+            # A backslash inside a shell comment is data, not a line
+            # continuation: bash ends the command line there. Treating it as a
+            # continuation would push the body start past real command lines
+            # and hide them as heredoc data.
+            if _position_in_shell_comment(cmd, newline_idx - 1, heredoc_regions):
+                break
+            newline_idx += 1
         if newline_idx == -1:
             continue  # No content
 
@@ -304,7 +560,8 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
                 # Check if remaining text is the delimiter. Include the
                 # delimiter itself in the safe region: it is shell syntax, not
                 # a command following the heredoc.
-                if cmd[pos:].strip() == delimiter:
+                last_line = cmd[pos:].lstrip("\t") if strip_tabs else cmd[pos:]
+                if last_line == delimiter:
                     heredoc_regions.append((content_start, len(cmd)))
                 break
 
@@ -312,7 +569,7 @@ def _find_heredoc_regions(cmd: str) -> list[tuple[int, int]]:
             # Include the terminator line but preserve its newline, so a real
             # command on the following line remains independently visible.
             line = cmd[pos:newline_idx]
-            if line.strip() == delimiter:
+            if (line.lstrip("\t") if strip_tabs else line) == delimiter:
                 heredoc_regions.append((content_start, newline_idx))
                 break
 
