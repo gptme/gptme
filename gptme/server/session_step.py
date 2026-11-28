@@ -1686,7 +1686,12 @@ def step(
         # smaller view stays active on revocation on purpose: it is the one
         # proven to fit the provider, and the epoch owner (not this step) may
         # already have switched views, so restoring here could clobber it.
-        with session.step_lock:
+        #
+        # Hold conversation_lock as well: this manager was loaded before a
+        # long generation, so the append must serialize with resume/A2A writers
+        # that may have appended meanwhile. The lock order matches the rest of
+        # this module (conversation_lock outer, step_lock inner).
+        with SessionManager.conversation_lock(conversation_id), session.step_lock:
             if session.step_seq != my_step_seq or session.interrupted:
                 raise InterruptedError("Epoch replaced before reply commit")
             _append_and_notify(manager, session, msg)
@@ -1702,31 +1707,36 @@ def step(
             for generation_post_msg in generation_post_msgs:
                 logger.debug(f"Generation post hook yielded: {generation_post_msg}")
 
-        # Trigger TURN_POST hook (turn.post - after message processing completes)
+        # Trigger TURN_POST hook (turn.post - after message processing completes).
+        # trigger_hook is a generator: advance it outside conversation_lock so a
+        # slow hook (e.g. pre-commit) does not block interrupt/A2A requests, and
+        # lock only each append. Consuming it incrementally lets later hooks see
+        # earlier hooks' output.
         checkpoint_requested = False
-        if post_msgs := trigger_hook(
-            HookType.TURN_POST,
-            manager=manager,
-        ):
-            for hook_msg in post_msgs:
+        for hook_msg in trigger_hook(HookType.TURN_POST, manager=manager):
+            # Appends must serialize with resume/A2A writers like the reply above.
+            with SessionManager.conversation_lock(conversation_id):
                 _append_and_notify(manager, session, hook_msg)
-                if hook_msg.role == "user" and "compaction_checkpoint_view" in (
-                    hook_msg.metadata or {}
-                ):
-                    checkpoint_requested = True
-                    # Remember whether the interrupted task still owed a
-                    # response. The request message is excluded from the
-                    # compacted view, so the step that completes the
-                    # checkpoint turn reads this flag to resume the task.
-                    session.checkpoint_needs_continuation = bool(
-                        (hook_msg.metadata or {}).get(
-                            "compaction_checkpoint_needs_continuation"
-                        )
+            if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                hook_msg.metadata or {}
+            ):
+                checkpoint_requested = True
+                # Remember whether the interrupted task still owed a
+                # response. The request message is excluded from the
+                # compacted view, so the step that completes the
+                # checkpoint turn reads this flag to resume the task.
+                session.checkpoint_needs_continuation = bool(
+                    (hook_msg.metadata or {}).get(
+                        "compaction_checkpoint_needs_continuation"
                     )
+                )
 
         # Streamed tokens/message_added are provisional. Completion acknowledges
         # the transcript, including hook output, only after its barrier succeeds.
-        manager.write(sync=True)
+        # Hold conversation_lock so the durability barrier cannot interleave
+        # with a resume/A2A append that arrived during generation.
+        with SessionManager.conversation_lock(conversation_id):
+            manager.write(sync=True)
         logger.debug("Generation complete")
         SessionManager.add_event(
             conversation_id,
@@ -1879,7 +1889,10 @@ def step(
             error_message = str(e) or "Generation failed"
             session.last_error = error_message
             try:
-                _persist_generation_error(manager, session, error_message)
+                # Same stale manager as the reply commit: serialize with
+                # resume/A2A writers.
+                with SessionManager.conversation_lock(conversation_id):
+                    _persist_generation_error(manager, session, error_message)
             except Exception:
                 logger.exception("Failed to persist generation error message")
             SessionManager.add_event(

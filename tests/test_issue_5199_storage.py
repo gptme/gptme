@@ -454,11 +454,15 @@ def test_legacy_snapshot_append_persists_after_concurrent_growth(
     a = LogManager.load(tmp_path, lock=False)
     a.append(Message("user", "concurrent"))
 
-    # Same-branch conflicts are not handled; the stale manager must still be
-    # able to save, as it can for a transcript without legacy rows.
+    # Divergent same-branch histories are still not reconciled, but a strict
+    # extension (an append that landed after our snapshot) must survive: the
+    # stale manager has to save *and* keep the concurrent tail, merged after
+    # its own new messages (see Log._concurrent_tail).
     b.append(Message("user", "first"))
     b.append(Message("user", "second"))
-    assert _contents(path) == ["main", "first", "second"]
+    assert _contents(path) == ["main", "first", "concurrent", "second"]
+    # The repair rewrite still wrote the legacy attachment row with hashes.
+    assert json.loads(path.read_text().splitlines()[0]).get("file_hashes")
 
 
 def test_legacy_snapshot_repairs_truncated_transcript(tmp_path: Path) -> None:

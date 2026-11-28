@@ -1124,6 +1124,194 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 2
 
+    def test_reply_commit_keeps_concurrent_resume_append(
+        self, conv, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """A resume/A2A append that lands during generation survives the reply write.
+
+        The step loads its LogManager before generating. A resume append writes
+        the transcript while the step is still generating, so the step's reply
+        commit must merge that append instead of rewriting the file from its
+        pre-generation copy. The append runs under the real
+        ``conversation_lock``, as the A2A route now does. TURN_POST hooks then
+        run outside that lock, each seeing the previous hook's appended message.
+        """
+        from gptme.hooks import HookType
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        conversation_id = conv["conversation_id"]
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        started = threading.Event()
+        release = threading.Event()
+        appended = threading.Event()
+
+        def blocking_stream(*_args, **_kwargs):
+            started.set()
+            assert release.wait(timeout=10), "test did not release generation"
+            yield "reply"
+
+        hook_observations: list[tuple[bool, str]] = []
+
+        def lock_is_free() -> bool:
+            result: list[bool] = []
+
+            def probe():
+                lock = SessionManager.conversation_lock(conversation_id)
+                acquired = lock.acquire(blocking=False)
+                if acquired:
+                    lock.release()
+                result.append(acquired)
+
+            thread = threading.Thread(target=probe)
+            thread.start()
+            thread.join(timeout=5)
+            return result == [True]
+
+        def hooks(hook_type, *_args, manager=None, **_kwargs):
+            if hook_type != HookType.TURN_POST:
+                return
+            for content in ("first hook", "second hook"):
+                hook_observations.append(
+                    (lock_is_free(), manager.log.messages[-1].content)
+                )
+                yield Message("system", content)
+
+        def resume_append():
+            assert started.wait(timeout=10)
+            with SessionManager.conversation_lock(conversation_id):
+                LogManager.load(conversation_id, lock=False).append(
+                    Message("user", "resume")
+                )
+            appended.set()
+            release.set()
+
+        with (
+            patch("gptme.server.session_step._stream", side_effect=blocking_stream),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", side_effect=hooks),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            worker = threading.Thread(
+                target=step,
+                kwargs={
+                    "conversation_id": conversation_id,
+                    "session": session,
+                    "model": "mock/model",
+                    "workspace": tmp_path,
+                    "step_seq": 1,
+                },
+                daemon=True,
+            )
+            resume = threading.Thread(target=resume_append, daemon=True)
+            worker.start()
+            resume.start()
+            resume.join(timeout=15)
+            worker.join(timeout=15)
+
+        assert appended.is_set(), "resume append never ran"
+        assert not worker.is_alive(), "step thread did not finish"
+
+        contents = [
+            message.content
+            for message in LogManager.load(conversation_id, lock=False).log.messages
+        ]
+        assert "resume" in contents, f"resume append was dropped: {contents}"
+        assert "reply" in contents, f"step reply missing: {contents}"
+        # (lock free while the hook ran, newest message the hook saw)
+        assert [free for free, _ in hook_observations] == [True, True]
+        assert hook_observations[1][1] == "first hook"
+
+    def test_generation_error_is_persisted_under_conversation_lock(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """The failure path writes with the same stale manager as the reply."""
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        conversation_id = conv["conversation_id"]
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+        lock_free: list[bool] = []
+
+        def persist(*_args):
+            def probe():
+                lock = SessionManager.conversation_lock(conversation_id)
+                acquired = lock.acquire(blocking=False)
+                if acquired:
+                    lock.release()
+                lock_free.append(acquired)
+
+            thread = threading.Thread(target=probe)
+            thread.start()
+            thread.join(timeout=5)
+
+        with (
+            patch(
+                "gptme.server.session_step._stream",
+                side_effect=RuntimeError("provider failed"),
+            ),
+            patch("gptme.server.session_step._persist_generation_error", persist),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", return_value=[]),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+        ):
+            step(
+                conversation_id=conversation_id,
+                session=session,
+                model="mock/model",
+                workspace=tmp_path,
+                step_seq=1,
+            )
+
+        assert lock_free == [False]
+
     def test_post_tool_checkpoint_preserves_task_continuation(self, conv):
         from gptme.logmanager import LogManager
         from gptme.message import Message
