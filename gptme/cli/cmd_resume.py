@@ -50,7 +50,11 @@ def _session_name(session_dir: Path) -> str:
     """Extract human-readable name from config.toml or directory name."""
     try:
         with (session_dir / "config.toml").open("rb") as config:
-            name = tomllib.load(config).get("name")
+            data = tomllib.load(config)
+        chat = data.get("chat")
+        name = chat.get("name") if isinstance(chat, dict) else None
+        if not isinstance(name, str) or not name:
+            name = data.get("name")
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         name = None
     if isinstance(name, str) and name:
