@@ -378,6 +378,8 @@
 <li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.37.0.html">v0.37.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.36.0.html">v0.36.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.35.1.html">v0.35.1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.35.0.html">v0.35.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.34.0.html">v0.34.0</a></li>
@@ -1025,6 +1027,10 @@ release. With an unchanged master, the usual fast-forward version bump remains.
 The selected source supplies build/bump/changelog tooling, so it must contain
 any required release fixes. This input does not automatically search for a green
 commit or bypass CI, and a successful dispatch is not proof of publication.</p>
+<p>After a tag-only stable release, open a docs PR with the tagged
+<code class="docutils literal notranslate"><span class="pre">docs/releases/vX.Y.Z.md</span></code> file and add it to the toctree in
+<code class="docutils literal notranslate"><span class="pre">docs/changelog.rst</span></code> in newest-first order. The website builds from master
+and needs both the page and its index entry.</p>
 <section id="android-release-signing">
 <h3>Android release signing<a class="headerlink" href="#android-release-signing" title="Link to this heading">#</a></h3>
 <p>Android releases are signed with a long-lived upload key in the

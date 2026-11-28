@@ -368,6 +368,11 @@ The selected source supplies build/bump/changelog tooling, so it must contain
 any required release fixes. This input does not automatically search for a green
 commit or bypass CI, and a successful dispatch is not proof of publication.
 
+After a tag-only stable release, open a docs PR with the tagged
+``docs/releases/vX.Y.Z.md`` file and add it to the toctree in
+``docs/changelog.rst`` in newest-first order. The website builds from master
+and needs both the page and its index entry.
+
 Android release signing
 ~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -16164,6 +16164,11 @@ The selected source supplies build/bump/changelog tooling, so it must contain
 any required release fixes. This input does not automatically search for a green
 commit or bypass CI, and a successful dispatch is not proof of publication.
 
+After a tag-only stable release, open a docs PR with the tagged
+``docs/releases/vX.Y.Z.md`` file and add it to the toctree in
+``docs/changelog.rst`` in newest-first order. The website builds from master
+and needs both the page and its index entry.
+
 Android release signing
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -21744,6 +21749,8 @@ The changelog is also available in the repository releases <https://github.com/g
 .. toctree::
    :maxdepth: 1
 
+   releases/v0.37.0.md
+   releases/v0.36.0.md
    releases/v0.35.1.md
    releases/v0.35.0.md
    releases/v0.34.0.md
@@ -21804,38 +21811,174 @@ The changelog is also available in the repository releases <https://github.com/g
    releases/v0.1.1.md
 
 
-# v0.35.1
+---
+audience: user
+---
 
-These are the release notes for gptme version v0.35.1.
+# v0.37.0
+
+These are the release notes for gptme version v0.37.0.
 
 ## Contributors
 
 Thanks to everyone who contributed to this release:
 
-@erikbjare, @TimeToBuildBob
+@austinchennn, @erikbjare, @lkuko, @simpleqt, @TimeToBuildBob
 
 ## Changelog
 
-Changes since v0.35.0:
+Changes since 984b0d30ca4d8740cd292e1b53427e14ed9cae83:
 
 ## 📦 gptme
 
-### ✨ Features (1)
+### ✨ Features (30)
 
- - feat(python): run IPython in a separate Jupyter kernel process ([#4359](https://github.com/gptme/gptme/issues/4359)) ([`7dc2d7c87`](https://github.com/gptme/gptme/commit/7dc2d7c87ed23a46ae0430a116c6addb1d28aed5))
+ - feat(hooks): enforce secret-path reads on the pre-execution deny seam ([#4920](https://github.com/gptme/gptme/issues/4920)) ([`43e90c914`](https://github.com/gptme/gptme/commit/43e90c914b600ee8179ecd7f3fd9fff0f31fab5a))
+ - feat(hooks): let TOOL_EXECUTE_PRE deny a tool call ([#4918](https://github.com/gptme/gptme/issues/4918)) ([`15b75c4a7`](https://github.com/gptme/gptme/commit/15b75c4a796d580b022f2b060f540ca4e85a3d42))
+ - feat(hooks): hooks run matches keyworded memories; hooks install is the single documented path ([#4911](https://github.com/gptme/gptme/issues/4911)) ([`31202a231`](https://github.com/gptme/gptme/commit/31202a2311cba1ccac09a636ca20671994b13177))
+ - feat: discover local peers and wake conversations for peer messages ([#4912](https://github.com/gptme/gptme/issues/4912)) ([`5375685ed`](https://github.com/gptme/gptme/commit/5375685ed84b69c4e4bd5cb443e13f7bf3976cc8))
+ - feat(subagent): report cache-aware usage breakdown on subagent results ([#4903](https://github.com/gptme/gptme/issues/4903)) ([`5e1e6378d`](https://github.com/gptme/gptme/commit/5e1e6378d8c3f52cb654ebdffc7265bd55f4f7d0))
+ - feat(tui): show child progress and independent unread outcomes ([#4893](https://github.com/gptme/gptme/issues/4893)) ([`936c6770f`](https://github.com/gptme/gptme/commit/936c6770fa828c2924ff7a853452cdedf88995e9))
+ - feat(hooks): warn before externally enforced session deadlines ([#4892](https://github.com/gptme/gptme/issues/4892)) ([`864c03c11`](https://github.com/gptme/gptme/commit/864c03c110359fa3512528b9e2b91df67bab7c2f))
+ - feat(tui): show child agents and monitors with work overview screen ([#4557](https://github.com/gptme/gptme/issues/4557)) ([#4834](https://github.com/gptme/gptme/issues/4834)) ([`b96423106`](https://github.com/gptme/gptme/commit/b9642310618380ebe1efd8ca98e77148e4f6be4f))
+ - feat(models): add Gemini 4 Hydrogen ([#4881](https://github.com/gptme/gptme/issues/4881)) ([`84c33356d`](https://github.com/gptme/gptme/commit/84c33356d8142b26e2928ae79a0d4e9654ce9e98))
+ - feat(shell): promoted foreground jobs adopt their capture into the job spool ([#4663](https://github.com/gptme/gptme/issues/4663) step 3) ([#4880](https://github.com/gptme/gptme/issues/4880)) ([`e08a56792`](https://github.com/gptme/gptme/commit/e08a56792715348a7fa48207c509cba1ed7402c4))
+ - feat(tui): auto-name conversations and show the name in statusline and terminal title ([#4879](https://github.com/gptme/gptme/issues/4879)) ([`1ad8fe94c`](https://github.com/gptme/gptme/commit/1ad8fe94c3a305e5c8f51d660719f082046f2042))
+ - feat(memory): let memory match trigger lessons (--lessons, --lesson-dir) ([#4870](https://github.com/gptme/gptme/issues/4870)) ([`62cce2de5`](https://github.com/gptme/gptme/commit/62cce2de597a477407198a64544e4568813278ea))
+ - feat(subagent): retained-worktree slice — explicit GC path for isolated agents ([#4859](https://github.com/gptme/gptme/issues/4859)) ([`8d60c0b3b`](https://github.com/gptme/gptme/commit/8d60c0b3b8c48fcf7a2b7b23c37aec0f9ec9ee18))
+ - feat(mcp): add SSE transport support for FastMCP SSE servers ([#4864](https://github.com/gptme/gptme/issues/4864)) ([`8c6cb65c6`](https://github.com/gptme/gptme/commit/8c6cb65c66ce995798085f6b7b6e4b2b963abac4))
+ - feat(models): refresh MiniMax Flash choices and plugin requests ([#4452](https://github.com/gptme/gptme/issues/4452)) ([`8a557055b`](https://github.com/gptme/gptme/commit/8a557055b6e09a4fd954454ee6021d2ec23d2ab3))
+ - feat(hooks): route anomaly watchdog block mode through the policy-block helper ([#4828](https://github.com/gptme/gptme/issues/4828)) ([`d6dd67eaf`](https://github.com/gptme/gptme/commit/d6dd67eafbef59a71e8b7bcf07d89e1df73bc231))
+ - feat(watch,subagent): owner-scoped work snapshots and explicit watch expiry ([#4835](https://github.com/gptme/gptme/issues/4835)) ([`3d1838a90`](https://github.com/gptme/gptme/commit/3d1838a90c2f72f5155a291918706cd83cd2ff34))
+ - feat(subagent): cross-restart writer lease via flock on subagent-writer.lock ([#4853](https://github.com/gptme/gptme/issues/4853)) ([`66219ecfb`](https://github.com/gptme/gptme/commit/66219ecfb57fd9991f63bc3238e2d3852b8c4cdf))
+ - feat(complete): emit structured session-end metadata block ([#4830](https://github.com/gptme/gptme/issues/4830)) ([`707db06da`](https://github.com/gptme/gptme/commit/707db06dabe0c6ef5aa161969a9f434df5b14b03))
+ - feat(mcp): show which config layer supplied a server in mcp info ([#4849](https://github.com/gptme/gptme/issues/4849)) ([`e92764fc5`](https://github.com/gptme/gptme/commit/e92764fc5d090ee613588f4e066c396d9e092ea0))
+ - feat(config): add [shell] spool_quota_mb to ProjectConfig ([#4857](https://github.com/gptme/gptme/issues/4857)) ([`d91ed80b7`](https://github.com/gptme/gptme/commit/d91ed80b723111634e23cac620581dea98452354))
+ - feat(doctor): probe proxy reachability and OAuth token expiry ([#4833](https://github.com/gptme/gptme/issues/4833)) ([`007c2db1a`](https://github.com/gptme/gptme/commit/007c2db1a134fbdab9186d1ca668812bf1db960b))
+ - feat(subagent): report the latest committed checkpoint on subprocess deadline expiry ([#4851](https://github.com/gptme/gptme/issues/4851)) ([`397c67740`](https://github.com/gptme/gptme/commit/397c677403e04a765c810922170fa33739535835))
+ - feat(subagent): add yield operation that checkpoints and ends an attempt as blocked_external ([#4844](https://github.com/gptme/gptme/issues/4844)) ([`9416527f1`](https://github.com/gptme/gptme/commit/9416527f1c6a71f230e29cc6f144ab8937ab674d))
+ - feat(doctor): detect and repair startup config corruption in gptme-doctor ([#4813](https://github.com/gptme/gptme/issues/4813)) ([`d75f9743b`](https://github.com/gptme/gptme/commit/d75f9743b13f1dfeec5a4483fa2abd99810cf3e1))
+ - feat: report CLI and TUI agent lifecycle through OSC 7501 ([#4771](https://github.com/gptme/gptme/issues/4771)) ([`1faa02a23`](https://github.com/gptme/gptme/commit/1faa02a23feab9925f9b385c6ced16a487760631))
+ - feat(complete): policy-block budget — stop nudging at N blocks, end session at 2N ([#3960](https://github.com/gptme/gptme/issues/3960)) ([`4bd871604`](https://github.com/gptme/gptme/commit/4bd871604ec09eb1d8af7c5c132b79072d092d88))
+ - feat(tauri): write crash-log.jsonl on unexpected sidecar exit ([#4821](https://github.com/gptme/gptme/issues/4821)) ([`0121ddf68`](https://github.com/gptme/gptme/commit/0121ddf68261d485afe031eff8f59d7e32e2524e))
+ - feat(memory): opt-in per-session dedup for memory match (--dedup-session) ([#4779](https://github.com/gptme/gptme/issues/4779)) ([`0e65d18df`](https://github.com/gptme/gptme/commit/0e65d18dfd252718a32a02eff66c9425052e7df0))
+ - feat(lessons): auto-include keyworded memories alongside lessons ([#4780](https://github.com/gptme/gptme/issues/4780)) ([`e426a749f`](https://github.com/gptme/gptme/commit/e426a749fb4d3165adadf0a372681689290aae5a))
 
-### 🐛 Fixes (4)
+### 🐛 Fixes (84)
+<details><summary>Click to expand</summary>
+<p>
 
- - fix(shell): shellcheck blocks error-severity findings, hides style advice ([#4374](https://github.com/gptme/gptme/issues/4374)) ([`c2d437ea1`](https://github.com/gptme/gptme/commit/c2d437ea189001c3c024849f540e64b9f4d38340))
- - fix(tui): no blinks or jumps while a turn runs; frame-level regression tests ([#4372](https://github.com/gptme/gptme/issues/4372)) ([`4ed122a37`](https://github.com/gptme/gptme/commit/4ed122a37e8d921496f9aae5206a0ab0c6a41203))
- - fix(release): pin concrete Python for uv build in publish job ([#4370](https://github.com/gptme/gptme/issues/4370)) ([`c72b136ce`](https://github.com/gptme/gptme/commit/c72b136ce5a518d25e06c50b5b956098340d10a5))
- - fix(llm): avoid rebuilding grok client per-request; reuse HTTP session in openai-subscription ([#4365](https://github.com/gptme/gptme/issues/4365)) ([`88bc08d6b`](https://github.com/gptme/gptme/commit/88bc08d6b1d85651de374f070af14d8ed906cba0))
+ - fix(tui): render child transcripts as literal text ([#4916](https://github.com/gptme/gptme/issues/4916)) ([`a22cbe636`](https://github.com/gptme/gptme/commit/a22cbe6365e769e6b0ba3b22ecbed5196deb5137))
+ - fix(tui): place Work indicator below the prompt input, above the statusline ([#4909](https://github.com/gptme/gptme/issues/4909)) ([`8273e2fd0`](https://github.com/gptme/gptme/commit/8273e2fd060f225e5e9835542e7e61eb18390392))
+ - fix(tui): keep status, unread and agent id visible in narrow Work overview rows ([#4921](https://github.com/gptme/gptme/issues/4921)) ([`160636c41`](https://github.com/gptme/gptme/commit/160636c41f87de2f455f9c5f995b227cd1a0de39))
+ - fix(llm): mark Claude Sonnet 4.5 and retired Claude 4 models as deprecated ([#4931](https://github.com/gptme/gptme/issues/4931)) ([`d25d8fa04`](https://github.com/gptme/gptme/commit/d25d8fa04ef62fca299025746fe1ce5bdec97a28))
+ - fix(mcp): report HTTP 401/OAuth challenge instead of transport-cancelled ([#4927](https://github.com/gptme/gptme/issues/4927)) ([`21d2fceae`](https://github.com/gptme/gptme/commit/21d2fceae2b40bda3c770c310223dd3e537e48ff))
+ - fix(deps): upgrade tornado to 6.6.1 for CVE-2026-126347 ([#4924](https://github.com/gptme/gptme/issues/4924)) ([`9d2bf906a`](https://github.com/gptme/gptme/commit/9d2bf906a462536d260eda2e57fb3f2297620034))
+ - fix(mcp): report TLS verification failure for self-signed HTTPS MCP servers ([#4923](https://github.com/gptme/gptme/issues/4923)) ([`d03ae2d22`](https://github.com/gptme/gptme/commit/d03ae2d2284171cb3b68ccd937c05ca8f09f8a23))
+ - fix(mcp): bound oversized MCP tool results and spool the full text ([#4925](https://github.com/gptme/gptme/issues/4925)) ([`52010d300`](https://github.com/gptme/gptme/commit/52010d300921c3eb9a006789cced1cf3f445e4bf))
+ - fix(subagent): honor context_window=0 in subprocess mode ([#4919](https://github.com/gptme/gptme/issues/4919)) ([`06c15047e`](https://github.com/gptme/gptme/commit/06c15047e1996c6e922ee19a4191cc067fbfcf47))
+ - fix(subagent): fence stale cancel op before allow_cancelled continuation ([#4905](https://github.com/gptme/gptme/issues/4905)) ([`7677d6415`](https://github.com/gptme/gptme/commit/7677d64154bf919b08f8cee70690a922ba3e805f))
+ - fix(subagent): deliver subprocess progress via file channel, not child-local queue ([#4913](https://github.com/gptme/gptme/issues/4913)) ([`39483fdc2`](https://github.com/gptme/gptme/commit/39483fdc2e4b4fcbc6f25e79544366b9a6120974))
+ - fix(tui): move work-pane shortcut from Ctrl+W to Ctrl+T ([#4908](https://github.com/gptme/gptme/issues/4908)) ([`267830aaf`](https://github.com/gptme/gptme/commit/267830aafaa564f39e8c80e3999e0799e9c2f899))
+ - fix(subagent): recover final report across harness completion nudge ([#4906](https://github.com/gptme/gptme/issues/4906)) ([`6d5039193`](https://github.com/gptme/gptme/commit/6d503919373088a55a738f52604c6adc14e043aa))
+ - fix(tui): render each Work overview child as one non-wrapping line ([#4907](https://github.com/gptme/gptme/issues/4907)) ([`5805d6663`](https://github.com/gptme/gptme/commit/5805d666354caac9f1ad5c5651c88bafdd91352d))
+ - fix(subagent): accept every terminal status when loading a persisted outcome ([#4902](https://github.com/gptme/gptme/issues/4902)) ([`8e0f99366`](https://github.com/gptme/gptme/commit/8e0f99366d0526344bb6975794e029ca9a53ae60))
+ - fix(codeblock): make from_markdown round-trip lossless ([#4867](https://github.com/gptme/gptme/issues/4867)) ([`88c25cb7c`](https://github.com/gptme/gptme/commit/88c25cb7cb4d0766d89917d1113376c2b63d1a67))
+ - fix(mcp): close CLI probe clients on success and failure ([#4887](https://github.com/gptme/gptme/issues/4887)) ([`a8ad8c11e`](https://github.com/gptme/gptme/commit/a8ad8c11ef0af136c57de959e1f5de86a6ce6142))
+ - fix: hash copied attachment bytes before publishing snapshot ([#4885](https://github.com/gptme/gptme/issues/4885)) ([`a3fe81fb7`](https://github.com/gptme/gptme/commit/a3fe81fb723e9864d5d79f2312d655e96c8cbd60))
+ - fix(llm): keep mid-conversation system messages out of Responses instructions ([#4883](https://github.com/gptme/gptme/issues/4883)) ([`8167ffa67`](https://github.com/gptme/gptme/commit/8167ffa67ecbcacbb35d4a110349e8df338c4d1a))
+ - fix(deps): require patched Soup Sieve for selector DoS ([#4888](https://github.com/gptme/gptme/issues/4888)) ([`a4044d171`](https://github.com/gptme/gptme/commit/a4044d1713fc44fc6837fcf60b1e71e410356839))
+ - fix(version): ignore enclosing repository dirt for installed packages ([#4875](https://github.com/gptme/gptme/issues/4875)) ([`62c790319`](https://github.com/gptme/gptme/commit/62c790319dc800b0514c213b1aa8b1f5ca56a49f))
+ - fix(subagent): retained-workspace release holds the writer lease and never silently discards uncommitted work ([#4872](https://github.com/gptme/gptme/issues/4872)) ([`51b2d2f88`](https://github.com/gptme/gptme/commit/51b2d2f8812ad9fef5a9c54525f2f85a224bd0d4))
+ - fix(lessons): match skill names on word boundaries, not substrings ([#4871](https://github.com/gptme/gptme/issues/4871)) ([`43f77cf61`](https://github.com/gptme/gptme/commit/43f77cf61fc7f4774186bfb5a2e5b64f00b1f9c2))
+ - fix(output): bound spool writes, quota, receipts, and byte cursors ([#4856](https://github.com/gptme/gptme/issues/4856)) ([`8ecd70df0`](https://github.com/gptme/gptme/commit/8ecd70df028637c9881a5a4e65ae826ea7a6f49c))
+ - fix(models): refresh stale OpenRouter Anthropic model IDs to Claude 5 ([#4861](https://github.com/gptme/gptme/issues/4861)) ([`9e0f15781`](https://github.com/gptme/gptme/commit/9e0f1578109fbd700055e063416f6e18b5024b42))
+ - fix(uri): recognize RFC 2397 data: URIs ([#4865](https://github.com/gptme/gptme/issues/4865)) ([`29f8a8ad5`](https://github.com/gptme/gptme/commit/29f8a8ad5b4bd70576af78b32ae1ce5897d193b0))
+ - fix(subagent): superseded attempt's monitor must not cache its result for the resumed one ([#4858](https://github.com/gptme/gptme/issues/4858)) ([`3df9ed93a`](https://github.com/gptme/gptme/commit/3df9ed93a3f31e8e8ccc119b797e03a339cbf696))
+ - fix(tests): end the mock MiniMax SSE stream with a terminal finish_reason ([#4860](https://github.com/gptme/gptme/issues/4860)) ([`9b70d947b`](https://github.com/gptme/gptme/commit/9b70d947b815d28e36340ec1bff5241b53a3b56c))
+ - fix(agents-md): a startup-loaded agent workspace is not foreign ([#4465](https://github.com/gptme/gptme/issues/4465)) ([`f610623d8`](https://github.com/gptme/gptme/commit/f610623d8ef43875e67194bc7d5672ae9bd27089))
+ - fix(shell): enforce 32 MiB per-job spool quota; reader keeps draining on quota exceeded ([#4855](https://github.com/gptme/gptme/issues/4855)) ([`36e11aa98`](https://github.com/gptme/gptme/commit/36e11aa982e647fe0f757433fd8979631c7efe2f))
+ - fix(mcp): honor /mcp load config overrides for unknown servers ([#4786](https://github.com/gptme/gptme/issues/4786)) ([`66135c639`](https://github.com/gptme/gptme/commit/66135c6396f4850196a4704b79c45e97174fcf81))
+ - fix(shell): redact exact live secret values from tool output in any shape ([#4854](https://github.com/gptme/gptme/issues/4854)) ([`4195114b7`](https://github.com/gptme/gptme/commit/4195114b7d634e5a46bdff54606b066b7074314c))
+ - fix(shell): redact credentials printed mid-line in tool output ([#4799](https://github.com/gptme/gptme/issues/4799)) ([`7487c0b0e`](https://github.com/gptme/gptme/commit/7487c0b0e903fbfb61f1ce6196217d15cdc8f47a))
+ - fix(gh): keep failed logs native and bound passthrough responses ([#4827](https://github.com/gptme/gptme/issues/4827)) ([`4c4e8184b`](https://github.com/gptme/gptme/commit/4c4e8184bdbc6a88d42cbaa5e443ac3b9ab8b974))
+ - fix(codeblock): close non-exec blocks followed only by prose or distant blocks ([#4839](https://github.com/gptme/gptme/issues/4839)) ([`4683923da`](https://github.com/gptme/gptme/commit/4683923da97b2b0c598d787b058d2c3502efddb5))
+ - fix(output): spool direct background jobs before RAM eviction ([#4826](https://github.com/gptme/gptme/issues/4826)) ([`8dfa1681b`](https://github.com/gptme/gptme/commit/8dfa1681b89a527ab47cda01c61637efc1184fd2))
+ - fix(subagent): refuse continuation of a cancelled attempt unless allow_cancelled=True ([#4852](https://github.com/gptme/gptme/issues/4852)) ([`01234f6fe`](https://github.com/gptme/gptme/commit/01234f6fe5df276a2996fbc803198b0d075d1653))
+ - fix(subagent): tell the parent a timed-out child can be continued ([#4841](https://github.com/gptme/gptme/issues/4841)) ([`6d50c058d`](https://github.com/gptme/gptme/commit/6d50c058d50d0f5ce69bf9b3b043d1836737e2a9))
+ - fix(plugins): scan third-party entry points before importing them ([#4847](https://github.com/gptme/gptme/issues/4847)) ([`941a5ada6`](https://github.com/gptme/gptme/commit/941a5ada68959a4e99d5d540a6ea1512dbbe9616))
+ - fix: register nvidia in PROVIDER_API_KEYS so NVIDIA_API_KEY is auto-detected ([#4774](https://github.com/gptme/gptme/issues/4774)) ([`fcaf960a8`](https://github.com/gptme/gptme/commit/fcaf960a89e19310b68b2fc741150b349b92b2c8))
+ - fix(ci): give the Tauri apt install a cache-aware deadline ([#4850](https://github.com/gptme/gptme/issues/4850)) ([`79b80a6b3`](https://github.com/gptme/gptme/commit/79b80a6b30a5a7e9126074a8d015612803b550d4))
+ - fix(ci): check model freshness against public OpenRouter catalog ([#4837](https://github.com/gptme/gptme/issues/4837)) ([`eca020a99`](https://github.com/gptme/gptme/commit/eca020a99853a739cb8ab4b7bd3ebb015ecd6235))
+ - fix(export): encode complete chat data for HTML script context ([#4832](https://github.com/gptme/gptme/issues/4832)) ([`747c6ef4b`](https://github.com/gptme/gptme/commit/747c6ef4bcfaaf93767d4eb1fe8a4d04685281ed))
+ - fix(subagent): report wall-clock deadline expiry as timeout, not failure ([#4836](https://github.com/gptme/gptme/issues/4836)) ([`e0ef7b904`](https://github.com/gptme/gptme/commit/e0ef7b904753cf68e3f39936718837f8c3869b04))
+ - fix(subagent): persist terminal attempt outcomes across parent restart ([#4843](https://github.com/gptme/gptme/issues/4843)) ([`4f4e3e0e6`](https://github.com/gptme/gptme/commit/4f4e3e0e6b75c6663c7bf6b0b12f0bbb1d8d7a53))
+ - fix(subagent): preserve non-empty non-git isolation workspace ([#4838](https://github.com/gptme/gptme/issues/4838)) ([`8138f833e`](https://github.com/gptme/gptme/commit/8138f833ed97c56039a0d1616cd7f986239d8769))
+ - fix(doctor): warn when an MCP HTTP server rejects the credential ([#4829](https://github.com/gptme/gptme/issues/4829)) ([`2681583e8`](https://github.com/gptme/gptme/commit/2681583e8398687880e31c7901420994c04edaa7))
+ - fix(doctor): state what the config and stdio-MCP rows actually checked ([#4831](https://github.com/gptme/gptme/issues/4831)) ([`6f6da87f8`](https://github.com/gptme/gptme/commit/6f6da87f88dfdf295011524b5da943986730ecf1))
+ - fix(tests): isolate CC fallback in memory tool tests ([#4825](https://github.com/gptme/gptme/issues/4825)) ([`a1b8a218b`](https://github.com/gptme/gptme/commit/a1b8a218b2ff31769c47d07fbf5ac498748abe54))
+ - fix(config): inherit user mcp toggles in partial project layers ([#4776](https://github.com/gptme/gptme/issues/4776)) ([`9b06053e9`](https://github.com/gptme/gptme/commit/9b06053e989c609bec0c76b81a0bd65c8a4b7d6c))
+ - fix(memory): match legacy index pointers whose titles contain links ([#4781](https://github.com/gptme/gptme/issues/4781)) ([`f9884feb1`](https://github.com/gptme/gptme/commit/f9884feb180f3994ce95879edd1f3bd9affe4847))
+ - fix(chat): bounded non-interactive drain for running subagents ([#4777](https://github.com/gptme/gptme/issues/4777)) ([`f5b285ea2`](https://github.com/gptme/gptme/commit/f5b285ea2998b301c3bd7ae097d1c7185925aba6))
+ - fix(output): harden tool-output writer (private, no-clobber, symlink-safe) ([#4782](https://github.com/gptme/gptme/issues/4782)) ([`87161aea2`](https://github.com/gptme/gptme/commit/87161aea20899bf150104a63bd9db309aedb1676))
+ - fix(gh): pass through to the gh CLI when a native read command has unsupported flags ([#4783](https://github.com/gptme/gptme/issues/4783)) ([`2f03c8db6`](https://github.com/gptme/gptme/commit/2f03c8db63464d7a75704275c05b69e32e54f64c))
+ - fix(gh): keep the failure block when a CI log exceeds the token budget ([#4788](https://github.com/gptme/gptme/issues/4788)) ([`09885f4c0`](https://github.com/gptme/gptme/commit/09885f4c045eecac27d3a9ac4403a52307f144f0))
+ - fix(convert): bound DOCX conversion by expanded body size ([#4773](https://github.com/gptme/gptme/issues/4773)) ([`7c3e1a57d`](https://github.com/gptme/gptme/commit/7c3e1a57d7ae86208becfff335c22bbb93c65a97))
+ - fix(auth): validate malformed cached gptme.ai token instead of crashing ([#4808](https://github.com/gptme/gptme/issues/4808)) ([`1fada9ef3`](https://github.com/gptme/gptme/commit/1fada9ef3a0b678b2adb5cc0f26faa3708f73794))
+ - fix(codeblock): non-exec-lang block followed by later block now yields all blocks ([#4820](https://github.com/gptme/gptme/issues/4820)) ([`783608d5f`](https://github.com/gptme/gptme/commit/783608d5f481198f76681298924165299649bf27))
+ - fix(config): normalize provider arrays before appending tables ([#4807](https://github.com/gptme/gptme/issues/4807)) ([`e931a7f8b`](https://github.com/gptme/gptme/commit/e931a7f8b59e09296e0060b81db80f8a25cbf506))
+ - fix(mcp): redact URL credentials in conversational list/info ([#4810](https://github.com/gptme/gptme/issues/4810)) ([`d3b174a1d`](https://github.com/gptme/gptme/commit/d3b174a1ddd74ac3334ef3de38679819822da88e))
+ - fix(context): skip malformed rows in the context-savings summary ([#4823](https://github.com/gptme/gptme/issues/4823)) ([`9376c8524`](https://github.com/gptme/gptme/commit/9376c852406e467da1218054224b3af56d3259f0))
+ - fix(parser): reject non-ASCII digits and bound overflow in int() parse paths ([#4800](https://github.com/gptme/gptme/issues/4800)) ([`71a062c5e`](https://github.com/gptme/gptme/commit/71a062c5ebc2c8300dd75685aeffbe8929293ac5))
+ - fix(mcp): report the real cause when an HTTP connect fails ([#4805](https://github.com/gptme/gptme/issues/4805)) ([`e14aab5b8`](https://github.com/gptme/gptme/commit/e14aab5b83da6aaa53db913b94287a221feac825))
+ - fix(config): auto-repair providers = [...] inline-table corruption at load ([#4809](https://github.com/gptme/gptme/issues/4809)) ([`ea7f9bd98`](https://github.com/gptme/gptme/commit/ea7f9bd980c6ca015b6817e1d9b04d354f8612b0))
+ - fix(memory): expose explicit layered write scopes ([#4769](https://github.com/gptme/gptme/issues/4769)) ([`24edffda8`](https://github.com/gptme/gptme/commit/24edffda87727b981df5a6ce38fe3e2948cf27c1))
+ - fix(complete): tell the model when a reply's fences all failed to parse ([#4818](https://github.com/gptme/gptme/issues/4818)) ([`f44fa0aef`](https://github.com/gptme/gptme/commit/f44fa0aef0731918ca207ed23c541ac6b06c60c1))
+ - fix(read): isolate path-resolution errors so later batch paths still read ([#4790](https://github.com/gptme/gptme/issues/4790)) ([`4b232b76b`](https://github.com/gptme/gptme/commit/4b232b76b04df928e7cf5aac3aaf7388598a8806))
+ - fix(auth): print device-flow complete URI on first-run gptme.ai connect ([#4785](https://github.com/gptme/gptme/issues/4785)) ([`986eb987b`](https://github.com/gptme/gptme/commit/986eb987b1c7088c728c8b14569c8d082a6afc90))
+ - fix(auth): publish private cloud tokens without truncating existing login ([#4791](https://github.com/gptme/gptme/issues/4791)) ([`a8419fcd9`](https://github.com/gptme/gptme/commit/a8419fcd9deb423b40cd8acfb4fa1b64d528d461))
+ - fix(reduce): fail locally when only a compaction view is a usable input ([#4772](https://github.com/gptme/gptme/issues/4772)) ([`9d9bd297e`](https://github.com/gptme/gptme/commit/9d9bd297e4363600e54e4813fe8b23ef0785fda4))
+ - fix(mcp): preserve explicit server environment without mutating config ([#4794](https://github.com/gptme/gptme/issues/4794)) ([`c7e5c4948`](https://github.com/gptme/gptme/commit/c7e5c494840441556fb29fd8aef639d2bc9fc2c6))
+ - fix(todo): keep literal boundary quotes in add/update text ([#4792](https://github.com/gptme/gptme/issues/4792)) ([`538566174`](https://github.com/gptme/gptme/commit/538566174a25128c94927fd6a8a6757958141cfc))
+ - fix(commands): reject non-ASCII digit counts in /undo ([#4801](https://github.com/gptme/gptme/issues/4801)) ([`7bb097829`](https://github.com/gptme/gptme/commit/7bb097829ce21ae316f3244e36dc075cc435b9a4))
+ - fix(llm): close reasoning block before content/tool calls in mixed transition deltas ([#4804](https://github.com/gptme/gptme/issues/4804)) ([`96515db92`](https://github.com/gptme/gptme/commit/96515db92556bbf07eeffba2465c79686378c284))
+ - fix: preserve user input after oversized tool output pruning ([#4753](https://github.com/gptme/gptme/issues/4753)) ([`7a656435f`](https://github.com/gptme/gptme/commit/7a656435f2a56dac98500a3c3559f344546038b5))
+ - fix(commands): consume slash-only input instead of crashing on unpacking ([#4743](https://github.com/gptme/gptme/issues/4743)) ([`0b5e0a8c3`](https://github.com/gptme/gptme/commit/0b5e0a8c3be59c7bc5040e634a2ec23c53e5c3f0))
+ - fix: publish attachment snapshots after successful copies ([#4661](https://github.com/gptme/gptme/issues/4661)) ([`7d27e3b16`](https://github.com/gptme/gptme/commit/7d27e3b1605237a6f8447408b53cc6c2987929ec))
+ - fix(cli): wake idle parent on subagent completion ([#4761](https://github.com/gptme/gptme/issues/4761)) ([`8532295f6`](https://github.com/gptme/gptme/commit/8532295f67d7497e1111ffd640233489d9a61d40))
+ - fix(hooks): preserve unrelated commands in mixed entries ([#4767](https://github.com/gptme/gptme/issues/4767)) ([`690cab924`](https://github.com/gptme/gptme/commit/690cab924028c8436e2f6554d4b5de2ba2e0bcc4))
+ - fix(setup): persist provider updates over local overrides ([#4764](https://github.com/gptme/gptme/issues/4764)) ([`123cb9f5a`](https://github.com/gptme/gptme/commit/123cb9f5abb6b09e2a29779853ec2e06fa28f5a7))
+ - fix(shell): treat special tokens in output as plain text when truncating ([#4730](https://github.com/gptme/gptme/issues/4730)) ([`4eee00458`](https://github.com/gptme/gptme/commit/4eee004583a48da87799bb5e4341bfebe4b5c444))
+ - fix: label /context retained log separately from provider input ([#4759](https://github.com/gptme/gptme/issues/4759)) ([`fba43ec70`](https://github.com/gptme/gptme/commit/fba43ec70c1804a9e59d54af9e8013ec2ebbb385))
+ - fix(anthropic): defer notices until tool results are emitted ([#4765](https://github.com/gptme/gptme/issues/4765)) ([`60bdbf665`](https://github.com/gptme/gptme/commit/60bdbf66589d0315f3a2815177ff6afc23b7907b))
+ - fix(release): pin CI and publication to selected source ref ([#4760](https://github.com/gptme/gptme/issues/4760)) ([`3950aebc8`](https://github.com/gptme/gptme/commit/3950aebc88f2a5b20163064d7ff884359a01c509))
 
-### 🔨 Misc (1)
+</p>
+</details>
 
- - chore: bump version to 0.35.1 ([`v0.35.1`](https://github.com/gptme/gptme/tree/v0.35.1))
+### 🔨 Misc (12)
+<details><summary>Click to expand</summary>
+<p>
 
-**Full Changelog**: https://github.com/gptme/gptme/compare/v0.35.0...v0.35.1
+ - chore: bump version to 0.37.0 ([`v0.37.0`](https://github.com/gptme/gptme/tree/v0.37.0))
+ - test: reset message output format around each test ([#4914](https://github.com/gptme/gptme/issues/4914)) ([`97350257d`](https://github.com/gptme/gptme/commit/97350257d7b294782edde38a04d331f0a7f9ee17))
+ - test(time-awareness): isolate tests from host session-deadline env ([#4894](https://github.com/gptme/gptme/issues/4894)) ([`49e276589`](https://github.com/gptme/gptme/commit/49e2765894e70059b32853452fd2987560f677b5))
+ - perf(lessons): cut Claude Code lesson hook latency ~4x (0.52s → 0.14s) ([#4877](https://github.com/gptme/gptme/issues/4877)) ([`5afa4d773`](https://github.com/gptme/gptme/commit/5afa4d773b15857ee17bdf70d12343ce88c13f32))
+ - test(tui): verify work inspection ownership and bounded expiry wakes ([#4891](https://github.com/gptme/gptme/issues/4891)) ([`2b21a1c2d`](https://github.com/gptme/gptme/commit/2b21a1c2ddad9ecb58802fc4cd0b69d10af612ba))
+ - docs(explain): list current /compact modes (summarize|trim) ([#4842](https://github.com/gptme/gptme/issues/4842)) ([`acdb964d2`](https://github.com/gptme/gptme/commit/acdb964d2fe23e0d50f4ad7930bf3c04659c6d7d))
+ - test: isolate GPTME_LOGS_HOME per test (stop subagent-test-* leaking into live logs dir) ([#4846](https://github.com/gptme/gptme/issues/4846)) ([`85c70ee4f`](https://github.com/gptme/gptme/commit/85c70ee4f17d074f3b7d8e92ca104b8663458e05))
+ - perf(subagent): filter logdirs by name before stat in id lookup ([#4845](https://github.com/gptme/gptme/issues/4845)) ([`3767da026`](https://github.com/gptme/gptme/commit/3767da0267cd3661b6fcfd26cbd409932b1d2345))
+ - test(config): pin inline-array and empty-array provider roundtrip contract ([#4812](https://github.com/gptme/gptme/issues/4812)) ([`649ac0f5f`](https://github.com/gptme/gptme/commit/649ac0f5fb75c5d252270937ec4173f4de5ebfbb))
+ - test(config): add provider config write→load roundtrip tests ([#4811](https://github.com/gptme/gptme/issues/4811)) ([`e555ceb2c`](https://github.com/gptme/gptme/commit/e555ceb2cc95879b05de5f53227fa2ff9d6b93a3))
+ - docs(memory): reconcile lessons vs keyworded memories; keyword hygiene; hook dedup caveat ([#4778](https://github.com/gptme/gptme/issues/4778)) ([`bfb95863e`](https://github.com/gptme/gptme/commit/bfb95863e5737a53fc13021858905f4d6c1f4223))
+ - docs(providers): correct stale PyPI caveat in airgapped tokenizer note ([#4787](https://github.com/gptme/gptme/issues/4787)) ([`cf5a8e4fb`](https://github.com/gptme/gptme/commit/cf5a8e4fb1cff1b3d0eef47469a75fd207a93c25))
+
+</p>
+</details>
+
+*(excluded 3 less relevant [commits](https://github.com/gptme/gptme/compare/984b0d30ca4d8740cd292e1b53427e14ed9cae83...v0.37.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/984b0d30ca4d8740cd292e1b53427e14ed9cae83...v0.37.0
 
 
 # v0.1.1
@@ -27703,6 +27846,344 @@ Changes since v0.34.0:
 *(excluded 49 less relevant [commits](https://github.com/gptme/gptme/compare/v0.34.0...v0.35.0))*
 
 **Full Changelog**: https://github.com/gptme/gptme/compare/v0.34.0...v0.35.0
+
+
+# v0.35.1
+
+These are the release notes for gptme version v0.35.1.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@erikbjare, @TimeToBuildBob
+
+## Changelog
+
+Changes since v0.35.0:
+
+## 📦 gptme
+
+### ✨ Features (1)
+
+ - feat(python): run IPython in a separate Jupyter kernel process ([#4359](https://github.com/gptme/gptme/issues/4359)) ([`7dc2d7c87`](https://github.com/gptme/gptme/commit/7dc2d7c87ed23a46ae0430a116c6addb1d28aed5))
+
+### 🐛 Fixes (4)
+
+ - fix(shell): shellcheck blocks error-severity findings, hides style advice ([#4374](https://github.com/gptme/gptme/issues/4374)) ([`c2d437ea1`](https://github.com/gptme/gptme/commit/c2d437ea189001c3c024849f540e64b9f4d38340))
+ - fix(tui): no blinks or jumps while a turn runs; frame-level regression tests ([#4372](https://github.com/gptme/gptme/issues/4372)) ([`4ed122a37`](https://github.com/gptme/gptme/commit/4ed122a37e8d921496f9aae5206a0ab0c6a41203))
+ - fix(release): pin concrete Python for uv build in publish job ([#4370](https://github.com/gptme/gptme/issues/4370)) ([`c72b136ce`](https://github.com/gptme/gptme/commit/c72b136ce5a518d25e06c50b5b956098340d10a5))
+ - fix(llm): avoid rebuilding grok client per-request; reuse HTTP session in openai-subscription ([#4365](https://github.com/gptme/gptme/issues/4365)) ([`88bc08d6b`](https://github.com/gptme/gptme/commit/88bc08d6b1d85651de374f070af14d8ed906cba0))
+
+### 🔨 Misc (1)
+
+ - chore: bump version to 0.35.1 ([`v0.35.1`](https://github.com/gptme/gptme/tree/v0.35.1))
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/v0.35.0...v0.35.1
+
+
+---
+audience: user
+---
+
+# v0.36.0
+
+These are the release notes for gptme version v0.36.0.
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+@daeho-ro, @Ehsan-hash, @erikbjare, @March-7, @original4422, @sarankumar1325, @simpleqt, @TimeToBuildBob, @wozhenbang2004
+
+## Changelog
+
+Changes since 0c131bb0d642fcdd1edb2c6fec02eccfe7f71a07:
+
+## 📦 gptme
+
+### ✨ Features (19)
+
+ - feat(providers): add OpenCode Go DeepSeek support ([#4516](https://github.com/gptme/gptme/issues/4516)) ([`46a43eb40`](https://github.com/gptme/gptme/commit/46a43eb40c8b515fa6db9259ae11f974e5e3b416))
+ - feat(tauri): Windows Authenticode signing for installer and sidecar ([#4510](https://github.com/gptme/gptme/issues/4510)) ([`93bf79566`](https://github.com/gptme/gptme/commit/93bf795661c17139f4d7b6c00a681f390b78474c))
+ - feat(complete): discover opt-in project verification ([#3755](https://github.com/gptme/gptme/issues/3755)) ([`d5d935c34`](https://github.com/gptme/gptme/commit/d5d935c3474325f429b4dde7d4918e526031886e))
+ - feat(models): update gptme managed default to openrouter/anthropic/claude-sonnet-5.5 ([#4500](https://github.com/gptme/gptme/issues/4500)) ([`33f2c9cb4`](https://github.com/gptme/gptme/commit/33f2c9cb429a826d16b84758ff14075da4996ed3))
+ - feat(review): preserve multi-pass consensus evidence on ReviewFinding ([#4442](https://github.com/gptme/gptme/issues/4442)) ([`d4204c3a4`](https://github.com/gptme/gptme/commit/d4204c3a4bfd2a5a09ef9c3f74f028e0238ee782))
+ - feat(review): add per-finding evidence fields and artifact identity fields ([#4441](https://github.com/gptme/gptme/issues/4441)) ([`4c41b85f0`](https://github.com/gptme/gptme/commit/4c41b85f025c0e3990c5c1a7841c2a516c14dd8a))
+ - feat: support Python 3.15 ([#4410](https://github.com/gptme/gptme/issues/4410)) ([`a7602d6de`](https://github.com/gptme/gptme/commit/a7602d6de238093f1f460bd82217bc77c789e121))
+ - feat(tools): policy-block helper — consistent marker + finality text at all block sites ([#3959](https://github.com/gptme/gptme/issues/3959)) ([`945c12d7d`](https://github.com/gptme/gptme/commit/945c12d7d67b47224bc3adbbbc605fcedf15da30))
+ - feat(hooks): inject working-tree diff at session start when dirty ([#4020](https://github.com/gptme/gptme/issues/4020)) ([`07c309e39`](https://github.com/gptme/gptme/commit/07c309e39b7e77caa92ab9a0921f3d5de21fdf04))
+ - feat(review): retain full rejected_findings objects in ReviewArtifact ([#4406](https://github.com/gptme/gptme/issues/4406)) ([`2098420a9`](https://github.com/gptme/gptme/commit/2098420a9ec2e591d4e2144a3e91fb111407f3fa))
+ - feat(review): extend ReviewArtifact with production evidence fields ([#4405](https://github.com/gptme/gptme/issues/4405)) ([`1d03bcdaf`](https://github.com/gptme/gptme/commit/1d03bcdaff625f6e72897911acef90214ba7edf9))
+ - feat(review): add JSON Schema + validator for ReviewArtifact v2 (slice 2d) ([#4404](https://github.com/gptme/gptme/issues/4404)) ([`787180fea`](https://github.com/gptme/gptme/commit/787180feacb8f9b775abe3abe146d1be79cfca54))
+ - feat(python): auto-activate kernel backend when a project environment is detected ([#4393](https://github.com/gptme/gptme/issues/4393)) ([`7ec4b5e1b`](https://github.com/gptme/gptme/commit/7ec4b5e1bb5612d0bdbc7ab560c4f0bb951531a3))
+ - feat(webui): add group-turns toggle and fix tool-result indent edge cases ([#4376](https://github.com/gptme/gptme/issues/4376)) ([#4386](https://github.com/gptme/gptme/issues/4386)) ([`9218f8c24`](https://github.com/gptme/gptme/commit/9218f8c2441fa853ee5a7b2f86cfb4222f2297f2))
+ - feat(review): extend ReviewArtifact with union schema fields (slice 2a) ([#4390](https://github.com/gptme/gptme/issues/4390)) ([`01308d1d6`](https://github.com/gptme/gptme/commit/01308d1d65779f4693191af22c4a950d4739f89a))
+ - feat(python): use 'uv run --with ipykernel' when project env lacks ipykernel ([#4379](https://github.com/gptme/gptme/issues/4379)) ([`4b856f921`](https://github.com/gptme/gptme/commit/4b856f921e712d9c1ed8d3b1091604c722f9e3e2))
+ - feat(review): ingest ai-review-local artifacts + extend finding schema ([#4388](https://github.com/gptme/gptme/issues/4388)) ([`880e22442`](https://github.com/gptme/gptme/commit/880e22442da550c873ab041257c31e92e1dcbc22))
+ - feat(webui): indent tool results under their step in expanded turn groups ([#4380](https://github.com/gptme/gptme/issues/4380)) ([`10a23b6de`](https://github.com/gptme/gptme/commit/10a23b6deba27c2730b3d363f2a450c089e64cad))
+ - feat(tui): show an agent turn as one block, tool results under their step ([#4375](https://github.com/gptme/gptme/issues/4375)) ([`0f49283ae`](https://github.com/gptme/gptme/commit/0f49283ae2289f66fe795ca536967711f8d23a93))
+
+### 🐛 Fixes (229)
+<details><summary>Click to expand</summary>
+<p>
+
+ - fix(tui): preserve queued prompt boundaries after interrupt ([#4758](https://github.com/gptme/gptme/issues/4758)) ([`b7ca28976`](https://github.com/gptme/gptme/commit/b7ca289763019d8f4a1389612992bda11c38b5aa))
+ - fix: distinguish retained log size from provider context usage ([#4757](https://github.com/gptme/gptme/issues/4757)) ([`90e1d1ec1`](https://github.com/gptme/gptme/commit/90e1d1ec1a4411d216e57bb93583d6e26e33c752))
+ - fix(gh): return early from pr checks on failure and bound waits ([#4755](https://github.com/gptme/gptme/issues/4755)) ([`4432f1020`](https://github.com/gptme/gptme/commit/4432f102012ad9976e0df5a476263ae636e0f10c))
+ - fix(setup): recognize AQ. Gemini API keys ([#4754](https://github.com/gptme/gptme/issues/4754)) ([`67f35d8ad`](https://github.com/gptme/gptme/commit/67f35d8adb0e41c7845fb41b691554931c2e8b9e))
+ - fix: configurable summary models and refresh Gemini defaults ([#4749](https://github.com/gptme/gptme/issues/4749)) ([`cb2bf23c0`](https://github.com/gptme/gptme/commit/cb2bf23c09b1701fb01e3bf16c7ac87ea370117a))
+ - fix(export): preserve literal transcript examples when filtering ([#4671](https://github.com/gptme/gptme/issues/4671)) ([`151278283`](https://github.com/gptme/gptme/commit/151278283b4d1ed27e0cbf187fb80214b1569212))
+ - fix(convert): reject special-file output destinations ([#4598](https://github.com/gptme/gptme/issues/4598)) ([`b66fff581`](https://github.com/gptme/gptme/commit/b66fff581f13e1bdd9b91a6d6f4563e6d7432647))
+ - fix(browser): keep live auth state across open_page navigation ([#4726](https://github.com/gptme/gptme/issues/4726)) ([`36c97a710`](https://github.com/gptme/gptme/commit/36c97a710fa8852050549292e513f33968356458))
+ - fix(convert): preserve percent-pattern image source identity ([#4676](https://github.com/gptme/gptme/issues/4676)) ([`1deef389b`](https://github.com/gptme/gptme/commit/1deef389b953a9290a33b0d5124bb97a3a388a06))
+ - fix(chats): keep cleanup dry-run free of lifecycle writes ([#4744](https://github.com/gptme/gptme/issues/4744)) ([`1c3dbd063`](https://github.com/gptme/gptme/commit/1c3dbd063e0ab73bc0c5c523241e9573b4f5a752))
+ - fix(browser): validate state before discarding active session ([#4646](https://github.com/gptme/gptme/issues/4646)) ([`83ff72528`](https://github.com/gptme/gptme/commit/83ff72528da50f76aa64c8be97a97cd7570afd69))
+ - fix(webui): stabilize settings updater for effect consumers ([#4581](https://github.com/gptme/gptme/issues/4581)) ([`8a5350849`](https://github.com/gptme/gptme/commit/8a53508495c6b33fae19f94d918bd63aaec2484c))
+ - fix(patch_many): preserve literal headers through confirmation ([#4578](https://github.com/gptme/gptme/issues/4578)) ([`14bc506e4`](https://github.com/gptme/gptme/commit/14bc506e459c2b3379ba8b2f4c6947d2943e1fb6))
+ - fix(patch_many): stage writes and restore failed publications ([#4564](https://github.com/gptme/gptme/issues/4564)) ([`44f186f34`](https://github.com/gptme/gptme/commit/44f186f34e0c8c30fefb9f52f1a272b9e5801a93))
+ - fix(gh): reject unsafe native merge arguments ([#4577](https://github.com/gptme/gptme/issues/4577)) ([`5b6448fa6`](https://github.com/gptme/gptme/commit/5b6448fa625b86efed02188a2910b9cce1d35c8a))
+ - fix(gh): collect every check-run page before CI settlement ([#4580](https://github.com/gptme/gptme/issues/4580)) ([`c0c088a92`](https://github.com/gptme/gptme/commit/c0c088a925add9153a7f9bcced9c5b4789966cc2))
+ - fix(hashline): revalidate every target after confirmation ([#4609](https://github.com/gptme/gptme/issues/4609)) ([`29e23d927`](https://github.com/gptme/gptme/commit/29e23d9276de320d0751d612d81398d8dd831d2e))
+ - fix(watch): honor timer expiration deadlines ([#4571](https://github.com/gptme/gptme/issues/4571)) ([`2eb783d4d`](https://github.com/gptme/gptme/commit/2eb783d4dc6db15d7ffb88710ff37b2bdfa6181a))
+ - fix(hashline): reject incompatible overlapping mutations ([#4631](https://github.com/gptme/gptme/issues/4631)) ([`bf3fc07d5`](https://github.com/gptme/gptme/commit/bf3fc07d58a59b02f6275a0c76b2a0b34eda06fb))
+ - fix(skills): preserve installations on failed local replacement ([#4684](https://github.com/gptme/gptme/issues/4684)) ([`c2efd9997`](https://github.com/gptme/gptme/commit/c2efd9997fa0da83c0d87472290df801775429c1))
+ - fix(conversations): keep metadata discovery from creating workspaces ([#4705](https://github.com/gptme/gptme/issues/4705)) ([`03e60f6ef`](https://github.com/gptme/gptme/commit/03e60f6ef21f3c4a5b1f4158ed82cfa1eb08a3e6))
+ - fix(checkpoint): refuse operations when Git inspection fails ([#4722](https://github.com/gptme/gptme/issues/4722)) ([`38a0f3975`](https://github.com/gptme/gptme/commit/38a0f397546ce254de0ea61f3212a940f669dbb7))
+ - fix(browser): preserve live session during direct navigation ([#4723](https://github.com/gptme/gptme/issues/4723)) ([`175d8a22b`](https://github.com/gptme/gptme/commit/175d8a22b31e6f1392b460a209d5a8b7bb2b2aa6))
+ - fix(convert): reject hardlinked source/destination aliases ([#4539](https://github.com/gptme/gptme/issues/4539)) ([`31e46d706`](https://github.com/gptme/gptme/commit/31e46d70628beea600c98e439d77da548ea3ec3c))
+ - fix(chats): retain native snippet matches and original spans ([#4680](https://github.com/gptme/gptme/issues/4680)) ([`79a5ced3c`](https://github.com/gptme/gptme/commit/79a5ced3c626fdb883f1815ec07c008b6c97ebd8))
+ - fix(convert): stage outputs before publishing successful conversions ([#4606](https://github.com/gptme/gptme/issues/4606)) ([`0e3ddd161`](https://github.com/gptme/gptme/commit/0e3ddd161461df986d079caea56a6f5a6f9c24a7))
+ - fix(convert): preserve literal DOCX paragraph semantics ([#4658](https://github.com/gptme/gptme/issues/4658)) ([`434291a99`](https://github.com/gptme/gptme/commit/434291a999533e3c45ae1ba2f93a728dd4a2914a))
+ - fix(logmanager): preserve parent lock ownership after fork ([#4700](https://github.com/gptme/gptme/issues/4700)) ([`bf6db0cb7`](https://github.com/gptme/gptme/commit/bf6db0cb79c72e13412f825cf00d34c3b92b4701))
+ - fix(prompts): shorten Python examples within full prompt budget ([#4742](https://github.com/gptme/gptme/issues/4742)) ([`f81037eff`](https://github.com/gptme/gptme/commit/f81037effb790456c2709a463abb7eac2486ba51))
+ - fix(vision): normalize small images for supported provider transport ([#4629](https://github.com/gptme/gptme/issues/4629)) ([`ae9541752`](https://github.com/gptme/gptme/commit/ae9541752189f176a699ca1ac1218bd66d6f687e))
+ - fix(dataset): reject unsupported solution histories ([#4709](https://github.com/gptme/gptme/issues/4709)) ([`e3825e5c9`](https://github.com/gptme/gptme/commit/e3825e5c997f505183e2046a601076b75a15fb29))
+ - fix(worktree): preserve branches when inspection is unknown ([#4702](https://github.com/gptme/gptme/issues/4702)) ([`a91f1b44e`](https://github.com/gptme/gptme/commit/a91f1b44e1130f65b9a52a8300abaeb4871808f8))
+ - fix(config): roll back failed workspace publication ([#4711](https://github.com/gptme/gptme/issues/4711)) ([`a4fdd5582`](https://github.com/gptme/gptme/commit/a4fdd55821a4e8a805e3ae169e6ff3941d1ebe81))
+ - fix(python): deliver bounded kernel raster attachments ([#4717](https://github.com/gptme/gptme/issues/4717)) ([`ac40ceee1`](https://github.com/gptme/gptme/commit/ac40ceee1e553baa7af2c39d6cfdd1493b5313a6))
+ - fix(python): reject unsupported kernel stdin requests ([#4716](https://github.com/gptme/gptme/issues/4716)) ([`2b77e75d9`](https://github.com/gptme/gptme/commit/2b77e75d932eb31865d4494ecea7d8cce8a406e8))
+ - fix(browser): publish session state from private staging ([#4644](https://github.com/gptme/gptme/issues/4644)) ([`e1a47e94d`](https://github.com/gptme/gptme/commit/e1a47e94d14f7905d6be7578af2a8302038b8026))
+ - fix(convert): retain DOCX hyperlink labels in Markdown ([#4562](https://github.com/gptme/gptme/issues/4562)) ([`15139bdf1`](https://github.com/gptme/gptme/commit/15139bdf1f314102aaa002ebf27799df1454a381))
+ - fix(codeblock): skip thinking tags inside code fences ([#4491](https://github.com/gptme/gptme/issues/4491)) ([`df1a6930e`](https://github.com/gptme/gptme/commit/df1a6930e4e8057d4ef594b382b9240668736414))
+ - fix(convert): preserve DOCX table text in body order ([#4546](https://github.com/gptme/gptme/issues/4546)) ([`85f45fdec`](https://github.com/gptme/gptme/commit/85f45fdec2cb9c15e232dc4ef255fddf9682f4a4))
+ - fix(convert): reject nonregular sources before content inspection ([#4610](https://github.com/gptme/gptme/issues/4610)) ([`0956d895e`](https://github.com/gptme/gptme/commit/0956d895ec97fb63a0614d5efb0dbe1cb48ad12b))
+ - fix(tmux): preserve native pane targets within gptme sessions ([#4574](https://github.com/gptme/gptme/issues/4574)) ([`da80cd95e`](https://github.com/gptme/gptme/commit/da80cd95e32fc20a61370ae0fb656187bb48beb2))
+ - fix(snapshot): isolate shadow Git repository routing ([#4706](https://github.com/gptme/gptme/issues/4706)) ([`baf1df7c4`](https://github.com/gptme/gptme/commit/baf1df7c4ff81cdf95f4dff475d3ec6f096ec3e4))
+ - fix(convert): bound PDF rasterization to the first page ([#4669](https://github.com/gptme/gptme/issues/4669)) ([`04ceb2220`](https://github.com/gptme/gptme/commit/04ceb22209d306a0c53f83213e59ffc6aa24b8e0))
+ - fix(patch): reject overlapping exact matches ([#4691](https://github.com/gptme/gptme/issues/4691)) ([`fdc9cd90f`](https://github.com/gptme/gptme/commit/fdc9cd90f8ebbfe0eb835d446047d735e985d28c))
+ - fix(tui): skip nested-tick path completion candidates ([#4666](https://github.com/gptme/gptme/issues/4666)) ([`502c4446b`](https://github.com/gptme/gptme/commit/502c4446b07fee31e6b8a07347d2b380c3a5f6bf))
+ - fix(elicit): honor CLI defaults and validate form fields ([#4679](https://github.com/gptme/gptme/issues/4679)) ([`cf071e33d`](https://github.com/gptme/gptme/commit/cf071e33d489e165c20007d411bccc6ec90b1e21))
+ - fix(watch): bound stream lines before retention and delivery ([#4547](https://github.com/gptme/gptme/issues/4547)) ([`afe83eca9`](https://github.com/gptme/gptme/commit/afe83eca9e0d8ab8160eb8d6485840d9fa112f35))
+ - fix(watch): preserve split UTF-8 in run output tails ([#4569](https://github.com/gptme/gptme/issues/4569)) ([`f49f24c5e`](https://github.com/gptme/gptme/commit/f49f24c5ea93a5e71da2ba866b2d29cfd67f8680))
+ - fix(chats): preserve live ownership and pending work during cleanup ([#4696](https://github.com/gptme/gptme/issues/4696)) ([`12238d87e`](https://github.com/gptme/gptme/commit/12238d87e5c8ab5fa5d6913598c7adebe496514d))
+ - fix(python): suppress displayhook output without filtering user streams ([#4714](https://github.com/gptme/gptme/issues/4714)) ([`ed44ddcf1`](https://github.com/gptme/gptme/commit/ed44ddcf129f6781e60c94cf0d1859d6e84a3cd4))
+ - fix(convert): preserve protocol-shaped local source paths ([#4674](https://github.com/gptme/gptme/issues/4674)) ([`f412efb86`](https://github.com/gptme/gptme/commit/f412efb86c212786af0b717eeaa1e78a627f4ba1))
+ - fix(watch): bound until probe output before retention ([#4641](https://github.com/gptme/gptme/issues/4641)) ([`360efb70d`](https://github.com/gptme/gptme/commit/360efb70dff5f8d5ea1435c2c9bb854614f9964c))
+ - fix(memory): roll back failed legacy save publication ([#4635](https://github.com/gptme/gptme/issues/4635)) ([`dd7794c27`](https://github.com/gptme/gptme/commit/dd7794c2711e36e4e7b62d972f601ad8380da958))
+ - fix(save): honor explicitly empty file content ([#4536](https://github.com/gptme/gptme/issues/4536)) ([`a9cf62326`](https://github.com/gptme/gptme/commit/a9cf62326e001abbc063982a889fb7da2032b799))
+ - fix(watch): reject unsuccessful tmux captures before matching ([#4640](https://github.com/gptme/gptme/issues/4640)) ([`72cd8fec4`](https://github.com/gptme/gptme/commit/72cd8fec49f4d31c64a887b9a7ff466c637fb17c))
+ - fix(todo): preserve compacted branch history ownership ([#4647](https://github.com/gptme/gptme/issues/4647)) ([`4e04c83cb`](https://github.com/gptme/gptme/commit/4e04c83cbefc22559e36eaa36550c55352c69e0d))
+ - fix(tools): preserve originals when single-file writes fail ([#4622](https://github.com/gptme/gptme/issues/4622)) ([`8717a5d1d`](https://github.com/gptme/gptme/commit/8717a5d1def95939c524065d9e26f10b36ba373e))
+ - fix(vision): constrain dimensions before JPEG encoding ([#4594](https://github.com/gptme/gptme/issues/4594)) ([`313e61736`](https://github.com/gptme/gptme/commit/313e6173663dfef642b41b52ff2795d325aa8b2b))
+ - fix(chat): park queued prompts when provider recovery is exhausted ([#4667](https://github.com/gptme/gptme/issues/4667)) ([`a8af40580`](https://github.com/gptme/gptme/commit/a8af40580e1ad3daa2a2028fecbc5bc8c86703fd))
+ - fix(batch): classify step stops from structured metadata ([#4686](https://github.com/gptme/gptme/issues/4686)) ([`d7ac85195`](https://github.com/gptme/gptme/commit/d7ac8519568c57f61a90bb359898c46a872e44c5))
+ - fix(hashline): name the missing register in the undefined-register hint ([#4727](https://github.com/gptme/gptme/issues/4727)) ([`7f6a01d76`](https://github.com/gptme/gptme/commit/7f6a01d76c75f90512b67a49333564f50794fb29))
+ - fix(tmux): preserve shell compounds at batch boundaries ([#4724](https://github.com/gptme/gptme/issues/4724)) ([`18aab2920`](https://github.com/gptme/gptme/commit/18aab2920bc15104ca8314fe9e8bc30a18ad2e80))
+ - fix(precommit): preserve changed paths and root coordinates ([#4683](https://github.com/gptme/gptme/issues/4683)) ([`43f81709d`](https://github.com/gptme/gptme/commit/43f81709d3175439c1ad04d5a5187bce8b536908))
+ - fix(convert): preserve multipage TIFF documents ([#4675](https://github.com/gptme/gptme/issues/4675)) ([`5f9a5b642`](https://github.com/gptme/gptme/commit/5f9a5b64250b2fd90d39043cf0a17b1393705117))
+ - fix(dataset): preserve exact Git filenames in exports ([#4692](https://github.com/gptme/gptme/issues/4692)) ([`dfdbaa094`](https://github.com/gptme/gptme/commit/dfdbaa094c762fe1e00d0a168b941501d9371059))
+ - fix(resume): derive original task from first user source ([#4693](https://github.com/gptme/gptme/issues/4693)) ([`649402254`](https://github.com/gptme/gptme/commit/64940225465bc7fad6620f2212487de2e8317507))
+ - fix(memory): preserve migration identities in the physical target root ([#4698](https://github.com/gptme/gptme/issues/4698)) ([`7376aacab`](https://github.com/gptme/gptme/commit/7376aacab7df390c68d24fa1cc97d5b29b1820f4))
+ - fix(types): tighten Anthropic system-message test parsing ([#4677](https://github.com/gptme/gptme/issues/4677)) ([`9f1089a2c`](https://github.com/gptme/gptme/commit/9f1089a2cb01a6d42fe20c45e512d76b9484117e))
+ - fix(anthropic): retain non-streaming retry return types ([#4659](https://github.com/gptme/gptme/issues/4659)) ([`243b7ad39`](https://github.com/gptme/gptme/commit/243b7ad3914f80cc6460c80afe4887c41b2f67d1))
+ - fix(webui): migrate validation to patched Zod 4 ([#4728](https://github.com/gptme/gptme/issues/4728)) ([`f80ae920f`](https://github.com/gptme/gptme/commit/f80ae920f7e88d6dc4a1d46704511ae475fea3a8))
+ - fix(deps): require pypdf 6.21.4 for parsing security fixes ([#4718](https://github.com/gptme/gptme/issues/4718)) ([`0c9ada466`](https://github.com/gptme/gptme/commit/0c9ada4668135fed258edb8c629da3aa369a9e4f))
+ - fix(test): run performance tests outside xdist ([#4678](https://github.com/gptme/gptme/issues/4678)) ([`ebb4d3528`](https://github.com/gptme/gptme/commit/ebb4d352858d2ac5a76c99a06660e381b844f4c5))
+ - fix(context): require explicit prompt path attachments by default ([#4655](https://github.com/gptme/gptme/issues/4655)) ([`0bbcf13c8`](https://github.com/gptme/gptme/commit/0bbcf13c890ad9f52e9912fb26e542e1feb70858))
+ - fix(tests): type stream unwrap and shared writer handlers ([#4664](https://github.com/gptme/gptme/issues/4664)) ([`a649d38ea`](https://github.com/gptme/gptme/commit/a649d38ea0e14a06f16c66da350bcc5d37d3be28))
+ - fix(convert): publish LibreOffice output across filesystems ([#4588](https://github.com/gptme/gptme/issues/4588)) ([`124218f05`](https://github.com/gptme/gptme/commit/124218f059d96d0975a220a4490fcd0d41d776ba))
+ - fix(morph): reject nonregular sources before reads and inference ([#4620](https://github.com/gptme/gptme/issues/4620)) ([`b3ff22d5a`](https://github.com/gptme/gptme/commit/b3ff22d5ad4ab7e763614a709f1ba6507e260162))
+ - fix(config): tolerate malformed provider containers before overlay merge ([#4535](https://github.com/gptme/gptme/issues/4535)) ([`73c308cce`](https://github.com/gptme/gptme/commit/73c308cceb993a61031795b2afecc33b609f5081))
+ - fix(append): dispatch file-save lifecycle hooks ([#4540](https://github.com/gptme/gptme/issues/4540)) ([`e14e86dbb`](https://github.com/gptme/gptme/commit/e14e86dbbbf6c1bd706240365df407e2db41c446))
+ - fix(tools): keep file mode in hashline_edit atomic write ([#4527](https://github.com/gptme/gptme/issues/4527)) ([`581828445`](https://github.com/gptme/gptme/commit/5818284455df543b5aabea0608e78a2bd8fd67e8))
+ - fix(hashline): consume multiline continuation headers ([#4633](https://github.com/gptme/gptme/issues/4633)) ([`d4d69f462`](https://github.com/gptme/gptme/commit/d4d69f4622c2e2195cc1820d1a8ef53020d7c8d1))
+ - fix(chats): attribute mixed-model statistics to originating models ([#4583](https://github.com/gptme/gptme/issues/4583)) ([`1d02b82a9`](https://github.com/gptme/gptme/commit/1d02b82a9cd5a0e5894398775497d2f7a60589a3))
+ - fix(browser): preserve literal code during markdown cleanup ([#4650](https://github.com/gptme/gptme/issues/4650)) ([`1b0188e50`](https://github.com/gptme/gptme/commit/1b0188e50451e1795d1f288618e01386bf423765))
+ - fix(vision): normalize palette images before JPEG compression ([#4543](https://github.com/gptme/gptme/issues/4543)) ([`347a913e1`](https://github.com/gptme/gptme/commit/347a913e1acd45d235ea201bba3a426b43e66a8e))
+ - fix(convert): treat video thumbnail filenames literally ([#4572](https://github.com/gptme/gptme/issues/4572)) ([`16d042aaf`](https://github.com/gptme/gptme/commit/16d042aafead9f8783b6dfc0c815101ffae6c88e))
+ - fix(tools): reject unencodable edits before truncating files ([#4595](https://github.com/gptme/gptme/issues/4595)) ([`1ba4f57e0`](https://github.com/gptme/gptme/commit/1ba4f57e0a15a971123296f1e202cb4bfac64d74))
+ - fix(convert): select first frame for PNG and JPEG output ([#4538](https://github.com/gptme/gptme/issues/4538)) ([`49c2a9a0a`](https://github.com/gptme/gptme/commit/49c2a9a0acbb5cde35ba9d23ca41b29fc3851a8a))
+ - fix(anthropic): normalize tool results before native system messages ([#4604](https://github.com/gptme/gptme/issues/4604)) ([`60ee0b993`](https://github.com/gptme/gptme/commit/60ee0b993a75cd975a8dcf40e9b1bae63b4aad37))
+ - fix(morph): preserve provider response boundary whitespace ([#4542](https://github.com/gptme/gptme/issues/4542)) ([`5b5601053`](https://github.com/gptme/gptme/commit/5b5601053f93ed7caa029f955a82df7f4e54bb1b))
+ - fix(form): recognize documented slash boolean syntax ([#4565](https://github.com/gptme/gptme/issues/4565)) ([`b7652fe3e`](https://github.com/gptme/gptme/commit/b7652fe3e231dac2bfc78c26f739bc250a8e4aa1))
+ - fix(choice): preserve numeric labels when stripping list prefixes ([#4563](https://github.com/gptme/gptme/issues/4563)) ([`15f20e44c`](https://github.com/gptme/gptme/commit/15f20e44c96acdd035da81213b9e9f5bb54ac98d))
+ - fix(read): decode explicit damaged-file ranges consistently ([#4589](https://github.com/gptme/gptme/issues/4589)) ([`afa657906`](https://github.com/gptme/gptme/commit/afa6579062b7f17facb85a1786aa20ab74852999))
+ - fix(browser): accept basename screenshot destinations ([#4656](https://github.com/gptme/gptme/issues/4656)) ([`7c24aa3ac`](https://github.com/gptme/gptme/commit/7c24aa3ac39b5b752a92f3a24fdd204c342bf828))
+ - fix(browser): encode literal Lynx search query values ([#4637](https://github.com/gptme/gptme/issues/4637)) ([`2eb319c3f`](https://github.com/gptme/gptme/commit/2eb319c3f5382e222c85a380ccac749c84082130))
+ - fix(llm): recover uncommitted generations within one bounded budget ([#4660](https://github.com/gptme/gptme/issues/4660)) ([`1596f840e`](https://github.com/gptme/gptme/commit/1596f840e5c970633f32c3fa3b7134dcaa34c220))
+ - fix(tui): deliver child and watch events with safe idle continuation ([#4568](https://github.com/gptme/gptme/issues/4568)) ([`e6f517790`](https://github.com/gptme/gptme/commit/e6f5177906aedf622d2d39cf5effe772c6a7e355))
+ - fix(tui): preserve literal thinking tags in tool payloads ([#4654](https://github.com/gptme/gptme/issues/4654)) ([`526aa1f2c`](https://github.com/gptme/gptme/commit/526aa1f2c271b9d795e11f7eb0e2aae453c8ba89))
+ - fix(todo): distinguish mixed-format pending call offsets ([#4651](https://github.com/gptme/gptme/issues/4651)) ([`d4ef1c357`](https://github.com/gptme/gptme/commit/d4ef1c357721b86a14fd4621454b4534667f73bc))
+ - fix(anthropic): serialize non-streaming tool inputs as JSON ([#4603](https://github.com/gptme/gptme/issues/4603)) ([`0e88c0899`](https://github.com/gptme/gptme/commit/0e88c08998afcc61df7402b132c2560e34e8fe70))
+ - fix(tmux): preserve escaped quotes when splitting commands ([#4573](https://github.com/gptme/gptme/issues/4573)) ([`eeaeee400`](https://github.com/gptme/gptme/commit/eeaeee4009298ce8275fb1e2be770d0fa2bed5a3))
+ - fix(dirs): decode Git workspace paths as UTF-8 ([#4599](https://github.com/gptme/gptme/issues/4599)) ([`074e52ceb`](https://github.com/gptme/gptme/commit/074e52cebf23b5cbf093668f0e84193bce6076b0))
+ - fix: preserve ordered Responses assistant phases through replay ([#4623](https://github.com/gptme/gptme/issues/4623)) ([`db6af4b2a`](https://github.com/gptme/gptme/commit/db6af4b2addcecda690859f4e39240a42d7948f1))
+ - fix(chats): retain matching text in external search snippets ([#4550](https://github.com/gptme/gptme/issues/4550)) ([`c8fb8b439`](https://github.com/gptme/gptme/commit/c8fb8b4398b89095f5e2ee628437875f5c1e7fdb))
+ - fix(watch): observe child exit independently of stdout EOF ([#4570](https://github.com/gptme/gptme/issues/4570)) ([`710a10757`](https://github.com/gptme/gptme/commit/710a1075770bc104b96001080268bd5808fa8a65))
+ - fix(todo): isolate working memory by conversation ([#4537](https://github.com/gptme/gptme/issues/4537)) ([`84b82686e`](https://github.com/gptme/gptme/commit/84b82686ed5db1f7ecdb6c4686b7cce73e39eb00))
+ - fix(message): emit valid TOML for boolean and null metadata ([#4515](https://github.com/gptme/gptme/issues/4515)) ([`c591940c7`](https://github.com/gptme/gptme/commit/c591940c704fec1367f557114512cc69c63451a7))
+ - fix(save): bind overwrite approval to previewed file baseline ([#4619](https://github.com/gptme/gptme/issues/4619)) ([`13780a4c5`](https://github.com/gptme/gptme/commit/13780a4c5c548e177c780f77ce1b8b416743fb15))
+ - fix(chats): recover bounded full messages at stable search coordinates ([#4585](https://github.com/gptme/gptme/issues/4585)) ([`52a09eb03`](https://github.com/gptme/gptme/commit/52a09eb03f9ec9bfd542c0b56ee887aaaef2a30f))
+ - fix(memory): keep retired entries out of legacy indexes ([#4628](https://github.com/gptme/gptme/issues/4628)) ([`8a5974a79`](https://github.com/gptme/gptme/commit/8a5974a790b97c7883850a95924db1cee72f99bd))
+ - fix(patch): preserve literal ellipsis comments and context ([#4597](https://github.com/gptme/gptme/issues/4597)) ([`1b3ca5c33`](https://github.com/gptme/gptme/commit/1b3ca5c33f28c8fb84e1d41bc207cede2985c7a0))
+ - fix(shell): skip escaped pipes when protecting pipeline stdin ([#4611](https://github.com/gptme/gptme/issues/4611)) ([`435834b06`](https://github.com/gptme/gptme/commit/435834b066c6e415e5b62df5ca0f31301a2cd0ce))
+ - fix(shell): preserve output boundaries across multiline commands ([#4613](https://github.com/gptme/gptme/issues/4613)) ([`9c489a5f3`](https://github.com/gptme/gptme/commit/9c489a5f36d8ba131ac355f7ecb061ace09d0b03))
+ - fix(dataset): count persisted tool syntax across formats ([#4525](https://github.com/gptme/gptme/issues/4525)) ([`b6ecccbfb`](https://github.com/gptme/gptme/commit/b6ecccbfbd7694b5c8cc76b95aeee4224f53ec75))
+ - fix(convert): normalize ImageMagick displayed orientation ([#4627](https://github.com/gptme/gptme/issues/4627)) ([`7721a4662`](https://github.com/gptme/gptme/commit/7721a46623114be83040c2e90c0b34dcc2309a1a))
+ - fix(packaging): use PEP 621-native build configuration ([#4591](https://github.com/gptme/gptme/issues/4591)) ([`701c2d8c8`](https://github.com/gptme/gptme/commit/701c2d8c829d2bb8e4215e5c287f2f80e431222f))
+ - fix: recover terminal tool calls after partial Responses streams ([#4567](https://github.com/gptme/gptme/issues/4567)) ([`057a205a1`](https://github.com/gptme/gptme/commit/057a205a1288b48f49677c5756549b23b9756fda))
+ - fix(vision): preserve EXIF display orientation during compression ([#4548](https://github.com/gptme/gptme/issues/4548)) ([`21213ca2c`](https://github.com/gptme/gptme/commit/21213ca2c42552708f30bc8ad2e389ca95e37d6e))
+ - fix(gh): fail closed on unsuccessful check conclusions ([#4545](https://github.com/gptme/gptme/issues/4545)) ([`fbfc2af67`](https://github.com/gptme/gptme/commit/fbfc2af67915d09fdf5db8aaa16009cc48a07e00))
+ - fix(rag): isolate exact project storage identities ([#4544](https://github.com/gptme/gptme/issues/4544)) ([`5dcfe6499`](https://github.com/gptme/gptme/commit/5dcfe6499d06ff91461b8aeb4818130432fdeb78))
+ - fix(convert): treat image output filenames literally ([#4560](https://github.com/gptme/gptme/issues/4560)) ([`d3fa80b91`](https://github.com/gptme/gptme/commit/d3fa80b91f26f78f624850fb50f0cb40ec6feb41))
+ - fix(tui): collapse long single-line tool output ([#4559](https://github.com/gptme/gptme/issues/4559)) ([`eb2641417`](https://github.com/gptme/gptme/commit/eb264141710bdaccbbca1844237ba9d0d71eebd4))
+ - fix(restart): preserve option values using interface definitions ([#4561](https://github.com/gptme/gptme/issues/4561)) ([`e6bdb4340`](https://github.com/gptme/gptme/commit/e6bdb434059f2ec869c68063a17ff624f29c15e4))
+ - fix: only report actual tool format changes on model switch ([#4554](https://github.com/gptme/gptme/issues/4554)) ([`afa13917d`](https://github.com/gptme/gptme/commit/afa13917d6b0b1c36ca736be1da10b15c5360a70))
+ - fix(subagent): recover final prose for native completion ([#4552](https://github.com/gptme/gptme/issues/4552)) ([`be22501a5`](https://github.com/gptme/gptme/commit/be22501a56f284906913aa105fd4915bcc3bfe02))
+ - fix(logmanager): preserve current context on failed and child loads ([#4551](https://github.com/gptme/gptme/issues/4551)) ([`1ef5c92e5`](https://github.com/gptme/gptme/commit/1ef5c92e5e4dd3d7789017422d3790f3d402e3ce))
+ - fix(export): mark standalone attachments as omitted ([#4533](https://github.com/gptme/gptme/issues/4533)) ([`f1aa3972f`](https://github.com/gptme/gptme/commit/f1aa3972f54fec9767900a254a0d458a15a692d0))
+ - fix(tools): preserve line endings in patch_many and hashline_edit ([#4526](https://github.com/gptme/gptme/issues/4526)) ([`4189f6f6a`](https://github.com/gptme/gptme/commit/4189f6f6a7c71fd058850914b6cc0d9868013d01))
+ - fix: keep concurrent cost summaries coherent ([#4523](https://github.com/gptme/gptme/issues/4523)) ([`a7b0b9de4`](https://github.com/gptme/gptme/commit/a7b0b9de4a228d7cc946c0431bc5d1e03e025a9d))
+ - fix(tauri): adopt optional desktop database refresh for deep links ([#4517](https://github.com/gptme/gptme/issues/4517)) ([`e90a42f22`](https://github.com/gptme/gptme/commit/e90a42f222a18e594cff7921628d364ec17870d7))
+ - fix(backtrack): verify named checkpoint conversation prefix ([#4530](https://github.com/gptme/gptme/issues/4530)) ([`634774bb9`](https://github.com/gptme/gptme/commit/634774bb994e537e0c115b4f23b08bc4301e89d0))
+ - fix(commands): allow aborting invalid TOML conversation edits ([#4518](https://github.com/gptme/gptme/issues/4518)) ([`670ee0da2`](https://github.com/gptme/gptme/commit/670ee0da2c06d22832d50ba843c5d174abb09b10))
+ - fix(subagent): track branch ownership during worktree cleanup ([#4520](https://github.com/gptme/gptme/issues/4520)) ([`5d437e2d5`](https://github.com/gptme/gptme/commit/5d437e2d5540b04547c786604c0fa3bac6398ae6))
+ - fix: respect zero trailing lines in message truncation ([#4522](https://github.com/gptme/gptme/issues/4522)) ([`f8a196cf3`](https://github.com/gptme/gptme/commit/f8a196cf342a092d7770e201362a4c0cd06068cc))
+ - fix(checkpoint): honor dirty restore at the checkpoint HEAD ([#4529](https://github.com/gptme/gptme/issues/4529)) ([`d76887eed`](https://github.com/gptme/gptme/commit/d76887eedd85fc657dd9a457cfbf47b767b2fd01))
+ - fix(chats): retain explicit fork restrictions and profile ([#4532](https://github.com/gptme/gptme/issues/4532)) ([`79276550b`](https://github.com/gptme/gptme/commit/79276550bdb8e3e8a2e449fefabe7652c48dd162))
+ - fix(deps): upgrade Tornado to 6.6 for security advisories ([#4534](https://github.com/gptme/gptme/issues/4534)) ([`54c5f91b5`](https://github.com/gptme/gptme/commit/54c5f91b5aaa376cbf2aa157aa8a46cf959f6f15))
+ - fix(webui): preserve unsent attachments when uploads fail ([#4436](https://github.com/gptme/gptme/issues/4436)) ([`2aaa26e05`](https://github.com/gptme/gptme/commit/2aaa26e05260c18d2111d42d2d0b884217d2d69c))
+ - fix(webui): export full conversation history from the owning server ([#4425](https://github.com/gptme/gptme/issues/4425)) ([`4ade741aa`](https://github.com/gptme/gptme/commit/4ade741aa212477bb3e7858b87c8af6fb295f0cb))
+ - fix(memory): quote YAML-scalar names in to_markdown ([#4512](https://github.com/gptme/gptme/issues/4512)) ([`aa5de0f38`](https://github.com/gptme/gptme/commit/aa5de0f3872445a0fb5855420d4782e52da69755))
+ - fix(tauri): bind re-signed AppImage signature to the bundler's app version ([#4501](https://github.com/gptme/gptme/issues/4501)) ([`1f5d06939`](https://github.com/gptme/gptme/commit/1f5d069393d54e77d33dc08db87dc67dfd6f1026))
+ - fix(webui): supply API owner in suggested action tests ([#4503](https://github.com/gptme/gptme/issues/4503)) ([`02b4f2f76`](https://github.com/gptme/gptme/commit/02b4f2f76f3f33ea4e068ce8af83712b2e847e8a))
+ - fix(server): derive subscription-connect default model from recommended models ([#4489](https://github.com/gptme/gptme/issues/4489)) ([`f4baba43e`](https://github.com/gptme/gptme/commit/f4baba43eb65c6f1c36d400b6fbe1501c8c464ad))
+ - fix(deps): bump sanitize-html and postcss-selector-parser for open npm advisories ([#4478](https://github.com/gptme/gptme/issues/4478)) ([`9294cdcb5`](https://github.com/gptme/gptme/commit/9294cdcb55d2771b4185ba55232368a054eca3f1))
+ - fix(ci): bound and cache Tauri apt dependency setup ([#4506](https://github.com/gptme/gptme/issues/4506)) ([`532bdb802`](https://github.com/gptme/gptme/commit/532bdb802e125d1da20a39428729ef18b3894f25))
+ - fix(export): embed CDN dependencies inline for offline HTML rendering ([#4508](https://github.com/gptme/gptme/issues/4508)) ([`48f6c16d9`](https://github.com/gptme/gptme/commit/48f6c16d9efa4ca32f1fc239a88466ff1f01298d))
+ - fix(context): use NUL-delimited git ls-files to handle quoted filenames ([#4505](https://github.com/gptme/gptme/issues/4505)) ([`02f489c5f`](https://github.com/gptme/gptme/commit/02f489c5f35b06efa583a9d3480954a7fc6b288d))
+ - fix(cli): ship media wavs in wheels so sound list works ([#4494](https://github.com/gptme/gptme/issues/4494)) ([`6ea08c7a7`](https://github.com/gptme/gptme/commit/6ea08c7a773bdd6719f26f27a6581737248f988e))
+ - fix(chats): search full history before limiting results ([#4445](https://github.com/gptme/gptme/issues/4445)) ([`933377113`](https://github.com/gptme/gptme/commit/933377113d5a04bab6bd2d70837ca43fd37370f8))
+ - fix(logmanager): skip rows with non-object metadata when listing conversations ([#4487](https://github.com/gptme/gptme/issues/4487)) ([`deaa3c19a`](https://github.com/gptme/gptme/commit/deaa3c19a60ffe3dfbe609c47bae4e22250a27fb))
+ - fix(codeblock): normalize line endings before excluding thinking blocks ([#4485](https://github.com/gptme/gptme/issues/4485)) ([`1ece5ccac`](https://github.com/gptme/gptme/commit/1ece5ccaca32f034d5673d171303f442953354b9))
+ - fix(webui): scope composer drafts to the owning server and account ([#4432](https://github.com/gptme/gptme/issues/4432)) ([`0093d930a`](https://github.com/gptme/gptme/commit/0093d930a4795e5f45826abaaf364513808831f5))
+ - fix: validate generated name word roles ([#4492](https://github.com/gptme/gptme/issues/4492)) ([`3b0481cad`](https://github.com/gptme/gptme/commit/3b0481cad618588059715f9cc4f984022ddc649d))
+ - fix(save): preserve existing text file line endings ([#4460](https://github.com/gptme/gptme/issues/4460)) ([`0a4a7e018`](https://github.com/gptme/gptme/commit/0a4a7e018ac84e99397338ba45eb3ccabd0f04f8))
+ - fix(desktop): adopt Wry per-download failure isolation ([#4486](https://github.com/gptme/gptme/issues/4486)) ([`4bd57c732`](https://github.com/gptme/gptme/commit/4bd57c732fd06171997d193b4c994ef598803423))
+ - fix(clipboard): support copy to clipboard on Windows ([#4477](https://github.com/gptme/gptme/issues/4477)) ([`5e7716b9a`](https://github.com/gptme/gptme/commit/5e7716b9a061407f52efbebfbbf143229cb31c8c))
+ - fix(chats): re-root forked conversation attachment references ([#4484](https://github.com/gptme/gptme/issues/4484)) ([`b31ca5286`](https://github.com/gptme/gptme/commit/b31ca5286a48de6775f586e0cd20d50866a48891))
+ - fix(security): upgrade deps to fix Security Advisories CI failures ([#4502](https://github.com/gptme/gptme/issues/4502)) ([`b9e8d21f6`](https://github.com/gptme/gptme/commit/b9e8d21f60f8cde604d4cabbe1f7a6220a056ebc))
+ - fix(webui): bind task queries and actions to their API owner ([#4473](https://github.com/gptme/gptme/issues/4473)) ([`600630116`](https://github.com/gptme/gptme/commit/600630116bc394c3af0d4121640da438f81e7119))
+ - fix(slop): don't split staccato sentences on abbreviation and version periods ([#4497](https://github.com/gptme/gptme/issues/4497)) ([`2bb29f040`](https://github.com/gptme/gptme/commit/2bb29f0406d7291a87acb398d14b570172f1edd9))
+ - fix(webui): only offer supported task detail actions ([#4475](https://github.com/gptme/gptme/issues/4475)) ([`17269f3f5`](https://github.com/gptme/gptme/commit/17269f3f57a65dae4cf51414f707b70744067f6f))
+ - fix(guardrails): detect secrets reached by globs and recursive grep ([#4457](https://github.com/gptme/gptme/issues/4457)) ([`ac8cb11c3`](https://github.com/gptme/gptme/commit/ac8cb11c37cc38c31489d2f4c162bbc4c1d9bcec))
+ - fix(tests): isolate user config writes from developer home ([#4493](https://github.com/gptme/gptme/issues/4493)) ([`181d07758`](https://github.com/gptme/gptme/commit/181d07758454fc4be2e89f978cc28da80fa9be8f))
+ - fix(hooks): allow named printenv diagnostics without trusting env filters ([#4456](https://github.com/gptme/gptme/issues/4456)) ([`dfec527ff`](https://github.com/gptme/gptme/commit/dfec527fff54e941782cfb10a407193d5da5531f))
+ - fix(context): label and screen URL content fetched into prompts ([#4462](https://github.com/gptme/gptme/issues/4462)) ([`8ee405411`](https://github.com/gptme/gptme/commit/8ee405411a101eac0612618e7c7baf21b5a7d772))
+ - fix(agent): keep template gptme.toml intact on create; accept legacy form in doctor ([#4498](https://github.com/gptme/gptme/issues/4498)) ([`05e9281d3`](https://github.com/gptme/gptme/commit/05e9281d3e4cfee394b6add307c07b3c62717e25))
+ - fix(workspace): preserve attachment roots in glTF previews ([#4474](https://github.com/gptme/gptme/issues/4474)) ([`bd39191db`](https://github.com/gptme/gptme/commit/bd39191db3e49878b73178d41d800eff5bc27c52))
+ - fix(webui): show native tool arguments before confirmation ([#4479](https://github.com/gptme/gptme/issues/4479)) ([`07ec8979f`](https://github.com/gptme/gptme/commit/07ec8979fb8f5fb501ac1070521e554ae98031ad))
+ - fix(ci): drop Python 3.10 (EOL) to fix Security Advisories workflow ([#4481](https://github.com/gptme/gptme/issues/4481)) ([`1a75522e2`](https://github.com/gptme/gptme/commit/1a75522e2a71958e5590b44547a3a8dc92ad70ad))
+ - fix(server): refuse edit on native tool calls instead of running the original ([#4499](https://github.com/gptme/gptme/issues/4499)) ([`3599087c4`](https://github.com/gptme/gptme/commit/3599087c4571c35e2711dcc7943a700bf66f8b68))
+ - fix(models): hide retired Gemini Flash Lite from setup ([#4482](https://github.com/gptme/gptme/issues/4482)) ([`4c4d9c498`](https://github.com/gptme/gptme/commit/4c4d9c498613ae45c2da627c69fc90d699221c27))
+ - fix(tauri): sign patched AppImage before publishing updater assets ([#4459](https://github.com/gptme/gptme/issues/4459)) ([`35e19b6e4`](https://github.com/gptme/gptme/commit/35e19b6e4ab99ac9be70621ae780c2ff59ee22ed))
+ - fix(cli): parse both gptme.toml file schemas in context files ([#4488](https://github.com/gptme/gptme/issues/4488)) ([`c1cc2b9e1`](https://github.com/gptme/gptme/commit/c1cc2b9e12d5d46f0a0d2c9e8e18db3149c0b017))
+ - fix(telemetry): make SDK content capture opt-in ([#4476](https://github.com/gptme/gptme/issues/4476)) ([`100eb2c58`](https://github.com/gptme/gptme/commit/100eb2c589e6cd22e499a4003cfdd78d589f51ab))
+ - fix(shell): never block on shellcheck SC2284 false positives ([#4461](https://github.com/gptme/gptme/issues/4461)) ([`fc2c17be3`](https://github.com/gptme/gptme/commit/fc2c17be32f3550d66351aaff3b45c21ccc05eab))
+ - fix(memory): support native tool-call format (name/content kwargs) ([#4467](https://github.com/gptme/gptme/issues/4467)) ([`9baeb3e74`](https://github.com/gptme/gptme/commit/9baeb3e7413bd4d2ca23ef406d2e011866f6e5f4))
+ - fix(tools): read native tool-call kwargs in elicit, form, mcp, progress, vent and hashline_edit ([#4469](https://github.com/gptme/gptme/issues/4469)) ([`74799c95b`](https://github.com/gptme/gptme/commit/74799c95b5b97989787f6d023306f9d632a367dd))
+ - fix(deps): update certifi after emSign intermediate key compromise ([#4468](https://github.com/gptme/gptme/issues/4468)) ([`b20616b64`](https://github.com/gptme/gptme/commit/b20616b64f364b0caa3f2cfedf7a67269f04ce40))
+ - fix(todo): don't drop writes in native tool-call format ([#4464](https://github.com/gptme/gptme/issues/4464)) ([`d07042272`](https://github.com/gptme/gptme/commit/d070422720439006bc83beefeb9a02f5206720ec))
+ - fix(docs): target master in Suggest edit links ([#4466](https://github.com/gptme/gptme/issues/4466)) ([`0998845cf`](https://github.com/gptme/gptme/commit/0998845cf7c97535e76a8a5c44cd3eae13ab6baa))
+ - fix(shell): redact secret values printed in shell tool output ([#4451](https://github.com/gptme/gptme/issues/4451)) ([`0dec02630`](https://github.com/gptme/gptme/commit/0dec026304c3beafb3784a991582bc17dad33e5f))
+ - fix(hooks): detect credential-output shell commands before confirmation ([#4450](https://github.com/gptme/gptme/issues/4450)) ([`b19655dfc`](https://github.com/gptme/gptme/commit/b19655dfcd4071316015c9fb3f33928d9297be5e))
+ - fix(openai-responses): recover turns sent without deltas from the terminal output ([#4454](https://github.com/gptme/gptme/issues/4454)) ([`3eec2a973`](https://github.com/gptme/gptme/commit/3eec2a973e0500a9896b47c3a8888e6f864efdbd))
+ - fix(review): carry local-review elapsed_s into review_duration_s ([#4446](https://github.com/gptme/gptme/issues/4446)) ([`d123e6a7c`](https://github.com/gptme/gptme/commit/d123e6a7c616a04431b8d5ce7757e81f7149750a))
+ - fix(subagent): read child logs without taking the conversation lock ([#4449](https://github.com/gptme/gptme/issues/4449)) ([`f5ae63179`](https://github.com/gptme/gptme/commit/f5ae63179449f48d808a117fe893fafeda5c7159))
+ - fix(webui): scope lint hook to staged files only ([#4447](https://github.com/gptme/gptme/issues/4447)) ([`bb9ece008`](https://github.com/gptme/gptme/commit/bb9ece0081358df60d3caa437dc13f414bf41329))
+ - fix(append): preserve existing file line endings ([#4429](https://github.com/gptme/gptme/issues/4429)) ([`53de8f0fd`](https://github.com/gptme/gptme/commit/53de8f0fd2caff8acd8bec4f1c3e050175a694d7))
+ - fix(openrouter): record billed usage.cost instead of catalog estimate ([#4455](https://github.com/gptme/gptme/issues/4455)) ([`54c3a29fc`](https://github.com/gptme/gptme/commit/54c3a29fc3d5089f211528e206b50d7ee3f775c8))
+ - fix(gh): honor --repo/-R in native pr/issue ref commands ([#4453](https://github.com/gptme/gptme/issues/4453)) ([`b68bcdfe7`](https://github.com/gptme/gptme/commit/b68bcdfe7bece8c0ad62ecd62c28bd801f78e5bc))
+ - fix(cli): exclude unavailable tools from 'not found' error messages ([#4443](https://github.com/gptme/gptme/issues/4443)) ([`8f71713f3`](https://github.com/gptme/gptme/commit/8f71713f3d1151b3141927aa014db62b9d756117))
+ - fix(webui): refresh composer models after provider setup ([#4440](https://github.com/gptme/gptme/issues/4440)) ([`3ce9881d0`](https://github.com/gptme/gptme/commit/3ce9881d0b4f81d98dc5b2d31ee971424826b622))
+ - fix(review): map local-review P0/P1/P2 to the producer's severity tiers ([#4438](https://github.com/gptme/gptme/issues/4438)) ([`90221f5ff`](https://github.com/gptme/gptme/commit/90221f5ff2958b575ac0da4a8685ccb0cd996ea6))
+ - fix(webui): probe persisted secondary servers before listing their conversations ([#4437](https://github.com/gptme/gptme/issues/4437)) ([`95a669b05`](https://github.com/gptme/gptme/commit/95a669b05dd2617822c6d1e0176cf9f42e900a2f))
+ - fix(webui): ignore stale workspace listings after switching root ([#4433](https://github.com/gptme/gptme/issues/4433)) ([`12f0b2a9d`](https://github.com/gptme/gptme/commit/12f0b2a9d8c68bd373f0b50176ae78f6ab4b3980))
+ - fix(webui): scope sidebar mutations to the owning server ([#4428](https://github.com/gptme/gptme/issues/4428)) ([`0f9345844`](https://github.com/gptme/gptme/commit/0f934584485bc623e78f66ed04b0a9ad8e3d2d3c))
+ - fix(webui): exclude root configs without dropping test lint coverage ([#4435](https://github.com/gptme/gptme/issues/4435)) ([`744e25552`](https://github.com/gptme/gptme/commit/744e25552c50c2fdcd7f5562a2f270cbe7b156ad))
+ - fix(webui): refresh @-file autocomplete listing on each popup opening ([#4434](https://github.com/gptme/gptme/issues/4434)) ([`bf3441440`](https://github.com/gptme/gptme/commit/bf3441440455a6421fc58fda0b510ce1165615cb))
+ - fix(conversations): keep preview and model when the final JSONL line exceeds the tail window ([#4431](https://github.com/gptme/gptme/issues/4431)) ([`5faac6bce`](https://github.com/gptme/gptme/commit/5faac6bce57062c63214b8768965b0a119eec4b6))
+ - fix(webui): scope server settings and model drafts to API identity ([#4430](https://github.com/gptme/gptme/issues/4430)) ([`2a64ee689`](https://github.com/gptme/gptme/commit/2a64ee68992dd4f6c2682da125da1a8e87235761))
+ - fix(tauri): forward Linux desktop callback URLs ([#4417](https://github.com/gptme/gptme/issues/4417)) ([`c2a888971`](https://github.com/gptme/gptme/commit/c2a888971247c92e61c7e84ce7dd3c3c0cbe1ade))
+ - fix(server): keep setup reachable when a selected model has no key ([#4414](https://github.com/gptme/gptme/issues/4414)) ([`29a35a90e`](https://github.com/gptme/gptme/commit/29a35a90eb0f843d6012de8cc619174dc3f124fb))
+ - fix(webui): scope History summary/search caches by credential identity ([#4426](https://github.com/gptme/gptme/issues/4426)) ([`581b00382`](https://github.com/gptme/gptme/commit/581b003822346c32f36135718c02858077918793))
+ - fix(webui): preserve MCP argv and automatic tool format on settings save ([#4424](https://github.com/gptme/gptme/issues/4424)) ([`ca1bd4f23`](https://github.com/gptme/gptme/commit/ca1bd4f2312bd00ab9933d33e93e6eb38db6175e))
+ - fix(tauri): save exports in Downloads and report completion paths ([#4421](https://github.com/gptme/gptme/issues/4421)) ([`8d028ea54`](https://github.com/gptme/gptme/commit/8d028ea5475bd18345eceb0725f76fb76ee66f84))
+ - fix(webui): resume saved message generation without reposting on retry ([#4423](https://github.com/gptme/gptme/issues/4423)) ([`b4a5745df`](https://github.com/gptme/gptme/commit/b4a5745dfa2316ce223639708cb85bb12173604c))
+ - fix(webui): release microphone streams when recorder setup fails ([#4422](https://github.com/gptme/gptme/issues/4422)) ([`d6f1a72ce`](https://github.com/gptme/gptme/commit/d6f1a72ced3cacf08059096f4966c396740b9f7b))
+ - fix(ipython): stop dead kernel client channels before restart ([#4420](https://github.com/gptme/gptme/issues/4420)) ([`7fdc745e2`](https://github.com/gptme/gptme/commit/7fdc745e2d8fad4e0be59f23ae4839f200f0104a))
+ - fix(tauri): register AppImage callbacks in release builds ([#4418](https://github.com/gptme/gptme/issues/4418)) ([`e190e76f8`](https://github.com/gptme/gptme/commit/e190e76f88e50accb49a15214d286048edd95f34))
+ - fix(webui): keep provider setup reachable in the 800x600 desktop window ([#4416](https://github.com/gptme/gptme/issues/4416)) ([`1538bfe3c`](https://github.com/gptme/gptme/commit/1538bfe3cc3c61304c66878b1fb62bf6233c5222))
+ - fix(desktop): allow slow sidecars to finish API-key setup ([#4415](https://github.com/gptme/gptme/issues/4415)) ([`cf520d49b`](https://github.com/gptme/gptme/commit/cf520d49be91bdd599859f1c4c7bc8124364aa05))
+ - fix(precommit): support prek as a pre-commit runner ([#4413](https://github.com/gptme/gptme/issues/4413)) ([`33b1c992a`](https://github.com/gptme/gptme/commit/33b1c992ab32ceea35edeac4a44e7054080b7a75))
+ - fix(rag): pass gptme-rag's --pattern flag for glob filters ([#4412](https://github.com/gptme/gptme/issues/4412)) ([`e09b2744b`](https://github.com/gptme/gptme/commit/e09b2744bfc0cdf3b34e9a6ad556fde09b3f3a4d))
+ - fix(hooks): keep automatic dirty diff compact and noise-free ([#4411](https://github.com/gptme/gptme/issues/4411)) ([`31177a252`](https://github.com/gptme/gptme/commit/31177a2528766dabc06b8bb8c92643faaf831d8c))
+ - fix: preserve tool parameter enums in native schemas ([#4369](https://github.com/gptme/gptme/issues/4369)) ([`0261dc818`](https://github.com/gptme/gptme/commit/0261dc81885829124c0f260a7c0467cea8e2e22a))
+ - fix(lessons): store an intent digest instead of the full prompt in item receipts ([#4409](https://github.com/gptme/gptme/issues/4409)) ([`bcb9427e3`](https://github.com/gptme/gptme/commit/bcb9427e325605f3e4aba8cb14de8e44bf251b27))
+ - fix(edit): honor arguments and quoting in EDITOR ([#4401](https://github.com/gptme/gptme/issues/4401)) ([`5f6bff273`](https://github.com/gptme/gptme/commit/5f6bff273bfb13c2de45be48b1dd12d449e8bc3c))
+ - fix(convert): pass ImageMagick output without option separator ([#4403](https://github.com/gptme/gptme/issues/4403)) ([`40c4d354c`](https://github.com/gptme/gptme/commit/40c4d354c6ebf667a0c51f64e1139da8b1d4bd0f))
+ - fix(test): reset _kernel_mode_frozen in backend selection test ([#4399](https://github.com/gptme/gptme/issues/4399)) ([`188abc37a`](https://github.com/gptme/gptme/commit/188abc37a6708bf29d80f6a9f81efb4643672734))
+ - fix(webui): guard null tooluse.args to prevent crash on argument-free tool calls ([#4398](https://github.com/gptme/gptme/issues/4398)) ([`3489c218b`](https://github.com/gptme/gptme/commit/3489c218b501514a709452d3e41d0b7c460f1b03))
+ - fix(webui): render consecutive user messages as one message ([#4397](https://github.com/gptme/gptme/issues/4397)) ([`9ef70471e`](https://github.com/gptme/gptme/commit/9ef70471eb69c5ec348e13cf2c99c578c99ba2b4))
+ - fix(tui): show each tool result under the call it came from ([#4396](https://github.com/gptme/gptme/issues/4396)) ([`918af0783`](https://github.com/gptme/gptme/commit/918af0783f8f282592e8ef6c6ec52bbbdb90c8d9))
+ - fix(tools): save/patch report paths with ~; prompt says ~ is fine in paths ([#4395](https://github.com/gptme/gptme/issues/4395)) ([`6c94f47c0`](https://github.com/gptme/gptme/commit/6c94f47c00b9053a8714924afcd2e4fa4a19cca1))
+ - fix(tui): agent text stands out; tool lines muted; /display grouping ([#4394](https://github.com/gptme/gptme/issues/4394)) ([`ee4942510`](https://github.com/gptme/gptme/commit/ee49425101fc513f3068842ff177f4662c57ea28))
+ - fix(cli): honor --max-chars in resume prompt and drop empty section headers ([#4382](https://github.com/gptme/gptme/issues/4382)) ([`4d7dae5f4`](https://github.com/gptme/gptme/commit/4d7dae5f40deffede686dd17384c6042b8e71ecb))
+ - fix(webui): move Sonner toasts to top-right to avoid covering Stop button ([#4392](https://github.com/gptme/gptme/issues/4392)) ([`d9cf7d982`](https://github.com/gptme/gptme/commit/d9cf7d98284138fead2bb8b11ca663dc1da55a26))
+ - fix(cli): reject non-positive --days in 'context journal' ([#4383](https://github.com/gptme/gptme/issues/4383)) ([`2fedba5cb`](https://github.com/gptme/gptme/commit/2fedba5cb40b705b7aa9190e002b61dc64c74a3e))
+ - fix(webui): resume Cloud setup after auth callback reload ([#4387](https://github.com/gptme/gptme/issues/4387)) ([`39b0d3abe`](https://github.com/gptme/gptme/commit/39b0d3abe19480bd39b8ce1ee374c3d257311df9))
+ - fix(review): ingest gptme-contrib's forge-neutral review artifact ([#4385](https://github.com/gptme/gptme/issues/4385)) ([`2da371bf2`](https://github.com/gptme/gptme/commit/2da371bf2e1d8a780940edd0ff3d1a69dbf5bdf4))
+ - fix(python): guard the kernel's memory and report a dead kernel promptly ([#4381](https://github.com/gptme/gptme/issues/4381)) ([`61964fc4c`](https://github.com/gptme/gptme/commit/61964fc4cf7b56b462f1638859203b59bb3b0325))
+ - fix(rag): pass gptme-rag's real search flags for top_k and return_full ([#4384](https://github.com/gptme/gptme/issues/4384)) ([`668b4ea15`](https://github.com/gptme/gptme/commit/668b4ea153e3a9283ca5c832bbec9b7e8e72ae8f))
+ - fix(webui): preserve streamed reply rows and test turn frame stability ([#4377](https://github.com/gptme/gptme/issues/4377)) ([`5c14ea97d`](https://github.com/gptme/gptme/commit/5c14ea97d65e7f883a9fa0bcf0a03033ffd1e2cf))
+
+</p>
+</details>
+
+### 🔨 Misc (12)
+<details><summary>Click to expand</summary>
+<p>
+
+ - chore: bump version to 0.36.0 ([`v0.36.0`](https://github.com/gptme/gptme/tree/v0.36.0))
+ - docs(plugins): add opt-in HOL Guard shell-classification hook example ([#4746](https://github.com/gptme/gptme/issues/4746)) ([`984b0d30c`](https://github.com/gptme/gptme/commit/984b0d30ca4d8740cd292e1b53427e14ed9cae83))
+ - test(webui): retain filtered export acceptance and explain boundaries ([#4672](https://github.com/gptme/gptme/issues/4672)) ([`4eb917b91`](https://github.com/gptme/gptme/commit/4eb917b916cc71c2eada6c8725d8457eaa404769))
+ - test(conversations): prepare cleanup gate before read-only snapshot ([#4745](https://github.com/gptme/gptme/issues/4745)) ([`9311d6c7e`](https://github.com/gptme/gptme/commit/9311d6c7e058e95fa55bf01121310e0242146603))
+ - docs(output): define file-backed capture contract and offline evidence ([#4665](https://github.com/gptme/gptme/issues/4665)) ([`10cd4cd62`](https://github.com/gptme/gptme/commit/10cd4cd62054fc23a7085dd6d71693649aa2dd71))
+ - test(packaging): validate release assets across build paths ([#4600](https://github.com/gptme/gptme/issues/4600)) ([`444194367`](https://github.com/gptme/gptme/commit/44419436733c347801e5efd6e7ac781708b3d260))
+ - test(dirs): preserve resolver types in locale regressions ([#4643](https://github.com/gptme/gptme/issues/4643)) ([`d56fb48e3`](https://github.com/gptme/gptme/commit/d56fb48e359e778d578c9008a8dcdaf8066778a9))
+ - docs(shell): explain explicit background state isolation ([#4615](https://github.com/gptme/gptme/issues/4615)) ([`68624fa1c`](https://github.com/gptme/gptme/commit/68624fa1c7e277d10bfb26522b438a228cc026ba))
+ - test: isolate mocked GitHub tests from gh installation ([#4521](https://github.com/gptme/gptme/issues/4521)) ([`27bd5337d`](https://github.com/gptme/gptme/commit/27bd5337dba9fccb652a6acc238b78cca7f6c9dd))
+ - chore(mypy): ignore missing torch imports like other optional deps ([#4448](https://github.com/gptme/gptme/issues/4448)) ([`9206e10db`](https://github.com/gptme/gptme/commit/9206e10db796d8d944c9bae7af5e194ce46ac048))
+ - test(perf): add performance benchmarks for core and TUI latency ([#4378](https://github.com/gptme/gptme/issues/4378)) ([`ec99df4f0`](https://github.com/gptme/gptme/commit/ec99df4f0e5d4c8d2762c6ff1d85cdb39958d3df))
+ - test(doctor): isolate --json test from ambient stdout logging ([#4389](https://github.com/gptme/gptme/issues/4389)) ([`ffc676061`](https://github.com/gptme/gptme/commit/ffc676061e2926feb91f28cfa81931147748f6c0))
+
+</p>
+</details>
+
+*(excluded 9 less relevant [commits](https://github.com/gptme/gptme/compare/0c131bb0d642fcdd1edb2c6fec02eccfe7f71a07...v0.36.0))*
+
+**Full Changelog**: https://github.com/gptme/gptme/compare/0c131bb0d642fcdd1edb2c6fec02eccfe7f71a07...v0.36.0
 
 
 # v0.4.0
