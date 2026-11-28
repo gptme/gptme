@@ -11,6 +11,7 @@ from gptme.tools.browser import (
     BROWSER_MAX_OUTPUT_CHARS_ENV,
     _bound_browser_result,
     _browser_max_output_chars,
+    read_logs,
     read_url,
     tool,
 )
@@ -148,3 +149,30 @@ def test_from_function_generic_path_is_unbounded_without_adapter():
     huge = "x" * 5000
     messages = _as_messages(spec.execute(None, None, {"text": huge}))
     assert messages[0].content == huge
+
+
+def test_public_browser_results_drop_terminal_control_sequences(monkeypatch):
+    """Fetched page text must not be able to drive the user's terminal."""
+    page = (
+        "start\x1bc reset \x1b]0;title\x07osc \x1bPdcs\x1b\\ "
+        "\x1b[2Jcsi \x9b31mc1 \x90x\x9c bs\x08\x7f\x00 end"
+    )
+    monkeypatch.setattr("gptme.tools.browser.browser", "playwright")
+    monkeypatch.setattr(
+        "gptme.tools.browser.read_logs_playwright", lambda: page, raising=False
+    )
+
+    result = read_logs()
+
+    assert result == "startc reset ]0;titleosc Pdcs\\ csi c1 x bs end"
+
+
+def test_public_browser_results_keep_text_layout(monkeypatch):
+    monkeypatch.setattr("gptme.tools.browser.browser", "playwright")
+    monkeypatch.setattr(
+        "gptme.tools.browser.read_logs_playwright",
+        lambda: "a\tb\r\nc\n\x0cpage two\rnot overwritten é 漢",
+        raising=False,
+    )
+
+    assert read_logs() == "a\tb\nc\n\x0cpage two\nnot overwritten é 漢"

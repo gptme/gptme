@@ -516,14 +516,35 @@ def _bound_browser_result(result: str, command_info: str) -> str:
     return f"{result[:head]}\n{marker}\n{result[-tail:]}"
 
 
+# CSI sequences are removed whole. For every other escape (ESC c, OSC, DCS, ...)
+# dropping the control bytes leaves the rest as inert, visible text.
+_CSI_SEQUENCE = re.compile(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]")
+# C0, DEL and C1, keeping tab, newline, vertical tab, form feed and carriage return.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]")
+
+
+def _strip_terminal_controls(text: str) -> str:
+    """Remove terminal control sequences from fetched web content.
+
+    A lone carriage return becomes a newline so text cannot overwrite the line
+    it is printed on.
+    """
+    text = _CONTROL_CHARS.sub("", _CSI_SEQUENCE.sub("", text))
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _bound_str_return(fn: _F) -> _F:
-    """Bound string returns so every call path (Python, direct, native) agrees."""
+    """Clean and bound string returns so every call path agrees.
+
+    Applies to Python, direct and native calls alike. Results carry remote page
+    content, so terminal control sequences are removed first.
+    """
 
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         result = fn(*args, **kwargs)
         if isinstance(result, str):
-            return _bound_browser_result(result, fn.__name__)
+            return _bound_browser_result(_strip_terminal_controls(result), fn.__name__)
         return result
 
     return cast(_F, wrapper)
