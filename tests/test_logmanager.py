@@ -1800,7 +1800,6 @@ def test_conversation_dir_rejects_invalid_ids():
     assert _conversation_dir(logs, ".") is None
     assert _conversation_dir(logs, "conv") == logs / "conv"
 
-
     # A name that merely contains '..' is a legal single child: the TUI creates
     # such directories, so a lookup must not hide them.
     assert _conversation_dir(logs, "draft..notes") == logs / "draft..notes"
@@ -1983,6 +1982,10 @@ def test_delete_prefers_the_exact_id_over_its_trimmed_form(
         ("/delete --force old --force", "old"),
         ("/delete old --force\n", "old"),
         ("/delete    --force old", "old"),
+        # Leading whitespace after the command name is never part of the id, so
+        # an explicit trailing --force must still skip the prompt.
+        ("/delete  old --force", "old"),
+        ("/delete   old  --force", "old "),
     ],
 )
 def test_delete_force_removes_exactly_the_typed_id(
@@ -2233,5 +2236,3 @@ def test_unicode_space_after_command_name_still_separates(
 
     out = capsys.readouterr().out
     assert "Unknown command" not in out
-
-

@@ -224,8 +224,12 @@ def cmd_delete(ctx: CommandContext) -> None:
     # flags, one separator character next to the id, and the id. An id reached
     # by trimming whitespace is a guess (``draft\xa0`` -> ``draft``), so ask.
     flag = r"(?:--force|-f)"
+    # Leading whitespace after the command name is never part of the id: the
+    # parser lstrips ``ctx.full_args`` before reading it. The fullmatch has to
+    # ignore it too, or ``/delete  old --force`` (two spaces) silently drops the
+    # explicit flag and prompts.
     typed_exactly = re.fullmatch(
-        rf"(?:\s*(?:{flag}\s+)*{flag}\s)?{re.escape(conv_id)}"
+        rf"[ \t]*(?:(?:{flag}\s+)*{flag}\s)?{re.escape(conv_id)}"
         rf"(?:\s(?:{flag}\s+)*{flag}\s*)?",
         ctx.full_args,
     )
