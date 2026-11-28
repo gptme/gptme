@@ -1,0 +1,11 @@
+{
+  "gptme": "Core",
+  "gptme/llm": "LLM",
+  "gptme/tools": "Tools",
+  "gptme/server": "Server",
+  "gptme/eval": "Eval",
+  "tests": "Tests",
+  "webui": "Web UI",
+  "tauri": "Desktop",
+  "packages/gptme-voice": "Voice"
+}

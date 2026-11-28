@@ -7,10 +7,14 @@
 
 import queue
 import re
+import subprocess
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from docutils import nodes
 from docutils.parsers.rst import Directive
+from sphinx.application import Sphinx
 
 year = datetime.now(tz=timezone.utc).year
 project = "gptme"
@@ -182,8 +186,56 @@ def sitemap_include_unwritten_docs(app, exception):
         links.put(item)
 
 
+# Pin the shared dashboard package so published builds are reproducible.
+_CODESIZE_SOURCE = (
+    "git+https://github.com/gptme/gptme-contrib.git@449afc816aeb3db8ffc04931bbfff35fa1efc6af"
+    "#subdirectory=packages/gptme-dashboard"
+)
+
+
+def generate_arewetiny_report(app: Sphinx) -> None:
+    """Generate the shared report before Sphinx reads the arewetiny page."""
+    docs = Path(app.srcdir)
+    output = docs / "_build" / "arewetiny.inc"
+    result = subprocess.run(
+        [
+            "uvx",
+            "--python",
+            sys.executable,
+            "--from",
+            _CODESIZE_SOURCE,
+            "gptme-dashboard",
+            "codesize",
+            "--repo",
+            str(docs.parent),
+            "--code-only",
+            "--groups",
+            str(docs / "codesize-groups.json"),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+        timeout=180,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # The RST page supplies the top-level heading for the included report.
+    report = result.stdout.partition("\n")[2]
+    report = re.sub(r"^## ", "# ", report, flags=re.MULTILINE)
+    output.write_text(report, encoding="utf-8")
+
+
+def attach_arewetiny_sections(app: Sphinx, doctree: nodes.document) -> None:
+    if app.env.docname == "arewetiny":
+        # The include parser creates nested sections in a temporary document.
+        # Autosectionlabel walks their parents up to the real document.
+        for section in doctree.findall(nodes.section):
+            section.document = doctree
+
+
 def setup(app):
     app.add_directive("chat", ChatDirective)
+    app.connect("builder-inited", generate_arewetiny_report)
+    app.connect("doctree-read", attach_arewetiny_sections, priority=100)
     app.connect("env-check-consistency", check_audience)
     app.connect("sphinx-click-process-description", escape_click_line_blocks)
     app.connect("sphinx-click-process-epilog", escape_click_line_blocks)

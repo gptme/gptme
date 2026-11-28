@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # Arewetiny samples recent Git history.
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -69,7 +71,7 @@ jobs:
           # Fetch eval results from the dedicated eval-results branch
           # so the docs build can generate the model leaderboard table
           git fetch origin eval-results --depth=1 || true
-          git checkout origin/eval-results -- eval_results/ || echo "No eval results available"
+          git restore --source=origin/eval-results --worktree -- eval_results/ || echo "No eval results available"
 
       - name: Build docs
         run: make docs
