@@ -10,7 +10,7 @@ import os
 import sys
 import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -577,7 +577,13 @@ class ChatConfig:
 
         # Load existing config if it exists
         config = cls.from_logdir(logdir)
-        defaults = cls()
+        default_workspace = config.workspace
+        if not is_new_conversation:
+            # A cwd match preserves the saved workspace on resume. If the cwd
+            # is gone, the caller's workspace can override the saved value.
+            with suppress(FileNotFoundError):
+                default_workspace = Path.cwd()
+        defaults = cls(workspace=default_workspace)
 
         # Apply CLI overrides for explicitly provided values
         for field_name in cli_config.__dataclass_fields__:

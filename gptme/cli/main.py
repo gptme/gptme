@@ -1081,6 +1081,15 @@ def main(
 
     _validate_custom_tool_paths(tool_allowlist_str)
 
+    if not show_version:
+        try:
+            Path.cwd()
+        except FileNotFoundError as e:
+            raise click.UsageError(
+                "Current working directory no longer exists. "
+                "Change to an existing directory and retry."
+            ) from e
+
     if profile and not show_version:
         import cProfile
         import pstats
