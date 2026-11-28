@@ -296,16 +296,17 @@ def _shell_words(tokens: list[str]) -> Iterator[tuple[str, bool]]:
     """
     options_ended = redirected = False
     for word in tokens:
+        is_operand = options_ended or redirected
         if word and set(word) <= set(";&|()<>"):
+            # Still yielded below: a quoted file name looks like this too.
             redirected = "<" in word or ">" in word
             options_ended = options_ended and redirected
         else:
-            is_operand = options_ended or redirected
             redirected = False
             options_ended = options_ended or word == "--"
-            for spelling in dict.fromkeys((word, word.strip("`"))):
-                if spelling:
-                    yield spelling, is_operand
+        for spelling in dict.fromkeys((word, word.strip("`"))):
+            if spelling:
+                yield spelling, is_operand
 
 
 def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | None:
@@ -321,9 +322,11 @@ def _find_secret_path_in_cmd(cmd: str, workspace: Path | None = None) -> str | N
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
-        # Unmatched quotes etc. — split on whitespace, keeping operators apart
-        # from the words they are glued to, as the lexer above does.
-        tokens = re.findall(r"[;&|<>()]+|[^\s;&|<>()]+", cmd)
+        # Unmatched quotes etc. — check both readings: whitespace words, which
+        # keep a quoted name like 'a;b' whole, then words with operators split
+        # off, as the lexer above does.
+        split = re.findall(r"[;&|<>()]+|[^\s;&|<>()]+", cmd)
+        tokens = [*cmd.split(), ";", *split]
 
     for operand, is_operand in _shell_words(tokens):
         token = operand.strip("'\"")

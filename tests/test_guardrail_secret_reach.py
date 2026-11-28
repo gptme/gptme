@@ -1244,3 +1244,27 @@ def test_glob_link_defaults_to_session_workspace(linked_workspace: Path) -> None
     assert _find_secret_path_in_cmd("cat note*") is None
     with workspace_scope(linked_workspace):
         assert _find_secret_path_in_cmd("cat note*") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "base64 'note;name' # it's",
+        "base64 'note|name' # it's",
+        'base64 "note(name)" # it\'s',
+    ],
+)
+def test_quoted_operator_names_survive_the_unbalanced_quote_fallback(
+    linked_workspace: Path, command: str
+) -> None:
+    for name in ("note;name", "note|name", "note(name)"):
+        (linked_workspace / name).symlink_to("notes.txt")
+    assert _find_secret_path_in_cmd(command, linked_workspace) is not None
+
+
+@pytest.mark.parametrize("name", ["(", ";", "&&"])
+def test_quoted_operator_only_name_is_still_checked(
+    linked_workspace: Path, name: str
+) -> None:
+    (linked_workspace / name).symlink_to("notes.txt")
+    assert _find_secret_path_in_cmd(f"base64 '{name}'", linked_workspace) is not None
